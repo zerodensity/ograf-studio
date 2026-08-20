@@ -163,3 +163,7 @@ It cannot delete `editor` and does not remove saved `.ogeproj` or `.ograf.zip` f
 - `ograf_export_package`: certified `.ograf.zip` playout package.
 
 Paths must stay under the MCP server's configured workspace root. Both file tools require literal `confirm: true`; existing files also require `overwrite: true`.
+
+The MCP file tools do not import or reverse-engineer an existing `.ograf.zip`. For that request, use
+the visible editor's **Import OGraf** command and preserve its best-effort recovery report. Never
+execute an imported third-party `main.js` merely to make conversion appear more complete.

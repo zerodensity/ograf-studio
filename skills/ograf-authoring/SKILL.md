@@ -7,7 +7,9 @@ description: Create, inspect, animate, validate, certify, save, and export EBU O
 
 Use the OGraf Editor as the source of truth and keep every generated result editable in its canonical project model. Treat final OGraf certification as a hard gate, not a best-effort check.
 
-If the MCP dependency is unavailable, ask the user to start `npm run mcp:start` from the repository root and keep the editor open. Do not replace the tools with raw file editing.
+If the MCP dependency is unavailable, use
+[references/setup.md](./references/setup.md) to start or recover the local editor and server. Do not
+replace the tools with raw file editing.
 
 ## Required workflow
 
@@ -49,6 +51,18 @@ If the MCP dependency is unavailable, ask the user to start `npm run mcp:start` 
 The live browser editor must be open for PNG capture/strips, certification, save, and export.
 Capture and strips are read-only and never substitute for certified save/export. Certification
 tools certify the exact compiled artifacts and fail closed when the editor is unavailable.
+
+## File and import boundaries
+
+- `.ogeproj` is editable source for this editor. It is not an OGraf manifest or a playout package.
+- `.ograf.zip` is certified playout output. Existing packages can be converted through the visible
+  editor's **Import OGraf** workflow, but arbitrary third-party JavaScript is opaque and conversion
+  may be lossy. Preserve and report the editor's recovery/loss summary.
+- The MCP server does not expose a raw package-decompilation tool. When the user asks to open or
+  convert an existing OGraf package, use the visible editor workflow rather than fabricating a
+  project document.
+- Imported SVG images are assets. External companion CSS is not automatically ingested; require
+  embedded styles, path-converted text, or fonts installed on the authoring and playout machines.
 
 ## Authoring rules
 
@@ -93,6 +107,8 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   `fill.stops[N].offset`, using a zero-based stop index and values from 0 to 1. Prefer three-stop
   transparent/bright/transparent tracks for deterministic glint sweeps.
 - Keep frames integral and within the composition duration.
+- Treat a lifecycle Step move as an explicit adjacent-transition retime. It must never silently move
+  property keys; report keys left at the old boundary or outside a shortened End.
 - Treat `set_transition` warnings as actionable: duration changes can strand property keys at a
   moved lifecycle frame or outside the new duration. Retiming is never implicit.
 - Use `linear` when the user requests no easing.
@@ -112,3 +128,5 @@ All reference paths are relative to this skill's own directory.
 - Read [references/tool-workflows.md](./references/tool-workflows.md) for operation shapes and task sequences.
 - Read [references/ograf-invariants.md](./references/ograf-invariants.md) before lifecycle, timing, data-binding, or export work.
 - Read [references/examples.md](./references/examples.md) for a compact lower-third transaction pattern.
+- Read [references/setup.md](./references/setup.md) only for local startup, connection recovery,
+  Claude Desktop configuration, or workspace confinement.
