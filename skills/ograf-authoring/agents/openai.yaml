@@ -7,6 +7,6 @@ dependencies:
   tools:
     - type: mcp
       value: ograf-editor
-      description: 'Revisioned OGraf authoring, PNG inspection, validation, certification, save, and export tools'
+      description: 'Local revisioned OGraf authoring, PNG inspection, validation, certification, save, and export tools; requires the server and a responsive editor for browser-backed operations'
       transport: streamable_http
       url: 'http://127.0.0.1:4318/mcp'

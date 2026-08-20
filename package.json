@@ -11,6 +11,7 @@
     "dev": "npm run build --workspace @ograf-editor/ograf-runtime && npm run dev --workspace apps/editor",
     "build": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build --workspaces --if-present",
     "lint": "oxlint",
+    "pretest": "npm run build --workspace @ograf-editor/ograf-runtime",
     "test": "vitest run",
     "test:watch": "vitest",
     "mcp:start": "npm run build --workspace @ograf-editor/ograf-runtime && npm run start --workspace @ograf-editor/mcp-server",

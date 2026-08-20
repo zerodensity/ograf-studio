@@ -1,32 +1,17 @@
-# React + TypeScript + Vite
+# OGraf Editor application
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+This workspace contains the React/Vite visual editor. Use the repository-root commands so the
+descriptor-driven OGraf runtime is built before the application starts.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```powershell
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The editor is available at `http://localhost:5173/` by default. Run the production build from the
+repository root with `npm run build` and the full quality gate with `npm run verify`.
+
+Do not run this workspace's `dev` script directly in a fresh clone: the editor imports
+`packages/ograf-runtime/dist/graphic-runtime.js`, which is intentionally generated and ignored.
+
+See the [root README](../../README.md) for file formats, import/export behavior, MCP startup, Claude
+Desktop configuration, and backend-free operation.
