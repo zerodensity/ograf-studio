@@ -1,0 +1,21 @@
+{
+  "name": "@ograf-editor/ograf-runtime",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@ograf-editor/ograf-types": "*",
+    "@ograf-editor/scene-model": "*",
+    "gsap": "^3.15.0"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0"
+  }
+}

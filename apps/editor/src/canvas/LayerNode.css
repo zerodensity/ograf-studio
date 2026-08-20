@@ -1,0 +1,60 @@
+.layer-node {
+  box-sizing: border-box;
+  cursor: move;
+}
+
+.layer-node.selected {
+  outline: 1px solid var(--accent);
+}
+
+.layer-node.guide {
+  outline: 1px dashed #ffb020;
+}
+
+.layer-node.locked {
+  cursor: not-allowed;
+}
+
+.layer-node.locked.selected {
+  outline-style: dashed;
+  outline-color: #ffb74d;
+}
+
+.layer-binding-indicator {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4dd0e1;
+  border: 1px solid color-mix(in srgb, #4dd0e1 45%, white);
+  box-shadow: 0 0 4px color-mix(in srgb, #4dd0e1 60%, transparent);
+  cursor: help;
+  pointer-events: auto;
+}
+
+/*
+ * Container the shared runtime renderer (`renderElementContent`) draws into. React deliberately
+ * never renders children here — the runtime owns this subtree — so the two can't fight over it.
+ * Content styling all comes from the runtime as inline styles; this only establishes the box.
+ */
+.layer-content-host {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Editor-only affordance for elements with nothing to draw yet — never part of broadcast output. */
+.layer-content-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: repeating-conic-gradient(#3a3b42 0% 25%, #2c2d33 0% 50%) 50% / 16px 16px;
+  color: var(--text-dim);
+  font-size: 12px;
+  pointer-events: none;
+  user-select: none;
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@ograf-editor/validation",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ograf-editor/ograf-types": "*",
+    "@ograf-editor/scene-model": "*",
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  }
+}

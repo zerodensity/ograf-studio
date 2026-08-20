@@ -1,0 +1,30 @@
+{
+  "name": "@ograf-editor/mcp-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "@ograf-editor/authoring-core": "*",
+    "@ograf-editor/codegen": "*",
+    "@ograf-editor/ograf-runtime": "*",
+    "@ograf-editor/scene-model": "*",
+    "@ograf-editor/validation": "*",
+    "express": "^5.2.1",
+    "jszip": "^3.10.1",
+    "ws": "^8.18.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/express": "^5.0.6",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.2"
+  }
+}
