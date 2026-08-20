@@ -113,6 +113,66 @@ Use `mcp-remote` as a local compatibility bridge.
 configuration for a server exposed on another machine or network. `npx` downloads the compatibility
 bridge on first use, so Node.js and network access are required for that first launch.
 
+## Using the `ograf-authoring` skill
+
+The repository includes a reusable skill at
+[`skills/ograf-authoring`](skills/ograf-authoring). It teaches a skill-aware agent how to operate the
+editor through MCP while preserving OGraf lifecycle, animation, validation, and certification
+rules. The skill does not contain the editor or server; start `npm run dev` and `npm run mcp:start`
+before using it.
+
+For Codex, install the complete `ograf-authoring` folder in one of the standard discovery locations:
+
+- repository scope: `.agents/skills/ograf-authoring`;
+- user scope on Windows: `%USERPROFILE%\.agents\skills\ograf-authoring`.
+
+Copy or link the folder rather than only `SKILL.md`, because its `references` and
+`agents/openai.yaml` files provide the detailed workflows and MCP dependency. The tracked
+[`ograf-authoring.zip`](skills/ograf-authoring/ograf-authoring.zip) contains the portable
+instruction bundle for clients that accept a skill archive. If a newly installed or updated skill
+does not appear, restart the client.
+
+Invoke it explicitly in Codex with a prompt such as:
+
+```text
+$ograf-authoring create an editable 90-frame lower third with name and role fields,
+inspect its entrance and exit animation, certify it, and save the .ogeproj source.
+```
+
+The expected workflow is:
+
+1. Start the editor and MCP server.
+2. Invoke `$ograf-authoring` and describe the visual result, data fields, timing, and requested
+   output.
+3. Let the agent inspect capabilities and the current project before it edits anything.
+4. Review the editor, PNG capture, or animation strip when requested.
+5. Approve save/export only after validation and exact OGraf certification pass.
+
+The skill is intended for authoring graphics through the running editor. To change the editor's
+React/TypeScript source code, work on the repository normally and finish with `npm run verify`.
+
+### Vibe coding with and without the skill
+
+Here, _vibe coding_ means describing the desired graphic in natural language and iterating on the
+result instead of manually constructing every layer, field, and keyframe.
+
+| Area                | Without `ograf-authoring`                                                                                 | With `ograf-authoring`                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Starting point      | The agent must rediscover the editor, MCP tools, and OGraf rules from the repository or prompt.           | The agent begins with the editor-specific workflow, tool boundaries, and OGraf invariants.                 |
+| Project edits       | Ad-hoc tool calls can use stale IDs or overwrite concurrent human edits.                                  | Reads first, preserves stable IDs, supplies `expectedRevision`, and deliberately rebases conflicts.        |
+| Animation           | Natural-language requests may accidentally mix lifecycle Steps with layer/property keys.                  | Keeps Start/Step/End control points separate from each layer's independent property tracks and loops.      |
+| Repeated graphics   | Repeated cells and assets may be recreated manually and inconsistently.                                   | Reuses registered assets, atomic batches, duplication mappings, staggered tracks, and timeline groups.     |
+| Visual checking     | Often stops after code generation, a build, or one subjective browser view.                               | Uses frame capture, animation strips, track sampling, text measurement, and representative data values.    |
+| OGraf compatibility | A valid-looking project or successful build may be mistaken for compliant output.                         | Treats validation and exact manifest/module/lifecycle certification as separate mandatory gates.           |
+| Save and export     | The agent may write raw JSON or assemble a ZIP outside the editor's safety boundary.                      | Uses certified `.ogeproj` save and `.ograf.zip` export tools only when the user requests file output.      |
+| Undo and recovery   | Changes may require manual cleanup when a long prompt partly succeeds.                                    | Coherent atomic batches become meaningful agent undo units, with dry runs for risky changes.               |
+| Speed profile       | Fast for rough experiments, but more prompt detail and rework are usually needed for production graphics. | Adds a short inspect/verify overhead, then reduces rediscovery, inconsistent edits, and compliance rework. |
+| Best fit            | Exploring ideas, changing editor source code, or using an unsupported one-off workflow.                   | Repeatable, editable, data-driven OGraf authoring intended for certification and playout.                  |
+
+The skill improves process reliability, not model creativity. The visual concept still comes from
+the user and agent; the skill makes the route from that concept to an editable, inspected, certified
+OGraf result more deterministic.
+
 ## Can the editor run without a backend?
 
 Yes. The visual editor is a client-side application and can author, preview, import, certify, save
