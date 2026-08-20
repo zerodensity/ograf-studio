@@ -1,0 +1,70 @@
+.app-shell {
+  height: 100vh;
+  display: grid;
+  gap: 0;
+  padding: 8px;
+  background: var(--bg-app);
+}
+
+/* Keep the authoring surface below the surrounding application chrome. Moveable renders
+ * controls with its own stacking levels, so the stage must be an isolated stacking context. */
+.app-shell > .canvas-stage {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+}
+
+.app-shell > .left-sidebar,
+.app-shell > .panel,
+.app-shell > .right-tabs {
+  position: relative;
+  z-index: 2;
+}
+
+.app-shell > .menubar {
+  position: relative;
+  z-index: 3;
+}
+
+.right-tabs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.right-tabs-bar {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.right-tabs-bar button {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 8px 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.right-tabs-bar button:hover {
+  color: var(--text);
+}
+
+.right-tabs-bar button.active {
+  color: var(--text-heading);
+  border-bottom-color: var(--accent);
+}
+
+.right-tabs .panel {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+}

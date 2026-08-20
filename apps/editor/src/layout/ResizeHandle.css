@@ -1,0 +1,27 @@
+.resize-handle {
+  position: relative;
+  z-index: 5;
+  background: transparent;
+  touch-action: none;
+}
+
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.resize-handle:hover::after,
+body.is-resizing .resize-handle::after {
+  background: var(--accent);
+}
+
+.resize-handle-col {
+  cursor: col-resize;
+}
+
+.resize-handle-row {
+  cursor: row-resize;
+}

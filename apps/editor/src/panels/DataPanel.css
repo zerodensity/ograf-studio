@@ -1,0 +1,150 @@
+.data-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.data-panel-section h3 {
+  font-size: 12px;
+  color: var(--text-heading);
+  margin: 0;
+}
+
+.data-panel-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.data-panel-section-header button {
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.data-panel-section-header button:hover {
+  border-color: var(--accent);
+}
+
+.data-panel-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.data-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 400;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table td {
+  padding: 3px 4px;
+  vertical-align: middle;
+}
+
+.data-table-checkbox-cell {
+  text-align: center;
+}
+
+.data-table input[type='text'],
+.data-table input[type='number'],
+.data-table select,
+.data-table textarea {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  padding: 2px 5px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.data-table input[type='color'] {
+  width: 32px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+}
+
+.data-table-delete {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 4px;
+}
+
+.data-table-delete:hover {
+  color: var(--text);
+}
+
+.test-data-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.test-data-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.test-data-row span {
+  flex: none;
+  width: 90px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.test-data-row input,
+.test-data-row textarea {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.data-json-preview {
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow-x: auto;
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0 0 8px;
+}

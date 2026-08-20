@@ -1,0 +1,50 @@
+.resources-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.resources-file-input {
+  display: none;
+}
+
+.resources-asset-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resources-asset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.resources-asset-row:hover {
+  background: var(--bg-panel-raised);
+}
+
+.resources-asset-thumb {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-canvas);
+}
+
+.resources-asset-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,0 +1,44 @@
+.context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 178px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, white);
+  border-radius: 6px;
+  background: var(--bg-panel-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.context-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.context-menu button:hover:not(:disabled),
+.context-menu button:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-panel-raised));
+  color: var(--text-heading);
+}
+
+.context-menu button:disabled {
+  color: var(--text-dim);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.context-menu button.with-separator {
+  margin-top: 5px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 3px 3px;
+}

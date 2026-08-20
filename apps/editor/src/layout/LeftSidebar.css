@@ -1,0 +1,29 @@
+.left-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.left-sidebar-layers {
+  flex: none;
+  min-height: 80px;
+  display: flex;
+}
+
+.left-sidebar-resources {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.left-sidebar-layers > .panel,
+.left-sidebar-resources > .panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.left-sidebar > .resize-handle-row {
+  flex: none;
+  height: 6px;
+  margin: 2px 0;
+}
