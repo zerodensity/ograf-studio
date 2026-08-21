@@ -114,7 +114,7 @@ describe('migrateProject', () => {
     expect(layer.effects).toMatchObject({ blur: 0, dropShadowEnabled: false });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(9);
+    expect(migrated.documentVersion).toBe(10);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,

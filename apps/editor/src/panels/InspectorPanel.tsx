@@ -14,6 +14,7 @@ import {
   getPaintAtFrame,
   getResolvedLayerAnimationTracks,
   isPixelTransformKey,
+  parseLottieJson,
   type EasingPreset,
 } from '@ograf-editor/scene-model';
 import { useTimelineStore } from '../state/timelineStore';
@@ -683,6 +684,54 @@ export function InspectorPanel() {
                 onChange={(e) => setElement({ loop: e.target.checked })}
               />
             </label>
+          </>
+        )}
+
+        {layer.element.type === 'lottie' && (
+          <>
+            <label className="inspector-row inspector-row-stacked">
+              <span>
+                {layer.element.animationData ? 'Replace Lottie JSON' : 'Choose Lottie JSON'}
+              </span>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (!file) return;
+                  void file
+                    .text()
+                    .then((source) => setElement({ animationData: parseLottieJson(source) }))
+                    .catch((error) =>
+                      window.alert(error instanceof Error ? error.message : String(error)),
+                    );
+                }}
+              />
+            </label>
+            {layer.element.animationData ? (
+              <p className="inspector-hint">
+                {layer.element.animationData.w} × {layer.element.animationData.h} ·{' '}
+                {layer.element.animationData.fr} fps ·{' '}
+                {Math.max(0, layer.element.animationData.op - layer.element.animationData.ip)}{' '}
+                frames
+              </p>
+            ) : (
+              <p className="inspector-hint">Import a self-contained Bodymovin/Lottie JSON file.</p>
+            )}
+            <label className="inspector-row">
+              <span>Speed</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={layer.element.speed}
+                onChange={(event) => setElement({ speed: Math.max(0, Number(event.target.value)) })}
+              />
+            </label>
+            <p className="inspector-hint">
+              Playback loops continuously. Expressions and external image/font paths are disabled.
+            </p>
           </>
         )}
 

@@ -8,7 +8,11 @@ import {
   type Layer,
   type LayerTransform,
 } from '@ograf-editor/scene-model';
-import { applyAnimatedPaint, renderElementContent } from '@ograf-editor/ograf-runtime';
+import {
+  applyAnimatedPaint,
+  renderAnimatedElementAtTime,
+  renderElementContent,
+} from '@ograf-editor/ograf-runtime';
 import { resolveEffectiveElement } from '../state/dataBinding';
 import { useTestDataStore } from '../state/testDataStore';
 import { useTimelineStore } from '../state/timelineStore';
@@ -23,6 +27,7 @@ interface LayerNodeProps {
   assets: Asset[];
   dataFields: FieldDefinition[];
   clipPath?: string;
+  compositionFrameRate: number;
 }
 
 /**
@@ -34,6 +39,7 @@ interface LayerNodeProps {
 function emptyContentLabel(element: Element): string | null {
   if (element.type === 'image' && !element.src) return 'Image';
   if (element.type === 'image-sequence' && element.frames.length === 0) return 'Sequence';
+  if (element.type === 'lottie' && !element.animationData) return 'Lottie';
   return null;
 }
 
@@ -46,6 +52,7 @@ export function LayerNode({
   assets,
   dataFields,
   clipPath,
+  compositionFrameRate,
 }: LayerNodeProps) {
   const testValues = useTestDataStore((s) => s.values);
   const isPlaying = useTimelineStore((s) => s.isPlaying);
@@ -69,6 +76,20 @@ export function LayerNode({
       applyAnimatedPaint(host, layer.animationTracks, useTimelineStore.getState().currentFrame);
     }
   }, [element, layer.animationTracks, layer.isVisible]);
+
+  useLayoutEffect(() => {
+    const renderAtFrame = (frame: number) => {
+      const host = contentRef.current;
+      if (host) renderAnimatedElementAtTime(host, element, (frame / compositionFrameRate) * 1000);
+    };
+    renderAtFrame(useTimelineStore.getState().currentFrame);
+    let previousFrame = useTimelineStore.getState().currentFrame;
+    return useTimelineStore.subscribe((state) => {
+      if (state.currentFrame === previousFrame) return;
+      previousFrame = state.currentFrame;
+      renderAtFrame(state.currentFrame);
+    });
+  }, [compositionFrameRate, element, layer.isVisible]);
 
   if (!layer.isVisible) return null;
 

@@ -41,6 +41,7 @@ import {
   type FieldType,
   type ImageElement,
   type ImageSequenceElement,
+  type LottieElement,
   type LayerKeyframe,
   type LayerPropertyKeyframe,
   type LayerLoopActivation,
@@ -73,7 +74,8 @@ export type ElementFields = { fill: Paint } & Omit<RectangleElement, 'type' | 'f
   Omit<TextElement, 'type'> &
   Omit<ImageElement, 'type'> &
   Omit<PathElement, 'type' | 'fill'> &
-  Omit<ImageSequenceElement, 'type'>;
+  Omit<ImageSequenceElement, 'type'> &
+  Omit<LottieElement, 'type'>;
 
 interface ProjectState {
   project: Project;

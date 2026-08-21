@@ -778,6 +778,7 @@ export function Stage({
                       assets={composition.assets}
                       dataFields={composition.dataFields}
                       clipPath={clipPath}
+                      compositionFrameRate={composition.frameRate}
                     />
                   );
                 })}

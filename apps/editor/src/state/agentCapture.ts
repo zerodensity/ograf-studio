@@ -2,6 +2,7 @@ import { toCanvas } from 'html-to-image';
 import {
   applyAnimatedPaint,
   disposeElementContent,
+  renderAnimatedElementAtTime,
   renderElementContent,
 } from '@ograf-editor/ograf-runtime';
 import {
@@ -353,6 +354,7 @@ function buildCompositionDom(
     });
     const element = effectiveElement(layer, composition, data);
     renderElementContent(layerRoot, element, sequenceFrame(element, frame, composition.frameRate));
+    renderAnimatedElementAtTime(layerRoot, element, (frame / composition.frameRate) * 1000);
     applyAnimatedPaint(layerRoot, layer.animationTracks, frame);
     compositionRoot.appendChild(layerRoot);
     rendered.set(layer.id, { root: layerRoot, transform });

@@ -18,6 +18,7 @@ import { resolvePlayTarget } from './lifecycle';
 import {
   applyAnimatedPaint,
   disposeElementContent,
+  renderAnimatedElementAtTime,
   renderElementContent,
   resolveBoundElement,
 } from './renderElement';
@@ -82,9 +83,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
    * replays scheduled `updateAction` entries on top of, so scrubbing backward past a scheduled
    * update correctly reverts keys that update doesn't touch, instead of leaving them stuck. */
   #scheduleBaseData: Record<string, unknown> = {};
-  /** Realtime sequence redraw requests. Frame choice is still derived from absolute elapsed time,
-   * never callback count, so dropped browser frames do not change sequence phase. */
-  #sequenceAnimationFrames = new Map<string, number>();
+  /** Realtime self-animated-content redraw requests. Phase is derived from absolute elapsed time. */
+  #contentAnimationFrames = new Map<string, number>();
   #renderType: LoadParams['renderType'] = 'realtime';
   /** Absolute clock epochs for active layer-local loops. Values use performance.now() in realtime
    * and the scheduled OGraf timestamp in non-realtime; sampling always derives phase absolutely. */
@@ -104,17 +104,17 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   disconnectedCallback(): void {
     this.#activeTween?.kill();
     this.#timeline?.kill();
-    this.#clearSequenceIntervals();
+    this.#clearContentAnimationFrames();
     this.#stopLoopRendering();
     for (const element of this.#layerEls.values()) disposeElementContent(element);
     this.#layerEls.clear();
   }
 
-  #clearSequenceIntervals(): void {
+  #clearContentAnimationFrames(): void {
     if (typeof cancelAnimationFrame !== 'undefined') {
-      for (const id of this.#sequenceAnimationFrames.values()) cancelAnimationFrame(id);
+      for (const id of this.#contentAnimationFrames.values()) cancelAnimationFrame(id);
     }
-    this.#sequenceAnimationFrames.clear();
+    this.#contentAnimationFrames.clear();
   }
 
   #stopLoopRendering(): void {
@@ -260,7 +260,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     const descriptor = this.descriptor;
     for (const element of this.#layerEls.values()) disposeElementContent(element);
     shadow.replaceChildren();
-    this.#clearSequenceIntervals();
+    this.#clearContentAnimationFrames();
 
     const style = document.createElement('style');
     style.textContent = ':host { display: block; position: relative; overflow: hidden; }';
@@ -288,63 +288,55 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       shadow.appendChild(el);
       this.#layerEls.set(layer.id, el);
 
-      this.#startSequencePlayback(layer, el);
+      this.#startContentPlayback(layer, el);
     }
 
     this.#timeline?.kill();
     this.#timeline = buildRuntimeTimeline(descriptor, this.#layerEls);
   }
 
-  #startSequencePlayback(
-    layer: CompiledGraphicDescriptor['layers'][number],
-    el: HTMLElement,
-  ): void {
+  #startContentPlayback(layer: CompiledGraphicDescriptor['layers'][number], el: HTMLElement): void {
     const element = layer.element;
-    if (element.type !== 'image-sequence' || element.frames.length === 0) return;
-    const frames = element.frames;
-    const loop = element.loop;
-    const fps = element.fps > 0 ? element.fps : 1;
+    if (
+      (element.type !== 'image-sequence' && element.type !== 'lottie') ||
+      (element.type === 'image-sequence' && element.frames.length === 0) ||
+      (element.type === 'lottie' && !element.animationData)
+    ) {
+      return;
+    }
     if (typeof requestAnimationFrame === 'undefined') return;
     const epoch = performance.now();
-    let renderedFrame = 0;
     const render = (now: number) => {
-      const rawFrame = Math.max(0, Math.floor(((now - epoch) / 1000) * fps));
-      const frameIndex = loop ? rawFrame % frames.length : Math.min(rawFrame, frames.length - 1);
-      if (frameIndex !== renderedFrame) {
-        renderedFrame = frameIndex;
-        renderElementContent(el, element, frameIndex);
-      }
-      if (!loop && rawFrame >= frames.length - 1) {
-        this.#sequenceAnimationFrames.delete(layer.id);
+      const elapsedMs = Math.max(0, now - epoch);
+      renderAnimatedElementAtTime(el, element, elapsedMs);
+      if (
+        element.type === 'image-sequence' &&
+        !element.loop &&
+        elapsedMs / 1000 >= element.frames.length / Math.max(1, element.fps)
+      ) {
+        this.#contentAnimationFrames.delete(layer.id);
         return;
       }
       const request = requestAnimationFrame(render);
-      this.#sequenceAnimationFrames.set(layer.id, request);
+      this.#contentAnimationFrames.set(layer.id, request);
     };
-    this.#sequenceAnimationFrames.set(layer.id, requestAnimationFrame(render));
+    this.#contentAnimationFrames.set(layer.id, requestAnimationFrame(render));
   }
 
-  #startRealtimeSequences(): void {
-    this.#clearSequenceIntervals();
+  #startRealtimeContentAnimations(): void {
+    this.#clearContentAnimationFrames();
     for (const layer of this.descriptor.layers) {
       const el = this.#layerEls.get(layer.id);
-      if (el) this.#startSequencePlayback(layer, el);
+      if (el) this.#startContentPlayback(layer, el);
     }
   }
 
-  #renderSequencesAt(timestampMs: number): void {
+  #renderAnimatedContentAt(timestampMs: number): void {
     for (const layer of this.descriptor.layers) {
-      if (layer.element.type !== 'image-sequence' || layer.element.frames.length === 0) continue;
+      if (layer.element.type !== 'image-sequence' && layer.element.type !== 'lottie') continue;
       const el = this.#layerEls.get(layer.id);
       if (!el) continue;
-      const rawFrame = Math.max(
-        0,
-        Math.floor((timestampMs / 1000) * Math.max(1, layer.element.fps)),
-      );
-      const frameIndex = layer.element.loop
-        ? rawFrame % layer.element.frames.length
-        : Math.min(rawFrame, layer.element.frames.length - 1);
-      renderElementContent(el, layer.element, frameIndex);
+      renderAnimatedElementAtTime(el, layer.element, timestampMs);
     }
   }
 
@@ -412,10 +404,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#replaceData(params.data);
       this.#stopLoopRendering();
       this.#renderType = params.renderType;
-      if (this.#renderType === 'realtime') this.#startRealtimeSequences();
+      if (this.#renderType === 'realtime') this.#startRealtimeContentAnimations();
       else {
-        this.#clearSequenceIntervals();
-        this.#renderSequencesAt(0);
+        this.#clearContentAnimationFrames();
+        this.#renderAnimatedContentAt(0);
       }
       this.#schedule = [];
       this.#scheduleBaseData = { ...this.#lastData };
@@ -433,7 +425,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#timeline = null;
       this.#activeTween?.kill();
       this.#activeTween = null;
-      this.#clearSequenceIntervals();
+      this.#clearContentAnimationFrames();
       this.#stopLoopRendering();
       this.#schedule = [];
       return { statusCode: 200 };
@@ -656,7 +648,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#timeline?.seek(params.timestamp / 1000, true);
       if (this.#schedule.length > 0) this.#applySchedule(params.timestamp);
       else this.#renderLoopSnapshot(params.timestamp, new Map());
-      this.#renderSequencesAt(params.timestamp);
+      this.#renderAnimatedContentAt(params.timestamp);
       return { statusCode: 200 };
     } catch (err) {
       return errorPayload(err);

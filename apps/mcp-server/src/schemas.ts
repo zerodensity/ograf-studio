@@ -206,7 +206,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('add_layer'),
     compositionId,
-    kind: z.enum(['rectangle', 'ellipse', 'text', 'image', 'path', 'image-sequence']),
+    kind: z.enum(['rectangle', 'ellipse', 'text', 'image', 'path', 'image-sequence', 'lottie']),
     name: z.string().optional(),
     transform: transform.optional(),
     element: z.record(z.string(), z.unknown()).optional(),
