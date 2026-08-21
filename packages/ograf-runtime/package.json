@@ -12,7 +12,8 @@
   "dependencies": {
     "@ograf-editor/ograf-types": "*",
     "@ograf-editor/scene-model": "*",
-    "gsap": "^3.15.0"
+    "gsap": "^3.15.0",
+    "lottie-web": "^5.13.0"
   },
   "devDependencies": {
     "typescript": "~6.0.2",

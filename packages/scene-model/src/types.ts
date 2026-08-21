@@ -87,13 +87,36 @@ export interface ImageSequenceElement {
   loop: boolean;
 }
 
+/** A self-contained Bodymovin/Lottie document rendered from the composition's absolute clock. */
+export interface LottieAnimationData extends Record<string, unknown> {
+  fr: number;
+  ip: number;
+  op: number;
+  w: number;
+  h: number;
+  layers: unknown[];
+  assets?: unknown[];
+}
+
+/**
+ * A deterministic, continuously-looping Lottie animation. The JSON is embedded directly so the
+ * exported OGraf package never depends on a CDN or a sidecar file. The first implementation uses
+ * the canvas renderer and deliberately excludes expressions and external asset/font paths.
+ */
+export interface LottieElement {
+  type: 'lottie';
+  animationData: LottieAnimationData | null;
+  speed: number;
+}
+
 export type Element =
   | RectangleElement
   | EllipseElement
   | TextElement
   | ImageElement
   | PathElement
-  | ImageSequenceElement;
+  | ImageSequenceElement
+  | LottieElement;
 export type ElementType = Element['type'];
 
 /** Which data Field drives a property of this layer, and which property. */

@@ -1,6 +1,6 @@
 # Current Status
 
-Last verified: 2026-08-19
+Last verified: 2026-08-21
 
 ## Current milestone
 
@@ -13,6 +13,13 @@ OGraf compliance and architecture hardening.
 - Correct first-play, boundary-crossing, stop, and zero-step lifecycle resolution.
 - Shared editor/export timeline interpreter, including transform-origin animation.
 - Deterministic non-realtime schedule seeking and timestamp-derived image sequences.
+- Document v10 adds self-contained Lottie JSON layers rendered by a bundled light canvas player.
+  Lottie frame phase is derived from absolute elapsed/composition time, so editor scrubbing,
+  realtime playback, scheduled non-realtime playback, and `goToTime()` use one deterministic loop
+  rule. The canvas toolbar imports compatible JSON, the Inspector replaces it and controls speed,
+  OGraf import reconstructs editor-generated Lottie layers, project/export validation rejects
+  missing documents and external image/font paths, expressions are disabled, and MCP advertises
+  the new element schema.
 - Official EBU schema and semantic project validation; invalid export is blocked.
 - Mandatory pre-save OGraf certification now validates the exact artifact snapshot: official v1
   manifest schema, canonical package paths, browser module import/default export, required Graphic
@@ -255,7 +262,8 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 
 ## Verification baseline
 
-- `npm test`: 186 tests pass after timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- `npm test`: 197 tests pass across 44 files after timeline, transport, scrubbing, canvas zoom,
+  OGraf-step playback, Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,
   typography/effects, per-property animation, retiming, migration, lower-third-demo, and

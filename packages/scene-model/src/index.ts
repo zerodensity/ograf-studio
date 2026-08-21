@@ -5,6 +5,7 @@ export * from './factory';
 export * from './keyframeTiming';
 export * from './layerAnimation';
 export * from './loopAnimation';
+export * from './lottie';
 export * from './layerEffects';
 export * from './layout';
 export * from './paint';

@@ -13,6 +13,8 @@ packages, and an optional local MCP authoring server for AI-assisted workflows.
 - Independent per-property animation tracks, per-key easing and curves, local loops, and freely
   movable OGraf lifecycle Steps.
 - Data fields and bindings for text, images, colors, and structured gradients.
+- Self-contained Lottie JSON layers with deterministic loop playback in editor preview, OGraf
+  realtime playback, and non-realtime `goToTime()` seeking.
 - Start, pausable Step, and End lifecycle preview using the same compiled timeline as export.
 - Exact pre-save and pre-export OGraf certification against the packaged manifest, module, API, and
   realtime/non-realtime lifecycle behavior.
@@ -29,6 +31,7 @@ packages, and an optional local MCP authoring server for AI-assisted workflows.
 | `.ograf.zip`              | Certified playout package          | **Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
 | Loose OGraf package files | Manifest, `main.js`, and resources | Select them together with **Import OGraf**                                                      |
 | SVG and raster images     | Reusable image assets              | **Resources → Import Image**                                                                    |
+| Lottie `.json`            | Looping vector animation layer     | **+ Lottie JSON** above the canvas                                                              |
 
 An `.ogeproj` file is not an OGraf manifest and should not be opened directly in an OGraf playout
 tool. A `.ograf.zip` is the deployable output, but arbitrary third-party JavaScript cannot always be
@@ -40,6 +43,23 @@ SVG files can be imported as image assets. External companion CSS files are not 
 automatically. For portable results, inline the required styles in the SVG, convert critical text to
 paths, or ensure the referenced fonts are installed on every authoring and playout machine. Relative
 font/image URLs and external `@font-face` rules remain a known conversion boundary.
+
+### Lottie animations
+
+Use **+ Lottie JSON** above the canvas, or replace the JSON from a selected Lottie layer's
+Inspector. The first supported profile is intentionally deterministic and portable:
+
+- the Bodymovin/Lottie JSON is embedded in the editable project and exported OGraf module;
+- playback loops continuously, with an editable non-negative speed multiplier;
+- editor scrubbing and non-realtime `goToTime()` derive the exact Lottie frame from composition
+  time; realtime playback uses the same absolute-time frame calculation;
+- the self-hosted light canvas player is bundled into `main.js`, with no CDN dependency;
+- expressions are disabled, and external image/font paths are rejected. Export images inside the
+  JSON as data URIs or convert them to shapes/glyphs.
+
+A small compatible animation is included at `examples/lottie/pulse.json`. Segments, markers,
+one-shot playback, dynamic Lottie text/data binding, separate image folders, and renderer selection
+are deferred until the basic profile has been exercised on target broadcast devices.
 
 ## Requirements
 
@@ -225,5 +245,7 @@ See [docs/STATUS.md](docs/STATUS.md) for the current capability inventory,
   JavaScript.
 - Companion CSS for imported SVG images is not automatically packaged or rewritten.
 - System-font rendering depends on fonts installed on the authoring/playout machine.
+- Lottie v1 is canvas-only, continuously looped, and self-contained; expressions, external assets,
+  segments/markers, one-shot playback, and dynamic Lottie content are not yet authored.
 - The editor production bundle currently triggers Vite's large-chunk advisory; it is a performance
   warning, not a build failure.

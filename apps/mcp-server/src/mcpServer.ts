@@ -814,7 +814,7 @@ export function createOGrafMcpServer(
           'ograf_export_package',
           'ograf_validate_project when browserTextOverflow=true',
         ],
-        elementTypes: ['rectangle', 'ellipse', 'text', 'image', 'path', 'image-sequence'],
+        elementTypes: ['rectangle', 'ellipse', 'text', 'image', 'path', 'image-sequence', 'lottie'],
         elementSchemas: {
           rectangle: {
             fill: {
@@ -897,6 +897,15 @@ export function createOGrafMcpServer(
             fps: { type: 'number', default: 12, exclusiveMinimum: 0 },
             loop: { type: 'boolean', default: true },
           },
+          lottie: {
+            animationData: {
+              type: 'object-or-null',
+              default: null,
+              description:
+                'Self-contained Bodymovin/Lottie JSON. External image/font paths are rejected; expressions are ignored.',
+            },
+            speed: { type: 'number', default: 1, minimum: 0 },
+          },
         },
         animatableProperties: [...ANIMATABLE_LAYER_PROPERTIES],
         animatablePropertyPatterns: {
@@ -940,6 +949,7 @@ export function createOGrafMcpServer(
             image: ['src'],
             path: ['fill'],
             'image-sequence': [],
+            lottie: [],
           },
         },
         canvasLayout: {

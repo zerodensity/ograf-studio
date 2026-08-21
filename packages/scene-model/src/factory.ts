@@ -10,6 +10,7 @@ import type {
   FieldType,
   ImageElement,
   ImageSequenceElement,
+  LottieElement,
   Keyframe,
   KeyframeRole,
   Layer,
@@ -125,6 +126,15 @@ export function createImageSequenceElement(
   };
 }
 
+export function createLottieElement(overrides: Partial<LottieElement> = {}): LottieElement {
+  return {
+    type: 'lottie',
+    animationData: null,
+    speed: 1,
+    ...overrides,
+  };
+}
+
 function createLayer(name: string, element: Element): Layer {
   return {
     id: createId('layer'),
@@ -145,7 +155,8 @@ function createLayer(name: string, element: Element): Layer {
   };
 }
 
-export type NewLayerKind = 'rectangle' | 'ellipse' | 'text' | 'image' | 'path' | 'image-sequence';
+export type NewLayerKind =
+  'rectangle' | 'ellipse' | 'text' | 'image' | 'path' | 'image-sequence' | 'lottie';
 
 /** The starting pose for a freshly created layer of this kind — a fresh object every call. */
 export function defaultTransformFor(kind: NewLayerKind): LayerTransform {
@@ -184,6 +195,10 @@ export function createImageSequenceLayer(): Layer {
   return createLayer('Image Sequence', createImageSequenceElement());
 }
 
+export function createLottieLayer(): Layer {
+  return createLayer('Lottie', createLottieElement());
+}
+
 export function createLayerOfKind(kind: NewLayerKind): Layer {
   switch (kind) {
     case 'rectangle':
@@ -198,6 +213,8 @@ export function createLayerOfKind(kind: NewLayerKind): Layer {
       return createPathLayer();
     case 'image-sequence':
       return createImageSequenceLayer();
+    case 'lottie':
+      return createLottieLayer();
   }
 }
 
@@ -369,7 +386,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 9;
+export const PROJECT_DOCUMENT_VERSION = 10;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

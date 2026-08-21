@@ -1,4 +1,5 @@
 import {
+  inspectLottieAnimationData,
   getLayerAnimatableProperties,
   gradientStopIndexForProperty,
   getResolvedLayerAnimationTracks,
@@ -295,6 +296,23 @@ function validateComposition(composition: Composition, errors: string[], warning
     } else if (layer.element.type === 'image-sequence') {
       for (const frame of layer.element.frames) {
         validateAssetReference(frame, `layer "${layer.name}"`);
+      }
+    } else if (layer.element.type === 'lottie') {
+      if (!layer.element.animationData) {
+        errors.push(`${prefix}: Lottie layer "${layer.name}" has no animation JSON.`);
+      } else {
+        const inspection = inspectLottieAnimationData(layer.element.animationData);
+        errors.push(
+          ...inspection.errors.map((error) => `${prefix}: layer "${layer.name}": ${error}`),
+        );
+        warnings.push(
+          ...inspection.warnings.map((warning) => `${prefix}: layer "${layer.name}": ${warning}`),
+        );
+      }
+      if (!Number.isFinite(layer.element.speed) || layer.element.speed < 0) {
+        errors.push(
+          `${prefix}: Lottie layer "${layer.name}" speed must be finite and non-negative.`,
+        );
       }
     }
   }

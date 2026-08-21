@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { assembleManifest, compileDescriptor } from '@ograf-editor/codegen';
-import { createComposition, createProject, createTransition } from '@ograf-editor/scene-model';
+import {
+  createComposition,
+  computeKeyframeFrames,
+  createLayerKeyframe,
+  createLayerOfKind,
+  createProject,
+  createTransition,
+  defaultTransformForRole,
+} from '@ograf-editor/scene-model';
 import { validateManifest } from './validateManifest';
 import { validateProject } from './validateProject';
 
@@ -38,5 +46,32 @@ describe('project validation', () => {
     const result = validateProject(project);
     expect(result.valid).toBe(true);
     expect(result.warnings).toHaveLength(1);
+  });
+
+  it('accepts self-contained Lottie JSON and blocks missing or external animation resources', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('lottie');
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(
+        computeKeyframeFrames(composition)[index]!.frame,
+        defaultTransformForRole('lottie', keyframe.role),
+      ),
+    );
+    composition.layers.push(layer);
+    expect(validateProject(project).errors.join(' ')).toMatch(/has no animation JSON/);
+
+    if (layer.element.type !== 'lottie') throw new Error('Expected a Lottie layer.');
+    layer.element.animationData = {
+      fr: 25,
+      ip: 0,
+      op: 50,
+      w: 200,
+      h: 200,
+      layers: [],
+    };
+    expect(validateProject(project).valid).toBe(true);
+    layer.element.animationData.assets = [{ id: 'logo', p: 'images/logo.png' }];
+    expect(validateProject(project).errors.join(' ')).toMatch(/embed images in the JSON/);
   });
 });

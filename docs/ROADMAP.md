@@ -63,8 +63,13 @@
   clips per layer, dedicated ticker content flow, and cycle-synchronized exits remain queued.
 
 - Deterministic clip-to-parent masking is implemented for animated rotation-aware parent bounds and
-  rounded rectangle corners, including diagonal wipes. Arbitrary alpha/luma/path masks remain queued alongside blend modes,
-  video, Lottie, nested compositions, and reusable components.
+  rounded rectangle corners, including diagonal wipes. Arbitrary alpha/luma/path masks remain
+  queued alongside blend modes, video, nested compositions, and reusable components.
+- Basic Lottie support is implemented as a first-class self-contained layer: JSON import/re-import,
+  bundled light canvas player, absolute-time loop sampling, editor scrubbing, realtime playback,
+  deterministic non-realtime seeking, validation, export, and MCP schema support. Segments,
+  markers, one-shot playback, dynamic text/data overrides, external asset-folder packaging,
+  renderer choice, and target-device compatibility certification remain queued.
 - Rectangle and ellipse solid/linear/radial/conic paints are implemented, including whole-gradient
   data binding and independent animatable stop offsets. Per-stop data binding remains queued.
 - CSS blur and configurable drop shadow, including per-property animation of numeric effect values,

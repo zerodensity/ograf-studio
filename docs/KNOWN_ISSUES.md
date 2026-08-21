@@ -17,6 +17,11 @@
   large aggregate registries can still exhaust browser storage because `.ogeproj` remains a
   self-contained JSON document.
 - The editor production bundle is large and needs route/panel code splitting.
+- Every package containing a Lottie layer currently embeds the light canvas player (roughly 450 KB
+  before ZIP compression). The supported profile is canvas-only and continuously looped; external
+  images/fonts, expressions, markers/segments, one-shot playback, and dynamic Lottie text are not
+  yet supported. Browser tests cover the deterministic model and bundle, but target HbbTV/OGraf
+  renderer certification is still required.
 - Font choices currently reference local system stacks rather than embedding font files. OGraf
   packages remain valid, but typography can fall back differently on a renderer without that face;
   portable font-resource packaging is still required for pixel-identical playout.

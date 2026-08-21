@@ -25,6 +25,7 @@ export const BINDABLE_PROPERTIES: Record<ElementType, BindableProperty[]> = {
   path: [{ value: 'fill', label: 'Fill Color' }],
   // An image sequence's frame list isn't a sensible single-value data-binding target (v1 scope).
   'image-sequence': [],
+  lottie: [],
 };
 
 /**

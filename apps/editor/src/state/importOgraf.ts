@@ -29,6 +29,7 @@ const SUPPORTED_ELEMENTS = new Set<Element['type']>([
   'image',
   'path',
   'image-sequence',
+  'lottie',
 ]);
 
 type UnknownRecord = Record<string, unknown>;

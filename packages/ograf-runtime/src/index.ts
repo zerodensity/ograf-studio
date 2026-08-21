@@ -7,6 +7,7 @@ export {
   applyAnimatedPaint,
   disposeElementContent,
   renderElementContent,
+  renderAnimatedElementAtTime,
   resolveBoundElement,
 } from './renderElement';
 export { easingForGsap } from './easing';

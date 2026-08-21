@@ -88,6 +88,7 @@ describe('OGraf MCP authoring host', () => {
         image: { src: { default: null } },
         path: { viewBoxWidth: { default: 100 } },
         'image-sequence': { fps: { default: 12 }, loop: { default: true } },
+        lottie: { animationData: { default: null }, speed: { default: 1 } },
       },
       semantics: {
         layerPaintOrder: 'ascending-index-paints-later',
@@ -105,6 +106,7 @@ describe('OGraf MCP authoring host', () => {
           text: ['content', 'color'],
           image: ['src'],
           'image-sequence': [],
+          lottie: [],
         },
       },
       canvasLayout: {

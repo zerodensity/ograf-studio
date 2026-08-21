@@ -62,6 +62,10 @@ function elementSvg(
         ? `<image width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet" href="${escapeXml(src)}"/>`
         : '';
     }
+    case 'lottie':
+      // The authoritative DOM/canvas capture path renders the exact Lottie frame. This lightweight
+      // pure-SVG authoring overview cannot run a Canvas2D player, so retain the layer bounds.
+      return `<rect width="${width}" height="${height}" fill="transparent"/>`;
   }
 }
 

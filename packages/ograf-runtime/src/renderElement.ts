@@ -1,19 +1,31 @@
 import {
   getPaintAtFrame,
+  lottieFrameAtTime,
   paintToCss,
   type Element,
   type LayerAnimationTracks,
   type Paint,
 } from '@ograf-editor/scene-model';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
+import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light_canvas.js';
 
 const textFitObservers = new WeakMap<HTMLElement, ResizeObserver>();
+interface MountedLottie {
+  animation: AnimationItem;
+  width: number;
+  height: number;
+  desiredFrame: number;
+}
+
+const lottieAnimations = new WeakMap<HTMLElement, MountedLottie>();
 
 /** Smallest legible fraction of the authored text size used by shrink-to-fit. */
 export const SHRINK_TO_FIT_MIN_RATIO = 0.5;
 
 /** Disconnects shrink-to-fit observation before a renderer discards a content host. */
 export function disposeElementContent(container: HTMLElement): void {
+  lottieAnimations.get(container)?.animation.destroy();
+  lottieAnimations.delete(container);
   textFitObservers.get(container)?.disconnect();
   textFitObservers.delete(container);
   container.replaceChildren();
@@ -47,8 +59,8 @@ function applyContentBaseStyle(el: HTMLElement | SVGElement): void {
 
 /**
  * Vanilla-DOM equivalent of the editor's LayerNode content rendering — no framework at runtime.
- * `frameIndex` only matters for `image-sequence` (which frame of the flipbook to show); every
- * other element type ignores it.
+ * `frameIndex` only matters for `image-sequence` (which frame of the flipbook to show). Lottie is
+ * mounted paused at its in-point and is subsequently driven by `renderAnimatedElementAtTime`.
  */
 export function renderElementContent(
   container: HTMLElement,
@@ -181,6 +193,75 @@ export function renderElementContent(
       }
       break;
     }
+    case 'lottie': {
+      if (!element.animationData) break;
+      const content = document.createElement('div');
+      applyContentBaseStyle(content);
+      content.style.overflow = 'hidden';
+      container.appendChild(content);
+      // The light canvas build excludes the expression engine. Clone because lottie-web mutates
+      // parts of animationData while preparing a composition, and project state is immutable input.
+      const animation = lottie.loadAnimation({
+        container: content,
+        renderer: 'canvas',
+        loop: false,
+        autoplay: false,
+        animationData: JSON.parse(
+          JSON.stringify(element.animationData),
+        ) as typeof element.animationData,
+        rendererSettings: {
+          clearCanvas: true,
+          preserveAspectRatio: 'xMidYMid meet',
+        },
+      });
+      animation.setSubframe(true);
+      const mounted = {
+        animation,
+        width: -1,
+        height: -1,
+        desiredFrame: element.animationData.ip,
+      };
+      animation.addEventListener('DOMLoaded', () => {
+        animation.resize(container.clientWidth, container.clientHeight);
+        animation.goToAndStop(mounted.desiredFrame, true);
+      });
+      animation.goToAndStop(mounted.desiredFrame, true);
+      lottieAnimations.set(container, mounted);
+      break;
+    }
+  }
+}
+
+/** Updates self-animated content from an absolute clock without remounting its DOM/player. */
+export function renderAnimatedElementAtTime(
+  container: HTMLElement,
+  element: Element,
+  elapsedMs: number,
+): void {
+  if (element.type === 'image-sequence') {
+    if (element.frames.length === 0) return;
+    const rawFrame = Math.max(0, Math.floor((elapsedMs / 1000) * Math.max(1, element.fps)));
+    const frameIndex = element.loop
+      ? rawFrame % element.frames.length
+      : Math.min(rawFrame, element.frames.length - 1);
+    const image = container.firstElementChild as HTMLImageElement | null;
+    const src = element.frames[frameIndex];
+    if (image?.tagName === 'IMG' && src) image.src = src;
+    else renderElementContent(container, element, frameIndex);
+    return;
+  }
+  if (element.type === 'lottie' && element.animationData) {
+    const mounted = lottieAnimations.get(container);
+    if (!mounted) return;
+    mounted.desiredFrame = lottieFrameAtTime(element, elapsedMs);
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    if (width !== mounted.width || height !== mounted.height) {
+      mounted.width = width;
+      mounted.height = height;
+      if (width > 0 && height > 0) mounted.animation.resize(width, height);
+    }
+    mounted.animation.goToAndStop(mounted.desiredFrame, true);
   }
 }
 
