@@ -3,6 +3,7 @@ import type { Composition, Project } from '@ograf-editor/scene-model';
 import { validateManifest, validateProject } from '@ograf-editor/validation';
 import { assembleManifest } from './assembleManifest';
 import { compileDescriptor } from './compileDescriptor';
+import { projectForExportProfile, type ExportProfile } from './exportProfiles';
 
 export interface ExportArtifacts {
   manifest: OGrafManifest;
@@ -13,6 +14,7 @@ export interface ExportArtifacts {
   manifestErrors: string[];
   valid: boolean;
   errors: string[];
+  profile?: ExportProfile;
 }
 
 const EXTENSION_BY_MIME: Record<string, string> = {
@@ -81,10 +83,22 @@ function packageDescriptorResources(
   for (const asset of composition.assets) {
     const parsed = parseDataUri(asset.dataUri);
     const extension = EXTENSION_BY_MIME[asset.mimeType || parsed.mimeType] ?? 'bin';
-    const path = `assets/${asset.id}.${extension}`;
+    const existingPath = pathByDataUri.get(asset.dataUri);
+    if (existingPath) {
+      pathByAssetId.set(asset.id, existingPath);
+      continue;
+    }
+    const path = asset.packagePath?.trim() || `assets/${asset.id}.${extension}`;
     resources.push({ path, data: parsed.data, base64: parsed.base64 });
     pathByAssetId.set(asset.id, path);
     pathByDataUri.set(asset.dataUri, path);
+    if (asset.licenseText?.trim()) {
+      resources.push({
+        path: `licenses/${asset.id}-LICENSE.txt`,
+        data: asset.licenseText,
+        base64: false,
+      });
+    }
   }
 
   const packageUri = (uri: string): string => {
@@ -129,11 +143,13 @@ export function buildExportArtifactsWithRuntime(
   project: Project,
   composition: Composition,
   graphicRuntimeSource: string,
+  profile?: ExportProfile,
 ): ExportArtifacts {
+  const outputProject = profile ? projectForExportProfile(project, profile) : project;
   const sourceDescriptor = compileDescriptor(composition);
   const packaged = packageDescriptorResources(composition, sourceDescriptor);
-  const manifest = assembleManifest(project, packaged.composition, packaged.descriptor);
-  const projectValidation = validateProject(project);
+  const manifest = assembleManifest(outputProject, packaged.composition, packaged.descriptor);
+  const projectValidation = validateProject(outputProject);
   const manifestValidation = validateManifest(manifest);
   const errors = [...projectValidation.errors, ...manifestValidation.errors];
   return {
@@ -145,6 +161,7 @@ export function buildExportArtifactsWithRuntime(
     manifestErrors: manifestValidation.errors,
     valid: errors.length === 0,
     errors,
+    ...(profile ? { profile } : {}),
   };
 }
 

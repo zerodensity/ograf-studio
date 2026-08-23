@@ -45,8 +45,13 @@ replace the tools with raw file editing.
    distinguish `clippedBy: "own-box"` (a fault) from `clippedBy: "parent"` (intentional masking).
    validate with `browserTextOverflow: true`, `detail: "summary"`, and stress `testValues`. Use
    `broadcastLint: true` for advisory house rules; it never replaces OGraf certification.
-6. Call `ograf_certify_project` before reporting output as compatible.
-7. Use `ograf_save_project` or `ograf_export_package` only when the user requested a file operation. Pass `confirm: true`; leave `overwrite` false unless replacement was explicitly intended.
+6. Call `ograf_certify_project` before reporting output as compatible. Pass `profile` when the
+   result is specifically real-time, non-real-time, or dual-mode; omitting it certifies the project-
+   declared flags.
+7. Use `ograf_save_project` or `ograf_export_package` only when the user requested a file operation.
+   For package export choose the named `realtime`, `non-realtime`, or `dual` profile; it derives
+   output flags and identity without mutating source. Pass `confirm: true`; leave `overwrite` false
+   unless replacement was explicitly intended.
 
 The live browser editor must be open for PNG capture/strips, certification, save, and export.
 Capture and strips are read-only and never substitute for certified save/export. Certification
@@ -61,8 +66,9 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 - The MCP server does not expose a raw package-decompilation tool. When the user asks to open or
   convert an existing OGraf package, use the visible editor workflow rather than fabricating a
   project document.
-- Imported SVG images are assets. External companion CSS is not automatically ingested; require
-  embedded styles, path-converted text, or fonts installed on the authoring and playout machines.
+- The visible Resources workflow can import an SVG together with companion CSS, images, and fonts,
+  embedding relative dependencies into one portable SVG. It remains one image layer; arbitrary
+  Photoshop raster/vector output is not semantically decomposed into editable objects.
 
 ## Authoring rules
 
@@ -81,6 +87,9 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   for long-lived references and surgical key edits.
 - Register reusable image payloads once with `add_asset`, then use `asset:<id>` in image elements,
   image sequences, or image-url defaults. Do not repeat base64 in layer definitions.
+- Use `add_asset`/`update_asset` metadata for packaged fonts and source attachments: family,
+  weight/style, safe relative package path, original name, and license details. Identical payloads
+  are deduplicated. Do not remove a resource until its reported layer/field/font uses are retargeted.
 - Use `set_layer_bindings` when one layer exposes more than one data-driven property. Each binding
   accepts a stable `fieldId` or unique `fieldKey`, and each target property may appear only once.
   `set_layer_binding` remains a legacy single-binding replacement and clears any additional rows.
@@ -109,7 +118,9 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   are not binding targets. Animate a stop position with the numeric property
   `fill.stops[N].offset`, using a zero-based stop index and values from 0 to 1. Prefer three-stop
   transparent/bright/transparent tracks for deterministic glint sweeps.
-- Keep frames integral and within the composition duration.
+- Keep frames integral and within the composition duration. When a millisecond request is not an
+  integer frame at the authored rate, report the exact fractional mapping and choose down, nearest,
+  or up explicitly; do not silently round.
 - Treat a lifecycle Step move as an explicit adjacent-transition retime. It must never silently move
   property keys; report keys left at the old boundary or outside a shortened End.
 - Treat `set_transition` warnings as actionable: duration changes can strand property keys at a

@@ -1,0 +1,40 @@
+.frame-duration-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  gap: 5px 8px;
+}
+
+.frame-duration-control label {
+  display: grid;
+  gap: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.frame-duration-control .frame-duration-milliseconds {
+  opacity: 0.72;
+}
+
+.frame-duration-control .frame-duration-milliseconds:focus-within {
+  opacity: 1;
+}
+
+.frame-duration-exact,
+.frame-duration-warning {
+  grid-column: 1 / -1;
+  font-size: 10px;
+}
+
+.frame-duration-exact {
+  color: var(--text-muted);
+}
+
+.frame-duration-warning {
+  color: #ffb86b;
+}
+
+.frame-duration-rounding {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 5px;
+}

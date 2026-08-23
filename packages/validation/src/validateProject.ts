@@ -323,6 +323,25 @@ function validateComposition(composition: Composition, errors: string[], warning
     if (asset.kind === 'font' && !asset.fontFamily?.trim()) {
       errors.push(`${prefix}: font asset "${asset.name}" requires a font family name.`);
     }
+    if (
+      asset.packagePath &&
+      (asset.packagePath.startsWith('/') ||
+        asset.packagePath.startsWith('\\') ||
+        asset.packagePath.includes('\\') ||
+        asset.packagePath.split('/').includes('..') ||
+        /^[a-z]:/i.test(asset.packagePath))
+    ) {
+      errors.push(`${prefix}: asset "${asset.name}" package path must be a safe relative URL.`);
+    }
+    if (
+      asset.kind === 'font' &&
+      asset.fontWeight &&
+      !/^([1-9]00|[1-9]00 [1-9]00)$/.test(asset.fontWeight)
+    ) {
+      errors.push(
+        `${prefix}: font asset "${asset.name}" weight must be a CSS weight such as 400 or a range such as 100 900.`,
+      );
+    }
   }
   for (const layer of composition.layers) {
     for (const binding of layer.bindings) {
@@ -358,6 +377,25 @@ function validateComposition(composition: Composition, errors: string[], warning
       if (!Number.isFinite(layer.element.speed) || layer.element.speed < 0) {
         errors.push(
           `${prefix}: Lottie layer "${layer.name}" speed must be finite and non-negative.`,
+        );
+      }
+    } else if (layer.element.type === 'text') {
+      if (!Number.isFinite(layer.element.lineHeight) || layer.element.lineHeight < 0.5) {
+        errors.push(`${prefix}: text layer "${layer.name}" line height must be at least 0.5.`);
+      }
+      if (!Number.isFinite(layer.element.letterSpacing)) {
+        errors.push(`${prefix}: text layer "${layer.name}" letter spacing must be finite.`);
+      }
+      if (!Number.isFinite(layer.element.baselineShift)) {
+        errors.push(`${prefix}: text layer "${layer.name}" baseline shift must be finite.`);
+      }
+      if (
+        !Number.isFinite(layer.element.minFontSize) ||
+        layer.element.minFontSize < 1 ||
+        layer.element.minFontSize > layer.element.fontSize
+      ) {
+        errors.push(
+          `${prefix}: text layer "${layer.name}" minimum font size must be between 1 and its authored font size.`,
         );
       }
     }

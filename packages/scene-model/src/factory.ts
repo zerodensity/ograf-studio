@@ -57,16 +57,24 @@ export function createRectangleElement(
 }
 
 export function createTextElement(overrides: Partial<TextElement> = {}): TextElement {
+  const fontSize = Math.max(1, overrides.fontSize ?? 48);
   return {
     type: 'text',
     content: 'Text',
     color: '#ffffff',
     fontFamily: 'system-ui, sans-serif',
-    fontSize: 48,
     fontWeight: 600,
     textAlign: 'left',
+    lineHeight: 1.2,
+    letterSpacing: 0,
+    textTransform: 'none',
+    verticalAlign: 'top',
+    baselineShift: 0,
+    minFontSize: Math.max(1, fontSize * 0.5),
+    overflowPolicy: 'visible',
     autoFit: 'auto-size',
     ...overrides,
+    fontSize,
   };
 }
 
@@ -340,6 +348,8 @@ export function createAsset(overrides: Partial<Asset> = {}): Asset {
     kind: 'image',
     dataUri: '',
     mimeType: 'application/octet-stream',
+    originalFileName: overrides.name ?? 'Asset',
+    byteSize: 0,
     ...overrides,
   };
 }
@@ -388,7 +398,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 12;
+export const PROJECT_DOCUMENT_VERSION = 13;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

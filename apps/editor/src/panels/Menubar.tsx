@@ -3,8 +3,6 @@ import { useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { openProjectFromFile, saveProjectToFile } from '../state/fileIO';
 import { resetHistory } from '../state/historyStore';
-import { useTimelineStore } from '../state/timelineStore';
-import { createLowerThirdExampleProject } from '../examples/lowerThirdExample';
 import { useAgentBridgeStatus } from '../state/agentBridge';
 import { importEditableProjectFromOgraf, type OgrafImportResult } from '../state/importOgraf';
 import './Menubar.css';
@@ -13,7 +11,6 @@ export function Menubar({ style }: { style?: CSSProperties }) {
   const projectName = useProjectStore((s) => s.project.name);
   const newProject = useProjectStore((s) => s.newProject);
   const loadProject = useProjectStore((s) => s.loadProject);
-  const setActiveKeyframe = useProjectStore((s) => s.setActiveKeyframe);
   const project = useProjectStore((s) => s.project);
   const select = useSelectionStore((s) => s.select);
   const [status, setStatus] = useState('');
@@ -74,19 +71,6 @@ export function Menubar({ style }: { style?: CSSProperties }) {
     }
   };
 
-  const handleLoadDemo = () => {
-    if (!confirm('Load the lower-third demo? Unsaved changes in the current project will be lost.'))
-      return;
-    const demo = createLowerThirdExampleProject();
-    useTimelineStore.getState().setCurrentFrame(0);
-    useTimelineStore.getState().setPlaying(false);
-    loadProject(demo);
-    setActiveKeyframe(demo.compositions[0]!.keyframes[0]!.id);
-    resetHistory();
-    select(null);
-    setStatus('Loaded lower-third demo');
-  };
-
   const handleSave = async () => {
     setStatus('Running OGraf compatibility tests…');
     try {
@@ -120,9 +104,6 @@ export function Menubar({ style }: { style?: CSSProperties }) {
           title="Best-effort conversion from an OGraf .zip package or *.ograf.json manifest."
         >
           Import OGraf
-        </button>
-        <button type="button" onClick={handleLoadDemo}>
-          Lower Third Demo
         </button>
         <button
           type="button"

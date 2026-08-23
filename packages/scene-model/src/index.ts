@@ -5,6 +5,7 @@ export * from './factory';
 export * from './keyframeTiming';
 export * from './lifecycleRetime';
 export * from './components';
+export * from './broadcastQa';
 export * from './layerAnimation';
 export * from './loopAnimation';
 export * from './lottie';

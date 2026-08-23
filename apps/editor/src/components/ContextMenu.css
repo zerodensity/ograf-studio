@@ -23,6 +23,27 @@
   cursor: pointer;
 }
 
+.context-menu-color {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 9px;
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.context-menu-color input {
+  width: 28px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+
 .context-menu button:hover:not(:disabled),
 .context-menu button:focus-visible {
   outline: none;
@@ -36,7 +57,8 @@
   cursor: default;
 }
 
-.context-menu button.with-separator {
+.context-menu button.with-separator,
+.context-menu-color.with-separator {
   margin-top: 5px;
   padding-top: 10px;
   border-top: 1px solid var(--border);

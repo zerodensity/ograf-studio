@@ -418,7 +418,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
               : font.mimeType === 'font/otf'
                 ? 'opentype'
                 : 'truetype';
-        return `@font-face { font-family: "${family}"; src: url("${source}") format("${format}"); font-style: normal; font-weight: 100 900; font-display: block; }`;
+        return `@font-face { font-family: "${family}"; src: url("${source}") format("${format}"); font-style: ${font.style || 'normal'}; font-weight: ${font.weight || '100 900'}; font-display: block; }`;
       })
       .join('\n');
     style.textContent = `${fontFaces}\n:host { display: block; position: relative; overflow: hidden; }`;

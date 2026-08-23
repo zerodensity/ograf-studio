@@ -50,7 +50,7 @@ Supported operation discriminators:
   `remove_lifecycle_step`, `add_canvas_guide`, `update_canvas_guide`, `remove_canvas_guide`,
   `create_timeline_group`, `rename_timeline_group`, `set_timeline_group_color`,
   `ungroup_timeline_group`
-- Assets: `add_asset`, `remove_asset`
+- Assets: `add_asset`, `update_asset`, `remove_asset`
 - Layers: `add_layer`, `duplicate_group`, `remove_layer`, `rename_layer`, `set_layer_flags`,
   `set_layer_layout`, `group_layers`, `ungroup_layers`, `reorder_layers`
 - Components: `save_component`, `instantiate_component`, `rename_component`, `remove_component`
@@ -87,10 +87,12 @@ shape as `set_property_track`, but frames must remain inside the loop's local ra
 properties may use different incoming easing while sharing the clip duration. Use
 `remove_layer_loop` to remove the complete clip.
 
-`add_asset` accepts an image MIME type and base64 payload without a data-URI prefix. Use its returned
-ID as `asset:<id>` in image `src`, sequence frames, and image-url defaults. Export writes each
-registered asset once. `remove_asset` refuses referenced image/sequence/default-value assets unless
-`force: true` clears those references atomically; removing an in-use font reports fallback risk.
+`add_asset` accepts a supported image/font/source MIME type and base64 payload without a data-URI
+prefix. Use its returned ID as `asset:<id>` in image `src`, sequence frames, and image-url defaults.
+Optional font family/weight/style, safe package path, and license metadata remain editable with
+`update_asset`; identical payloads reuse one registry entry. `remove_asset` refuses referenced
+image/sequence/default-value assets unless `force: true` clears those references atomically;
+removing an in-use font reports fallback risk.
 
 Lifecycle mutation is explicit: use `rename_lifecycle_keyframe` for labels,
 `move_lifecycle_keyframe` for bounded adjacent-transition retiming, and `remove_lifecycle_step` only
@@ -184,9 +186,11 @@ It cannot delete `editor` and does not remove saved `.ogeproj` or `.ograf.zip` f
 
 ## Certification and files
 
-- `ograf_certify_project`: exact manifest, package, module, realtime, and non-realtime lifecycle certification in the browser.
+- `ograf_certify_project`: exact manifest, package, module, and declared lifecycle certification in
+  the browser; optionally choose `realtime`, `non-realtime`, or `dual` output profile.
 - `ograf_save_project`: certified editable `.ogeproj` source.
-- `ograf_export_package`: certified `.ograf.zip` playout package.
+- `ograf_export_package`: certified `.ograf.zip` with a named real-time, non-real-time, or dual
+  export profile; the editable project is not mutated.
 
 Paths must stay under the MCP server's configured workspace root. Both file tools require literal `confirm: true`; existing files also require `overwrite: true`.
 

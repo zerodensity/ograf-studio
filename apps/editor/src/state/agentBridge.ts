@@ -55,7 +55,10 @@ export function useAgentBridge(): void {
     let syncTimer: number | undefined;
     let stopped = false;
     let applyingRemote = false;
-    let captureQueue: Promise<void> = Promise.resolve();
+    // Certification, raster capture, frame strips, and text measurement all exercise the same
+    // browser renderer/font resources. Serialize them so a heavy strip cannot overlap a save gate
+    // or leave shared renderer state half-disposed for the next request.
+    let browserWorkQueue: Promise<void> = Promise.resolve();
     const status = useAgentBridgeStatus.getState().setStatus;
 
     const send = (payload: unknown) => {
@@ -126,28 +129,32 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'certification.request') {
-          status({ activity: 'Agent requested OGraf certification…' });
-          try {
-            const result = await certifyExportArtifacts(message.artifacts);
-            send({ type: 'certification.result', requestId: message.requestId, result });
-            status({
-              activity: result.valid
-                ? 'Agent output OGraf certified'
-                : 'Agent output certification failed',
+          browserWorkQueue = browserWorkQueue
+            .catch(() => undefined)
+            .then(async () => {
+              status({ activity: 'Agent requested OGraf certification…' });
+              try {
+                const result = await certifyExportArtifacts(message.artifacts);
+                send({ type: 'certification.result', requestId: message.requestId, result });
+                status({
+                  activity: result.valid
+                    ? 'Agent output OGraf certified'
+                    : 'Agent output certification failed',
+                });
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                send({
+                  type: 'certification.result',
+                  requestId: message.requestId,
+                  result: { valid: false, checks: [], errors: [detail] },
+                });
+                status({ activity: 'Agent output certification failed' });
+              }
             });
-          } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
-            send({
-              type: 'certification.result',
-              requestId: message.requestId,
-              result: { valid: false, checks: [], errors: [detail] },
-            });
-            status({ activity: 'Agent output certification failed' });
-          }
           return;
         }
         if (message.type === 'capture.request') {
-          captureQueue = captureQueue
+          browserWorkQueue = browserWorkQueue
             .catch(() => undefined)
             .then(async () => {
               status({ activity: 'Agent requested PNG capture…' });
@@ -164,7 +171,7 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'strip.request') {
-          captureQueue = captureQueue
+          browserWorkQueue = browserWorkQueue
             .catch(() => undefined)
             .then(async () => {
               status({ activity: 'Agent requested PNG frame strip…' });
@@ -181,7 +188,7 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'measure-text.request') {
-          captureQueue = captureQueue
+          browserWorkQueue = browserWorkQueue
             .catch(() => undefined)
             .then(async () => {
               status({ activity: 'Agent requested text measurement…' });

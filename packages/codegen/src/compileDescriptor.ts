@@ -113,6 +113,8 @@ export function compileDescriptor(
         family: asset.fontFamily || asset.name.replace(/\.[^.]+$/, ''),
         source: `asset:${asset.id}`,
         mimeType: asset.mimeType,
+        weight: asset.fontWeight || '100 900',
+        style: asset.fontStyle || 'normal',
       })),
     layers,
     keyframes,

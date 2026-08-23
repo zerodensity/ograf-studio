@@ -29,6 +29,8 @@ export interface CompiledFontResource {
   family: string;
   source: string;
   mimeType: string;
+  weight?: string;
+  style?: 'normal' | 'italic' | 'oblique';
 }
 
 export interface CompiledLayer {

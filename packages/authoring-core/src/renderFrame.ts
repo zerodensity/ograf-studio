@@ -38,12 +38,27 @@ function elementSvg(
         ? `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${escapeXml(element.fill)}" stroke="${escapeXml(element.strokeColor)}" stroke-width="${element.strokeWidth}"/>`
         : `<foreignObject width="${width}" height="${height}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:100%;height:100%;box-sizing:border-box;background:${escapeXml(paintToCss(element.fill))};border:${element.strokeWidth}px solid ${escapeXml(element.strokeColor)};border-radius:50%"></div></foreignObject>`;
     case 'text': {
-      const lines = element.content.split(/\r?\n/);
+      const transformed =
+        element.textTransform === 'uppercase'
+          ? element.content.toUpperCase()
+          : element.textTransform === 'lowercase'
+            ? element.content.toLowerCase()
+            : element.textTransform === 'capitalize'
+              ? element.content.replace(/\b\p{L}/gu, (character) => character.toUpperCase())
+              : element.content;
+      const lines = transformed.split(/\r?\n/);
       const anchor =
         element.textAlign === 'center' ? 'middle' : element.textAlign === 'right' ? 'end' : 'start';
       const x =
         element.textAlign === 'center' ? width / 2 : element.textAlign === 'right' ? width : 0;
-      return `<text x="${x}" y="${element.fontSize}" fill="${escapeXml(element.color)}" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" text-anchor="${anchor}">${lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : element.fontSize * 1.2}">${escapeXml(line)}</tspan>`).join('')}</text>`;
+      const blockHeight = Math.max(1, lines.length) * element.fontSize * element.lineHeight;
+      const verticalOffset =
+        element.verticalAlign === 'middle'
+          ? Math.max(0, (height - blockHeight) / 2)
+          : element.verticalAlign === 'bottom'
+            ? Math.max(0, height - blockHeight)
+            : 0;
+      return `<text x="${x}" y="${verticalOffset + element.baselineShift + element.fontSize}" fill="${escapeXml(element.color)}" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="${anchor}">${lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>`;
     }
     case 'image':
       return element.src

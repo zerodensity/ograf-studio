@@ -1,6 +1,7 @@
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { colorPickerValue } from '../canvas/compositionBackground';
 import { COMPOSITION_PRESETS, matchesCompositionPreset } from './compositionPresets';
+import { FrameDurationControl } from './FrameDurationControl';
 
 export function CompositionSettings() {
   const composition = useActiveComposition();
@@ -82,15 +83,13 @@ export function CompositionSettings() {
           onChange={(e) => update({ frameRate: Number(e.target.value) })}
         />
       </label>
-      <label className="inspector-row">
-        <span>Update crossfade frames</span>
-        <input
-          type="number"
-          min={0}
-          value={composition.updateTransitionFrames}
-          onChange={(e) => update({ updateTransitionFrames: Number(e.target.value) })}
-        />
-      </label>
+      <FrameDurationControl
+        label="Update crossfade"
+        frames={composition.updateTransitionFrames}
+        frameRate={composition.frameRate}
+        minFrames={0}
+        onChange={(updateTransitionFrames) => update({ updateTransitionFrames })}
+      />
 
       <h3 className="inspector-section">Render modes</h3>
       <label className="inspector-row inspector-checkbox-row">

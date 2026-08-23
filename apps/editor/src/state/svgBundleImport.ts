@@ -9,6 +9,7 @@ export interface SvgBundleImportResult {
 interface ImportFile {
   name: string;
   type: string;
+  size?: number;
   text: () => Promise<string>;
   arrayBuffer: () => Promise<ArrayBuffer>;
 }
@@ -125,7 +126,11 @@ export async function buildSvgBundle(files: ImportFile[]): Promise<SvgBundleImpo
         kind: 'font',
         mimeType: FONT_MIME_BY_EXTENSION[extension(file.name)]!,
         dataUri: await dataUri(file, FONT_MIME_BY_EXTENSION[extension(file.name)]),
+        originalFileName: file.name,
+        byteSize: file.size ?? 0,
         fontFamily: fontFamilyForFile(sourceCss, file.name),
+        fontWeight: '100 900',
+        fontStyle: 'normal',
       }),
     ),
   );
@@ -135,6 +140,8 @@ export async function buildSvgBundle(files: ImportFile[]): Promise<SvgBundleImpo
       kind: 'image',
       mimeType: 'image/svg+xml',
       dataUri: svgDataUri,
+      originalFileName: svgFile.name,
+      byteSize: new TextEncoder().encode(svg).byteLength,
     }),
     fontAssets,
     warnings: [...warnings],

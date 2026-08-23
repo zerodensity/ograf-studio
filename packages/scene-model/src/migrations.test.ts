@@ -114,7 +114,7 @@ describe('migrateProject', () => {
     expect(layer.effects).toMatchObject({ blur: 0, dropShadowEnabled: false });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(12);
+    expect(migrated.documentVersion).toBe(13);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -152,7 +152,44 @@ describe('migrateProject', () => {
     expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
       { fieldId: 'headline-field', targetProperty: 'content' },
     ]);
-    expect(migrated.documentVersion).toBe(12);
+    expect(migrated.documentVersion).toBe(13);
+  });
+
+  it('backfills document-v13 typography without changing the authored font size', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw new Error('Expected a text layer.');
+    layer.element.fontSize = 40;
+    const legacyText = layer.element as unknown as Record<string, unknown>;
+    for (const key of [
+      'lineHeight',
+      'letterSpacing',
+      'textTransform',
+      'verticalAlign',
+      'baselineShift',
+      'minFontSize',
+      'overflowPolicy',
+    ]) {
+      delete legacyText[key];
+    }
+    project.compositions[0]!.layers = [layer];
+    project.documentVersion = 12;
+
+    const migrated = migrateProject(project);
+    const element = migrated.compositions[0]!.layers[0]!.element;
+
+    expect(element).toMatchObject({
+      type: 'text',
+      fontSize: 40,
+      lineHeight: 1.2,
+      letterSpacing: 0,
+      textTransform: 'none',
+      verticalAlign: 'top',
+      baselineShift: 0,
+      minFontSize: 20,
+      overflowPolicy: 'visible',
+    });
+    expect(migrated.documentVersion).toBe(13);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {

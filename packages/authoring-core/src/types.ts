@@ -132,8 +132,27 @@ export type AuthoringOperation =
       name: string;
       mimeType: string;
       fontFamily?: string;
+      fontWeight?: string;
+      fontStyle?: 'normal' | 'italic' | 'oblique';
+      packagePath?: string;
+      licenseName?: string;
+      licenseUrl?: string;
+      licenseText?: string;
       /** Base64 payload without a data-URI prefix. */
       data: string;
+    }
+  | {
+      type: 'update_asset';
+      compositionId?: string;
+      assetId: string;
+      name?: string;
+      fontFamily?: string;
+      fontWeight?: string;
+      fontStyle?: 'normal' | 'italic' | 'oblique';
+      packagePath?: string | null;
+      licenseName?: string;
+      licenseUrl?: string;
+      licenseText?: string;
     }
   | {
       type: 'remove_asset';

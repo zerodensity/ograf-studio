@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
-import { createLayerEffects, createLayerLoopClip } from '@ograf-editor/scene-model';
+import {
+  createLayerEffects,
+  createLayerLoopClip,
+  createTextElement,
+} from '@ograf-editor/scene-model';
 import {
   interpolateCompiledLayerVisualState,
   sampleCompiledLayerVisualState,
@@ -97,8 +101,7 @@ describe('compiled loop sampling', () => {
 
   it('resolves multiple compiled bindings on independent element properties', () => {
     const compiled = layer();
-    compiled.element = {
-      type: 'text',
+    compiled.element = createTextElement({
       content: 'Default',
       color: '#ffffff',
       fontFamily: 'sans-serif',
@@ -106,7 +109,7 @@ describe('compiled loop sampling', () => {
       fontWeight: 600,
       textAlign: 'left',
       autoFit: 'fixed',
-    };
+    });
     compiled.bindings = [
       { dataKey: 'headline', targetProperty: 'content' },
       { dataKey: 'headlineColor', targetProperty: 'color' },

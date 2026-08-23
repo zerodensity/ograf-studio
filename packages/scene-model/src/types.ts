@@ -48,6 +48,17 @@ export interface TextElement {
   fontSize: number;
   fontWeight: number;
   textAlign: 'left' | 'center' | 'right';
+  /** Unitless line-height multiplier retained across font-size changes. */
+  lineHeight: number;
+  /** Additional tracking in authored composition pixels. */
+  letterSpacing: number;
+  textTransform: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  verticalAlign: 'top' | 'middle' | 'bottom';
+  /** Positive values move the first baseline down inside the authored box. */
+  baselineShift: number;
+  /** Absolute legibility floor used by shrink-to-fit. */
+  minFontSize: number;
+  overflowPolicy: 'visible' | 'clip' | 'ellipsis';
   /** Auto size grows the authored box; shrink-to-fit reduces text inside a fixed authored box. */
   autoFit: 'auto-size' | 'shrink-to-fit' | 'fixed';
 }
@@ -328,8 +339,21 @@ export interface Asset {
   kind: 'image' | 'font' | 'source';
   dataUri: string;
   mimeType: string;
+  /** Original local filename retained for traceability after package-path normalization. */
+  originalFileName?: string;
+  /** Imported byte count, used for resource reporting without decoding the data URI. */
+  byteSize?: number;
+  /** Optional validated relative package path. Defaults to assets/<asset-id>.<extension>. */
+  packagePath?: string;
   /** CSS family name registered by the exported runtime when kind is font. */
   fontFamily?: string;
+  /** CSS FontFace descriptors for a packaged font. */
+  fontWeight?: string;
+  fontStyle?: 'normal' | 'italic' | 'oblique';
+  /** Optional licensing metadata distributed with the editable project. */
+  licenseName?: string;
+  licenseUrl?: string;
+  licenseText?: string;
 }
 
 export interface CanvasGuide {
