@@ -77,6 +77,9 @@
   queries select by meaning rather than UUID-heavy project reads, and lower-third/repeater recipes
   materialize ordinary editable layers, fields, groups, and deterministic tracks. More broadcast
   recipe families and learned design suggestions remain queued.
+- The lower-third recipe now uses a shared motion vocabulary: a compiled clip-parent wipe is the
+  default, with explicit stagger-cascade, directional-slide, and no-motion alternatives. Entrances
+  decelerate, exits accelerate, and oversized staggers reject before crossing the first Step.
 - Brand Kits are implemented with typed design tokens and compatible layer-property links. Current
   values are materialized into standard element properties for portable output. Cross-project kit
   libraries, token aliases, and import/export remain queued.

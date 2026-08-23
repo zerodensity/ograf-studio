@@ -452,8 +452,10 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
       .optional(),
     motion: z
       .object({
-        entrance: z.enum(['left', 'none']).optional(),
-        exit: z.enum(['down', 'none']).optional(),
+        style: z.enum(['wipe', 'stagger', 'slide', 'none']).optional(),
+        entrance: z.enum(['left', 'right', 'up', 'down', 'none']).optional(),
+        exit: z.enum(['left', 'right', 'up', 'down', 'none']).optional(),
+        staggerFrames: z.number().int().nonnegative().max(120).optional(),
       })
       .strict()
       .optional(),

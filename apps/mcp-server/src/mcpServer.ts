@@ -29,6 +29,7 @@ import {
   getResolvedLayerAnimationTracks,
   getTotalFrames,
   intersectConvexPolygons,
+  MOTION_PRESET_NAMES,
   polygonBounds,
   reviewCompositionDesign,
   transformBoundsPolygon,
@@ -1141,10 +1142,11 @@ export function createOGrafMcpServer(
           operations: ['set_layer_semantics', 'create_lower_third', 'create_repeater'],
           recipes: {
             lowerThird:
-              'Creates a grouped four-layer/two-field lower third with semantic roles and deterministic left-in/down-out lifecycle tracks. The result remains ordinary editable OGraf layers.',
+              'Creates a grouped four-layer/two-field lower third with semantic roles. The default wipe uses a deterministic clipChildren mask, cubic-out entrance, and cubic-in exit; stagger, slide, and none remain explicit alternatives. The result remains ordinary editable OGraf layers.',
             repeater:
               'Materializes a horizontal or vertical data collection as grouped ordinary layers with independent field mappings and semantic item/index tags.',
           },
+          motionPresets: [...MOTION_PRESET_NAMES],
         },
         designSystem: {
           operations: [

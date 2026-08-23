@@ -1001,8 +1001,16 @@
                     "motion": {
                       "type": "object",
                       "properties": {
-                        "entrance": { "type": "string", "enum": ["left", "none"] },
-                        "exit": { "type": "string", "enum": ["down", "none"] }
+                        "style": { "type": "string", "enum": ["wipe", "stagger", "slide", "none"] },
+                        "entrance": {
+                          "type": "string",
+                          "enum": ["left", "right", "up", "down", "none"]
+                        },
+                        "exit": {
+                          "type": "string",
+                          "enum": ["left", "right", "up", "down", "none"]
+                        },
+                        "staggerFrames": { "type": "integer", "minimum": 0, "maximum": 120 }
                       },
                       "additionalProperties": false
                     }
@@ -3043,8 +3051,16 @@
                     "motion": {
                       "type": "object",
                       "properties": {
-                        "entrance": { "type": "string", "enum": ["left", "none"] },
-                        "exit": { "type": "string", "enum": ["down", "none"] }
+                        "style": { "type": "string", "enum": ["wipe", "stagger", "slide", "none"] },
+                        "entrance": {
+                          "type": "string",
+                          "enum": ["left", "right", "up", "down", "none"]
+                        },
+                        "exit": {
+                          "type": "string",
+                          "enum": ["left", "right", "up", "down", "none"]
+                        },
+                        "staggerFrames": { "type": "integer", "minimum": 0, "maximum": 120 }
                       },
                       "additionalProperties": false
                     }
@@ -5292,8 +5308,16 @@
                     "motion": {
                       "type": "object",
                       "properties": {
-                        "entrance": { "type": "string", "enum": ["left", "none"] },
-                        "exit": { "type": "string", "enum": ["down", "none"] }
+                        "style": { "type": "string", "enum": ["wipe", "stagger", "slide", "none"] },
+                        "entrance": {
+                          "type": "string",
+                          "enum": ["left", "right", "up", "down", "none"]
+                        },
+                        "exit": {
+                          "type": "string",
+                          "enum": ["left", "right", "up", "down", "none"]
+                        },
+                        "staggerFrames": { "type": "integer", "minimum": 0, "maximum": 120 }
                       },
                       "additionalProperties": false
                     }

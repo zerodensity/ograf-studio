@@ -34,6 +34,9 @@ Save/export must certify the same artifact bytes that are written. If certificat
 - A clipping parent masks only direct children whose `parentId` points to it. The mask follows the
   parent's animated transformed bounds, rotation/origin, and rectangle radius; duplicated groups
   must remap both ids. Child rotation remains independent rather than inheriting the parent angle.
+- Authored dimensions remain positive, so a collapsed wipe mask uses the normalized one-pixel
+  minimum rather than an invalid zero-sized layer. Stagger recipe keys must fit entirely before the
+  first pausable Step and reject instead of clamping or crossing lifecycle bounds.
 - Intentional ancestor clipping is not text-box overflow and must not become a validation fault.
 - Gradient paints require at least two normalized stops with finite angle, offsets, and opacities.
 - Gradient stop-offset tracks use `fill.stops[N].offset`, reference an existing zero-based stop, and

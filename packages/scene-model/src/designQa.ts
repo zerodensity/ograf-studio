@@ -1,5 +1,6 @@
 import { computeKeyframeFrames } from './keyframeTiming';
 import { getLayerTransformAtFrame } from './layerAnimation';
+import { intersectConvexPolygons, polygonBounds, transformBoundsPolygon } from './clipping';
 import type { Composition, Layer, LayerTransform } from './types';
 
 export type DesignQaSeverity = 'error' | 'warning' | 'info';
@@ -35,6 +36,38 @@ function onCanvas(pose: LayerTransform, composition: Composition): boolean {
     pose.y + pose.height > 0 &&
     pose.x < composition.width &&
     pose.y < composition.height
+  );
+}
+
+function visiblyOnCanvas(layer: Layer, frame: number, composition: Composition): boolean {
+  const pose = getLayerTransformAtFrame(layer, frame);
+  if (!onCanvas(pose, composition)) return false;
+  let polygon = transformBoundsPolygon(pose);
+  let clipped = layer.clipChildren;
+  let parentId = layer.parentId;
+  const visited = new Set<string>();
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId);
+    const parent = composition.layers.find((candidate) => candidate.id === parentId);
+    if (!parent) break;
+    if (parent.clipChildren) {
+      clipped = true;
+      polygon = intersectConvexPolygons(
+        polygon,
+        transformBoundsPolygon(getLayerTransformAtFrame(parent, frame)),
+      );
+      if (polygon.length === 0) return false;
+    }
+    parentId = parent.parentId;
+  }
+  const bounds = polygonBounds(polygon, pose);
+  if (!bounds) return false;
+  if (clipped && (bounds.width <= 1.01 || bounds.height <= 1.01)) return false;
+  return (
+    bounds.x + bounds.width > 0 &&
+    bounds.y + bounds.height > 0 &&
+    bounds.x < composition.width &&
+    bounds.y < composition.height
   );
 }
 
@@ -132,9 +165,7 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
     }
 
     if (!['background', 'decorative', 'mask'].includes(layer.semantics.role)) {
-      const startPose = getLayerTransformAtFrame(layer, startFrame);
-      const endPose = getLayerTransformAtFrame(layer, endFrame);
-      if (onCanvas(startPose, composition)) {
+      if (visiblyOnCanvas(layer, startFrame, composition)) {
         add(
           `motion.no-entrance.${layer.id}`,
           'info',
@@ -144,7 +175,7 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
           [startFrame, onAirFrame],
         );
       }
-      if (onCanvas(endPose, composition)) {
+      if (visiblyOnCanvas(layer, endFrame, composition)) {
         add(
           `motion.no-exit.${layer.id}`,
           'warning',

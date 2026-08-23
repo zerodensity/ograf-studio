@@ -107,6 +107,7 @@ describe('OGraf MCP authoring host', () => {
       semanticAuthoring: {
         operations: ['set_layer_semantics', 'create_lower_third', 'create_repeater'],
         roles: expect.arrayContaining(['headline', 'container', 'logo']),
+        motionPresets: ['wipe-reveal', 'stagger-cascade', 'directional-slide'],
       },
       designSystem: {
         operations: expect.arrayContaining(['upsert_design_token', 'bind_design_token']),
@@ -151,6 +152,7 @@ describe('OGraf MCP authoring host', () => {
             type: 'create_lower_third',
             name: 'Breaking News',
             content: { headline: 'Major update', subheadline: 'Developing story' },
+            motion: { style: 'wipe', entrance: 'left', exit: 'down' },
           },
         ],
       },
@@ -167,7 +169,14 @@ describe('OGraf MCP authoring host', () => {
     });
     const layers = (
       inspected.structuredContent as {
-        compositions: Array<{ layers: Array<{ semantics: { role: string } }> }>;
+        compositions: Array<{
+          layers: Array<{
+            id: string;
+            parentId: string | null;
+            clipChildren: boolean;
+            semantics: { role: string };
+          }>;
+        }>;
       }
     ).compositions[0]!.layers;
     expect(layers.map((layer) => layer.semantics.role)).toEqual([
@@ -176,6 +185,8 @@ describe('OGraf MCP authoring host', () => {
       'headline',
       'subheadline',
     ]);
+    expect(layers[0]).toMatchObject({ clipChildren: true, parentId: null });
+    expect(layers.slice(1).every((layer) => layer.parentId === layers[0]!.id)).toBe(true);
 
     const queried = await client.callTool({
       name: 'ograf_query_scene',

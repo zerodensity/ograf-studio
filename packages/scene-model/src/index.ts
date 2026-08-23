@@ -19,4 +19,5 @@ export * from './svgBundleImport';
 export * from './designSystem';
 export * from './repeaterRecipes';
 export * from './designQa';
+export * from './motionPresets';
 export { createId } from './id';

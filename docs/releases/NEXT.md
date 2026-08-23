@@ -10,6 +10,16 @@
   Overlay images now retain authored layer bounds, infer portable Photoshop SVG-composite placement
   from their embedded plate assets, or fall back to intrinsic dimensions when no placement exists.
 
+## Motion quality
+
+- Replaced the flagship lower-third recipe's lockstep default with a deterministic compiled mask
+  wipe using cubic-out entrance and cubic-in exit motion. Added explicit stagger-cascade,
+  directional-slide, and no-motion styles with left/right/up/down direction choices.
+- Added a shared scene-model motion vocabulary and atomic validation that rejects stagger spacing
+  which cannot fit before the first pausable Step.
+- Verified the default wipe through a five-frame browser strip, zero-finding deterministic design
+  review, and all five exact real-time/non-real-time certification gates.
+
 ## Documentation
 
 - Replaced the stale auto-loaded `CLAUDE.md` phase narrative with a concise current pointer to the

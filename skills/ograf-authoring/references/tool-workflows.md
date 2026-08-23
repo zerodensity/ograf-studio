@@ -85,8 +85,11 @@ Supported operation discriminators:
 
 `set_layer_semantics` assigns an authoring role, normalized tags, and an intent description without
 changing output pixels. `create_lower_third` materializes a four-layer/two-field grouped lower third
-with semantic roles and deterministic left entrance/down exit by default. It returns all generated
-layer/field/group mappings; customize the ordinary layers and tracks afterward.
+with semantic roles. `motion.style` is `wipe` (default), `stagger`, `slide`, or `none`; entrance and
+exit directions accept left/right/up/down/none. The default wipe makes the panel a `clipChildren`
+parent and reveals its three children with a cubic-out entrance, then uses a cubic-in directional
+exit. `staggerFrames` controls the four-layer cascade and rejects atomically when the entrance
+transition is too short. Every style returns ordinary layer/field/group mappings for later edits.
 
 `create_repeater` takes one or more source `layerIds`, at least two item records, direction, and gap.
 It materializes finite grouped copies and independently cloned fields, adds semantic item/index tags,

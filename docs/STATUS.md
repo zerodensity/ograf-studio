@@ -63,8 +63,10 @@ AI-first broadcast authoring and OGraf compliance hardening.
 - Semantic layer metadata supports meaningful roles, normalized tags, and intent descriptions. It
   drives compact MCP queries, deterministic QA, and authoring recipes while remaining excluded from
   compiled output. The lower-third recipe creates four grouped layers/two editable fields with a
-  deterministic left entrance/down exit; finite repeaters clone selected source layers and fields
-  into horizontal or vertical materialized collections.
+  deterministic compiled mask wipe by default, cubic-out entrance, and cubic-in directional exit.
+  Explicit stagger, slide, and no-motion styles share the same portable ordinary-layer model;
+  finite repeaters clone selected source layers and fields into horizontal or vertical materialized
+  collections.
 - Explicit Start → Step(s) → End authoring model with legacy project migration.
 - Correct first-play, boundary-crossing, stop, and zero-step lifecycle resolution.
 - State-aware exits now interpolate directly from the active rendered Step to End using the
@@ -336,9 +338,9 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-08-24, including generated MCP contract drift, format, lint, all
-  workspace typechecks, 228 tests across 51 files, the runtime bundle, and the editor production
+  workspace typechecks, 240 tests across 53 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 228-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- The 240-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,
@@ -348,7 +350,10 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
   component snapshots/instantiation/linked refresh, portable SVG/CSS bundle import, semantic
   recipes/query, Brand Kits/design tokens, repeaters, deterministic design QA, visual operation
   previews, human proposal acceptance, generated contracts, plus authoring-core and MCP
-  concurrency/structural-parity integration.
+  concurrency/structural-parity integration. W3 additionally covers wipe/stagger/slide/none motion
+  presets, clipping-aware design visibility, schema discovery, and compiled lower-third clip
+  relations. A generated default wipe scored 100 with zero design findings and passed all five
+  exact dual-mode certification gates.
 - Agent-first live verification: labelled strip exposed an intentionally missing hold; later-index
   paint order and incoming quadratic easing were confirmed from browser PNGs; fallback-font text
   measurement and Turkish overflow stress passed; whole-track/stagger dry runs remained atomic;
