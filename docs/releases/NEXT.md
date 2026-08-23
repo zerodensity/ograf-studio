@@ -10,5 +10,11 @@
   Overlay images now retain authored layer bounds, infer portable Photoshop SVG-composite placement
   from their embedded plate assets, or fall back to intrinsic dimensions when no placement exists.
 
+## Documentation
+
+- Replaced the stale auto-loaded `CLAUDE.md` phase narrative with a concise current pointer to the
+  working agreement, status, architecture, newest handover, and MCP authoring Skill, while retaining
+  the durable npm-workspace and runtime-rebuild requirements.
+
 This file is the unreleased changelog. Add completed, verified changes here before assigning the
 next version and tag.

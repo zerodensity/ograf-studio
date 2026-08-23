@@ -1,14 +1,38 @@
 # OGraf Studio
 
-A browser-based visual editor for authoring OGraf-compliant HTML5 broadcast graphics templates (lower thirds, scoreboards, tickers), inspired by Loopic (https://app.loopic.io). OGraf spec: https://ograf.ebu.io/v1/specification/docs/Specification.html
+OGraf Studio is a browser-based visual editor and deterministic runtime for authoring portable EBU
+OGraf-compatible HTML5 broadcast graphics. The current product release is **0.03**.
 
-**Before doing anything else, read `docs/HANDOVER.md` in full.** It has current build status, the data model, the canvas/timeline architecture (including two subtle race conditions already found and fixed — don't reintroduce them), and a list of environment-specific gotchas that will otherwise cost real time to rediscover. `docs/PLAN.md` is the original architecture plan (still directionally correct, but HANDOVER.md documents where reality diverged and is the source of truth for current state).
+## Read first
 
-Quick facts:
+1. `AGENTS.md` — repository working agreement, architectural invariants, verification, and handover
+   requirements.
+2. `docs/STATUS.md` — current implemented capability and verification truth.
+3. `docs/ARCHITECTURE.md` — runtime, editor, persistence, compilation, and certification boundaries.
+4. The newest dated file in `docs/handovers/` — current work, decisions, risks, and next actions.
+5. `skills/ograf-authoring/SKILL.md` — required contract when an AI agent authors graphics through
+   the running OGraf Studio MCP server. It is not the source-development workflow.
 
-- npm workspaces monorepo (not pnpm — pnpm doesn't work in this environment, see HANDOVER.md).
-- Phases 0–4 are done (static builder, NLE-style keyframe timeline, undo/redo, data binding, real preview harness + export). Phase 5 sub-phases 5a–5d are also done (real `ograf-devtool` cross-check, non-realtime scheduling, real asset import, three new element types — Ellipse/Path/Image-Sequence). See docs/HANDOVER.md's "Phase 5 progress" for details and remaining Phase 5 items (nested Compositions, Lottie, masks, sandboxed custom-script escape hatch, visual path editor).
-- `apps/editor` is the app; `packages/scene-model` is the real data model (now 6 element types: Rectangle/Ellipse/Text/Image/Path/Image-Sequence, plus an `Asset` registry for imported images); `packages/codegen` compiles a Composition into a descriptor + manifest; `packages/ograf-runtime` is the generic descriptor-driven `Graphic` Custom Element, including real `setActionsSchedule`/non-realtime scheduling and an Image-Sequence playback driver (also pre-built to `dist/graphic-runtime.js`, embedded into every exported `main.js`); `packages/validation` wraps ajv against a local OGraf manifest schema; `packages/ograf-types` mirrors the EBU `Graphic` interface + manifest shape. `packages/ui-kit` is still an empty stub.
-- Dev/build scripts prebuild `ograf-runtime`'s dist bundle first (`npm run dev` / `npm run build` at the root) — don't run `apps/editor`'s dev script standalone without that bundle existing at least once. If you edit `packages/ograf-runtime/src` while the dev server is already running, rebuild it manually (`npm run build --workspace @ograf-editor/ograf-runtime`) — it does not auto-rebuild on file change.
-- Dev server: `npm run dev` (root) → http://localhost:5173. Typecheck: `npm run typecheck`. Lint: `npm run lint` (oxlint, silent on success).
-- Nothing is committed to git yet — confirm with the user before the first commit.
+`docs/HANDOVER.md` and `docs/PLAN.md` are historical background. Do not treat their old phase
+status, package inventory, or next-step lists as current truth when they differ from the files above.
+
+## Durable local facts
+
+- The repository uses **npm workspaces**, not pnpm.
+- Run the editor from the repository root with `npm run dev`; the default URL is
+  `http://localhost:5173/`.
+- Run the optional local MCP server with `npm run mcp:start`; its default endpoint is
+  `http://127.0.0.1:4318/mcp`.
+- Root `dev`, `mcp:start`, `test`, `build`, and `verify` prebuild
+  `packages/ograf-runtime/dist/graphic-runtime.js`.
+- If `packages/ograf-runtime/src` changes while the editor dev server is already running, rebuild it
+  manually with `npm run build --workspace @ograf-editor/ograf-runtime`; Vite does not rebuild that
+  workspace bundle automatically.
+- Run `npm run verify` before handoff. MCP schema changes also require
+  `npm run contracts:generate`; generated contracts must never be edited by hand.
+
+## File boundary
+
+- `.ogeproj` is versioned editable source and migrates once before entering application state.
+- `.ograf.zip` is certified playout output.
+- Never bypass the product certification path by manually assembling project JSON or release ZIPs.
