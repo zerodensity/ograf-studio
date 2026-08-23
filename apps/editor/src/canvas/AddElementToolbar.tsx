@@ -16,11 +16,14 @@ const KINDS: { kind: NewLayerKind; label: string }[] = [
 
 export function AddElementToolbar({ onEnterOgrafPreview }: { onEnterOgrafPreview?: () => void }) {
   const addLayer = useProjectStore((s) => s.addLayer);
+  const addLowerThird = useProjectStore((s) => s.addLowerThird);
+  const addRepeater = useProjectStore((s) => s.addRepeater);
   const alignLayers = useProjectStore((s) => s.alignLayers);
   const distributeLayers = useProjectStore((s) => s.distributeLayers);
   const groupLayers = useProjectStore((s) => s.groupLayers);
   const ungroupLayers = useProjectStore((s) => s.ungroupLayers);
   const select = useSelectionStore((s) => s.select);
+  const selectMany = useSelectionStore((s) => s.selectMany);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const currentFrame = useTimelineStore((s) => s.currentFrame);
   const updateLayerElement = useProjectStore((s) => s.updateLayerElement);
@@ -53,6 +56,27 @@ export function AddElementToolbar({ onEnterOgrafPreview }: { onEnterOgrafPreview
         </button>
       </div>
       <span className="toolbar-divider" aria-hidden="true" />
+      <button
+        type="button"
+        title="Create an editable semantic lower third"
+        onClick={() => selectMany(Object.values(addLowerThird().layers))}
+      >
+        + Lower Third
+      </button>
+      {selectedLayerIds.length > 0 && (
+        <button
+          type="button"
+          title="Materialize the selected item as a three-item horizontal data repeater"
+          onClick={() => {
+            const repeater = addRepeater(selectedLayerIds);
+            if (repeater) {
+              selectMany(repeater.items.flatMap((item) => Object.values(item.layers)));
+            }
+          }}
+        >
+          Repeat ×3
+        </button>
+      )}
       {KINDS.map(({ kind, label }) => (
         <button key={kind} type="button" onClick={() => select(addLayer(kind))}>
           {label}

@@ -43,6 +43,12 @@ describe('OGraf MCP authoring host', () => {
         'ograf_render_frame',
         'ograf_capture',
         'ograf_render_strip',
+        'ograf_preview_operations',
+        'ograf_propose_operations',
+        'ograf_query_scene',
+        'ograf_review_design',
+        'ograf_import_asset',
+        'ograf_import_svg_bundle',
         'ograf_measure_text',
         'ograf_sample_tracks',
         'ograf_get_changes',
@@ -96,6 +102,19 @@ describe('OGraf MCP authoring host', () => {
         textOrigin: 'top-left',
         rectOrigin: 'top-left',
         localLoops: expect.any(String),
+        semanticAuthoring: expect.any(String),
+      },
+      semanticAuthoring: {
+        operations: ['set_layer_semantics', 'create_lower_third', 'create_repeater'],
+        roles: expect.arrayContaining(['headline', 'container', 'logo']),
+      },
+      designSystem: {
+        operations: expect.arrayContaining(['upsert_design_token', 'bind_design_token']),
+      },
+      aiReview: {
+        query: 'ograf_query_scene',
+        visualDryRun: 'ograf_preview_operations',
+        humanProposal: 'ograf_propose_operations',
       },
       loopAnimation: {
         operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
@@ -117,6 +136,62 @@ describe('OGraf MCP authoring host', () => {
     expect((result.structuredContent as { easingPresets: string[] }).easingPresets).toContain(
       'elastic-in-out',
     );
+  });
+
+  it('creates a semantic lower third and exposes its intent through inspection', async () => {
+    const sessionId = 'semantic-lower-third-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const applied = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          {
+            type: 'create_lower_third',
+            name: 'Breaking News',
+            content: { headline: 'Major update', subheadline: 'Developing story' },
+          },
+        ],
+      },
+    });
+    expect(applied.isError).not.toBe(true);
+    expect(
+      (applied.structuredContent as { summary: { semanticBlocks: unknown[] } }).summary
+        .semanticBlocks,
+    ).toHaveLength(1);
+
+    const inspected = await client.callTool({
+      name: 'ograf_inspect_scene',
+      arguments: { sessionId },
+    });
+    const layers = (
+      inspected.structuredContent as {
+        compositions: Array<{ layers: Array<{ semantics: { role: string } }> }>;
+      }
+    ).compositions[0]!.layers;
+    expect(layers.map((layer) => layer.semantics.role)).toEqual([
+      'container',
+      'accent',
+      'headline',
+      'subheadline',
+    ]);
+
+    const queried = await client.callTool({
+      name: 'ograf_query_scene',
+      arguments: { sessionId, roles: ['headline'], tagsAll: ['editable'] },
+    });
+    expect(queried.structuredContent).toMatchObject({
+      matched: 1,
+      returned: 1,
+      layers: [
+        {
+          name: 'Breaking News · Headline',
+          semantics: { role: 'headline' },
+          bindings: [{ fieldKey: 'headline', targetProperty: 'content' }],
+        },
+      ],
+    });
   });
 
   it('authors and inspects local multi-property loops through MCP', async () => {
@@ -204,6 +279,44 @@ describe('OGraf MCP authoring host', () => {
     expect(sample.opacity).toBe(1);
     expect(sample.bounds.height).toBe(72);
     expect(sample.properties).toMatchObject({ opacity: 1, height: 72 });
+  });
+
+  it('imports workspace assets and portable SVG companion bundles atomically', async () => {
+    const sessionId = 'workspace-import-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const asset = await client.callTool({
+      name: 'ograf_import_asset',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        path: 'fixtures/mcp-import/note.txt',
+      },
+    });
+    expect(asset.isError).not.toBe(true);
+    expect(asset.structuredContent).toMatchObject({
+      revision: 1,
+      assets: [{ mimeType: 'text/plain' }],
+    });
+
+    const bundle = await client.callTool({
+      name: 'ograf_import_svg_bundle',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        paths: ['fixtures/mcp-import/lower.svg', 'fixtures/mcp-import/lower.css'],
+      },
+    });
+    expect(bundle.isError).not.toBe(true);
+    expect(bundle.structuredContent).toMatchObject({
+      revision: 2,
+      svgAsset: { mimeType: 'image/svg+xml' },
+      warnings: [],
+    });
+    const composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    expect(composition.assets).toHaveLength(2);
+    expect(atob(composition.assets[1]!.dataUri.split(',')[1]!)).toContain(
+      '<style type="text/css">',
+    );
   });
 
   it('preserves full project reads and supports animated-only projections', async () => {
@@ -1497,16 +1610,39 @@ describe('OGraf MCP authoring host', () => {
 
     const transparentPixel =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XcJR8QAAAABJRU5ErkJggg==';
+    const capturedLayerNames: string[][] = [];
+    let presentedProposalId: string | null = null;
+    let resolveProposalDecision: ((result: { status: string; revision?: number }) => void) | null =
+      null;
     socket.on('message', (raw) => {
       const message = JSON.parse(raw.toString()) as {
         type: string;
         requestId?: string;
-        request?: { frame?: number };
+        request?: {
+          frame?: number;
+          project?: { compositions: Array<{ layers: Array<{ name: string }> }> };
+        };
+        proposal?: { id: string };
+        proposalId?: string;
+        result?: { status: string; revision?: number };
       };
+      if (message.type === 'proposal.present' && message.proposal) {
+        presentedProposalId = message.proposal.id;
+        return;
+      }
+      if (message.type === 'proposal.resolved' && message.result) {
+        resolveProposalDecision?.(message.result);
+        return;
+      }
       if (!message.requestId) return;
       if (message.type === 'heartbeat.request') {
         socket.send(JSON.stringify({ type: 'heartbeat.result', requestId: message.requestId }));
       } else if (message.type === 'capture.request') {
+        if (message.request?.project) {
+          capturedLayerNames.push(
+            message.request.project.compositions[0]!.layers.map((layer) => layer.name),
+          );
+        }
         socket.send(
           JSON.stringify({
             type: 'capture.result',
@@ -1598,6 +1734,24 @@ describe('OGraf MCP authoring host', () => {
     );
     expect(host.workspace.get('editor').revision).toBe(before);
 
+    const projected = await client.callTool({
+      name: 'ograf_preview_operations',
+      arguments: {
+        sessionId: 'editor',
+        expectedRevision: before,
+        render: 'frame',
+        operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Dry-run preview panel' }],
+      },
+    });
+    expect(projected.isError).not.toBe(true);
+    expect(projected.structuredContent).toMatchObject({
+      baseRevision: before,
+      revisionUnchanged: true,
+      dryRun: true,
+    });
+    expect(capturedLayerNames.at(-1)).toContain('Dry-run preview panel');
+    expect(host.workspace.get('editor').revision).toBe(before);
+
     const strip = await client.callTool({
       name: 'ograf_render_strip',
       arguments: { sessionId: 'editor', frames: [0], enableBase64Response: true },
@@ -1643,6 +1797,34 @@ describe('OGraf MCP authoring host', () => {
         .overflowSummary.degenerate,
     ).toBeGreaterThan(0);
     expect(host.workspace.get('editor').revision).toBe(before);
+
+    const proposed = await client.callTool({
+      name: 'ograf_propose_operations',
+      arguments: {
+        sessionId: 'editor',
+        expectedRevision: before,
+        title: 'Add reviewed panel',
+        render: 'frame',
+        operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Accepted review panel' }],
+      },
+    });
+    expect(proposed.isError).not.toBe(true);
+    const proposalId = (proposed.structuredContent as { proposalId: string }).proposalId;
+    for (let attempt = 0; attempt < 20 && presentedProposalId !== proposalId; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(presentedProposalId).toBe(proposalId);
+    const decision = new Promise<{ status: string; revision?: number }>((resolve) => {
+      resolveProposalDecision = resolve;
+    });
+    socket.send(JSON.stringify({ type: 'proposal.decision', proposalId, decision: 'accept' }));
+    await expect(decision).resolves.toMatchObject({ status: 'accepted', revision: before + 1 });
+    expect(
+      host.workspace
+        .get('editor')
+        .snapshot()
+        .project.compositions[0]!.layers.some((layer) => layer.name === 'Accepted review panel'),
+    ).toBe(true);
 
     socket.close();
     await new Promise<void>((resolve) => socket.once('close', () => resolve()));

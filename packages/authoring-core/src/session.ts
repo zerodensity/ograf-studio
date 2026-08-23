@@ -139,6 +139,8 @@ export class AuthoringSession {
         warnings: [],
         duplicateGroups: [],
         componentInstances: [],
+        semanticBlocks: [],
+        repeaters: [],
       },
     });
     return this.snapshot();
@@ -170,6 +172,8 @@ export class AuthoringSession {
       warnings: [],
       duplicateGroups: [],
       componentInstances: [],
+      semanticBlocks: [],
+      repeaters: [],
     };
     const undoToken = createId('undo');
     this.#undo.push({ token: undoToken, project: clone(this.#project), summary });

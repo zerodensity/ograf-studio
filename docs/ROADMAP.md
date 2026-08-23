@@ -69,9 +69,17 @@
 - Multiple independent data bindings per layer are implemented across the Inspector, source
   migration, capture, compiler/runtime, OGraf import, validation, duplication, and MCP operations.
 - SVG image import now accepts a Photoshop-style bundle selection and embeds companion CSS, local
-  image URLs, and font URLs into one portable SVG while registering selected fonts. Best-effort
-  semantic decomposition of simple SVG shapes/text into editable layers remains queued; complex or
-  rasterized Photoshop SVGs deliberately remain single image assets.
+  image URLs, and font URLs into one portable SVG while registering selected fonts. MCP now exposes
+  the same workspace-confined bundle import plus direct image/font/source ingestion with bounded
+  payloads. Best-effort semantic decomposition of simple SVG shapes/text into editable layers
+  remains queued; complex or rasterized Photoshop SVGs deliberately remain single image assets.
+- Semantic authoring metadata and recipes are implemented: layers carry roles/tags/intent, compact
+  queries select by meaning rather than UUID-heavy project reads, and lower-third/repeater recipes
+  materialize ordinary editable layers, fields, groups, and deterministic tracks. More broadcast
+  recipe families and learned design suggestions remain queued.
+- Brand Kits are implemented with typed design tokens and compatible layer-property links. Current
+  values are materialized into standard element properties for portable output. Cross-project kit
+  libraries, token aliases, and import/export remain queued.
 
 ## 4. Advanced graphics — queued
 
@@ -80,10 +88,14 @@
   playback, scheduled non-realtime sampling, validation, and MCP authoring. Ping-pong, multiple
   clips per layer, dedicated ticker content flow, and cycle-synchronized exits remain queued.
 
-- Reusable components are implemented as portable authoring snapshots: save selected layers and
-  bound fields, insert independently editable grouped instances with complete ID remapping, rename
-  or remove definitions, and perform the same workflow through MCP. Live master-instance syncing,
-  per-instance overrides, and cross-composition component libraries remain queued.
+- Reusable components are implemented as portable authoring snapshots: save/update selected layers
+  and bound fields, insert independent or authoring-linked grouped instances with complete ID
+  remapping, explicitly refresh linked instances, rename/remove definitions, and perform the same
+  workflow through MCP. Refresh remains deliberate and replacement-based; granular per-instance
+  overrides, automatic live syncing, and cross-composition component libraries remain queued.
+- Finite repeaters are implemented as an authoring recipe that materializes horizontal or vertical
+  collections into ordinary grouped layers and independent cloned fields with semantic item tags.
+  Runtime array bindings, virtualization, and late-bound collection length remain queued.
 - Deterministic clip-to-parent masking is implemented for animated rotation-aware parent bounds and
   rounded rectangle corners, including diagonal wipes. Arbitrary alpha/luma/path masks remain
   queued alongside blend modes, video, and nested compositions.
@@ -117,8 +129,12 @@
   MCP image responses are implemented. Browser-rendered, labelled frame contact sheets with
   lifecycle/midpoint defaults are also implemented. Complete element/schema semantics, compact
   project projections, browser text measurement/overflow stress tests, whole-track/stagger
-  operations, and opt-in broadcast lint are implemented. Headless certification, authentication
-  for non-local hosting, richer asset ingestion, subscriptions, and agent eval suites remain queued.
+  operations, and opt-in broadcast lint are implemented. The AI-first layer now also provides
+  semantic intent/query, rendered operation dry runs, deterministic design/motion QA, an in-editor
+  Accept/Reject proposal workflow, Brand Kits, linked-component refresh, repeaters, MCP asset/SVG
+  imports, and generated MCP contracts whose drift fails verification. Headless render/certify
+  remains explicitly deferred; authentication for non-local hosting, subscriptions, and agent eval
+  suites remain queued.
 - Round-two agent ergonomics are implemented: responsive bridge health and timeout diagnosis,
   first-class creation IDs, backing-aware contrast, browser-free track sampling, diagnostic dry
   runs, field update/removal, undoable reset, computed safe areas, change history, dependency

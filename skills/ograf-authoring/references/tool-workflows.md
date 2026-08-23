@@ -12,6 +12,10 @@
   legacy response. Prefer explicit `include` plus `tracks: "animated-only"` for compact routine
   reads; use `tracks: "full"` when compatibility layer keyframes are required.
 - `ograf_inspect_scene`: compact layer and lifecycle outline.
+- `ograf_query_scene`: smallest intent-oriented read. Filter by semantic roles/tags, name fragment,
+  element types, bound field keys, visibility, or animation. Results retain stable layer IDs,
+  semantic metadata, frame bounds, bindings, design-token links, component links, relations, and
+  animated property names.
 - `ograf_get_timeline`: independent property tracks and stable key IDs.
 - `ograf_sample_tracks`: browser-free resolved values and derived bounds at requested frames. Use it
   for fixed-edge, containment, opacity, and complementary-track invariants during degraded mode.
@@ -25,6 +29,16 @@
   frames. Omit `frames` to sample lifecycle frames and transition midpoints. Use explicit frames to
   diagnose staggers, holds, easing, and premature exits. It is read-only and returns the same
   five-minute URL plus optional inline `image/png` convention as `ograf_capture`.
+- `ograf_preview_operations`: revision-checked visual dry run of an exact operation batch. It
+  renders the projected frame or strip without changing project state, revision, or undo history.
+  Generated IDs are hypothetical until the real batch is committed.
+- `ograf_propose_operations`: presents a rendered projected batch in the visible editor for
+  explicit Accept or Reject. Use only with `sessionId: "editor"`. Acceptance applies the exact
+  operations atomically only when the base revision is still current; rejection, expiry, or a
+  conflict leaves the project unchanged.
+- `ograf_review_design`: deterministic semantic, layout, typography, palette, spacing, and motion QA
+  with stable finding/layer IDs and recommended preview frames. `includeStrip: true` adds an
+  authoritative browser contact sheet; findings remain advisory and do not replace certification.
 - `ograf_render_frame`: legacy approximate SVG snapshot; use only when the live browser required by
   `ograf_capture` is unavailable and do not use it to judge final typography.
 - `ograf_measure_text`: browser/runtime measurement of a text layer, optional replacement string,
@@ -46,14 +60,19 @@ Call `ograf_apply_operations` with `sessionId`, `expectedRevision`, `operations`
 Supported operation discriminators:
 
 - Project/composition: `set_project_metadata`, `set_composition`, `set_composition_layout`,
+  `set_design_system_name`, `upsert_design_token`, `remove_design_token`, `bind_design_token`,
+  `unbind_design_token`,
   `add_lifecycle_step`, `rename_lifecycle_keyframe`, `move_lifecycle_keyframe`,
   `remove_lifecycle_step`, `add_canvas_guide`, `update_canvas_guide`, `remove_canvas_guide`,
   `create_timeline_group`, `rename_timeline_group`, `set_timeline_group_color`,
   `ungroup_timeline_group`
-- Assets: `add_asset`, `update_asset`, `remove_asset`
+- Assets: `add_asset`, `update_asset`, `remove_asset`; use the separate `ograf_import_asset` and
+  `ograf_import_svg_bundle` tools when payloads already exist under the configured workspace
 - Layers: `add_layer`, `duplicate_group`, `remove_layer`, `rename_layer`, `set_layer_flags`,
-  `set_layer_layout`, `group_layers`, `ungroup_layers`, `reorder_layers`
-- Components: `save_component`, `instantiate_component`, `rename_component`, `remove_component`
+  `set_layer_layout`, `set_layer_semantics`, `create_lower_third`, `create_repeater`, `group_layers`,
+  `ungroup_layers`, `reorder_layers`
+- Components: `save_component`, `instantiate_component`, `update_component_from_layers`,
+  `refresh_component_instances`, `rename_component`, `remove_component`
 - Content/style: `update_element`, `update_transform`, `update_effects`
 - Timeline: `set_property_key`, `set_property_track`, `stagger_property_track`,
   `move_property_key`, `remove_property_key`, `set_property_key_easing`, `set_transition`,
@@ -63,6 +82,15 @@ Supported operation discriminators:
 - Actions: `add_custom_action`, `update_custom_action`, `remove_custom_action`
 
 `add_layer.kind` supports `rectangle`, `ellipse`, `text`, `image`, `path`, and `image-sequence`. It returns the generated layer ID in `summary.generatedIds`.
+
+`set_layer_semantics` assigns an authoring role, normalized tags, and an intent description without
+changing output pixels. `create_lower_third` materializes a four-layer/two-field grouped lower third
+with semantic roles and deterministic left entrance/down exit by default. It returns all generated
+layer/field/group mappings; customize the ordinary layers and tracks afterward.
+
+`create_repeater` takes one or more source `layerIds`, at least two item records, direction, and gap.
+It materializes finite grouped copies and independently cloned fields, adds semantic item/index tags,
+and returns complete mappings. It is an authoring recipe, not a runtime collection component.
 
 Operations targeting one layer accept either `layerId` or exact `layerName`; never pass both. Name
 ambiguity is rejected with matching IDs. `stagger_property_track` accepts ordered `layerIds` or a
@@ -94,6 +122,13 @@ Optional font family/weight/style, safe package path, and license metadata remai
 image/sequence/default-value assets unless `force: true` clears those references atomically;
 removing an in-use font reports fallback risk.
 
+`ograf_import_asset` avoids client-side base64 transport for one workspace-confined image, font,
+CSS, or text file and commits it through the same asset operation. Files are limited to 32 MiB.
+`ograf_import_svg_bundle` accepts up to 64 workspace paths containing exactly one SVG and selected
+companion CSS/images/fonts. It rejects duplicate base names, limits each file to 32 MiB and the
+bundle to 64 MiB, embeds relative dependencies into one SVG asset, registers discovered fonts, and
+commits all assets atomically.
+
 Lifecycle mutation is explicit: use `rename_lifecycle_keyframe` for labels,
 `move_lifecycle_keyframe` for bounded adjacent-transition retiming, and `remove_lifecycle_step` only
 for pausable Steps. Start cannot move and Start/End cannot be removed. Treat stranded-key warnings
@@ -105,8 +140,18 @@ group. These are transform/selection groups, distinct from UI-only Timeline Grou
 
 Use `save_component` when a layer selection should become a reusable authoring resource.
 `instantiate_component` materializes fresh ordinary layers and bound fields and returns complete
-source-to-instance mappings. Instances are intentionally independent: update them with normal
-layer/field operations. Removing a definition never removes instances already inserted.
+source-to-instance mappings. `linked: false` creates a permanently independent instance.
+`linked: true` stores authoring-only source metadata; `update_component_from_layers` replaces the
+snapshot and `refresh_component_instances` explicitly rematerializes chosen or all linked instances
+with returned replacement mappings. Refresh preserves authored placement but replaces instance
+content, so use independent instances when local overrides must survive. Removing a definition never
+removes inserted layers; it only clears their links.
+
+Brand Kit operations manage typed color, font-family, font-weight, font-size, stroke-width, and
+radius-style values. Create a token with `upsert_design_token`, update it later by `tokenId`, and
+bind it by stable ID or unique `tokenKey` to a compatible target property. Updating a token
+rematerializes every consumer's ordinary element value. Removing a used token requires `force: true`
+to clear links while preserving the last materialized values.
 
 Custom actions are declarative OGraf manifest entries. Use `add_custom_action`,
 `update_custom_action`, and `remove_custom_action` with unique public `actionId` values; they do not

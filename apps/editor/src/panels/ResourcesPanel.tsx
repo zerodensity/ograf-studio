@@ -4,6 +4,7 @@ import {
   findMissingAssetReferences,
   isSafePackagePath,
   type Asset,
+  type DesignTokenType,
 } from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
@@ -24,8 +25,14 @@ export function ResourcesPanel() {
   const removeAsset = useProjectStore((s) => s.removeAsset);
   const createComponent = useProjectStore((s) => s.createComponent);
   const instantiateComponent = useProjectStore((s) => s.instantiateComponent);
+  const updateComponentFromLayers = useProjectStore((s) => s.updateComponentFromLayers);
+  const refreshLinkedComponentInstances = useProjectStore((s) => s.refreshLinkedComponentInstances);
   const renameComponent = useProjectStore((s) => s.renameComponent);
   const removeComponent = useProjectStore((s) => s.removeComponent);
+  const setDesignSystemName = useProjectStore((s) => s.setDesignSystemName);
+  const addDesignToken = useProjectStore((s) => s.addDesignToken);
+  const updateDesignToken = useProjectStore((s) => s.updateDesignToken);
+  const removeDesignToken = useProjectStore((s) => s.removeDesignToken);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const selectMany = useSelectionStore((s) => s.selectMany);
   const [svgImportStatus, setSvgImportStatus] = useState<string | null>(null);
@@ -89,10 +96,137 @@ export function ResourcesPanel() {
     const consumers = findAssetConsumers(composition, asset);
     return consumers.layerIds.length + consumers.fieldIds.length + consumers.fontLayerIds.length;
   };
+  const tokenUsageCount = (tokenId: string) =>
+    composition.layers.filter((layer) =>
+      layer.designTokenBindings.some((binding) => binding.tokenId === tokenId),
+    ).length;
+  const defaultTokenValue = (type: DesignTokenType): string | number => {
+    if (type === 'color') return '#ffffff';
+    if (type === 'number') return 16;
+    if (type === 'font-weight') return 700;
+    if (type === 'font-family') return 'Arial';
+    return '';
+  };
+  const linkedInstanceCount = (componentId: string) =>
+    new Set(
+      composition.layers
+        .filter((layer) => layer.componentLink?.componentId === componentId)
+        .map((layer) => layer.componentLink!.instanceId),
+    ).size;
 
   return (
     <Panel title="Resources">
       <div className="resources-panel">
+        <section className="data-panel-section">
+          <div className="data-panel-section-header">
+            <input
+              className="resources-component-name"
+              aria-label="Brand kit name"
+              value={composition.designSystem.name}
+              onChange={(event) => setDesignSystemName(event.target.value)}
+            />
+            <button type="button" onClick={() => addDesignToken('color')}>
+              {'+ Token'}
+            </button>
+          </div>
+          {composition.designSystem.tokens.length === 0 ? (
+            <p className="panel-placeholder">
+              Add reusable colours, typography, and measurements for this brand.
+            </p>
+          ) : (
+            <ul className="resources-asset-list">
+              {composition.designSystem.tokens.map((token) => {
+                const uses = tokenUsageCount(token.id);
+                return (
+                  <li key={token.id} className="resources-asset-row">
+                    {token.type === 'color' && typeof token.value === 'string' ? (
+                      <input
+                        aria-label={`${token.name} colour`}
+                        type="color"
+                        value={token.value.slice(0, 7)}
+                        onChange={(event) =>
+                          updateDesignToken(token.id, { value: event.target.value })
+                        }
+                      />
+                    ) : (
+                      <span className="resources-font-preview">T</span>
+                    )}
+                    <div className="resources-asset-fields">
+                      <div className="resources-asset-inline">
+                        <input
+                          aria-label="Token name"
+                          value={token.name}
+                          onChange={(event) =>
+                            updateDesignToken(token.id, { name: event.target.value })
+                          }
+                        />
+                        <input
+                          aria-label="Token key"
+                          value={token.key}
+                          onChange={(event) =>
+                            updateDesignToken(token.id, { key: event.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="resources-asset-inline">
+                        <select
+                          aria-label="Token type"
+                          value={token.type}
+                          onChange={(event) => {
+                            const type = event.target.value as DesignTokenType;
+                            updateDesignToken(token.id, {
+                              type,
+                              value: defaultTokenValue(type),
+                            });
+                          }}
+                        >
+                          <option value="color">Colour</option>
+                          <option value="number">Number</option>
+                          <option value="font-family">Font family</option>
+                          <option value="font-weight">Font weight</option>
+                          <option value="text">Text</option>
+                        </select>
+                        <input
+                          aria-label="Token value"
+                          type={
+                            token.type === 'number' || token.type === 'font-weight'
+                              ? 'number'
+                              : 'text'
+                          }
+                          value={token.value}
+                          onChange={(event) =>
+                            updateDesignToken(token.id, {
+                              value:
+                                token.type === 'number' || token.type === 'font-weight'
+                                  ? Number(event.target.value)
+                                  : event.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <span className="resources-asset-meta">
+                        {uses} linked layer{uses === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="data-table-delete"
+                      disabled={uses > 0}
+                      onClick={() => removeDesignToken(token.id)}
+                      title={uses > 0 ? 'Unlink this token before deleting it' : 'Delete token'}
+                    >
+                      {'✕'}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <p className="inspector-hint">
+            Token values are materialized into normal OGraf properties and stay portable.
+          </p>
+        </section>
+
         <section className="data-panel-section">
           <div className="data-panel-section-header">
             <h3>Components</h3>
@@ -129,6 +263,29 @@ export function ResourcesPanel() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => selectMany(instantiateComponent(component.id, undefined, true))}
+                    title="Insert a portable layer instance that can be explicitly refreshed from this component"
+                  >
+                    Link
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedLayerIds.length === 0}
+                    onClick={() => updateComponentFromLayers(component.id, selectedLayerIds)}
+                    title="Replace the saved component snapshot from the selected layers"
+                  >
+                    Update
+                  </button>
+                  <button
+                    type="button"
+                    disabled={linkedInstanceCount(component.id) === 0}
+                    onClick={() => selectMany(refreshLinkedComponentInstances(component.id))}
+                    title="Refresh every linked instance; independent instances remain unchanged"
+                  >
+                    Refresh {linkedInstanceCount(component.id) || ''}
+                  </button>
+                  <button
+                    type="button"
                     className="data-table-delete"
                     onClick={() => removeComponent(component.id)}
                     title="Remove this saved component; existing instances remain"
@@ -140,7 +297,8 @@ export function ResourcesPanel() {
             </ul>
           )}
           <p className="inspector-hint">
-            Inserted components are normal OGraf layers and remain independently editable.
+            Insert creates independent layers. Link creates normal portable layers that can be
+            explicitly refreshed after updating the saved snapshot.
           </p>
         </section>
 

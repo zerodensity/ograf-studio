@@ -31,3 +31,16 @@
 - The local editor bridge intentionally owns one live browser socket. Opening the same editor in
   multiple tabs makes those tabs replace one another and can produce noisy external revisions;
   single-owner arbitration or tab identity is still required.
+- Visual operation previews, proposal images, browser text measurement, and exact certification
+  still require one connected, responsive editor tab. Headless render/certify is intentionally not
+  part of this implementation and remains deferred.
+- Semantic roles/tags and deterministic design/motion QA improve selection and review but are
+  advisory authoring metadata, not an automatic guarantee of good editorial design.
+- Linked component refresh is explicit and replacement-based. It preserves instance placement but
+  can replace local content/style edits; use independent instances when those overrides must remain
+  permanent. Granular override tracking is not implemented.
+- Repeaters materialize a finite collection at authoring time. They do not expose a runtime array
+  field or dynamically add/remove rows from controller data.
+- Brand-token links are composition-local authoring metadata. Values are portable because they are
+  materialized into standard layer properties, but there is no cross-project token library or
+  playout-time theme token API.

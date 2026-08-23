@@ -40,6 +40,14 @@ Save/export must certify the same artifact bytes that are written. If certificat
   keep authored key values within 0..1.
 - Loop keys use a separate local `0..durationFrames` ruler. Keep infinite-loop endpoints visually
   seamless unless an offscreen masked wrap is intentional.
+- Semantic roles, tags, and descriptions are authoring-only. They may guide queries, recipes, QA,
+  and review, but must not add a runtime dependency or alter OGraf lifecycle behavior.
+- Brand-token links are authoring-only and their current values must be materialized into supported
+  element properties before compilation.
+- Repeater output and component instances compile as ordinary layers and fields. Linked component
+  refresh is an explicit authoring replacement, never a playout-time master/instance relationship.
+- A visual proposal must apply only after explicit acceptance and only against its original base
+  revision. Rejection, expiry, or revision drift leaves the project unchanged.
 
 ## Data
 

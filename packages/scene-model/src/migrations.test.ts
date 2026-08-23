@@ -105,6 +105,7 @@ describe('migrateProject', () => {
     const legacyText = textLayer.element as typeof textLayer.element & { autoFit?: string };
     delete legacyText.autoFit;
     delete (textLayer as Omit<typeof textLayer, 'effects'> & { effects?: unknown }).effects;
+    delete (textLayer as Omit<typeof textLayer, 'semantics'> & { semantics?: unknown }).semantics;
     project.compositions[0]!.layers = [textLayer];
     project.documentVersion = 3;
 
@@ -112,9 +113,16 @@ describe('migrateProject', () => {
     const layer = migrated.compositions[0]!.layers[0]!;
     expect(layer.element.type === 'text' && layer.element.autoFit).toBe('auto-size');
     expect(layer.effects).toMatchObject({ blur: 0, dropShadowEnabled: false });
+    expect(layer.semantics).toEqual({ role: 'none', tags: [], description: '' });
+    expect(layer.designTokenBindings).toEqual([]);
+    expect(layer.componentLink).toBeNull();
+    expect(migrated.compositions[0]!.designSystem).toEqual({
+      name: 'Brand Kit',
+      tokens: [],
+    });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(13);
+    expect(migrated.documentVersion).toBe(16);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -152,7 +160,7 @@ describe('migrateProject', () => {
     expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
       { fieldId: 'headline-field', targetProperty: 'content' },
     ]);
-    expect(migrated.documentVersion).toBe(13);
+    expect(migrated.documentVersion).toBe(16);
   });
 
   it('backfills document-v13 typography without changing the authored font size', () => {
@@ -189,7 +197,7 @@ describe('migrateProject', () => {
       minFontSize: 20,
       overflowPolicy: 'visible',
     });
-    expect(migrated.documentVersion).toBe(13);
+    expect(migrated.documentVersion).toBe(16);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {

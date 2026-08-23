@@ -2,6 +2,8 @@
 
 > This describes the pre-hardening implementation. For current truth, read `docs/STATUS.md`,
 > `docs/ARCHITECTURE.md`, and the newest dated file in `docs/handovers/` first.
+>
+> Current dated handover: [2026-08-24 AI-first authoring areas 1-9](./handovers/2026-08-24-ai-first-authoring-1-9.md).
 
 Written for a fresh Claude instance (or human) with zero prior context on this project. Read this in full before touching code. Pair it with `docs/PLAN.md` (the original architecture plan, still directionally accurate) and the root `CLAUDE.md` (short pointer file, auto-loaded every session).
 

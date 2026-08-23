@@ -1,15 +1,22 @@
 # Current Status
 
-Last verified: 2026-08-23
+Last verified: 2026-08-24
+
+Current release: **OGraf Studio 0.03**
 
 ## Current milestone
 
-OGraf compliance and architecture hardening.
+AI-first broadcast authoring and OGraf compliance hardening.
 
 ## Working
 
 - The user-facing product name is **OGraf Studio**. Existing `@ograf-editor/*` package names,
   `.ogeproj` source compatibility, persisted IDs, and MCP tool names remain unchanged.
+- AI-first authoring areas 1-9 are implemented: semantic roles/tags/intent, materialized lower-third
+  and repeater recipes, compact semantic scene queries, rendered operation dry runs, generated MCP
+  contracts, workspace-confined asset/SVG bundle imports, Brand Kits/design tokens, linked
+  component refresh, deterministic design/motion QA, and an in-editor proposal Accept/Reject flow.
+  Headless render/certify (area 10) is deliberately deferred.
 - Browser certification is isolated in a disposable iframe/custom-element registry. Certification,
   PNG capture, contact sheets, and text measurement run through one serialized browser-work queue;
   packaged-font waits remain bounded and bridge health continues to expose responsiveness/latency.
@@ -33,16 +40,28 @@ OGraf compliance and architecture hardening.
   retime planner moved into the shared scene model so browser and MCP mutations use identical
   bounds and stranded-key warnings.
 - Document v12 adds reusable component snapshots. The Resources panel can save the current layer
-  selection, rename/insert/delete definitions, and select each newly inserted instance. Instances
-  receive fresh layer/key/loop/field IDs, unique field keys, remapped bindings and internal parents,
-  a placement offset, and a new persistent group. MCP exposes the same four operations and returns
-  complete layer/field mappings. Components remain authoring-only; compiled OGraf output contains
-  ordinary independent layers.
+  selection, rename/insert/delete definitions, and select each newly inserted instance. Document
+  v16 adds optional authoring-only component links: definitions can be updated from selected layers
+  and linked instances explicitly refreshed with complete replacement mappings. Independent
+  instances remain detached. Every instance receives fresh layer/key/loop/field IDs, unique field
+  keys, remapped bindings/internal parents, placement offset, and a persistent group; compiled OGraf
+  output always contains ordinary layers without a master-instance runtime.
 - Photoshop-style SVG bundles can be imported by selecting one SVG with companion CSS, images, and
   font files. CSS is injected into the SVG, selected relative resources become embedded data URIs,
   XML stylesheet references are removed, selected fonts are also registered as project font assets,
   and unresolved paths are reported in the Resources panel. The portable result intentionally
   remains a single image asset rather than pretending rasterized Photoshop content is editable.
+  MCP exposes the same workspace-confined bundle import plus direct image/font/source ingestion,
+  with 32 MiB per-file and 64 MiB bundle limits.
+- Document v16 includes composition-local Brand Kits and layer token bindings. Typed color,
+  typography, stroke, and radius values are materialized into compatible standard element
+  properties whenever a token or binding changes, so certified output has no proprietary token
+  runtime.
+- Semantic layer metadata supports meaningful roles, normalized tags, and intent descriptions. It
+  drives compact MCP queries, deterministic QA, and authoring recipes while remaining excluded from
+  compiled output. The lower-third recipe creates four grouped layers/two editable fields with a
+  deterministic left entrance/down exit; finite repeaters clone selected source layers and fields
+  into horizontal or vertical materialized collections.
 - Explicit Start → Step(s) → End authoring model with legacy project migration.
 - Correct first-play, boundary-crossing, stop, and zero-step lifecycle resolution.
 - State-aware exits now interpolate directly from the active rendered Step to End using the
@@ -184,6 +203,14 @@ OGraf compliance and architecture hardening.
   live-project authoring, workspace-confined project sessions, and explicit destructive-tool
   annotations. A WebSocket bridge keeps the visible browser editor synchronized and reports agent
   connection/activity in the menubar.
+- MCP visual planning now supports projected frame/strip rendering without mutation and a separate
+  human-review proposal path for `sessionId: editor`. Proposals retain their base revision and apply
+  the exact previewed operation batch only after explicit acceptance; rejection, expiry, or revision
+  drift leaves the project unchanged. The editor displays proposal imagery, validation, warnings,
+  and operations in a floating review drawer.
+- MCP contracts are generated from the registered SDK/Zod tool definitions into
+  `docs/generated/mcp-contracts.{md,json}`. `npm run contracts:check` is the first verification gate,
+  preventing documentation/schema drift. The current generated surface contains 28 tools.
 - Agent visual verification now uses authoritative browser-rendered PNG rather than the approximate
   SVG path: composition or viewport targets, transparent/checker/solid mattes, temporary data-field
   overrides, max-dimension scaling, inferred resolved-font reporting, five-minute localhost URLs,
@@ -292,6 +319,9 @@ OGraf compliance and architecture hardening.
 - Overlapping-action/concurrency and browser E2E coverage; package/module/lifecycle smoke testing is
   now enforced in the product save path.
 - Packaged fonts, localization/RTL, and advanced broadcaster authoring tools.
+- Evaluate granular linked-component overrides, runtime collection binding, cross-project Brand Kit
+  libraries, and broader semantic recipes from real production use. Do not start headless
+  render/certify until the user explicitly resumes area 10.
 - The complete capability inventory remains tracked in `docs/ROADMAP.md`.
 
 ## Known release blockers
@@ -300,15 +330,20 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 
 ## Verification baseline
 
-- `npm test`: 219 tests pass across 48 files after timeline, transport, scrubbing, canvas zoom,
-  OGraf-step playback, Lottie document/frame/validation coverage,
+- `npm run verify`: passed on 2026-08-24, including generated MCP contract drift, format, lint, all
+  workspace typechecks, 228 tests across 51 files, the runtime bundle, and the editor production
+  build. The production bundle still emits the documented large-chunk advisory.
+- The 228-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+  Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,
   typography/effects, per-property animation, retiming, migration, lower-third-demo, and
   compatibility-gate hardening, rotation-aware masking, ticker clipping, animated gradient stops,
   multi-property data binding, direct state-aware exits, shared lifecycle retiming, reusable
-  component snapshots/instantiation, portable SVG/CSS bundle import, plus
-  authoring-core and MCP concurrency/structural-parity integration.
+  component snapshots/instantiation/linked refresh, portable SVG/CSS bundle import, semantic
+  recipes/query, Brand Kits/design tokens, repeaters, deterministic design QA, visual operation
+  previews, human proposal acceptance, generated contracts, plus authoring-core and MCP
+  concurrency/structural-parity integration.
 - Agent-first live verification: labelled strip exposed an intentionally missing hold; later-index
   paint order and incoming quadratic easing were confirmed from browser PNGs; fallback-font text
   measurement and Turkish overflow stress passed; whole-track/stagger dry runs remained atomic;

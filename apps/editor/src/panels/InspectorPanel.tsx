@@ -7,7 +7,12 @@ import {
 } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { BINDABLE_PROPERTIES } from '../state/dataBinding';
-import type { LayerTransform, TextElement } from '@ograf-editor/scene-model';
+import type {
+  DesignTokenTargetProperty,
+  DesignTokenType,
+  LayerTransform,
+  TextElement,
+} from '@ograf-editor/scene-model';
 import {
   findLayerKeyframeAtFrame,
   getLayerEffectsAtFrame,
@@ -16,6 +21,7 @@ import {
   isPixelTransformKey,
   parseLottieJson,
   type EasingPreset,
+  type SemanticLayerRole,
 } from '@ograf-editor/scene-model';
 import { useTimelineStore } from '../state/timelineStore';
 import { CompositionSettings } from './CompositionSettings';
@@ -35,6 +41,53 @@ const TRANSFORM_FIELDS: { key: keyof LayerTransform; label: string; step?: numbe
   { key: 'rotation', label: 'Rotation' },
 ];
 
+const SEMANTIC_ROLES: Array<{ value: SemanticLayerRole; label: string }> = [
+  { value: 'none', label: 'None' },
+  { value: 'background', label: 'Background' },
+  { value: 'container', label: 'Container' },
+  { value: 'accent', label: 'Accent' },
+  { value: 'headline', label: 'Headline' },
+  { value: 'subheadline', label: 'Subheadline' },
+  { value: 'label', label: 'Label' },
+  { value: 'value', label: 'Value' },
+  { value: 'logo', label: 'Logo' },
+  { value: 'image', label: 'Image' },
+  { value: 'icon', label: 'Icon' },
+  { value: 'mask', label: 'Mask' },
+  { value: 'decorative', label: 'Decorative' },
+  { value: 'ticker', label: 'Ticker' },
+  { value: 'score', label: 'Score' },
+  { value: 'custom', label: 'Custom' },
+];
+
+const DESIGN_TOKEN_TARGETS: Record<
+  'rectangle' | 'ellipse' | 'text' | 'path',
+  Array<{ property: DesignTokenTargetProperty; label: string; tokenType: DesignTokenType }>
+> = {
+  rectangle: [
+    { property: 'fill', label: 'Fill', tokenType: 'color' },
+    { property: 'strokeColor', label: 'Stroke', tokenType: 'color' },
+    { property: 'strokeWidth', label: 'Stroke width', tokenType: 'number' },
+    { property: 'borderRadius', label: 'Corner radius', tokenType: 'number' },
+  ],
+  ellipse: [
+    { property: 'fill', label: 'Fill', tokenType: 'color' },
+    { property: 'strokeColor', label: 'Stroke', tokenType: 'color' },
+    { property: 'strokeWidth', label: 'Stroke width', tokenType: 'number' },
+  ],
+  path: [
+    { property: 'fill', label: 'Fill', tokenType: 'color' },
+    { property: 'strokeColor', label: 'Stroke', tokenType: 'color' },
+    { property: 'strokeWidth', label: 'Stroke width', tokenType: 'number' },
+  ],
+  text: [
+    { property: 'color', label: 'Text colour', tokenType: 'color' },
+    { property: 'fontFamily', label: 'Font family', tokenType: 'font-family' },
+    { property: 'fontSize', label: 'Font size', tokenType: 'number' },
+    { property: 'fontWeight', label: 'Font weight', tokenType: 'font-weight' },
+  ],
+};
+
 export function InspectorPanel() {
   const composition = useActiveComposition();
   const currentFrame = useTimelineStore((s) => s.currentFrame);
@@ -51,6 +104,9 @@ export function InspectorPanel() {
   const setLayerParent = useProjectStore((s) => s.setLayerParent);
   const setLayerClipChildren = useProjectStore((s) => s.setLayerClipChildren);
   const setLayerConstraints = useProjectStore((s) => s.setLayerConstraints);
+  const setLayerSemantics = useProjectStore((s) => s.setLayerSemantics);
+  const bindDesignToken = useProjectStore((s) => s.bindDesignToken);
+  const unbindDesignToken = useProjectStore((s) => s.unbindDesignToken);
 
   const layer = composition.layers.find((l) => l.id === selectedLayerId);
 
@@ -117,6 +173,10 @@ export function InspectorPanel() {
       value: asset.fontFamily || asset.name.replace(/\.[^.]+$/, ''),
     }));
   const availableFontOptions = [...importedFontOptions, ...FONT_OPTIONS];
+  const tokenTargets =
+    layer.element.type in DESIGN_TOKEN_TARGETS
+      ? DESIGN_TOKEN_TARGETS[layer.element.type as keyof typeof DESIGN_TOKEN_TARGETS]
+      : [];
 
   return (
     <Panel title="Inspector">
@@ -129,6 +189,81 @@ export function InspectorPanel() {
             onChange={(e: ChangeEvent<HTMLInputElement>) => renameLayer(layer.id, e.target.value)}
           />
         </label>
+        <h3 className="inspector-section">Semantic intent</h3>
+        <label className="inspector-row">
+          <span>Role</span>
+          <select
+            value={layer.semantics.role}
+            onChange={(event) =>
+              setLayerSemantics(layer.id, { role: event.target.value as SemanticLayerRole })
+            }
+          >
+            {SEMANTIC_ROLES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="inspector-row">
+          <span>Tags</span>
+          <input
+            type="text"
+            value={layer.semantics.tags.join(', ')}
+            placeholder="primary, breaking-news"
+            onChange={(event) =>
+              setLayerSemantics(layer.id, {
+                tags: event.target.value.split(',').map((tag) => tag.trim()),
+              })
+            }
+          />
+        </label>
+        <label className="inspector-row">
+          <span>Intent</span>
+          <textarea
+            value={layer.semantics.description}
+            placeholder="What this layer means in the design"
+            onChange={(event) => setLayerSemantics(layer.id, { description: event.target.value })}
+          />
+        </label>
+        {tokenTargets.length > 0 && (
+          <>
+            <h3 className="inspector-section">Brand tokens</h3>
+            {tokenTargets.map((target) => {
+              const binding = layer.designTokenBindings.find(
+                (candidate) => candidate.targetProperty === target.property,
+              );
+              const compatibleTokens = composition.designSystem.tokens.filter(
+                (token) => token.type === target.tokenType,
+              );
+              return (
+                <label className="inspector-row" key={target.property}>
+                  <span>{target.label}</span>
+                  <select
+                    value={binding?.tokenId ?? ''}
+                    onChange={(event) => {
+                      if (event.target.value) {
+                        bindDesignToken(layer.id, event.target.value, target.property);
+                      } else {
+                        unbindDesignToken(layer.id, target.property);
+                      }
+                    }}
+                  >
+                    <option value="">Unlinked</option>
+                    {compatibleTokens.map((token) => (
+                      <option key={token.id} value={token.id}>
+                        {token.name} ({token.key})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            })}
+            {composition.designSystem.tokens.length === 0 && (
+              <p className="inspector-hint">Create brand tokens in Resources first.</p>
+            )}
+          </>
+        )}
         <label className="inspector-row inspector-checkbox-row">
           <span>Clip children</span>
           <input

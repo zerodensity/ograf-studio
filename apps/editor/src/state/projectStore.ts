@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import {
   createAsset,
+  applyDesignTokenBinding,
   dataUriByteSize,
   findAssetConsumers,
   buildComponentDefinition,
@@ -26,8 +27,12 @@ import {
   getLayerTransformAtFrame,
   getTotalFrames,
   migrateProject,
+  materializeLowerThird,
+  materializeRepeater,
   instantiateComponentDefinition,
+  refreshComponentInstances,
   normalizeLayerEffects,
+  normalizeDesignTokenValue,
   pruneInvalidGradientStopTracks,
   normalizeAuthoredTransformPatch,
   sortLayerKeyframes,
@@ -36,6 +41,9 @@ import {
   EFFECT_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
   type Asset,
+  type DesignToken,
+  type DesignTokenTargetProperty,
+  type DesignTokenType,
   type Composition,
   type ComponentDefinition,
   type CompositionLayout,
@@ -54,9 +62,12 @@ import {
   type Layer,
   type LayerBinding,
   type LayerEffects,
+  type LayerSemantics,
   type LayerTransform,
   type LayerConstraints,
   type NewLayerKind,
+  type MaterializedLowerThird,
+  type MaterializedRepeater,
   type PathElement,
   type Paint,
   type Project,
@@ -115,6 +126,13 @@ interface ProjectActions {
   removeCanvasGuide: (guideId: string) => void;
 
   addLayer: (kind: NewLayerKind) => string;
+  addLowerThird: () => MaterializedLowerThird;
+  addRepeater: (
+    layerIds: string[],
+    count?: number,
+    direction?: 'horizontal' | 'vertical',
+    gap?: number,
+  ) => MaterializedRepeater | null;
   pasteLayers: (layers: Layer[], offset?: number) => string[];
   removeLayer: (layerId: string) => void;
   updateLayerTransform: (layerId: string, frame: number, patch: Partial<LayerTransform>) => void;
@@ -191,6 +209,17 @@ interface ProjectActions {
   setLayerParent: (layerId: string, parentId: string | null) => void;
   setLayerClipChildren: (layerId: string, clipChildren: boolean) => void;
   setLayerConstraints: (layerId: string, constraints: Partial<LayerConstraints>) => void;
+  setLayerSemantics: (layerId: string, patch: Partial<LayerSemantics>) => void;
+  setDesignSystemName: (name: string) => void;
+  addDesignToken: (type?: DesignTokenType) => string;
+  updateDesignToken: (tokenId: string, patch: Partial<Omit<DesignToken, 'id'>>) => void;
+  removeDesignToken: (tokenId: string) => void;
+  bindDesignToken: (
+    layerId: string,
+    tokenId: string,
+    targetProperty: DesignTokenTargetProperty,
+  ) => void;
+  unbindDesignToken: (layerId: string, targetProperty: DesignTokenTargetProperty) => void;
   createTimelineFolder: (layerIds: string[]) => string | null;
   renameTimelineFolder: (folderId: string, name: string) => void;
   setTimelineFolderColor: (folderId: string, color: string) => void;
@@ -245,7 +274,13 @@ interface ProjectActions {
   ) => void;
   removeAsset: (assetId: string) => void;
   createComponent: (layerIds: string[], name?: string) => string | null;
-  instantiateComponent: (componentId: string, offset?: { x: number; y: number }) => string[];
+  instantiateComponent: (
+    componentId: string,
+    offset?: { x: number; y: number },
+    linked?: boolean,
+  ) => string[];
+  updateComponentFromLayers: (componentId: string, layerIds: string[]) => boolean;
+  refreshLinkedComponentInstances: (componentId: string) => string[];
   renameComponent: (componentId: string, name: string) => void;
   removeComponent: (componentId: string) => void;
 }
@@ -526,6 +561,36 @@ export const useProjectStore = create<ProjectStore>()(
           composition.layers.push(layer);
         });
         return layer.id;
+      },
+
+      addLowerThird: () => {
+        let result!: MaterializedLowerThird;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          result = materializeLowerThird(composition);
+        });
+        return result;
+      },
+
+      addRepeater: (layerIds, count = 3, direction = 'horizontal', gap = 24) => {
+        if (layerIds.length === 0 || count < 2) return null;
+        let result!: MaterializedRepeater;
+        try {
+          set((state) => {
+            const composition = getActiveComposition(state.project, state.activeCompositionId);
+            result = materializeRepeater(composition, {
+              layerIds,
+              items: Array.from({ length: count }, (_, index) => ({
+                label: `Item ${index + 1}`,
+              })),
+              direction,
+              gap,
+            });
+          });
+          return result;
+        } catch {
+          return null;
+        }
       },
 
       pasteLayers: (layers, offset = 20) => {
@@ -1212,18 +1277,56 @@ export const useProjectStore = create<ProjectStore>()(
         return definition.id;
       },
 
-      instantiateComponent: (componentId, offset = { x: 40, y: 40 }) => {
+      instantiateComponent: (componentId, offset = { x: 40, y: 40 }, linked = false) => {
         const snapshot = useProjectStore.getState();
         const composition = getActiveComposition(snapshot.project, snapshot.activeCompositionId);
         const definition = composition.components.find((candidate) => candidate.id === componentId);
         if (!definition) return [];
-        const instance = instantiateComponentDefinition(composition, definition, offset);
+        const instance = instantiateComponentDefinition(composition, definition, offset, linked);
         set((state) => {
           const target = getActiveComposition(state.project, state.activeCompositionId);
           target.dataFields.push(...instance.dataFields);
           target.layers.push(...instance.layers);
         });
         return instance.layers.map((layer) => layer.id);
+      },
+
+      updateComponentFromLayers: (componentId, layerIds) => {
+        const snapshot = useProjectStore.getState();
+        const composition = getActiveComposition(snapshot.project, snapshot.activeCompositionId);
+        const index = composition.components.findIndex((candidate) => candidate.id === componentId);
+        const existing = composition.components[index];
+        if (!existing || layerIds.length === 0) return false;
+        let replacement: ComponentDefinition;
+        try {
+          replacement = buildComponentDefinition(composition, layerIds, existing.name, existing.id);
+        } catch {
+          return false;
+        }
+        set((state) => {
+          const target = getActiveComposition(state.project, state.activeCompositionId);
+          const targetIndex = target.components.findIndex(
+            (candidate) => candidate.id === componentId,
+          );
+          if (targetIndex >= 0) target.components[targetIndex] = replacement;
+        });
+        return true;
+      },
+
+      refreshLinkedComponentInstances: (componentId) => {
+        let newLayerIds: string[] = [];
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const definition = composition.components.find(
+            (candidate) => candidate.id === componentId,
+          );
+          if (!definition) return;
+          const refreshed = refreshComponentInstances(composition, definition);
+          newLayerIds = refreshed.flatMap((entry) =>
+            entry.instance.layers.map((layer) => layer.id),
+          );
+        });
+        return newLayerIds;
       },
 
       renameComponent: (componentId, name) =>
@@ -1325,6 +1428,120 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
           if (layer) Object.assign(layer.constraints, constraints);
+        }),
+
+      setLayerSemantics: (layerId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          if (patch.role !== undefined) layer.semantics.role = patch.role;
+          if (patch.description !== undefined) layer.semantics.description = patch.description;
+          if (patch.tags !== undefined) {
+            layer.semantics.tags = [
+              ...new Set(patch.tags.map((tag) => tag.trim()).filter(Boolean)),
+            ];
+          }
+        }),
+
+      setDesignSystemName: (name) =>
+        set((state) => {
+          const trimmed = name.trim();
+          if (trimmed) {
+            getActiveComposition(state.project, state.activeCompositionId).designSystem.name =
+              trimmed;
+          }
+        }),
+
+      addDesignToken: (type = 'color') => {
+        const tokenId = createId('design-token');
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const index = composition.designSystem.tokens.length + 1;
+          composition.designSystem.tokens.push({
+            id: tokenId,
+            key: `token_${index}`,
+            name: `Token ${index}`,
+            type,
+            value:
+              type === 'number' || type === 'font-weight'
+                ? type === 'font-weight'
+                  ? 700
+                  : 16
+                : type === 'color'
+                  ? '#ffffff'
+                  : type === 'font-family'
+                    ? 'Arial'
+                    : '',
+            description: '',
+          });
+        });
+        return tokenId;
+      },
+
+      updateDesignToken: (tokenId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const token = composition.designSystem.tokens.find(
+            (candidate) => candidate.id === tokenId,
+          );
+          if (!token) return;
+          const next = { ...token, ...patch };
+          next.key = next.key.trim();
+          next.name = next.name.trim() || next.key;
+          next.description = next.description.trim();
+          next.value = normalizeDesignTokenValue(next.type, next.value);
+          Object.assign(token, next);
+          for (const layer of composition.layers) {
+            for (const binding of layer.designTokenBindings.filter(
+              (candidate) => candidate.tokenId === token.id,
+            )) {
+              applyDesignTokenBinding(layer, binding, token);
+            }
+          }
+        }),
+
+      removeDesignToken: (tokenId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          if (
+            composition.layers.some((layer) =>
+              layer.designTokenBindings.some((binding) => binding.tokenId === tokenId),
+            )
+          )
+            return;
+          composition.designSystem.tokens = composition.designSystem.tokens.filter(
+            (token) => token.id !== tokenId,
+          );
+        }),
+
+      bindDesignToken: (layerId, tokenId, targetProperty) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          const token = composition.designSystem.tokens.find(
+            (candidate) => candidate.id === tokenId,
+          );
+          if (!layer || !token || layer.isLocked) return;
+          const binding = { tokenId, targetProperty };
+          applyDesignTokenBinding(layer, binding, token);
+          layer.designTokenBindings = [
+            ...layer.designTokenBindings.filter(
+              (candidate) => candidate.targetProperty !== targetProperty,
+            ),
+            binding,
+          ];
+        }),
+
+      unbindDesignToken: (layerId, targetProperty) =>
+        set((state) => {
+          const layer = getActiveComposition(state.project, state.activeCompositionId).layers.find(
+            (candidate) => candidate.id === layerId,
+          );
+          if (!layer || layer.isLocked) return;
+          layer.designTokenBindings = layer.designTokenBindings.filter(
+            (binding) => binding.targetProperty !== targetProperty,
+          );
         }),
 
       alignLayers: (layerIds, frame, mode) =>

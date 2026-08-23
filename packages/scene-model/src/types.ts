@@ -156,6 +156,72 @@ export interface LayerEffects {
   dropShadowBlur: number;
 }
 
+/** Authoring-time meaning used by humans and agents; never required by an OGraf renderer. */
+export type SemanticLayerRole =
+  | 'none'
+  | 'background'
+  | 'container'
+  | 'accent'
+  | 'headline'
+  | 'subheadline'
+  | 'label'
+  | 'value'
+  | 'logo'
+  | 'image'
+  | 'icon'
+  | 'mask'
+  | 'decorative'
+  | 'ticker'
+  | 'score'
+  | 'custom';
+
+export interface LayerSemantics {
+  role: SemanticLayerRole;
+  /** Stable, model-readable labels such as "breaking-news", "team-home", or "primary". */
+  tags: string[];
+  /** Optional design intent that is more durable than a layer name. */
+  description: string;
+}
+
+export type DesignTokenType = 'color' | 'number' | 'text' | 'font-family' | 'font-weight';
+export type DesignTokenValue = string | number;
+export type DesignTokenTargetProperty =
+  | 'fill'
+  | 'strokeColor'
+  | 'strokeWidth'
+  | 'borderRadius'
+  | 'color'
+  | 'fontFamily'
+  | 'fontSize'
+  | 'fontWeight';
+
+/** Portable authoring token. Operations materialize its value into ordinary OGraf element data. */
+export interface DesignToken {
+  id: string;
+  key: string;
+  name: string;
+  type: DesignTokenType;
+  value: DesignTokenValue;
+  description: string;
+}
+
+export interface DesignTokenBinding {
+  tokenId: string;
+  targetProperty: DesignTokenTargetProperty;
+}
+
+export interface DesignSystem {
+  name: string;
+  tokens: DesignToken[];
+}
+
+/** Optional authoring link back to a reusable component snapshot. */
+export interface ComponentLink {
+  componentId: string;
+  instanceId: string;
+  sourceLayerId: string;
+}
+
 /** A normalized gradient-stop offset track, where N is the zero-based stop index. */
 export type GradientStopOffsetProperty = `fill.stops[${number}].offset`;
 
@@ -278,6 +344,12 @@ export interface Layer {
   element: Element;
   /** Static CSS effects shared by editor preview and the exported runtime. */
   effects: LayerEffects;
+  /** Authoring-only semantic meaning for design recipes, querying, QA, and agent collaboration. */
+  semantics: LayerSemantics;
+  /** Authoring-only links whose current values are materialized into standard element properties. */
+  designTokenBindings: DesignTokenBinding[];
+  /** Explicitly refreshable authoring link; compiled output still contains only this normal layer. */
+  componentLink: ComponentLink | null;
   /** Ordered data bindings applied to independent element properties at runtime. */
   bindings: LayerBinding[];
 }
@@ -415,6 +487,8 @@ export interface Composition {
   dataFields: FieldDefinition[];
   customActions: CustomActionDefinition[];
   assets: Asset[];
+  /** Brand kit and reusable style decisions; omitted from compiled OGraf output. */
+  designSystem: DesignSystem;
   /** Reusable authoring snapshots; omitted from compiled OGraf output. */
   components: ComponentDefinition[];
 }

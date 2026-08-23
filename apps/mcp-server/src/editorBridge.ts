@@ -115,6 +115,28 @@ export interface EditorBridgeHealth {
   certificationLikelyCause: string | null;
 }
 
+export interface AuthoringProposal {
+  id: string;
+  title: string;
+  description: string;
+  sessionId: string;
+  baseRevision: number;
+  operationTypes: string[];
+  operationCount: number;
+  previewUrl: string;
+  previewExpiresAt: string;
+  render: 'frame' | 'strip';
+  frames: number[];
+  valid: boolean;
+  warnings: string[];
+}
+
+export interface ProposalDecisionResult {
+  status: 'accepted' | 'rejected' | 'stale' | 'error';
+  message: string;
+  revision?: number;
+}
+
 type EditorInbound =
   | { type: 'editor.hello'; project: Project }
   | { type: 'editor.project'; project: Project; reason?: string }
@@ -137,7 +159,8 @@ type EditorInbound =
       requestId: string;
       result?: BrowserMeasureTextResult;
       error?: string;
-    };
+    }
+  | { type: 'proposal.decision'; proposalId: string; decision: 'accept' | 'reject' };
 
 interface PendingCertification {
   resolve: (result: CompatibilityResult) => void;
@@ -169,6 +192,12 @@ interface CaptureAsset {
   expiresAt: number;
 }
 
+interface PendingProposal {
+  proposal: AuthoringProposal;
+  decide: (decision: 'accept' | 'reject') => Promise<ProposalDecisionResult>;
+  expiresAt: number;
+}
+
 const CAPTURE_TTL_MS = 5 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 1_000;
 const HEARTBEAT_RESPONSIVE_MS = 750;
@@ -186,6 +215,7 @@ export class EditorBridge {
   #pendingStrips = new Map<string, PendingStrip>();
   #pendingTextMeasurements = new Map<string, PendingMeasureText>();
   #captureAssets = new Map<string, CaptureAsset>();
+  #proposals = new Map<string, PendingProposal>();
   #unsubscribe: (() => void) | null = null;
   #editorReady = false;
   #heartbeatRequest: { requestId: string; sentAt: number } | null = null;
@@ -335,6 +365,10 @@ export class EditorBridge {
       }
       this.#editorBaselineInitialized = true;
       this.#send({ type: 'editor.ack', revision: this.workspace.get('editor').revision });
+      this.#pruneProposals();
+      for (const pending of this.#proposals.values()) {
+        this.#send({ type: 'proposal.present', proposal: pending.proposal });
+      }
       this.#editorReady = true;
       this.#requestHeartbeat();
       return;
@@ -392,6 +426,59 @@ export class EditorBridge {
       this.#pendingTextMeasurements.delete(message.requestId);
       if (message.result) pending.resolve(message.result);
       else pending.reject(new Error(message.error || 'Browser text measurement failed.'));
+      return;
+    }
+    if (message.type === 'proposal.decision') {
+      void this.#handleProposalDecision(message.proposalId, message.decision);
+    }
+  }
+
+  presentProposal(proposal: AuthoringProposal, decide: PendingProposal['decide']): void {
+    if (!this.connected) {
+      throw new Error(
+        'Human review requires OGraf Studio to be open and connected to the local MCP server.',
+      );
+    }
+    this.#pruneProposals();
+    this.#proposals.set(proposal.id, {
+      proposal,
+      decide,
+      expiresAt: Date.parse(proposal.previewExpiresAt),
+    });
+    this.#send({ type: 'proposal.present', proposal });
+  }
+
+  async #handleProposalDecision(proposalId: string, decision: 'accept' | 'reject'): Promise<void> {
+    this.#pruneProposals();
+    const pending = this.#proposals.get(proposalId);
+    if (!pending) {
+      this.#send({
+        type: 'proposal.resolved',
+        proposalId,
+        result: {
+          status: 'stale',
+          message: 'This proposal is no longer available. Ask the agent to regenerate it.',
+        } satisfies ProposalDecisionResult,
+      });
+      return;
+    }
+    this.#proposals.delete(proposalId);
+    let result: ProposalDecisionResult;
+    try {
+      result = await pending.decide(decision);
+    } catch (error) {
+      result = {
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+    this.#send({ type: 'proposal.resolved', proposalId, result });
+  }
+
+  #pruneProposals(): void {
+    const now = Date.now();
+    for (const [proposalId, pending] of this.#proposals) {
+      if (pending.expiresAt <= now) this.#proposals.delete(proposalId);
     }
   }
 

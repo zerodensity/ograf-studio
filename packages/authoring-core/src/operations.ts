@@ -1,6 +1,7 @@
 import {
   EFFECT_ANIMATION_PROPERTIES,
   TRANSFORM_ANIMATION_PROPERTIES,
+  applyDesignTokenBinding,
   computeKeyframeFrames,
   buildComponentDefinition,
   createCustomActionDefinition,
@@ -24,8 +25,12 @@ import {
   normalizeAuthoredTransformPatch,
   normalizeLayerEffects,
   instantiateComponentDefinition,
+  materializeLowerThird,
+  materializeRepeater,
+  normalizeDesignTokenValue,
   planLifecycleRetime,
   pruneInvalidGradientStopTracks,
+  refreshComponentInstances,
   resizeConstrainedTransform,
   sortLayerKeyframes,
   sortLayerPropertyKeyframes,
@@ -579,6 +584,8 @@ export function applyAuthoringOperations(
     warnings: [],
     duplicateGroups: [],
     componentInstances: [],
+    semanticBlocks: [],
+    repeaters: [],
   };
 
   operations.forEach((operation, operationIndex) => {
@@ -619,6 +626,128 @@ export function applyAuthoringOperations(
       case 'set_composition_layout':
         Object.assign(composition.layout, operation.patch);
         break;
+      case 'set_design_system_name': {
+        const name = operation.name.trim();
+        if (!name) throw new Error('Design-system name cannot be empty.');
+        composition.designSystem.name = name;
+        break;
+      }
+      case 'upsert_design_token': {
+        const key = operation.key.trim();
+        if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key)) {
+          throw new Error(
+            'Design-token key must start with a letter or underscore and contain only letters, numbers, dot, dash, or underscore.',
+          );
+        }
+        const conflicting = composition.designSystem.tokens.find(
+          (candidate) => candidate.key === key && candidate.id !== operation.tokenId,
+        );
+        if (conflicting) throw new Error(`Design-token key already exists: ${key}`);
+        const value = normalizeDesignTokenValue(operation.tokenType, operation.value);
+        const existing = operation.tokenId
+          ? composition.designSystem.tokens.find((candidate) => candidate.id === operation.tokenId)
+          : undefined;
+        if (operation.tokenId && !existing) {
+          throw new Error(`Design token not found: ${operation.tokenId}`);
+        }
+        if (existing) {
+          existing.key = key;
+          existing.name = operation.name?.trim() || key;
+          existing.type = operation.tokenType;
+          existing.value = value;
+          existing.description = operation.description?.trim() ?? existing.description;
+          for (const layer of composition.layers) {
+            for (const binding of layer.designTokenBindings.filter(
+              (candidate) => candidate.tokenId === existing.id,
+            )) {
+              applyDesignTokenBinding(layer, binding, existing);
+              summary.affectedLayerIds.push(layer.id);
+            }
+          }
+        } else {
+          if (
+            operation.id &&
+            composition.designSystem.tokens.some((candidate) => candidate.id === operation.id)
+          ) {
+            throw new Error(`Design-token ID already exists: ${operation.id}`);
+          }
+          const token = {
+            id: operation.id ?? createId('design-token'),
+            key,
+            name: operation.name?.trim() || key,
+            type: operation.tokenType,
+            value,
+            description: operation.description?.trim() ?? '',
+          };
+          composition.designSystem.tokens.push(token);
+          summary.generatedIds.push({
+            operationIndex,
+            kind: 'design-token',
+            id: token.id,
+          });
+        }
+        break;
+      }
+      case 'remove_design_token': {
+        const token = composition.designSystem.tokens.find(
+          (candidate) => candidate.id === operation.tokenId,
+        );
+        if (!token) throw new Error(`Design token not found: ${operation.tokenId}`);
+        const consumers = composition.layers.filter((layer) =>
+          layer.designTokenBindings.some((binding) => binding.tokenId === token.id),
+        );
+        if (consumers.length > 0 && !operation.force) {
+          throw new Error(
+            `Design token "${token.key}" is bound by ${consumers.length} layer(s); use force=true to remove the links while preserving materialized values.`,
+          );
+        }
+        for (const layer of consumers) {
+          layer.designTokenBindings = layer.designTokenBindings.filter(
+            (binding) => binding.tokenId !== token.id,
+          );
+          summary.affectedLayerIds.push(layer.id);
+        }
+        composition.designSystem.tokens = composition.designSystem.tokens.filter(
+          (candidate) => candidate.id !== token.id,
+        );
+        break;
+      }
+      case 'bind_design_token': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        const token = operation.tokenId
+          ? composition.designSystem.tokens.find((candidate) => candidate.id === operation.tokenId)
+          : composition.designSystem.tokens.find(
+              (candidate) => candidate.key === operation.tokenKey,
+            );
+        if (!token) {
+          throw new Error(
+            `Design token not found: ${operation.tokenId ?? operation.tokenKey ?? '(missing selector)'}`,
+          );
+        }
+        applyDesignTokenBinding(
+          layer,
+          { tokenId: token.id, targetProperty: operation.targetProperty },
+          token,
+        );
+        layer.designTokenBindings = [
+          ...layer.designTokenBindings.filter(
+            (binding) => binding.targetProperty !== operation.targetProperty,
+          ),
+          { tokenId: token.id, targetProperty: operation.targetProperty },
+        ];
+        summary.affectedLayerIds.push(layer.id);
+        break;
+      }
+      case 'unbind_design_token': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        layer.designTokenBindings = layer.designTokenBindings.filter(
+          (binding) => binding.targetProperty !== operation.targetProperty,
+        );
+        summary.affectedLayerIds.push(layer.id);
+        break;
+      }
       case 'add_lifecycle_step': {
         const endIndex = composition.keyframes.findIndex((keyframe) => keyframe.role === 'end');
         const insertionIndex = endIndex >= 0 ? endIndex : composition.keyframes.length;
@@ -877,10 +1006,15 @@ export function applyAuthoringOperations(
           (candidate) => candidate.id === operation.componentId,
         );
         if (!definition) throw new Error(`Component not found: ${operation.componentId}`);
-        const instance = instantiateComponentDefinition(composition, definition, {
-          x: operation.offset?.x ?? 40,
-          y: operation.offset?.y ?? 40,
-        });
+        const instance = instantiateComponentDefinition(
+          composition,
+          definition,
+          {
+            x: operation.offset?.x ?? 40,
+            y: operation.offset?.y ?? 40,
+          },
+          operation.linked ?? false,
+        );
         composition.dataFields.push(...instance.dataFields);
         composition.layers.push(...instance.layers);
         for (const layer of instance.layers) {
@@ -893,10 +1027,59 @@ export function applyAuthoringOperations(
         summary.componentInstances.push({
           operationIndex,
           componentId: definition.id,
+          instanceId: instance.instanceId,
           groupId: instance.groupId,
+          linked: operation.linked ?? false,
           layers: instance.layerIds,
           fields: instance.fieldIds,
         });
+        break;
+      }
+      case 'update_component_from_layers': {
+        const index = composition.components.findIndex(
+          (candidate) => candidate.id === operation.componentId,
+        );
+        const existing = composition.components[index];
+        if (!existing) throw new Error(`Component not found: ${operation.componentId}`);
+        composition.components[index] = buildComponentDefinition(
+          composition,
+          operation.layerIds,
+          existing.name,
+          existing.id,
+        );
+        break;
+      }
+      case 'refresh_component_instances': {
+        const definition = composition.components.find(
+          (candidate) => candidate.id === operation.componentId,
+        );
+        if (!definition) throw new Error(`Component not found: ${operation.componentId}`);
+        for (const refreshed of refreshComponentInstances(
+          composition,
+          definition,
+          operation.instanceIds,
+        )) {
+          const { instance } = refreshed;
+          for (const layer of instance.layers) {
+            summary.generatedIds.push({ operationIndex, kind: 'layer', id: layer.id });
+          }
+          for (const field of instance.dataFields) {
+            summary.generatedIds.push({ operationIndex, kind: 'field', id: field.id });
+          }
+          summary.affectedLayerIds.push(
+            ...refreshed.removedLayerIds,
+            ...instance.layers.map((layer) => layer.id),
+          );
+          summary.componentInstances.push({
+            operationIndex,
+            componentId: definition.id,
+            instanceId: refreshed.instanceId,
+            groupId: instance.groupId,
+            linked: true,
+            layers: instance.layerIds,
+            fields: instance.fieldIds,
+          });
+        }
         break;
       }
       case 'rename_component': {
@@ -916,6 +1099,11 @@ export function applyAuthoringOperations(
         composition.components = composition.components.filter(
           (candidate) => candidate.id !== operation.componentId,
         );
+        for (const layer of composition.layers) {
+          if (layer.componentLink?.componentId === operation.componentId) {
+            layer.componentLink = null;
+          }
+        }
         break;
       }
       case 'add_asset': {
@@ -1029,6 +1217,55 @@ export function applyAuthoringOperations(
           computeKeyframeFrames(composition).map((item) => item.frame),
           operationIndex,
         );
+        break;
+      }
+      case 'set_layer_semantics': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        if (operation.patch.role !== undefined) layer.semantics.role = operation.patch.role;
+        if (operation.patch.description !== undefined)
+          layer.semantics.description = operation.patch.description.trim();
+        if (operation.patch.tags !== undefined) {
+          layer.semantics.tags = [
+            ...new Set(operation.patch.tags.map((tag) => tag.trim()).filter(Boolean)),
+          ];
+        }
+        break;
+      }
+      case 'create_lower_third': {
+        const block = materializeLowerThird(composition, operation);
+        const layerIds = Object.values(block.layers);
+        const fieldIds = Object.values(block.fields);
+        summary.affectedLayerIds.push(...layerIds);
+        for (const id of layerIds) summary.generatedIds.push({ operationIndex, kind: 'layer', id });
+        for (const id of fieldIds) summary.generatedIds.push({ operationIndex, kind: 'field', id });
+        summary.generatedIds.push({ operationIndex, kind: 'canvas-group', id: block.groupId });
+        summary.generatedIds.push({
+          operationIndex,
+          kind: 'timeline-group',
+          id: block.timelineGroupId,
+        });
+        summary.semanticBlocks.push({ operationIndex, ...block });
+        break;
+      }
+      case 'create_repeater': {
+        const repeater = materializeRepeater(composition, operation);
+        for (const item of repeater.items) {
+          summary.generatedIds.push({
+            operationIndex,
+            kind: 'canvas-group',
+            id: item.groupId,
+          });
+          if (item.index === 0) continue;
+          for (const id of Object.values(item.layers)) {
+            summary.generatedIds.push({ operationIndex, kind: 'layer', id });
+            summary.affectedLayerIds.push(id);
+          }
+          for (const id of Object.values(item.fields)) {
+            summary.generatedIds.push({ operationIndex, kind: 'field', id });
+          }
+        }
+        summary.repeaters.push({ operationIndex, ...repeater });
         break;
       }
       case 'duplicate_group':

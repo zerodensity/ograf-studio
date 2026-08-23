@@ -1,4 +1,5 @@
 import {
+  applyDesignTokenBinding,
   inspectLottieAnimationData,
   getLayerAnimatableProperties,
   gradientStopIndexForProperty,
@@ -61,6 +62,24 @@ function validateComposition(composition: Composition, errors: string[], warning
   }
   for (const duplicate of duplicates(composition.components.map((component) => component.id))) {
     errors.push(`${prefix}: duplicate component id "${duplicate}".`);
+  }
+  for (const duplicate of duplicates(composition.designSystem.tokens.map((token) => token.id))) {
+    errors.push(`${prefix}: duplicate design-token id "${duplicate}".`);
+  }
+  for (const duplicate of duplicates(composition.designSystem.tokens.map((token) => token.key))) {
+    errors.push(`${prefix}: duplicate design-token key "${duplicate}".`);
+  }
+  if (!composition.designSystem.name.trim()) {
+    errors.push(`${prefix}: design-system name cannot be empty.`);
+  }
+  for (const token of composition.designSystem.tokens) {
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(token.key)) {
+      errors.push(`${prefix}: design-token key "${token.key}" is invalid.`);
+    }
+    if (!token.name.trim()) errors.push(`${prefix}: design-token "${token.key}" has no name.`);
+    if (typeof token.value === 'number' && !Number.isFinite(token.value)) {
+      errors.push(`${prefix}: design-token "${token.key}" must be finite.`);
+    }
   }
   for (const component of composition.components) {
     if (!component.name.trim()) errors.push(`${prefix}: component names cannot be empty.`);
@@ -310,6 +329,12 @@ function validateComposition(composition: Composition, errors: string[], warning
     errors.push(`${prefix}: duplicate custom action id "${actionId}".`);
   }
   const fieldIds = new Set(composition.dataFields.map((field) => field.id));
+  const designTokenById = new Map(
+    composition.designSystem.tokens.map((token) => [token.id, token]),
+  );
+  const componentById = new Map(
+    composition.components.map((component) => [component.id, component]),
+  );
   const assetIds = new Set(composition.assets.map((asset) => asset.id));
   const validateAssetReference = (value: string, owner: string) => {
     if (value.startsWith('asset:') && !assetIds.has(value.slice('asset:'.length))) {
@@ -344,6 +369,45 @@ function validateComposition(composition: Composition, errors: string[], warning
     }
   }
   for (const layer of composition.layers) {
+    if (layer.componentLink) {
+      const component = componentById.get(layer.componentLink.componentId);
+      if (!component) {
+        errors.push(`${prefix}: layer "${layer.name}" links to a missing component.`);
+      } else if (
+        !component.layers.some(
+          (sourceLayer) => sourceLayer.id === layer.componentLink?.sourceLayerId,
+        )
+      ) {
+        errors.push(`${prefix}: layer "${layer.name}" links to a missing component source layer.`);
+      }
+    }
+    for (const targetProperty of duplicates(
+      layer.designTokenBindings.map((binding) => binding.targetProperty),
+    )) {
+      errors.push(
+        `${prefix}: layer "${layer.name}" links design-token target "${targetProperty}" more than once.`,
+      );
+    }
+    for (const binding of layer.designTokenBindings) {
+      const token = designTokenById.get(binding.tokenId);
+      if (!token) {
+        errors.push(`${prefix}: layer "${layer.name}" references a missing design token.`);
+        continue;
+      }
+      const projected = structuredClone(layer);
+      try {
+        applyDesignTokenBinding(projected, binding, token);
+        if (JSON.stringify(projected.element) !== JSON.stringify(layer.element)) {
+          warnings.push(
+            `${prefix}: layer "${layer.name}" design-token link for "${binding.targetProperty}" is out of sync with its materialized value.`,
+          );
+        }
+      } catch (error) {
+        errors.push(
+          `${prefix}: layer "${layer.name}" has an invalid design-token link: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
     for (const binding of layer.bindings) {
       if (!fieldIds.has(binding.fieldId)) {
         errors.push(`${prefix}: layer "${layer.name}" references a missing data field.`);

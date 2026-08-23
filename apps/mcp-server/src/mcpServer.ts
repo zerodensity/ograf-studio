@@ -1,5 +1,5 @@
 import { access, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { dirname, extname } from 'node:path';
+import { basename, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -18,6 +18,7 @@ import {
 } from '@ograf-editor/codegen';
 import {
   ANIMATABLE_LAYER_PROPERTIES,
+  buildSvgBundle,
   computeKeyframeFrames,
   createId,
   createProject,
@@ -29,6 +30,7 @@ import {
   getTotalFrames,
   intersectConvexPolygons,
   polygonBounds,
+  reviewCompositionDesign,
   transformBoundsPolygon,
   TRANSFORM_ANIMATION_PROPERTIES,
   type Composition,
@@ -42,6 +44,7 @@ import {
   EASING_PRESETS,
   gradientPaintSchema,
   propertySchema,
+  semanticLayerRoleSchema,
 } from './schemas';
 import type { AuthoringWorkspace } from './workspace';
 
@@ -70,6 +73,33 @@ const textResult = (value: Record<string, unknown>, summary?: string) => ({
   content: [{ type: 'text' as const, text: summary ?? JSON.stringify(value, null, 2) }],
   structuredContent: value,
 });
+
+const IMPORT_MIME_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.css': 'text/css',
+  '.txt': 'text/plain',
+};
+
+function importMimeType(path: string): string {
+  return IMPORT_MIME_BY_EXTENSION[extname(path).toLowerCase()] ?? 'application/octet-stream';
+}
+
+function dataUriBase64(dataUri: string): string {
+  const separator = dataUri.indexOf(',');
+  if (separator < 0 || !dataUri.slice(0, separator).endsWith(';base64')) {
+    throw new Error('Portable bundle asset was not encoded as base64.');
+  }
+  return dataUri.slice(separator + 1);
+}
 
 function mainComposition(project: Project): Composition {
   const composition = project.compositions.find((item) => item.id === project.mainCompositionId);
@@ -181,6 +211,9 @@ function inspectComposition(composition: Composition) {
       parentId: layer.parentId,
       clipChildren: layer.clipChildren,
       constraints: layer.constraints,
+      semantics: layer.semantics,
+      designTokenBindings: layer.designTokenBindings,
+      componentLink: layer.componentLink,
       bindings: layer.bindings,
       binding: layer.bindings[0] ?? null,
       animatedProperties: getLayerAnimatableProperties(layer).filter((property) =>
@@ -196,7 +229,13 @@ function inspectComposition(composition: Composition) {
       name: component.name,
       layerCount: component.layers.length,
       fieldCount: component.dataFields.length,
+      linkedInstanceCount: new Set(
+        composition.layers
+          .filter((layer) => layer.componentLink?.componentId === component.id)
+          .map((layer) => layer.componentLink!.instanceId),
+      ).size,
     })),
+    designSystem: composition.designSystem,
     layout: {
       ...composition.layout,
       timelineGroups: composition.layout.timelineFolders,
@@ -292,6 +331,9 @@ function projectSnapshotProjection(
             projectedLayer.parentId = layer.parentId;
             projectedLayer.clipChildren = layer.clipChildren;
             projectedLayer.constraints = layer.constraints;
+            projectedLayer.semantics = layer.semantics;
+            projectedLayer.designTokenBindings = layer.designTokenBindings;
+            projectedLayer.componentLink = layer.componentLink;
             projectedLayer.bindings = layer.bindings;
             projectedLayer.binding = layer.bindings[0] ?? null;
           }
@@ -342,6 +384,7 @@ function projectSnapshotProjection(
       if (sections.has('metadata')) {
         projectedComposition.customActions = composition.customActions;
         projectedComposition.assets = composition.assets;
+        projectedComposition.designSystem = composition.designSystem;
         projectedComposition.components = composition.components.map((component) => ({
           id: component.id,
           name: component.name,
@@ -391,6 +434,7 @@ function generatedOperationResults(
         'component',
         'lifecycle-keyframe',
         'loop',
+        'design-token',
       ].includes(generated.kind)
     ) {
       return [];
@@ -455,6 +499,19 @@ function generatedOperationResults(
                 layerCount: component.layers.length,
                 fieldCount: component.dataFields.length,
               }
+            : {}),
+        },
+      ];
+    }
+    if (generated.kind === 'design-token') {
+      const token = project.compositions
+        .flatMap((composition) => composition.designSystem.tokens)
+        .find((candidate) => candidate.id === generated.id);
+      return [
+        {
+          ...base,
+          ...(token
+            ? { key: token.key, name: token.name, tokenType: token.type, value: token.value }
             : {}),
         },
       ];
@@ -525,6 +582,9 @@ function normalizeOperationSelectors(
     if (operation.type === 'save_component') operation.id = createId('component');
     if (operation.type === 'add_custom_action') operation.id = createId('action');
     if (operation.type === 'set_layer_loop') operation.id = createId('layer-loop');
+    if (operation.type === 'upsert_design_token' && !operation.tokenId) {
+      operation.id = createId('design-token');
+    }
 
     if ('layerName' in operation || 'layerId' in operation) {
       const id = typeof operation.layerId === 'string' ? operation.layerId : undefined;
@@ -620,6 +680,25 @@ function normalizeOperationSelectors(
         operation.fieldId = matches[0]!.id;
       }
       delete operation.fieldKey;
+    }
+
+    if (operation.type === 'bind_design_token') {
+      const tokenId = typeof operation.tokenId === 'string' ? operation.tokenId : undefined;
+      const tokenKey = typeof operation.tokenKey === 'string' ? operation.tokenKey : undefined;
+      if (tokenId && tokenKey) {
+        throw new Error(`Operation ${index}: pass tokenId or tokenKey, not both.`);
+      }
+      if (!tokenId && !tokenKey) {
+        throw new Error(`Operation ${index}: tokenId or tokenKey is required.`);
+      }
+      if (tokenKey) {
+        const token = composition.designSystem.tokens.find(
+          (candidate) => candidate.key === tokenKey,
+        );
+        if (!token) throw new Error(`Operation ${index}: design-token key not found: ${tokenKey}`);
+        operation.tokenId = token.id;
+      }
+      delete operation.tokenKey;
     }
 
     const typedOperation = operation as unknown as AuthoringOperation;
@@ -896,6 +975,8 @@ export function createOGrafMcpServer(
         requiresBrowser: [
           'ograf_capture',
           'ograf_render_strip',
+          'ograf_preview_operations',
+          'ograf_propose_operations',
           'ograf_measure_text',
           'ograf_certify_project',
           'ograf_save_project',
@@ -1035,6 +1116,56 @@ export function createOGrafMcpServer(
             'set_layer_layout clipChildren=true makes that layer an animated, rotation-aware rectangular mask for direct children whose parentId points to it. Rectangle borderRadius rounds the transformed mask. Children keep their own world-space rotation; rotate the parent mask to create a diagonal wipe. Clipping is deterministic and compiled; ordinary parent translation remains baked.',
           localLoops:
             'A layer may own one local loop clip with independent numeric property tracks on a 0..durationFrames ruler. set_layer_loop configures lifecycle or Step activation; set_loop_property_track authors incoming-eased keys without creating composition keys or OGraf Steps. Null repeatCount means infinite. All loop phase is sampled from the shared OGraf timestamp/action schedule; loops never invoke lifecycle actions.',
+          semanticAuthoring:
+            'Layer roles, tags, and descriptions are authoring-only intent used by recipes, queries, QA, and review. They never enter the compiled OGraf runtime.',
+        },
+        semanticAuthoring: {
+          roles: [
+            'none',
+            'background',
+            'container',
+            'accent',
+            'headline',
+            'subheadline',
+            'label',
+            'value',
+            'logo',
+            'image',
+            'icon',
+            'mask',
+            'decorative',
+            'ticker',
+            'score',
+            'custom',
+          ],
+          operations: ['set_layer_semantics', 'create_lower_third', 'create_repeater'],
+          recipes: {
+            lowerThird:
+              'Creates a grouped four-layer/two-field lower third with semantic roles and deterministic left-in/down-out lifecycle tracks. The result remains ordinary editable OGraf layers.',
+            repeater:
+              'Materializes a horizontal or vertical data collection as grouped ordinary layers with independent field mappings and semantic item/index tags.',
+          },
+        },
+        designSystem: {
+          operations: [
+            'set_design_system_name',
+            'upsert_design_token',
+            'remove_design_token',
+            'bind_design_token',
+            'unbind_design_token',
+          ],
+          targetProperties: [
+            'fill',
+            'strokeColor',
+            'strokeWidth',
+            'borderRadius',
+            'color',
+            'fontFamily',
+            'fontSize',
+            'fontWeight',
+          ],
+          portability:
+            'Token links are authoring metadata; current values are materialized into normal element properties for standard OGraf output.',
         },
         loopAnimation: {
           operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
@@ -1073,11 +1204,13 @@ export function createOGrafMcpServer(
           reusableComponents: [
             'save_component',
             'instantiate_component',
+            'update_component_from_layers',
+            'refresh_component_instances',
             'rename_component',
             'remove_component',
           ],
           customActions: ['add_custom_action', 'update_custom_action', 'remove_custom_action'],
-          assets: ['add_asset', 'remove_asset'],
+          assets: ['add_asset', 'remove_asset', 'ograf_import_asset', 'ograf_import_svg_bundle'],
           detail:
             'Lifecycle retiming shares the browser editor planner and therefore returns the same duration bounds and warnings. Structural canvas groups, reusable-component snapshots, custom actions, and asset removal use the same canonical project mutations as OGraf Studio.',
         },
@@ -1109,11 +1242,14 @@ export function createOGrafMcpServer(
           optimisticConcurrency: 'Mutations require expectedRevision.',
           atomicBatches: true,
           dryRun: true,
+          visualDryRun: 'ograf_preview_operations',
+          humanReview: 'ograf_propose_operations',
           outputGate: 'Save/export requires exact-artifact browser OGraf certification.',
           fileScope: workspace.root,
         },
         assets: {
           operations: ['add_asset', 'remove_asset'],
+          importTools: ['ograf_import_asset', 'ograf_import_svg_bundle'],
           referenceSyntax: 'asset:<id>',
           semantics:
             'Assets persist once in composition.assets; editor/capture resolve references and certified package export writes each registry entry once. remove_asset refuses referenced image sources unless force=true, which clears those references; removing an in-use font reports a fallback warning.',
@@ -1122,11 +1258,21 @@ export function createOGrafMcpServer(
           operations: [
             'save_component',
             'instantiate_component',
+            'update_component_from_layers',
+            'refresh_component_instances',
             'rename_component',
             'remove_component',
           ],
           semantics:
-            'A saved component snapshots selected layers and their bound fields. Instantiation returns complete layer/field mappings, remaps internal parents, assigns a fresh persistent canvas group, and creates independently editable ordinary OGraf layers. Component definitions are authoring-only and never enter compiled output.',
+            'A saved component snapshots selected layers and their bound fields. Independent instances remain detached; linked instances carry authoring-only source metadata and refresh explicitly with complete replacement mappings. Every instance is still ordinary grouped OGraf layers, and component/link metadata never enters compiled output.',
+        },
+        aiReview: {
+          query: 'ograf_query_scene',
+          visualDryRun: 'ograf_preview_operations',
+          deterministicQa: 'ograf_review_design',
+          humanProposal: 'ograf_propose_operations',
+          semantics:
+            'Use semantic query for compact selection, visual dry-run for model inspection, and proposals when a human should approve visually consequential edits.',
         },
       });
     },
@@ -1207,6 +1353,156 @@ export function createOGrafMcpServer(
         sessionId,
         revision: snapshot.revision,
         compositions: compositions.map(inspectComposition),
+      });
+    },
+  );
+
+  server.registerTool(
+    'ograf_query_scene',
+    {
+      title: 'Query OGraf scene by semantic intent',
+      description:
+        'Returns a small, operation-ready layer selection instead of the full project. Filter by semantic role/tags, layer name, element type, visibility, animation, or bound data-field key. Each match includes its stable ID, semantic intent, on-frame bounds, relationships, binding field keys, and animated properties. Use returned IDs in authoring operations; an empty query intentionally returns all layers up to limit.',
+      inputSchema: {
+        sessionId: z.string().default('editor'),
+        compositionId: z.string().optional(),
+        roles: z.array(semanticLayerRoleSchema).min(1).optional(),
+        tagsAll: z.array(z.string().min(1)).min(1).optional(),
+        tagsAny: z.array(z.string().min(1)).min(1).optional(),
+        nameContains: z.string().min(1).optional(),
+        elementTypes: z
+          .array(
+            z.enum(['rectangle', 'ellipse', 'text', 'image', 'path', 'image-sequence', 'lottie']),
+          )
+          .min(1)
+          .optional(),
+        boundFieldKeys: z.array(z.string().min(1)).min(1).optional(),
+        visible: z.boolean().optional(),
+        animated: z.boolean().optional(),
+        frame: z.number().int().nonnegative().optional(),
+        limit: z.number().int().min(1).max(500).default(100),
+      },
+      annotations: readOnly,
+    },
+    async ({
+      sessionId,
+      compositionId,
+      roles,
+      tagsAll,
+      tagsAny,
+      nameContains,
+      elementTypes,
+      boundFieldKeys,
+      visible,
+      animated,
+      frame,
+      limit,
+    }) => {
+      const snapshot = workspace.get(sessionId).snapshot();
+      const composition = snapshot.project.compositions.find(
+        (item) => item.id === (compositionId ?? snapshot.project.mainCompositionId),
+      );
+      if (!composition) throw new Error('Composition not found.');
+      const resolvedFrame = frame ?? firstStepFrame(composition);
+      if (resolvedFrame > getTotalFrames(composition)) {
+        throw new Error(
+          `Frame ${resolvedFrame} is beyond the composition's total frame ${getTotalFrames(composition)}.`,
+        );
+      }
+      const fieldById = new Map(composition.dataFields.map((field) => [field.id, field]));
+      const lowerName = nameContains?.toLocaleLowerCase();
+      const normalizedTagsAll = tagsAll?.map((tag) => tag.toLocaleLowerCase());
+      const normalizedTagsAny = tagsAny?.map((tag) => tag.toLocaleLowerCase());
+      const desiredFieldKeys = new Set(boundFieldKeys);
+      const matches = composition.layers
+        .map((layer, index) => {
+          const animatedProperties = getLayerAnimatableProperties(layer).filter((property) =>
+            isAnimatedTrack(getResolvedLayerAnimationTracks(layer)[property] ?? []),
+          );
+          const fieldBindings = layer.bindings.map((binding) => {
+            const field = fieldById.get(binding.fieldId);
+            return {
+              fieldId: binding.fieldId,
+              fieldKey: field?.key ?? null,
+              fieldLabel: field?.label ?? null,
+              fieldType: field?.type ?? null,
+              targetProperty: binding.targetProperty,
+            };
+          });
+          const tags = layer.semantics.tags.map((tag) => tag.toLocaleLowerCase());
+          if (roles && !roles.includes(layer.semantics.role)) return null;
+          if (normalizedTagsAll?.some((tag) => !tags.includes(tag))) return null;
+          if (normalizedTagsAny && !normalizedTagsAny.some((tag) => tags.includes(tag)))
+            return null;
+          if (lowerName && !layer.name.toLocaleLowerCase().includes(lowerName)) return null;
+          if (elementTypes && !elementTypes.includes(layer.element.type)) return null;
+          if (visible !== undefined && layer.isVisible !== visible) return null;
+          if (animated !== undefined && animatedProperties.length > 0 !== animated) return null;
+          if (
+            desiredFieldKeys.size > 0 &&
+            !fieldBindings.some(
+              (binding) => binding.fieldKey && desiredFieldKeys.has(binding.fieldKey),
+            )
+          )
+            return null;
+          const pose = getLayerTransformAtFrame(layer, resolvedFrame);
+          return {
+            index,
+            id: layer.id,
+            name: layer.name,
+            type: layer.element.type,
+            semantics: layer.semantics,
+            visible: layer.isVisible,
+            locked: layer.isLocked,
+            groupId: layer.groupId,
+            parentId: layer.parentId,
+            childIds: composition.layers
+              .filter((candidate) => candidate.parentId === layer.id)
+              .map((candidate) => candidate.id),
+            bounds: {
+              x: pose.x,
+              y: pose.y,
+              width: pose.width,
+              height: pose.height,
+              right: pose.x + pose.width,
+              bottom: pose.y + pose.height,
+              opacity: pose.opacity,
+              rotation: pose.rotation,
+            },
+            bindings: fieldBindings,
+            designTokenBindings: layer.designTokenBindings.map((binding) => {
+              const token = composition.designSystem.tokens.find(
+                (candidate) => candidate.id === binding.tokenId,
+              );
+              return {
+                ...binding,
+                tokenKey: token?.key ?? null,
+                tokenType: token?.type ?? null,
+                value: token?.value ?? null,
+              };
+            }),
+            animatedProperties,
+            hasLoop: Boolean(layer.loop),
+            componentLink: layer.componentLink,
+          };
+        })
+        .filter((match): match is NonNullable<typeof match> => Boolean(match));
+      const selected = matches.slice(0, limit);
+      return textResult({
+        sessionId,
+        revision: snapshot.revision,
+        composition: {
+          id: composition.id,
+          name: composition.name,
+          width: composition.width,
+          height: composition.height,
+          frameRate: composition.frameRate,
+        },
+        frame: resolvedFrame,
+        matched: matches.length,
+        returned: selected.length,
+        truncated: matches.length > selected.length,
+        layers: selected,
       });
     },
   );
@@ -1529,6 +1825,299 @@ export function createOGrafMcpServer(
   );
 
   server.registerTool(
+    'ograf_preview_operations',
+    {
+      title: 'Preview OGraf operations without applying them',
+      description:
+        'Runs an atomic revision-checked dry run, then renders the projected project through the connected OGraf Studio browser without changing the session, undo history, or revision. render=frame returns one PNG at frame (or the first Step); render=strip returns a contact sheet at frames (or lifecycle/transition samples). Use this before committing a visually meaningful operation batch. The response includes the exact authoring summary, validation, generated IDs, and a private five-minute localhost PNG URL.',
+      inputSchema: {
+        sessionId: z.string().default('editor'),
+        expectedRevision: z.number().int().nonnegative(),
+        operations: z.array(authoringOperationSchema).min(1),
+        render: z.enum(['frame', 'strip']).default('frame'),
+        compositionId: z.string().optional(),
+        frame: z.number().int().nonnegative().optional(),
+        frames: z.array(z.number().int().nonnegative()).min(1).max(12).optional(),
+        columns: z.number().int().min(1).max(12).default(3),
+        maxDimension: z.number().int().min(64).max(4096).default(900),
+        labelFrames: z.boolean().default(true),
+        matte: captureMatteSchema,
+        dataOverrides: z
+          .record(z.string(), z.union([z.string(), z.number(), z.boolean(), gradientPaintSchema]))
+          .optional(),
+        enableBase64Response: z.boolean().default(false),
+      },
+      annotations: readOnly,
+    },
+    async ({
+      sessionId,
+      expectedRevision,
+      operations,
+      render,
+      compositionId,
+      frame,
+      frames,
+      columns,
+      maxDimension,
+      labelFrames,
+      matte,
+      dataOverrides,
+      enableBase64Response,
+    }) => {
+      if (render === 'strip' && dataOverrides) {
+        throw new Error('dataOverrides is currently available only for render=frame.');
+      }
+      const session = workspace.get(sessionId);
+      const snapshot = session.snapshot();
+      const typedOperations = normalizeOperationSelectors(
+        snapshot.project,
+        operations as unknown[],
+      );
+      const projection = session.apply({
+        expectedRevision,
+        operations: typedOperations,
+        dryRun: true,
+      });
+      const composition = projection.project.compositions.find(
+        (item) => item.id === (compositionId ?? projection.project.mainCompositionId),
+      );
+      if (!composition) throw new Error('Composition not found in projected project.');
+      const results = generatedOperationResults(
+        typedOperations,
+        projection.summary.generatedIds,
+        projection.project,
+      );
+
+      let image: Awaited<ReturnType<EditorBridge['capture']>>;
+      let renderedFrames: number[];
+      if (render === 'frame') {
+        const resolvedFrame = frame ?? firstStepFrame(composition);
+        if (resolvedFrame > getTotalFrames(composition)) {
+          throw new Error(
+            `Frame ${resolvedFrame} is beyond the projected composition's total frame ${getTotalFrames(composition)}.`,
+          );
+        }
+        image = await bridge.capture({
+          target: 'composition',
+          project: projection.project,
+          compositionId: composition.id,
+          frame: resolvedFrame,
+          maxDimension,
+          matte,
+          ...(dataOverrides ? { dataOverrides } : {}),
+        });
+        renderedFrames = [resolvedFrame];
+      } else {
+        const resolvedFrames = frames
+          ? [...new Set(frames)].sort((a, b) => a - b)
+          : defaultStripFrames(composition);
+        const totalFrames = getTotalFrames(composition);
+        const invalidFrame = resolvedFrames.find((candidate) => candidate > totalFrames);
+        if (invalidFrame !== undefined) {
+          throw new Error(
+            `Frame ${invalidFrame} is beyond the projected composition's total frame ${totalFrames}.`,
+          );
+        }
+        image = await bridge.renderStrip({
+          project: projection.project,
+          compositionId: composition.id,
+          frames: resolvedFrames,
+          columns,
+          maxDimension: Math.min(maxDimension, 1024),
+          labelFrames,
+          matte,
+        });
+        renderedFrames = resolvedFrames;
+      }
+
+      const { data, ...metadata } = image;
+      const structuredContent = {
+        sessionId,
+        baseRevision: snapshot.revision,
+        revisionUnchanged: session.revision === snapshot.revision,
+        dryRun: true,
+        render,
+        compositionId: composition.id,
+        frames: renderedFrames,
+        summary: projection.summary,
+        validation: projection.validation,
+        results,
+        ...metadata,
+        fetchCommand: `curl --fail --output ograf-proposal.png "${image.url}"`,
+      };
+      const content: Array<
+        { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: 'image/png' }
+      > = [
+        {
+          type: 'text',
+          text: `Projected ${projection.summary.operationCount} operation(s) at unchanged revision ${snapshot.revision}; valid=${projection.validation.valid}. ${render === 'frame' ? 'Frame' : 'Frames'} ${renderedFrames.join(', ')} rendered: ${image.url}`,
+        },
+      ];
+      if (enableBase64Response) content.push({ type: 'image', data, mimeType: 'image/png' });
+      return { content, structuredContent };
+    },
+  );
+
+  server.registerTool(
+    'ograf_propose_operations',
+    {
+      title: 'Propose OGraf operations for human review',
+      description:
+        'Creates a visual, revision-neutral dry-run and presents it inside OGraf Studio with explicit Accept and Reject controls. Acceptance atomically applies the exact prevalidated operations only if the live revision still equals baseRevision; otherwise the proposal resolves as stale and must be regenerated. This is the preferred boundary for visually consequential AI edits.',
+      inputSchema: {
+        sessionId: z.literal('editor').default('editor'),
+        expectedRevision: z.number().int().nonnegative(),
+        title: z.string().min(1).max(120),
+        description: z.string().max(1000).default(''),
+        operations: z.array(authoringOperationSchema).min(1),
+        render: z.enum(['frame', 'strip']).default('strip'),
+        compositionId: z.string().optional(),
+        frame: z.number().int().nonnegative().optional(),
+        frames: z.array(z.number().int().nonnegative()).min(1).max(12).optional(),
+        columns: z.number().int().min(1).max(12).default(3),
+        maxDimension: z.number().int().min(64).max(1024).default(320),
+        matte: captureMatteSchema,
+        enableBase64Response: z.boolean().default(false),
+      },
+      annotations: readOnly,
+    },
+    async ({
+      sessionId,
+      expectedRevision,
+      title,
+      description,
+      operations,
+      render,
+      compositionId,
+      frame,
+      frames,
+      columns,
+      maxDimension,
+      matte,
+      enableBase64Response,
+    }) => {
+      const session = workspace.get(sessionId);
+      const snapshot = session.snapshot();
+      const typedOperations = normalizeOperationSelectors(
+        snapshot.project,
+        operations as unknown[],
+      );
+      const projection = session.apply({
+        expectedRevision,
+        operations: typedOperations,
+        dryRun: true,
+      });
+      const composition = projection.project.compositions.find(
+        (item) => item.id === (compositionId ?? projection.project.mainCompositionId),
+      );
+      if (!composition) throw new Error('Composition not found in projected project.');
+      let preview: Awaited<ReturnType<EditorBridge['capture']>>;
+      let renderedFrames: number[];
+      if (render === 'frame') {
+        const resolvedFrame = frame ?? firstStepFrame(composition);
+        if (resolvedFrame > getTotalFrames(composition)) {
+          throw new Error(`Frame ${resolvedFrame} is beyond the projected composition's duration.`);
+        }
+        preview = await bridge.capture({
+          target: 'composition',
+          project: projection.project,
+          compositionId: composition.id,
+          frame: resolvedFrame,
+          maxDimension,
+          matte,
+        });
+        renderedFrames = [resolvedFrame];
+      } else {
+        const resolvedFrames = frames
+          ? [...new Set(frames)].sort((a, b) => a - b)
+          : defaultStripFrames(composition);
+        const invalidFrame = resolvedFrames.find(
+          (candidate) => candidate > getTotalFrames(composition),
+        );
+        if (invalidFrame !== undefined) {
+          throw new Error(`Frame ${invalidFrame} is beyond the projected composition's duration.`);
+        }
+        preview = await bridge.renderStrip({
+          project: projection.project,
+          compositionId: composition.id,
+          frames: resolvedFrames,
+          columns,
+          maxDimension,
+          labelFrames: true,
+          matte,
+        });
+        renderedFrames = resolvedFrames;
+      }
+      const proposalId = randomUUID();
+      const proposal = {
+        id: proposalId,
+        title,
+        description,
+        sessionId,
+        baseRevision: snapshot.revision,
+        operationTypes: typedOperations.map((operation) => operation.type),
+        operationCount: typedOperations.length,
+        previewUrl: preview.url,
+        previewExpiresAt: preview.expiresAt,
+        render,
+        frames: renderedFrames,
+        valid: projection.validation.valid,
+        warnings: [
+          ...projection.summary.warnings,
+          ...projection.validation.warnings,
+          ...projection.validation.errors,
+        ],
+      };
+      bridge.presentProposal(proposal, async (decision) => {
+        if (decision === 'reject') {
+          return { status: 'rejected', message: 'Proposal rejected; the project was not changed.' };
+        }
+        try {
+          const applied = session.apply({
+            expectedRevision: snapshot.revision,
+            operations: typedOperations,
+            reason: `Accepted proposal: ${title}`,
+          });
+          return {
+            status: 'accepted',
+            message: `Applied ${applied.summary.operationCount} operation(s).`,
+            revision: applied.revision,
+          };
+        } catch (error) {
+          if (error instanceof RevisionConflictError) {
+            return {
+              status: 'stale',
+              message: `${error.message} Regenerate the proposal against the current project.`,
+              revision: session.revision,
+            };
+          }
+          throw error;
+        }
+      });
+      const { data, ...previewMetadata } = preview;
+      const structuredContent = {
+        proposalId,
+        status: 'pending-human-review',
+        baseRevision: snapshot.revision,
+        revisionUnchanged: session.revision === snapshot.revision,
+        summary: projection.summary,
+        validation: projection.validation,
+        preview: previewMetadata,
+      };
+      const content: Array<
+        { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: 'image/png' }
+      > = [
+        {
+          type: 'text',
+          text: `Proposal ${proposalId} is waiting for Accept or Reject in OGraf Studio. The project remains at revision ${snapshot.revision}. Preview: ${preview.url}`,
+        },
+      ];
+      if (enableBase64Response) content.push({ type: 'image', data, mimeType: 'image/png' });
+      return { content, structuredContent };
+    },
+  );
+
+  server.registerTool(
     'ograf_validate_project',
     {
       title: 'Validate editable OGraf project',
@@ -1656,6 +2245,78 @@ export function createOGrafMcpServer(
         },
         broadcastLint: { enabled: broadcastLint, interlacedOutput, warnings: lintWarnings },
       });
+    },
+  );
+
+  server.registerTool(
+    'ograf_review_design',
+    {
+      title: 'Review OGraf design and motion',
+      description:
+        'Runs deterministic design QA over semantic coverage, on-air bounds, text hierarchy/legibility, editable-text coverage, palette size, repeater spacing, Start/End visibility, transition pops, and extreme motion speed. It returns operation-ready layer IDs and frames. Set includeStrip=true to append a browser-rendered lifecycle/mid-transition contact sheet without changing revision.',
+      inputSchema: {
+        sessionId: z.string().default('editor'),
+        compositionId: z.string().optional(),
+        includeStrip: z.boolean().default(false),
+        columns: z.number().int().min(1).max(12).default(3),
+        maxDimension: z.number().int().min(64).max(1024).default(320),
+        matte: captureMatteSchema,
+        enableBase64Response: z.boolean().default(false),
+      },
+      annotations: readOnly,
+    },
+    async ({
+      sessionId,
+      compositionId,
+      includeStrip,
+      columns,
+      maxDimension,
+      matte,
+      enableBase64Response,
+    }) => {
+      const snapshot = workspace.get(sessionId).snapshot();
+      const composition = snapshot.project.compositions.find(
+        (item) => item.id === (compositionId ?? snapshot.project.mainCompositionId),
+      );
+      if (!composition) throw new Error('Composition not found.');
+      const report = reviewCompositionDesign(composition);
+      let publishedStrip: Awaited<ReturnType<EditorBridge['renderStrip']>> | null = null;
+      if (includeStrip) {
+        publishedStrip = await bridge.renderStrip({
+          project: snapshot.project,
+          compositionId: composition.id,
+          frames: defaultStripFrames(composition),
+          columns,
+          maxDimension,
+          labelFrames: true,
+          matte,
+        });
+      }
+      const stripMetadata = publishedStrip
+        ? (() => {
+            const { data: _data, ...metadata } = publishedStrip;
+            return metadata;
+          })()
+        : null;
+      const structuredContent = {
+        sessionId,
+        revision: snapshot.revision,
+        compositionId: composition.id,
+        ...report,
+        strip: stripMetadata,
+      };
+      const content: Array<
+        { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: 'image/png' }
+      > = [
+        {
+          type: 'text',
+          text: `Design QA score ${report.score}/100: ${report.summary.error} error(s), ${report.summary.warning} warning(s), ${report.summary.info} info finding(s).${publishedStrip ? ` Contact sheet: ${publishedStrip.url}` : ''}`,
+        },
+      ];
+      if (publishedStrip && enableBase64Response) {
+        content.push({ type: 'image', data: publishedStrip.data, mimeType: 'image/png' });
+      }
+      return { content, structuredContent };
     },
   );
 
@@ -1791,11 +2452,185 @@ export function createOGrafMcpServer(
   );
 
   server.registerTool(
+    'ograf_import_asset',
+    {
+      title: 'Import a workspace asset into OGraf',
+      description:
+        'Reads one image, font, CSS, or text file from the configured workspace root and atomically embeds it in composition.assets. Paths outside the workspace are rejected. The returned asset:<id> reference can be assigned to image layers or data fields. Files are capped at 32 MiB.',
+      inputSchema: {
+        sessionId: z.string().default('editor'),
+        expectedRevision: z.number().int().nonnegative(),
+        compositionId: z.string().optional(),
+        path: z.string().min(1),
+        name: z.string().min(1).optional(),
+        mimeType: z
+          .enum([
+            'image/png',
+            'image/jpeg',
+            'image/gif',
+            'image/webp',
+            'image/svg+xml',
+            'font/ttf',
+            'font/otf',
+            'font/woff',
+            'font/woff2',
+            'text/css',
+            'text/plain',
+          ])
+          .optional(),
+        fontFamily: z.string().min(1).optional(),
+        fontWeight: z.string().min(1).optional(),
+        fontStyle: z.enum(['normal', 'italic', 'oblique']).optional(),
+        packagePath: z.string().min(1).optional(),
+        licenseName: z.string().optional(),
+        licenseUrl: z.string().optional(),
+        licenseText: z.string().optional(),
+      },
+      annotations: mutation,
+    },
+    async ({
+      sessionId,
+      expectedRevision,
+      compositionId,
+      path,
+      name,
+      mimeType,
+      fontFamily,
+      fontWeight,
+      fontStyle,
+      packagePath,
+      licenseName,
+      licenseUrl,
+      licenseText,
+    }) => {
+      const resolvedPath = workspace.resolveAllowedPath(path);
+      const data = await readFile(resolvedPath);
+      if (data.byteLength > 32 * 1024 * 1024) {
+        throw new Error('Asset exceeds the 32 MiB workspace import limit.');
+      }
+      const resolvedMime = mimeType ?? importMimeType(resolvedPath);
+      if (resolvedMime === 'application/octet-stream') {
+        throw new Error('Unknown asset type; provide a supported mimeType explicitly.');
+      }
+      const operation: AuthoringOperation = {
+        type: 'add_asset',
+        ...(compositionId ? { compositionId } : {}),
+        name: name?.trim() || basename(resolvedPath),
+        mimeType: resolvedMime,
+        data: data.toString('base64'),
+        ...(fontFamily ? { fontFamily } : {}),
+        ...(fontWeight ? { fontWeight } : {}),
+        ...(fontStyle ? { fontStyle } : {}),
+        ...(packagePath ? { packagePath } : {}),
+        ...(licenseName !== undefined ? { licenseName } : {}),
+        ...(licenseUrl !== undefined ? { licenseUrl } : {}),
+        ...(licenseText !== undefined ? { licenseText } : {}),
+      };
+      const session = workspace.get(sessionId);
+      const result = session.apply({ expectedRevision, operations: [operation] });
+      const generated = generatedOperationResults(
+        [operation],
+        result.summary.generatedIds,
+        result.project,
+      );
+      return textResult(
+        {
+          sessionId,
+          revision: result.revision,
+          importedFrom: path,
+          assets: generated,
+          warnings: result.summary.warnings,
+          validation: result.validation,
+        },
+        `Imported ${path} at revision ${result.revision}: ${generated.map((entry) => `asset:${entry.id}`).join(', ')}.`,
+      );
+    },
+  );
+
+  server.registerTool(
+    'ograf_import_svg_bundle',
+    {
+      title: 'Import a portable Photoshop SVG bundle',
+      description:
+        'Reads exactly one SVG plus selected companion CSS, linked images, and font files from the configured workspace root. It embeds relative resources into a portable SVG, registers discovered fonts separately, and applies every asset in one revision-checked transaction. Paths outside the workspace are rejected; each file is capped at 32 MiB and the bundle at 64 MiB.',
+      inputSchema: {
+        sessionId: z.string().default('editor'),
+        expectedRevision: z.number().int().nonnegative(),
+        compositionId: z.string().optional(),
+        paths: z.array(z.string().min(1)).min(1).max(64),
+      },
+      annotations: mutation,
+    },
+    async ({ sessionId, expectedRevision, compositionId, paths }) => {
+      const seenNames = new Set<string>();
+      let totalBytes = 0;
+      const files = await Promise.all(
+        paths.map(async (path) => {
+          const resolvedPath = workspace.resolveAllowedPath(path);
+          const data = await readFile(resolvedPath);
+          if (data.byteLength > 32 * 1024 * 1024) {
+            throw new Error(`${path} exceeds the 32 MiB per-file import limit.`);
+          }
+          totalBytes += data.byteLength;
+          const name = basename(resolvedPath);
+          const key = name.toLocaleLowerCase();
+          if (seenNames.has(key)) {
+            throw new Error(`Bundle contains duplicate base filename: ${name}`);
+          }
+          seenNames.add(key);
+          return {
+            name,
+            type: importMimeType(resolvedPath),
+            size: data.byteLength,
+            text: async () => data.toString('utf8'),
+            arrayBuffer: async () => Uint8Array.from(data).buffer,
+          };
+        }),
+      );
+      if (totalBytes > 64 * 1024 * 1024) {
+        throw new Error('SVG bundle exceeds the 64 MiB aggregate import limit.');
+      }
+      const bundle = await buildSvgBundle(files);
+      const assets = [bundle.svgAsset, ...bundle.fontAssets];
+      const operations: AuthoringOperation[] = assets.map((asset) => ({
+        type: 'add_asset',
+        ...(compositionId ? { compositionId } : {}),
+        name: asset.name,
+        mimeType: asset.mimeType,
+        data: dataUriBase64(asset.dataUri),
+        ...(asset.fontFamily ? { fontFamily: asset.fontFamily } : {}),
+        ...(asset.fontWeight ? { fontWeight: asset.fontWeight } : {}),
+        ...(asset.fontStyle ? { fontStyle: asset.fontStyle } : {}),
+      }));
+      const session = workspace.get(sessionId);
+      const result = session.apply({ expectedRevision, operations });
+      const generated = generatedOperationResults(
+        operations,
+        result.summary.generatedIds,
+        result.project,
+      );
+      const warnings = [...bundle.warnings, ...result.summary.warnings];
+      return textResult(
+        {
+          sessionId,
+          revision: result.revision,
+          importedFrom: paths,
+          svgAsset: generated[0] ?? null,
+          fontAssets: generated.slice(1),
+          warnings,
+          validation: result.validation,
+        },
+        `Imported portable SVG bundle with ${generated.length} embedded asset(s) at revision ${result.revision}; warnings=${warnings.length}.`,
+      );
+    },
+  );
+
+  server.registerTool(
     'ograf_apply_operations',
     {
       title: 'Apply atomic OGraf authoring operations',
       description:
-        'Atomically applies scene, timeline, loop, data, lifecycle, asset, duplication, component, and canvas-layout operations using expectedRevision. Creation returns stable IDs. Lifecycle rename/move/remove uses the same retiming planner, duration bounds, and warnings as OGraf Studio. group_layers/ungroup_layers persist canvas object groups; save_component/instantiate_component create portable authoring snapshots and independently editable standard-layer instances with complete mappings; custom-action CRUD edits controller-visible actions; remove_asset refuses live image references unless force=true. set_layer_loop creates/updates one layer-local deterministic clip; activation type lifecycle runs while the graphic is on-air, while type step requires a pausable stepKeyframeId. set_loop_property_track writes local 0..durationFrames numeric keys with independent incoming easing/curves; these keys never become composition keys or OGraf Steps, null repeatCount is infinite, and remove_layer_loop removes the complete clip. create_timeline_group organizes at least two independent layer rows for editor/MCP readability and returns a stable timeline-group ID; rename_timeline_group, set_timeline_group_color, and ungroup_timeline_group edit only that UI organization and never alter paint order, layer tracks, canvas object groups, or compiled OGraf output. add_asset accepts base64 (without a data-URI prefix) and returns an asset ID usable as asset:<id>. Operations with one layer accept layerId or exact layerName (ambiguity is rejected); exact layerName and fieldKey selectors resolve entities created earlier in the same batch. set_layer_bindings replaces an ordered multi-property binding list and accepts fieldId or unique fieldKey for each entry; set_layer_binding remains the legacy single-binding replacement. update_data_field accepts fieldId or unique fieldKey. set_layer_layout clipChildren=true makes that layer an animated rotation-aware mask for direct children whose parentId points to it; rectangle borderRadius rounds the transformed mask, and duplicate_group preserves/remaps this relation. rectangle/ellipse fill accepts either a solid color string or {type:"linear"|"radial"|"conic",angle,stops:[{offset,color,opacity}]}; animate a stop with numeric property fill.stops[N].offset (zero-based, values 0..1). stagger_property_track accepts layerIds or a * wildcard layerNamePattern resolved in document order. update_transform/update_effects default scope="authored" and write every lifecycle frame; scope="frame" requires frame for animation edits. duplicate_group creates independent grouped copies and complete layer/field mappings; frameOffset shifts only non-lifecycle authored keys, keeps lifecycle compatibility keys anchored, and rejects genuine authored keys moved outside the duration. dryRun is revision-neutral and atomic. Higher indexes paint later/on top; property easing is incoming. Every authoring warning is returned verbatim in the primary text response with its operation index and affected layer.',
+        'Atomically applies scene, timeline, semantic recipe, repeater, brand-token, loop, data, lifecycle, asset, duplication, component, and canvas-layout operations using expectedRevision. Creation returns stable IDs. create_lower_third materializes an ordinary grouped four-layer/two-field lower third; create_repeater materializes data items as grouped normal layers with independent fields. Design-token links and linked-component metadata are authoring-only, while values and refreshed instances remain standard portable OGraf content. update_component_from_layers replaces a saved snapshot and refresh_component_instances explicitly re-materializes linked instances with returned mappings. Lifecycle rename/move/remove uses the same retiming planner, duration bounds, and warnings as OGraf Studio. group_layers/ungroup_layers persist canvas object groups; custom-action CRUD edits controller-visible actions; remove_asset refuses live image references unless force=true. set_layer_loop creates/updates one layer-local deterministic clip; activation type lifecycle runs while the graphic is on-air, while type step requires a pausable stepKeyframeId. set_loop_property_track writes local 0..durationFrames numeric keys with independent incoming easing/curves; these keys never become composition keys or OGraf Steps, null repeatCount is infinite, and remove_layer_loop removes the complete clip. create_timeline_group organizes at least two independent layer rows for editor/MCP readability and returns a stable timeline-group ID. add_asset accepts base64 (without a data-URI prefix) and returns an asset ID usable as asset:<id>. Operations with one layer accept layerId or exact layerName (ambiguity is rejected); exact layerName, fieldKey, and tokenKey selectors resolve entities created earlier in the same batch. update_transform/update_effects default scope="authored" and write every lifecycle frame; scope="frame" requires frame for animation edits. duplicate_group creates independent grouped copies and complete layer/field mappings; frameOffset shifts only non-lifecycle authored keys. dryRun is revision-neutral and atomic. Higher indexes paint later/on top; property easing is incoming. Every authoring warning is returned verbatim in the primary text response with its operation index and affected layer.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -1840,13 +2675,28 @@ export function createOGrafMcpServer(
         }));
         const componentResults = result.summary.componentInstances.map((instance) => ({
           index: instance.operationIndex,
-          type: 'instantiate_component',
+          type: typedOperations[instance.operationIndex]?.type ?? 'instantiate_component',
           componentId: instance.componentId,
+          instanceId: instance.instanceId,
           groupId: instance.groupId,
+          linked: instance.linked,
           layers: instance.layers,
           fields: instance.fields,
         }));
-        const results = [...generatedResults, ...duplicateResults, ...componentResults];
+        const repeaterResults = result.summary.repeaters.map((repeater) => ({
+          index: repeater.operationIndex,
+          type: 'create_repeater',
+          name: repeater.name,
+          direction: repeater.direction,
+          gap: repeater.gap,
+          items: repeater.items,
+        }));
+        const results = [
+          ...generatedResults,
+          ...duplicateResults,
+          ...componentResults,
+          ...repeaterResults,
+        ];
         const runLint = dryRun && (broadcastLint || interlacedOutput);
         const lintWarnings = runLint ? broadcastLintWarnings(result.project, interlacedOutput) : [];
         const response = {

@@ -1,6 +1,6 @@
 ---
 name: ograf-authoring
-description: Create, inspect, animate, validate, certify, save, and export EBU OGraf-compatible broadcast graphics through the OGraf Studio MCP server. Use for lower thirds, scoreboards, tickers, looping backgrounds, HTML5 broadcast templates, .ogeproj project files, .ograf.zip packages, scene/layer edits, per-property keyframes and local loops, easing, data fields, bindings, and OGraf compliance work.
+description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, semantic scene authoring, Brand Kits, repeaters, reusable components, HTML5 broadcast templates, .ogeproj source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
 ---
 
 # OGraf Authoring
@@ -18,10 +18,15 @@ replace the tools with raw file editing.
    browser-dependent tool while the socket is open but the editor is unresponsive; bring the editor
    tab to the foreground first. Require `editor.certificationReady` before certification or file
    output; follow `certificationLikelyCause` recovery guidance. `liveEditorConnected` is deprecated.
-2. Call `ograf_get_project` or `ograf_inspect_scene` before editing. Preserve the returned stable
-   IDs and `revision`. For routine reads, prefer explicit `include` sections with
+2. Call `ograf_query_scene`, `ograf_get_project`, or `ograf_inspect_scene` before editing. Prefer
+   the semantic query when roles, tags, names, bindings, element kinds, or animation status can
+   identify the intended layers compactly. Preserve returned stable IDs and `revision`. For routine
+   project reads, prefer explicit `include` sections with
    `tracks: "animated-only"`; omit filters when a complete compatibility snapshot is required.
-3. Build one coherent `ograf_apply_operations` batch. Use `dryRun: true` before destructive or
+3. Build one coherent `ograf_apply_operations` batch. Use `ograf_preview_operations` when geometry,
+   paint, hierarchy, or motion needs a rendered projected frame/strip. Use
+   `ograf_propose_operations` when a human should explicitly Accept or Reject a visually
+   consequential batch in the editor. Use `dryRun: true` before destructive or
    hard-to-reverse operations: layer/field removal, layer reorder, transition-duration changes, and
    `duplicate_group` with cloned fields. Commit purely additive layer/field/key/asset batches
    directly unless their projected layout is genuinely uncertain.
@@ -30,8 +35,10 @@ replace the tools with raw file editing.
    projected IDs, validation, optional broadcast lint, and compact per-operation summaries, but its
    generated IDs are hypothetical and must not be reused after the real batch.
 4. Apply with the latest `expectedRevision`. If a revision conflict occurs, re-read the project and consciously rebase; never blindly retry stale operations.
-5. Inspect the result with `ograf_get_timeline`, `ograf_capture`, `ograf_render_strip`, and
-   `ograf_validate_project`.
+5. Inspect the result with `ograf_review_design`, `ograf_get_timeline`, `ograf_capture`,
+   `ograf_render_strip`, and `ograf_validate_project`. Design QA is deterministic and advisory: use
+   its stable finding IDs/layer IDs and preview frames to guide changes, not as a substitute for
+   editorial judgement or certification.
    Use `target: "composition"` with a checker matte for design checks and `target: "viewport"`
    when editor chrome or canvas state may be involved. Use `ograf_render_strip` for animation work;
    omit `frames` to sample lifecycle frames and transition midpoints, or provide up to 12 diagnostic
@@ -53,7 +60,8 @@ replace the tools with raw file editing.
    output flags and identity without mutating source. Pass `confirm: true`; leave `overwrite` false
    unless replacement was explicitly intended.
 
-The live browser editor must be open for PNG capture/strips, certification, save, and export.
+The live browser editor must be open for visual operation previews/proposals, PNG capture/strips,
+certification, save, and export.
 Capture and strips are read-only and never substitute for certified save/export. Certification
 tools certify the exact compiled artifacts and fail closed when the editor is unavailable.
 
@@ -66,13 +74,29 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 - The MCP server does not expose a raw package-decompilation tool. When the user asks to open or
   convert an existing OGraf package, use the visible editor workflow rather than fabricating a
   project document.
-- The visible Resources workflow can import an SVG together with companion CSS, images, and fonts,
-  embedding relative dependencies into one portable SVG. It remains one image layer; arbitrary
-  Photoshop raster/vector output is not semantically decomposed into editable objects.
+- Use `ograf_import_asset` for one workspace-confined image, font, CSS, or source attachment. Use
+  `ograf_import_svg_bundle` for one SVG plus companion CSS, images, and fonts; it embeds relative
+  dependencies into one portable SVG and registers packaged fonts. The result remains one image
+  layer—arbitrary Photoshop raster/vector output is not semantically decomposed into editable
+  objects.
 
 ## Authoring rules
 
 - Prefer `sessionId: "editor"` when collaborating in the visible application.
+- Assign meaningful `set_layer_semantics` roles, tags, and descriptions to authored layers. Use
+  `create_lower_third` for the standard grouped semantic recipe and `ograf_query_scene` for compact
+  later selection. Semantic metadata guides authoring and QA but never enters compiled playout.
+- Use Brand Kit operations to create typed design tokens and `bind_design_token` to apply them to
+  compatible layer properties. Token links are authoring metadata; OGraf Studio materializes their
+  current values into standard element properties so the exported template has no token-runtime
+  dependency.
+- Use `save_component` plus `instantiate_component` with `linked: false` for permanent independent
+  instances. Use `linked: true` only when explicit later refresh is valuable; update a component
+  from selected layers and call `refresh_component_instances` deliberately because refresh replaces
+  linked instance content from the latest snapshot. There is no live master at playout time.
+- Use `create_repeater` when a finite horizontal or vertical collection should be materialized from
+  selected source layers. It creates ordinary grouped layers and cloned fields with semantic item
+  tags; use runtime data fields normally afterward. It is not a live array-binding primitive.
 - Use property tracks independently. Changing `x` must not create or retime `opacity`, `rotation`, or another layer's keys.
 - Prefer `set_property_track` for a complete track and `stagger_property_track` for repeated
   multi-layer timing; both remain operations inside the same revision-checked atomic batch.

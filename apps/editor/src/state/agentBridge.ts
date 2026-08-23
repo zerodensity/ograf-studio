@@ -29,6 +29,57 @@ export const useAgentBridgeStatus = create<AgentBridgeStatus>((set) => ({
   setStatus: (patch) => set(patch),
 }));
 
+export interface AgentAuthoringProposal {
+  id: string;
+  title: string;
+  description: string;
+  sessionId: string;
+  baseRevision: number;
+  operationTypes: string[];
+  operationCount: number;
+  previewUrl: string;
+  previewExpiresAt: string;
+  render: 'frame' | 'strip';
+  frames: number[];
+  valid: boolean;
+  warnings: string[];
+}
+
+interface AgentReviewState {
+  proposals: AgentAuthoringProposal[];
+  lastResolution: { status: string; message: string } | null;
+  present: (proposal: AgentAuthoringProposal) => void;
+  resolve: (proposalId: string, result: { status: string; message: string }) => void;
+  dismissResolution: () => void;
+}
+
+export const useAgentReviewStore = create<AgentReviewState>((set) => ({
+  proposals: [],
+  lastResolution: null,
+  present: (proposal) =>
+    set((state) => ({
+      proposals: [...state.proposals.filter((candidate) => candidate.id !== proposal.id), proposal],
+      lastResolution: null,
+    })),
+  resolve: (proposalId, result) =>
+    set((state) => ({
+      proposals: state.proposals.filter((proposal) => proposal.id !== proposalId),
+      lastResolution: result,
+    })),
+  dismissResolution: () => set({ lastResolution: null }),
+}));
+
+let sendProposalDecision: ((payload: unknown) => void) | null = null;
+
+export function decideAgentProposal(proposalId: string, decision: 'accept' | 'reject'): void {
+  if (!sendProposalDecision) return;
+  useAgentBridgeStatus.getState().setStatus({
+    activity:
+      decision === 'accept' ? 'Applying accepted agent proposal…' : 'Rejecting agent proposal…',
+  });
+  sendProposalDecision({ type: 'proposal.decision', proposalId, decision });
+}
+
 type BridgeMessage =
   | { type: 'editor.ack'; revision: number }
   | { type: 'heartbeat.request'; requestId: string }
@@ -43,7 +94,13 @@ type BridgeMessage =
   | { type: 'certification.request'; requestId: string; artifacts: ExportArtifacts }
   | { type: 'capture.request'; requestId: string; request: AgentCaptureRequest }
   | { type: 'strip.request'; requestId: string; request: AgentStripRequest }
-  | { type: 'measure-text.request'; requestId: string; request: AgentMeasureTextRequest };
+  | { type: 'measure-text.request'; requestId: string; request: AgentMeasureTextRequest }
+  | { type: 'proposal.present'; proposal: AgentAuthoringProposal }
+  | {
+      type: 'proposal.resolved';
+      proposalId: string;
+      result: { status: string; message: string; revision?: number };
+    };
 
 const BRIDGE_URL = import.meta.env.VITE_OGRAF_AGENT_BRIDGE_URL ?? 'ws://127.0.0.1:4318/editor';
 
@@ -64,6 +121,7 @@ export function useAgentBridge(): void {
     const send = (payload: unknown) => {
       if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
     };
+    sendProposalDecision = send;
 
     const unsubscribe = useProjectStore.subscribe((state, previous) => {
       if (state.project === previous.project || applyingRemote) return;
@@ -125,6 +183,19 @@ export function useAgentBridge(): void {
           status({
             revision: message.revision,
             activity: `${sourceLabel}: ${count ? `${count} change${count === 1 ? '' : 's'}` : 'project updated'}${detail ? ` — ${detail}` : ''}`,
+          });
+          return;
+        }
+        if (message.type === 'proposal.present') {
+          useAgentReviewStore.getState().present(message.proposal);
+          status({ activity: `Review requested: ${message.proposal.title}` });
+          return;
+        }
+        if (message.type === 'proposal.resolved') {
+          useAgentReviewStore.getState().resolve(message.proposalId, message.result);
+          status({
+            revision: message.result.revision ?? useAgentBridgeStatus.getState().revision,
+            activity: message.result.message,
           });
           return;
         }
@@ -220,6 +291,7 @@ export function useAgentBridge(): void {
       window.clearTimeout(reconnectTimer);
       window.clearTimeout(syncTimer);
       unsubscribe();
+      if (sendProposalDecision === send) sendProposalDecision = null;
       socket?.close();
     };
   }, []);

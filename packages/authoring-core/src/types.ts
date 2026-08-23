@@ -8,7 +8,13 @@ import type {
   LayerBinding,
   LayerEffects,
   LayerConstraints,
+  LayerSemantics,
+  DesignTokenTargetProperty,
+  DesignTokenType,
+  DesignTokenValue,
   LayerTransform,
+  LowerThirdRecipeOptions,
+  RepeaterRecipeOptions,
   NewLayerKind,
   LayerLoopActivation,
   Project,
@@ -40,6 +46,42 @@ export type AuthoringOperation =
       type: 'set_composition_layout';
       compositionId?: string;
       patch: Partial<Omit<CompositionLayout, 'guides'>>;
+    }
+  | {
+      type: 'set_design_system_name';
+      compositionId?: string;
+      name: string;
+    }
+  | {
+      type: 'upsert_design_token';
+      compositionId?: string;
+      id?: string;
+      tokenId?: string;
+      key: string;
+      name?: string;
+      tokenType: DesignTokenType;
+      value: DesignTokenValue;
+      description?: string;
+    }
+  | {
+      type: 'remove_design_token';
+      compositionId?: string;
+      tokenId: string;
+      force?: boolean;
+    }
+  | {
+      type: 'bind_design_token';
+      compositionId?: string;
+      layerId: string;
+      tokenId?: string;
+      tokenKey?: string;
+      targetProperty: DesignTokenTargetProperty;
+    }
+  | {
+      type: 'unbind_design_token';
+      compositionId?: string;
+      layerId: string;
+      targetProperty: DesignTokenTargetProperty;
     }
   | {
       type: 'add_lifecycle_step';
@@ -118,6 +160,19 @@ export type AuthoringOperation =
       compositionId?: string;
       componentId: string;
       offset?: { x?: number; y?: number };
+      linked?: boolean;
+    }
+  | {
+      type: 'update_component_from_layers';
+      compositionId?: string;
+      componentId: string;
+      layerIds: string[];
+    }
+  | {
+      type: 'refresh_component_instances';
+      compositionId?: string;
+      componentId: string;
+      instanceIds?: string[];
     }
   | {
       type: 'rename_component';
@@ -172,6 +227,20 @@ export type AuthoringOperation =
       effects?: Partial<LayerEffects>;
       index?: number;
     }
+  | {
+      type: 'set_layer_semantics';
+      compositionId?: string;
+      layerId: string;
+      patch: Partial<LayerSemantics>;
+    }
+  | ({
+      type: 'create_lower_third';
+      compositionId?: string;
+    } & LowerThirdRecipeOptions)
+  | ({
+      type: 'create_repeater';
+      compositionId?: string;
+    } & RepeaterRecipeOptions)
   | {
       type: 'duplicate_group';
       compositionId?: string;
@@ -403,7 +472,8 @@ export interface AuthoringChangeSummary {
       | 'canvas-group'
       | 'custom-action'
       | 'component'
-      | 'loop';
+      | 'loop'
+      | 'design-token';
     id: string;
   }>;
   clearedBindings: Array<{ layerId: string; layerName: string; fieldId: string }>;
@@ -420,9 +490,33 @@ export interface AuthoringChangeSummary {
   componentInstances: Array<{
     operationIndex: number;
     componentId: string;
+    instanceId: string;
     groupId: string;
+    linked: boolean;
     layers: Record<string, string>;
     fields: Record<string, string>;
+  }>;
+  semanticBlocks: Array<{
+    operationIndex: number;
+    recipe: 'lower-third';
+    name: string;
+    groupId: string;
+    timelineGroupId: string;
+    layers: Record<string, string>;
+    fields: Record<string, string>;
+  }>;
+  repeaters: Array<{
+    operationIndex: number;
+    name: string;
+    direction: 'horizontal' | 'vertical';
+    gap: number;
+    items: Array<{
+      index: number;
+      label: string;
+      groupId: string;
+      layers: Record<string, string>;
+      fields: Record<string, string>;
+    }>;
   }>;
 }
 

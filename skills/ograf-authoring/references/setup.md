@@ -23,9 +23,11 @@ Defaults:
 - editor bridge: `ws://127.0.0.1:4318/editor`
 - health endpoint: `http://127.0.0.1:4318/health`
 
-The editor can run without MCP for human visual authoring. Browser-dependent MCP tools require both
-processes and a responsive editor tab. Server-side inspection, validation, mutations, and track
-sampling remain available for MCP sessions when the browser is disconnected.
+The editor can run without MCP for human visual authoring. Browser-dependent MCP tools—including
+visual operation previews, human proposals, capture/strips, measurement, and certification—require
+both processes and a responsive editor tab. Server-side inspection, semantic query, validation,
+mutations, track sampling, and non-visual QA remain available for MCP sessions when the browser is
+disconnected.
 
 ## Health and recovery
 
