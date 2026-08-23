@@ -1,0 +1,150 @@
+.agent-review-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 60;
+  display: flex;
+  width: min(460px, calc(100vw - 48px));
+  max-height: calc(100vh - 72px);
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  overflow: auto;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-panel-raised) 96%, black);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 45%);
+}
+
+.agent-review-panel header,
+.agent-review-panel footer,
+.agent-review-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-review-panel h2 {
+  margin-top: 2px;
+  font-size: 16px;
+}
+
+.agent-review-eyebrow,
+.agent-review-meta {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.agent-review-description {
+  margin: 0;
+  color: var(--text);
+}
+
+.agent-review-preview {
+  width: 100%;
+  max-height: 330px;
+  object-fit: contain;
+  background: #111;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.agent-review-meta {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.agent-review-meta .is-valid {
+  color: #78d99a;
+}
+
+.agent-review-meta .is-invalid {
+  color: #ff8585;
+}
+
+.agent-review-operations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.agent-review-operations code {
+  padding: 3px 6px;
+  color: #cdd3ff;
+  background: #171922;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.agent-review-panel details {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.agent-review-panel details ul {
+  max-height: 120px;
+  margin: 7px 0 0;
+  padding-left: 18px;
+  overflow: auto;
+}
+
+.agent-review-panel footer {
+  justify-content: flex-end;
+}
+
+.agent-review-panel footer button {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agent-review-panel footer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.agent-review-reject {
+  background: transparent;
+}
+
+.agent-review-accept {
+  color: white;
+  background: var(--accent);
+  border-color: var(--accent) !important;
+}
+
+.agent-review-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 60;
+  display: flex;
+  max-width: 420px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 35px rgb(0 0 0 / 35%);
+}
+
+.agent-review-toast.is-accepted {
+  border-color: #4c9b68;
+}
+
+.agent-review-toast.is-error,
+.agent-review-toast.is-stale {
+  border-color: #bd5d5d;
+}
+
+.agent-review-toast button {
+  padding: 0 4px;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+}

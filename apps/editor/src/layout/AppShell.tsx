@@ -10,6 +10,7 @@ import { TimelinePanel } from '../panels/TimelinePanel';
 import { ResizeHandle } from './ResizeHandle';
 import { useResizable } from './useResizable';
 import { useProjectStore } from '../state/projectStore';
+import { AgentReviewPanel } from '../panels/AgentReviewPanel';
 import './AppShell.css';
 
 const RIGHT_TABS = {
@@ -89,6 +90,7 @@ export function AppShell() {
         </div>
         {RIGHT_TABS[rightTab].render()}
       </div>
+      <AgentReviewPanel />
     </div>
   );
 }

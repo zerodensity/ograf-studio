@@ -1,14 +1,20 @@
 # Example: animated lower third
 
-1. Read `ograf_get_project`; record revision and composition ID.
-2. Commit one additive batch adding a background rectangle, accent rectangle, name text, and role text with authored element styles and transforms; capture generated layer IDs.
-3. Read the timeline, then add independent keys:
+1. Read capabilities and the current revision, then call `create_lower_third` with the intended
+   placement, initial headline/subheadline, field keys, theme, and left-in/down-out motion.
+2. Capture the returned layer, field, canvas-group, and timeline-group IDs. Refine the ordinary
+   generated layers with normal element/transform operations and assign any additional semantic
+   tags needed for later queries.
+3. Read the timeline, then refine independent keys if the recipe timing needs customization:
    - background `x`: off-canvas to on-canvas with `cubic-out`;
    - name `opacity`: 0 to 1 with `sine-out`;
    - role `x` and `opacity`: slightly delayed, with separate easing;
    - shadow opacity/blur only on the background.
-4. Add name and role data fields, then bind by exact `layerName` + `fieldKey` where convenient.
-5. Render the entrance start, mid-motion, settled frame, and exit. Inspect the property tracks to confirm stagger and independent easing.
+4. Use `ograf_preview_operations` for uncommitted visual refinements. If the change substantially
+   affects layout/theme/motion, use `ograf_propose_operations` so the human can Accept or Reject it
+   in OGraf Studio.
+5. Run `ograf_review_design`, then render entrance start, mid-motion, settled frame, and exit.
+   Inspect property tracks to confirm stagger and independent easing.
 6. Validate and certify. Save `.ogeproj` only if requested; export `.ograf.zip` only if requested.
 
 Use a small number of coherent batches so undo remains meaningful. Bind a field created earlier in
@@ -42,6 +48,23 @@ the same batch by `fieldKey`; use `fieldId` after its creation result has been r
 
 Lifecycle compatibility keys remain at Start/Step/End. Only authored non-lifecycle keys consume
 positive `frameOffset` headroom.
+
+For a simpler finite collection, select the source cell layers and use `create_repeater` with item
+records, direction, and gap. It materializes grouped ordinary layers and independent fields with
+semantic item/index tags. Use the lower-level `duplicate_group` workflow above when each copy needs
+custom frame offsets, rewrite rules, or explicit binding share/clone/clear control.
+
+# Example: Brand Kit and linked component review
+
+1. Create Brand Kit tokens such as `brand.primary`, `type.headline.family`, and
+   `type.headline.size`; bind them to compatible layer properties.
+2. Save the reviewed layer selection as a component. Insert independent instances for graphics
+   that will diverge, or linked instances when later explicit refresh is desired.
+3. To revise the source, update the component snapshot from selected layers, preview a
+   `refresh_component_instances` operation, and present it through `ograf_propose_operations` when
+   replacement could remove local instance changes.
+4. Accept only after the editor preview is correct; then query semantic roles/tags and rerun design
+   QA to confirm every refreshed instance remains legible and on-air safe.
 
 # Example: flashing and pulsing on-air title
 

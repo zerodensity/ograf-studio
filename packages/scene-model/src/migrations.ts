@@ -3,6 +3,7 @@ import {
   createKeyframe,
   createLayerKeyframe,
   createLayerEffects,
+  createLayerSemantics,
   createTransition,
   PROJECT_DOCUMENT_VERSION,
 } from './factory';
@@ -45,6 +46,9 @@ type LegacyLayer = Omit<
   | 'clipChildren'
   | 'constraints'
   | 'bindings'
+  | 'semantics'
+  | 'designTokenBindings'
+  | 'componentLink'
 > & {
   keyframes?: LayerKeyframe[];
   poses?: Record<string, LayerTransform>;
@@ -57,16 +61,23 @@ type LegacyLayer = Omit<
   clipChildren?: boolean;
   constraints?: Layer['constraints'];
   bindings?: Layer['bindings'];
+  semantics?: Layer['semantics'];
+  designTokenBindings?: Layer['designTokenBindings'];
+  componentLink?: Layer['componentLink'];
   /** Document v10 and older supported only one binding per layer. */
   binding?: Layer['bindings'][number] | null;
 };
 
-type LegacyComposition = Omit<Composition, 'keyframes' | 'layers' | 'layout' | 'components'> & {
+type LegacyComposition = Omit<
+  Composition,
+  'keyframes' | 'layers' | 'layout' | 'components' | 'designSystem'
+> & {
   keyframes: LegacyKeyframe[];
   layers: LegacyLayer[];
   layout?: Partial<Composition['layout']>;
   updateTransitionFrames?: number;
   components?: Composition['components'];
+  designSystem?: Composition['designSystem'];
 };
 
 type LegacyProject = Omit<
@@ -171,6 +182,9 @@ function normalizeComposition(composition: LegacyComposition): Composition {
         bindings,
         element,
         effects,
+        semantics: createLayerSemantics(legacyLayer.semantics),
+        designTokenBindings: legacyLayer.designTokenBindings ?? [],
+        componentLink: legacyLayer.componentLink ?? null,
         keyframes: sortLayerKeyframes(legacyLayer.keyframes).map((keyframe) => ({
           ...keyframe,
           transform: normalizeAuthoredTransform(keyframe.transform),
@@ -269,6 +283,9 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       bindings,
       element,
       effects,
+      semantics: createLayerSemantics(legacyLayer.semantics),
+      designTokenBindings: legacyLayer.designTokenBindings ?? [],
+      componentLink: legacyLayer.componentLink ?? null,
       keyframes: animationKeys,
       animationTracks: {},
       loop: null,
@@ -286,7 +303,16 @@ function normalizeComposition(composition: LegacyComposition): Composition {
     assets: composition.assets ?? [],
     customActions: composition.customActions ?? [],
     dataFields: composition.dataFields ?? [],
-    components: composition.components ?? [],
+    components: (composition.components ?? []).map((component) => ({
+      ...component,
+      layers: component.layers.map((layer) => ({
+        ...layer,
+        semantics: createLayerSemantics(layer.semantics),
+        designTokenBindings: layer.designTokenBindings ?? [],
+        componentLink: null,
+      })),
+    })),
+    designSystem: composition.designSystem ?? { name: 'Brand Kit', tokens: [] },
     layout: {
       showRulers: composition.layout?.showRulers ?? true,
       showActionSafe: composition.layout?.showActionSafe ?? false,

@@ -1,5 +1,9 @@
 import { createId } from './id';
-import { sortLayerKeyframes, sortLayerPropertyKeyframes } from './layerAnimation';
+import {
+  getLayerTransformAtFrame,
+  sortLayerKeyframes,
+  sortLayerPropertyKeyframes,
+} from './layerAnimation';
 import type { ComponentDefinition, Composition, FieldDefinition, Layer } from './types';
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -17,6 +21,7 @@ function uniqueFieldKey(base: string, used: Set<string>): string {
 }
 
 export interface ComponentInstantiation {
+  instanceId: string;
   groupId: string;
   layers: Layer[];
   dataFields: FieldDefinition[];
@@ -47,6 +52,7 @@ export function buildComponentDefinition(
     layers: layers.map((source) => {
       const layer = clone(source);
       if (layer.parentId && !wanted.has(layer.parentId)) layer.parentId = null;
+      layer.componentLink = null;
       return layer;
     }),
     dataFields,
@@ -57,6 +63,7 @@ export function instantiateComponentDefinition(
   composition: Composition,
   definition: ComponentDefinition,
   offset: { x: number; y: number } = { x: 40, y: 40 },
+  linked = false,
 ): ComponentInstantiation {
   if (definition.layers.length === 0) throw new Error('Component contains no layers.');
   const layerIds = Object.fromEntries(
@@ -72,12 +79,16 @@ export function instantiateComponentDefinition(
     key: uniqueFieldKey(source.key, usedFieldKeys),
   }));
   const groupId = createId('group');
+  const instanceId = createId('component-instance');
   const sourceIds = new Set(definition.layers.map((layer) => layer.id));
   const layers = definition.layers.map((source) => {
     const layer = clone(source);
     layer.id = layerIds[source.id]!;
     layer.name = `${definition.name} — ${source.name}`;
     layer.groupId = groupId;
+    layer.componentLink = linked
+      ? { componentId: definition.id, instanceId, sourceLayerId: source.id }
+      : null;
     layer.parentId =
       source.parentId && sourceIds.has(source.parentId) ? layerIds[source.parentId]! : null;
     layer.keyframes = sortLayerKeyframes(
@@ -135,5 +146,85 @@ export function instantiateComponentDefinition(
     }));
     return layer;
   });
-  return { groupId, layers, dataFields, layerIds, fieldIds };
+  return { instanceId, groupId, layers, dataFields, layerIds, fieldIds };
+}
+
+export interface RefreshedComponentInstance {
+  instanceId: string;
+  removedLayerIds: string[];
+  removedFieldIds: string[];
+  instance: ComponentInstantiation;
+}
+
+/** Re-materializes explicitly linked instances while retaining each instance's authored offset. */
+export function refreshComponentInstances(
+  composition: Composition,
+  definition: ComponentDefinition,
+  requestedInstanceIds?: string[],
+): RefreshedComponentInstance[] {
+  const availableInstanceIds = [
+    ...new Set(
+      composition.layers
+        .filter((layer) => layer.componentLink?.componentId === definition.id)
+        .map((layer) => layer.componentLink!.instanceId),
+    ),
+  ];
+  const instanceIds = requestedInstanceIds ?? availableInstanceIds;
+  const unknown = instanceIds.filter((instanceId) => !availableInstanceIds.includes(instanceId));
+  if (unknown.length > 0) {
+    throw new Error(`Linked component instances not found: ${unknown.join(', ')}`);
+  }
+
+  return instanceIds.flatMap((instanceId) => {
+    const oldLayers = composition.layers.filter(
+      (layer) => layer.componentLink?.instanceId === instanceId,
+    );
+    if (oldLayers.length === 0) return [];
+    const oldIds = new Set(oldLayers.map((layer) => layer.id));
+    const insertionIndex = Math.min(
+      ...oldLayers.map((layer) =>
+        composition.layers.findIndex((candidate) => candidate.id === layer.id),
+      ),
+    );
+    const reference = oldLayers.find((layer) =>
+      definition.layers.some((source) => source.id === layer.componentLink?.sourceLayerId),
+    );
+    const source = definition.layers.find(
+      (layer) => layer.id === reference?.componentLink?.sourceLayerId,
+    );
+    const offset =
+      reference && source
+        ? {
+            x: getLayerTransformAtFrame(reference, 0).x - getLayerTransformAtFrame(source, 0).x,
+            y: getLayerTransformAtFrame(reference, 0).y - getLayerTransformAtFrame(source, 0).y,
+          }
+        : { x: 40, y: 40 };
+    const oldFieldIds = new Set(
+      oldLayers.flatMap((layer) => layer.bindings.map((binding) => binding.fieldId)),
+    );
+    composition.layers = composition.layers.filter((layer) => !oldIds.has(layer.id));
+    const stillUsedFieldIds = new Set(
+      composition.layers.flatMap((layer) => layer.bindings.map((binding) => binding.fieldId)),
+    );
+    const removedFieldIds = [...oldFieldIds].filter((fieldId) => !stillUsedFieldIds.has(fieldId));
+    composition.dataFields = composition.dataFields.filter(
+      (field) => !removedFieldIds.includes(field.id),
+    );
+
+    const instance = instantiateComponentDefinition(composition, definition, offset, true);
+    for (const layer of instance.layers) {
+      if (layer.componentLink) layer.componentLink.instanceId = instanceId;
+    }
+    instance.instanceId = instanceId;
+    composition.dataFields.push(...instance.dataFields);
+    composition.layers.splice(insertionIndex, 0, ...instance.layers);
+    return [
+      {
+        instanceId,
+        removedLayerIds: [...oldIds],
+        removedFieldIds,
+        instance,
+      },
+    ];
+  });
 }

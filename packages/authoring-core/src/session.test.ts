@@ -30,6 +30,44 @@ describe('AuthoringSession', () => {
     expect(undone.project.compositions[0]!.layers).toHaveLength(0);
   });
 
+  it('materializes and semantically edits a lower third as one portable transaction', () => {
+    const session = new AuthoringSession(createProject(), 'semantic-recipe-session');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [
+        {
+          type: 'create_lower_third',
+          name: 'Election Result',
+          content: { headline: 'District 4', subheadline: 'Counting complete' },
+        },
+      ],
+    });
+
+    expect(created.summary.semanticBlocks[0]).toMatchObject({
+      recipe: 'lower-third',
+      name: 'Election Result',
+    });
+    expect(created.project.compositions[0]!.layers).toHaveLength(4);
+    expect(created.summary.generatedIds.filter((entry) => entry.kind === 'layer')).toHaveLength(4);
+
+    const headline = created.project.compositions[0]!.layers.find(
+      (layer) => layer.semantics.role === 'headline',
+    )!;
+    const edited = session.apply({
+      expectedRevision: 1,
+      operations: [
+        {
+          type: 'set_layer_semantics',
+          layerId: headline.id,
+          patch: { tags: ['primary', ' election ', 'primary'], description: 'Main result label' },
+        },
+      ],
+    });
+    expect(
+      edited.project.compositions[0]!.layers.find((layer) => layer.id === headline.id)!.semantics,
+    ).toMatchObject({ tags: ['primary', 'election'], description: 'Main result label' });
+  });
+
   it('rejects stale agent writes', () => {
     const session = new AuthoringSession(createProject(), 'test-session');
     session.apply({
@@ -659,6 +697,138 @@ describe('AuthoringSession', () => {
       new Set([instance.groupId]),
     );
     expect(instanceLayers.every((layer) => layer.name.startsWith('Score row — '))).toBe(true);
+  });
+
+  it('materializes brand-token links into portable element properties', () => {
+    const session = new AuthoringSession(createProject(), 'design-token-session');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Brand panel' }],
+    });
+    const layerId = created.summary.generatedIds[0]!.id;
+    const linked = session.apply({
+      expectedRevision: 1,
+      operations: [
+        {
+          type: 'upsert_design_token',
+          id: 'design-token-primary',
+          key: 'brand.primary',
+          tokenType: 'color',
+          value: '#cc1122',
+        },
+        {
+          type: 'bind_design_token',
+          layerId,
+          tokenKey: 'brand.primary',
+          targetProperty: 'fill',
+        },
+      ],
+    });
+    const linkedLayer = linked.project.compositions[0]!.layers[0]!;
+    expect(linkedLayer.designTokenBindings).toEqual([
+      { tokenId: 'design-token-primary', targetProperty: 'fill' },
+    ]);
+    expect(linkedLayer.element).toMatchObject({ type: 'rectangle', fill: '#cc1122' });
+
+    const updated = session.apply({
+      expectedRevision: 2,
+      operations: [
+        {
+          type: 'upsert_design_token',
+          tokenId: 'design-token-primary',
+          key: 'brand.primary',
+          tokenType: 'color',
+          value: '#1144cc',
+        },
+      ],
+    });
+    expect(updated.project.compositions[0]!.layers[0]!.element).toMatchObject({
+      type: 'rectangle',
+      fill: '#1144cc',
+    });
+
+    expect(() =>
+      session.apply({
+        expectedRevision: 3,
+        operations: [
+          {
+            type: 'upsert_design_token',
+            id: 'design-token-primary',
+            key: 'brand.secondary',
+            tokenType: 'color',
+            value: '#22aa66',
+          },
+        ],
+      }),
+    ).toThrow('Design-token ID already exists: design-token-primary');
+    expect(session.revision).toBe(3);
+  });
+
+  it('explicitly refreshes linked component instances while leaving normal layers portable', () => {
+    const session = new AuthoringSession(createProject(), 'linked-component-session');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Source panel' }],
+    });
+    const sourceLayerId = created.summary.generatedIds[0]!.id;
+    session.apply({
+      expectedRevision: 1,
+      operations: [
+        {
+          type: 'save_component',
+          id: 'component-panel',
+          layerIds: [sourceLayerId],
+          name: 'Panel',
+        },
+      ],
+    });
+    const inserted = session.apply({
+      expectedRevision: 2,
+      operations: [{ type: 'instantiate_component', componentId: 'component-panel', linked: true }],
+    });
+    const firstInstance = inserted.summary.componentInstances[0]!;
+    const firstLayerId = Object.values(firstInstance.layers)[0]!;
+    expect(
+      inserted.project.compositions[0]!.layers.find((layer) => layer.id === firstLayerId)!
+        .componentLink,
+    ).toMatchObject({ componentId: 'component-panel', instanceId: firstInstance.instanceId });
+
+    session.apply({
+      expectedRevision: 3,
+      operations: [
+        {
+          type: 'update_element',
+          layerId: sourceLayerId,
+          patch: { fill: '#00aa66' },
+        },
+        {
+          type: 'update_component_from_layers',
+          componentId: 'component-panel',
+          layerIds: [sourceLayerId],
+        },
+      ],
+    });
+    const refreshed = session.apply({
+      expectedRevision: 4,
+      operations: [
+        {
+          type: 'refresh_component_instances',
+          componentId: 'component-panel',
+          instanceIds: [firstInstance.instanceId],
+        },
+      ],
+    });
+    const refreshedInstance = refreshed.summary.componentInstances[0]!;
+    const refreshedLayerId = Object.values(refreshedInstance.layers)[0]!;
+    expect(refreshedLayerId).not.toBe(firstLayerId);
+    expect(
+      refreshed.project.compositions[0]!.layers.find((layer) => layer.id === firstLayerId),
+    ).toBeUndefined();
+    expect(
+      refreshed.project.compositions[0]!.layers.find((layer) => layer.id === refreshedLayerId)!
+        .element,
+    ).toMatchObject({ type: 'rectangle', fill: '#00aa66' });
+    expect(refreshedInstance.instanceId).toBe(firstInstance.instanceId);
   });
 
   it('records browser and agent changes and makes reset undoable', () => {

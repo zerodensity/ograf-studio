@@ -15,8 +15,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "mcp:start": "npm run build --workspace @ograf-editor/ograf-runtime && npm run start --workspace @ograf-editor/mcp-server",
+    "contracts:generate": "tsx scripts/generateMcpContracts.ts",
+    "contracts:check": "tsx scripts/generateMcpContracts.ts --check",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "verify": "npm run contracts:check && npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

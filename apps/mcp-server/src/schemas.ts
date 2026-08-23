@@ -125,6 +125,45 @@ const effects = z
   })
   .strict();
 
+export const semanticLayerRoleSchema = z.enum([
+  'none',
+  'background',
+  'container',
+  'accent',
+  'headline',
+  'subheadline',
+  'label',
+  'value',
+  'logo',
+  'image',
+  'icon',
+  'mask',
+  'decorative',
+  'ticker',
+  'score',
+  'custom',
+]);
+
+export const designTokenTypeSchema = z.enum([
+  'color',
+  'number',
+  'text',
+  'font-family',
+  'font-weight',
+]);
+export const designTokenTargetPropertySchema = z.enum([
+  'fill',
+  'strokeColor',
+  'strokeWidth',
+  'borderRadius',
+  'color',
+  'fontFamily',
+  'fontSize',
+  'fontWeight',
+]);
+
+const paintSchema = z.union([z.string().min(1), gradientPaintSchema]);
+
 export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('set_project_metadata'),
@@ -166,6 +205,43 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
         overflowPreview: z.enum(['visible', 'clip']).optional(),
       })
       .strict(),
+  }),
+  z.object({
+    type: z.literal('set_design_system_name'),
+    compositionId,
+    name: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('upsert_design_token'),
+    compositionId,
+    tokenId: z.string().min(1).optional(),
+    key: z.string().min(1),
+    name: z.string().min(1).optional(),
+    tokenType: designTokenTypeSchema,
+    value: z.union([z.string(), z.number()]),
+    description: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('remove_design_token'),
+    compositionId,
+    tokenId: z.string().min(1),
+    force: z.boolean().default(false),
+  }),
+  z.object({
+    type: z.literal('bind_design_token'),
+    compositionId,
+    layerId,
+    layerName,
+    tokenId: z.string().min(1).optional(),
+    tokenKey: z.string().min(1).optional(),
+    targetProperty: designTokenTargetPropertySchema,
+  }),
+  z.object({
+    type: z.literal('unbind_design_token'),
+    compositionId,
+    layerId,
+    layerName,
+    targetProperty: designTokenTargetPropertySchema,
   }),
   z.object({
     type: z.literal('add_lifecycle_step'),
@@ -251,6 +327,19 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     compositionId,
     componentId: z.string().min(1),
     offset: z.object({ x: z.number().optional(), y: z.number().optional() }).strict().optional(),
+    linked: z.boolean().default(false),
+  }),
+  z.object({
+    type: z.literal('update_component_from_layers'),
+    compositionId,
+    componentId: z.string().min(1),
+    layerIds: z.array(z.string()).min(1),
+  }),
+  z.object({
+    type: z.literal('refresh_component_instances'),
+    compositionId,
+    componentId: z.string().min(1),
+    instanceIds: z.array(z.string().min(1)).min(1).optional(),
   }),
   z.object({
     type: z.literal('rename_component'),
@@ -317,6 +406,81 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     element: z.record(z.string(), z.unknown()).optional(),
     effects: effects.optional(),
     index: z.number().int().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal('set_layer_semantics'),
+    compositionId,
+    layerId,
+    layerName,
+    patch: z
+      .object({
+        role: semanticLayerRoleSchema.optional(),
+        tags: z.array(z.string()).max(64).optional(),
+        description: z.string().max(1000).optional(),
+      })
+      .strict(),
+  }),
+  z.object({
+    type: z.literal('create_lower_third'),
+    compositionId,
+    name: z.string().min(1).optional(),
+    placement: z
+      .object({
+        x: z.number().optional(),
+        y: z.number().optional(),
+        width: z.number().positive().optional(),
+        height: z.number().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    content: z
+      .object({ headline: z.string().optional(), subheadline: z.string().optional() })
+      .strict()
+      .optional(),
+    fieldKeys: z
+      .object({ headline: z.string().min(1).optional(), subheadline: z.string().min(1).optional() })
+      .strict()
+      .optional(),
+    theme: z
+      .object({
+        background: paintSchema.optional(),
+        accent: paintSchema.optional(),
+        primaryText: z.string().min(1).optional(),
+        secondaryText: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    motion: z
+      .object({
+        entrance: z.enum(['left', 'none']).optional(),
+        exit: z.enum(['down', 'none']).optional(),
+      })
+      .strict()
+      .optional(),
+  }),
+  z.object({
+    type: z.literal('create_repeater'),
+    compositionId,
+    name: z.string().min(1).optional(),
+    layerIds: z.array(z.string()).min(1),
+    items: z
+      .array(
+        z
+          .object({
+            label: z.string().min(1).optional(),
+            data: z
+              .record(
+                z.string(),
+                z.union([z.string(), z.number(), z.boolean(), gradientPaintSchema]),
+              )
+              .optional(),
+          })
+          .strict(),
+      )
+      .min(2)
+      .max(100),
+    direction: z.enum(['horizontal', 'vertical']).default('horizontal'),
+    gap: z.number().nonnegative().default(24),
   }),
   z.object({
     type: z.literal('duplicate_group'),

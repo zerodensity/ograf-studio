@@ -6,8 +6,18 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio
+## New in OGraf Studio 0.03
 
+- Added semantic layer roles, tags, and intent, plus materialized lower-third and repeater recipes
+  that remain ordinary editable OGraf layers.
+- Added compact semantic scene queries, visual operation dry runs, deterministic design/motion QA,
+  and an in-editor human review drawer for explicitly accepting or rejecting AI proposals.
+- Added Brand Kits with portable design-token materialization and reusable components with optional
+  linked instances that refresh only when requested.
+- Added MCP asset and Photoshop SVG-bundle import parity with workspace confinement and payload
+  limits.
+- Generated the complete MCP tool/schema reference from the registered server contracts; drift now
+  fails `npm run verify`.
 - Renamed the product to **OGraf Studio** across the application and current documentation.
 - Added state-aware exits that animate directly from the active Step to End.
 - Added multiple independent property bindings per layer.
@@ -32,7 +42,12 @@ packages, and an optional local MCP authoring server for AI-assisted workflows.
 - Data fields with multiple independent property bindings per layer for text, images, colors, and
   structured gradients.
 - Reusable authoring components that snapshot selected layers and bound fields, then insert fresh
-  independently editable OGraf layer groups without adding a proprietary runtime dependency.
+  independent or explicitly refreshable linked instances without adding a proprietary runtime
+  dependency.
+- Brand Kits with typed color, typography, and geometry tokens; token values are materialized into
+  standard element properties so exported graphics never require OGraf Studio at playout time.
+- Semantic lower-third and repeater recipes for fast AI/human authoring while keeping every result
+  editable through normal layers, fields, groups, and tracks.
 - Self-contained Lottie JSON layers with deterministic loop playback in editor preview, OGraf
   realtime playback, and non-realtime `goToTime()` seeking.
 - Start, pausable Step, and End lifecycle preview using the same compiled timeline as export.
@@ -65,6 +80,10 @@ relative image/font URLs with data URIs, removes the external XML stylesheet ref
 registers selected fonts as project font assets. Any unresolved relative URL is reported in the
 Resources panel. The result remains one portable image asset; Photoshop's rasterized content and
 arbitrary SVG structure are not decomposed into independently editable studio layers.
+
+MCP clients can perform the same portable import through `ograf_import_svg_bundle`, or ingest one
+workspace-confined file through `ograf_import_asset`. Both tools enforce file and aggregate payload
+limits before committing one revision-checked asset transaction.
 
 ### Lottie animations
 
@@ -186,9 +205,10 @@ The expected workflow is:
 1. Start the editor and MCP server.
 2. Invoke `$ograf-authoring` and describe the visual result, data fields, timing, and requested
    output.
-3. Let the agent inspect capabilities and the current project before it edits anything.
-4. Review the editor, PNG capture, or animation strip when requested.
-5. Approve save/export only after validation and exact OGraf certification pass.
+3. Let the agent inspect capabilities and use semantic scene queries before it edits anything.
+4. Review visual dry runs or explicit in-editor proposals before accepting consequential changes.
+5. Use deterministic design/motion QA, PNG capture, and animation strips to inspect the result.
+6. Approve save/export only after validation and exact OGraf certification pass.
 
 The skill is intended for authoring graphics through the running editor. To change the editor's
 React/TypeScript source code, work on the repository normally and finish with `npm run verify`.
@@ -198,18 +218,19 @@ React/TypeScript source code, work on the repository normally and finish with `n
 Here, _vibe coding_ means describing the desired graphic in natural language and iterating on the
 result instead of manually constructing every layer, field, and keyframe.
 
-| Area                | Without `ograf-authoring`                                                                                 | With `ograf-authoring`                                                                                     |
-| ------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Starting point      | The agent must rediscover the editor, MCP tools, and OGraf rules from the repository or prompt.           | The agent begins with the editor-specific workflow, tool boundaries, and OGraf invariants.                 |
-| Project edits       | Ad-hoc tool calls can use stale IDs or overwrite concurrent human edits.                                  | Reads first, preserves stable IDs, supplies `expectedRevision`, and deliberately rebases conflicts.        |
-| Animation           | Natural-language requests may accidentally mix lifecycle Steps with layer/property keys.                  | Keeps Start/Step/End control points separate from each layer's independent property tracks and loops.      |
-| Repeated graphics   | Repeated cells and assets may be recreated manually and inconsistently.                                   | Reuses registered assets, atomic batches, duplication mappings, staggered tracks, and timeline groups.     |
-| Visual checking     | Often stops after code generation, a build, or one subjective browser view.                               | Uses frame capture, animation strips, track sampling, text measurement, and representative data values.    |
-| OGraf compatibility | A valid-looking project or successful build may be mistaken for compliant output.                         | Treats validation and exact manifest/module/lifecycle certification as separate mandatory gates.           |
-| Save and export     | The agent may write raw JSON or assemble a ZIP outside the editor's safety boundary.                      | Uses certified `.ogeproj` save and `.ograf.zip` export tools only when the user requests file output.      |
-| Undo and recovery   | Changes may require manual cleanup when a long prompt partly succeeds.                                    | Coherent atomic batches become meaningful agent undo units, with dry runs for risky changes.               |
-| Speed profile       | Fast for rough experiments, but more prompt detail and rework are usually needed for production graphics. | Adds a short inspect/verify overhead, then reduces rediscovery, inconsistent edits, and compliance rework. |
-| Best fit            | Exploring ideas, changing editor source code, or using an unsupported one-off workflow.                   | Repeatable, editable, data-driven OGraf authoring intended for certification and playout.                  |
+| Area                | Without `ograf-authoring`                                                                                 | With `ograf-authoring`                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Starting point      | The agent must rediscover the editor, MCP tools, and OGraf rules from the repository or prompt.           | The agent begins with the editor-specific workflow, tool boundaries, and OGraf invariants.                    |
+| Project edits       | Ad-hoc tool calls can use stale IDs or overwrite concurrent human edits.                                  | Reads first, preserves stable IDs, supplies `expectedRevision`, and deliberately rebases conflicts.           |
+| Animation           | Natural-language requests may accidentally mix lifecycle Steps with layer/property keys.                  | Keeps Start/Step/End control points separate from each layer's independent property tracks and loops.         |
+| Repeated graphics   | Repeated cells and assets may be recreated manually and inconsistently.                                   | Uses semantic repeaters or lower-level duplication, registered assets, staggered tracks, and timeline groups. |
+| Visual checking     | Often stops after code generation, a build, or one subjective browser view.                               | Uses operation previews, design/motion QA, frame strips, measurement, and representative data values.         |
+| Human control       | A visually consequential agent edit may be applied before anyone sees it.                                 | Can present a rendered, revision-checked proposal in OGraf Studio for explicit Accept or Reject.              |
+| OGraf compatibility | A valid-looking project or successful build may be mistaken for compliant output.                         | Treats validation and exact manifest/module/lifecycle certification as separate mandatory gates.              |
+| Save and export     | The agent may write raw JSON or assemble a ZIP outside the editor's safety boundary.                      | Uses certified `.ogeproj` save and `.ograf.zip` export tools only when the user requests file output.         |
+| Undo and recovery   | Changes may require manual cleanup when a long prompt partly succeeds.                                    | Coherent atomic batches become meaningful agent undo units, with dry runs for risky changes.                  |
+| Speed profile       | Fast for rough experiments, but more prompt detail and rework are usually needed for production graphics. | Adds a short inspect/verify overhead, then reduces rediscovery, inconsistent edits, and compliance rework.    |
+| Best fit            | Exploring ideas, changing editor source code, or using an unsupported one-off workflow.                   | Repeatable, editable, data-driven OGraf authoring intended for certification and playout.                     |
 
 The skill improves process reliability, not model creativity. The visual concept still comes from
 the user and agent; the skill makes the route from that concept to an editable, inspected, certified
@@ -240,9 +261,9 @@ Run the complete local gate before publishing changes:
 npm run verify
 ```
 
-It checks formatting, lint, every workspace typecheck, all tests, the OGraf runtime bundle, and the
-editor production build. `npm test` also prebuilds the ignored runtime bundle so tests work in a
-fresh clone.
+It checks generated MCP contract drift, formatting, lint, every workspace typecheck, all tests, the
+OGraf runtime bundle, and the editor production build. `npm test` also prebuilds the ignored runtime
+bundle so tests work in a fresh clone.
 
 ## Repository layout
 
@@ -254,6 +275,7 @@ fresh clone.
 - `packages/ograf-runtime` — descriptor-driven OGraf `Graphic` custom element.
 - `packages/validation` — official-schema and semantic validation.
 - `skills/ograf-authoring` — reusable MCP authoring skill and references.
+- `docs/generated` — generated MCP tool/schema contracts; regenerate instead of editing by hand.
 - `templates` — example editable sources and OGraf packages.
 - `fixtures/ograf-schema` — vendored OGraf schema closure used by validation.
 
@@ -265,8 +287,16 @@ See [docs/STATUS.md](docs/STATUS.md) for the current capability inventory,
 
 - Conversion of opaque third-party `main.js` code is necessarily lossy and never executes imported
   JavaScript.
-- Companion CSS for imported SVG images is not automatically packaged or rewritten.
-- System-font rendering depends on fonts installed on the authoring/playout machine.
+- SVG bundles are made portable as one image asset; arbitrary Photoshop/SVG structure is not
+  decomposed into editable text and shape layers.
+- Font choices that are not packaged as project font assets still depend on fonts installed on the
+  authoring/playout machine.
+- Linked component refresh replaces the linked instance from its current component snapshot;
+  independent instances are required when local overrides must never be replaced.
+- Repeaters currently materialize ordinary layers and fields at authoring time; they are not a live
+  runtime array-binding system.
+- Browser-rendered operation previews, proposal images, and certification require a connected,
+  responsive editor. Headless render/certify is deliberately deferred.
 - Lottie v1 is canvas-only, continuously looped, and self-contained; expressions, external assets,
   segments/markers, one-shot playback, and dynamic Lottie content are not yet authored.
 - The editor production bundle currently triggers Vite's large-chunk advisory; it is a performance

@@ -18,6 +18,7 @@ import type {
   LayerPropertyKeyframe,
   LayerLoopClip,
   LayerEffects,
+  LayerSemantics,
   LayerTransform,
   PathElement,
   Project,
@@ -91,6 +92,15 @@ export function createLayerEffects(overrides: Partial<LayerEffects> = {}): Layer
   };
 }
 
+export function createLayerSemantics(overrides: Partial<LayerSemantics> = {}): LayerSemantics {
+  return {
+    role: 'none',
+    description: '',
+    ...overrides,
+    tags: [...new Set((overrides.tags ?? []).map((tag) => tag.trim()).filter(Boolean))],
+  };
+}
+
 export function createEllipseElement(overrides: Partial<EllipseElement> = {}): EllipseElement {
   return {
     type: 'ellipse',
@@ -159,6 +169,9 @@ function createLayer(name: string, element: Element): Layer {
     loop: null,
     element,
     effects: createLayerEffects(),
+    semantics: createLayerSemantics(),
+    designTokenBindings: [],
+    componentLink: null,
     bindings: [],
   };
 }
@@ -391,6 +404,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
     dataFields: [],
     customActions: [],
     assets: [],
+    designSystem: { name: 'Brand Kit', tokens: [] },
     components: [],
     ...overrides,
     keyframes,
@@ -398,7 +412,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 13;
+export const PROJECT_DOCUMENT_VERSION = 16;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });
