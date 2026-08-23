@@ -37,7 +37,9 @@ replace the tools with raw file editing.
 4. Apply with the latest `expectedRevision`. If a revision conflict occurs, re-read the project and consciously rebase; never blindly retry stale operations.
 5. Inspect the result with `ograf_review_design`, `ograf_get_timeline`, `ograf_capture`,
    `ograf_render_strip`, and `ograf_validate_project`. Design QA is deterministic and advisory: use
-   its stable finding IDs/layer IDs and preview frames to guide changes, not as a substitute for
+   its stable finding IDs/layer IDs and preview frames to guide changes. Resolve unintended
+   lockstep, wrong-direction easing, missing stagger/reveal, weak type hierarchy, near-miss
+   alignment, inconsistent padding, and loop seams; do not treat the score as a substitute for
    editorial judgement or certification.
    Use `target: "composition"` with a checker matte for design checks and `target: "viewport"`
    when editor chrome or canvas state may be involved. Use `ograf_render_strip` for animation work;
