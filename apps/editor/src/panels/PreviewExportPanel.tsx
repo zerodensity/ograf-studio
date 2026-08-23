@@ -27,6 +27,7 @@ import { transparencyCheckerboardStyle } from '../canvas/compositionBackground';
 import { resolvePreviewDataRecord } from '../state/previewData';
 import { measureAgentText } from '../state/agentCapture';
 import { Panel } from './Panel';
+import { resolveSourceOverlayGeometry } from './sourceOverlay';
 import './PreviewExportPanel.css';
 
 interface LogEntry {
@@ -92,9 +93,34 @@ export function PreviewExportPanel() {
   const [interlacedQa, setInterlacedQa] = useState(false);
   const [comparisonAssetId, setComparisonAssetId] = useState('');
   const [comparisonOpacity, setComparisonOpacity] = useState(0.5);
+  const [comparisonNaturalSize, setComparisonNaturalSize] = useState<{
+    assetId: string;
+    width: number;
+    height: number;
+  } | null>(null);
   const comparisonAsset = composition.assets.find(
     (asset) => asset.id === comparisonAssetId && asset.kind === 'image',
   );
+  const comparisonGeometry = useMemo(() => {
+    if (!comparisonAsset) return null;
+    return (
+      resolveSourceOverlayGeometry(composition, comparisonAsset) ??
+      (comparisonNaturalSize?.assetId === comparisonAsset.id
+        ? {
+            x: 0,
+            y: 0,
+            width: comparisonNaturalSize.width,
+            height: comparisonNaturalSize.height,
+            rotation: 0,
+            transformOriginX: 0,
+            transformOriginY: 0,
+            source: 'intrinsic' as const,
+          }
+        : null)
+    );
+  }, [comparisonAsset, comparisonNaturalSize, composition]);
+
+  useEffect(() => setComparisonNaturalSize(null), [comparisonAssetId]);
 
   const descriptor = useMemo(() => compileDescriptor(composition), [composition]);
   const previewData = useMemo(
@@ -436,11 +462,25 @@ export function PreviewExportPanel() {
                 className="preview-source-overlay"
                 src={comparisonAsset.dataUri}
                 alt="Source design comparison overlay"
+                onLoad={(event) => {
+                  const image = event.currentTarget;
+                  if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                    setComparisonNaturalSize({
+                      assetId: comparisonAsset.id,
+                      width: image.naturalWidth,
+                      height: image.naturalHeight,
+                    });
+                  }
+                }}
                 style={{
-                  width: composition.width,
-                  height: composition.height,
+                  left: (comparisonGeometry?.x ?? 0) * zoom,
+                  top: (comparisonGeometry?.y ?? 0) * zoom,
+                  width: (comparisonGeometry?.width ?? 0) * zoom,
+                  height: (comparisonGeometry?.height ?? 0) * zoom,
                   opacity: comparisonOpacity,
-                  transform: `scale(${zoom})`,
+                  visibility: comparisonGeometry ? 'visible' : 'hidden',
+                  transform: `rotate(${comparisonGeometry?.rotation ?? 0}deg)`,
+                  transformOrigin: `${(comparisonGeometry?.transformOriginX ?? 0) * 100}% ${(comparisonGeometry?.transformOriginY ?? 0) * 100}%`,
                 }}
               />
             )}
@@ -625,6 +665,12 @@ export function PreviewExportPanel() {
                   onChange={(event) => setComparisonOpacity(Number(event.target.value))}
                 />
               </label>
+            )}
+            {comparisonGeometry && (
+              <span className="preview-step-indicator">
+                {Math.round(comparisonGeometry.width)}×{Math.round(comparisonGeometry.height)} at{' '}
+                {Math.round(comparisonGeometry.x)}, {Math.round(comparisonGeometry.y)}
+              </span>
             )}
             <label className="preview-data-row">
               <span>Interlaced</span>

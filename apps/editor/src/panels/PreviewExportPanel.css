@@ -29,10 +29,8 @@
 
 .preview-source-overlay {
   position: absolute;
-  inset: 0;
   object-fit: fill;
   pointer-events: none;
-  transform-origin: top left;
 }
 
 .preview-controls {
