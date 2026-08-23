@@ -215,6 +215,11 @@ AI-first broadcast authoring and OGraf compliance hardening.
   the exact previewed operation batch only after explicit acceptance; rejection, expiry, or revision
   drift leaves the project unchanged. The editor displays proposal imagery, validation, warnings,
   and operations in a floating review drawer.
+- Deterministic design QA now evaluates craft as well as structure: grouped lockstep translation,
+  entrance/exit easing direction, missing cascade timing, headline/subheadline scale ratio,
+  near-miss text alignment, sibling-container padding rhythm, and continuous loop seams. Stable
+  finding IDs and explicit exception tags keep it useful to agents without turning advisory taste
+  rules into an export gate.
 - MCP contracts are generated from the registered SDK/Zod tool definitions into
   `docs/generated/mcp-contracts.{md,json}`. `npm run contracts:check` is the first verification gate,
   preventing documentation/schema drift. The current generated surface contains 28 tools.
@@ -338,9 +343,9 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-08-24, including generated MCP contract drift, format, lint, all
-  workspace typechecks, 240 tests across 53 files, the runtime bundle, and the editor production
+  workspace typechecks, 245 tests across 53 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 240-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- The 245-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,

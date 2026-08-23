@@ -153,6 +153,10 @@
   runtime masks, group duplication remaps clipping relations, clipped text/lint diagnostics use
   visible bounds, and structured gradient paint replaces fixed sheen assets without leaving the
   certified save/export path.
+- Craft-aware deterministic design QA is implemented for grouped lockstep motion, easing direction,
+  missing stagger/reveal, type-scale hierarchy, optical edge alignment, padding rhythm, and loop
+  seams. Rules stay browser-free and advisory, expose stable IDs, understand clipping, and support
+  narrow explicit exception tags.
 - Structural editor/MCP parity is implemented for lifecycle Step add/rename/move/remove, persistent
   canvas grouping, custom action CRUD, and reference-safe asset removal. Existing generic track,
   transform, element, duplication, and layout operations cover the remaining editor mutations.

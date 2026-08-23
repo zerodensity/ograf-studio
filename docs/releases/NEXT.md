@@ -19,6 +19,10 @@
   which cannot fit before the first pausable Step.
 - Verified the default wipe through a five-frame browser strip, zero-finding deterministic design
   review, and all five exact real-time/non-real-time certification gates.
+- Expanded deterministic design QA beyond structure with stable findings for lockstep motion,
+  entrance/exit easing direction, missing stagger, weak type-scale ratio, near-miss text alignment,
+  inconsistent sibling padding, and discontinuous loop seams. Added clipping-aware exclusions and
+  explicit tags for intentional optical or timing exceptions.
 
 ## Documentation
 

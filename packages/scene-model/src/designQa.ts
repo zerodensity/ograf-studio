@@ -1,10 +1,15 @@
 import { computeKeyframeFrames } from './keyframeTiming';
-import { getLayerTransformAtFrame } from './layerAnimation';
+import {
+  getLayerPropertyValueAtFrame,
+  getLayerTransformAtFrame,
+  getResolvedLayerAnimationTracks,
+} from './layerAnimation';
 import { intersectConvexPolygons, polygonBounds, transformBoundsPolygon } from './clipping';
 import type { Composition, Layer, LayerTransform } from './types';
 
 export type DesignQaSeverity = 'error' | 'warning' | 'info';
-export type DesignQaCategory = 'semantics' | 'layout' | 'typography' | 'colour' | 'motion' | 'data';
+export type DesignQaCategory =
+  'semantics' | 'layout' | 'typography' | 'colour' | 'motion' | 'loop' | 'data';
 
 export interface DesignQaFinding {
   id: string;
@@ -83,6 +88,91 @@ function solidColours(layer: Layer): string[] {
   return [];
 }
 
+const CRAFT_MOTION_PROPERTIES = ['x', 'y', 'width', 'height', 'opacity'] as const;
+
+function approximately(left: number, right: number, tolerance = 0.001): boolean {
+  return Math.abs(left - right) <= tolerance;
+}
+
+function movingProperties(layer: Layer, from: number, to: number) {
+  return CRAFT_MOTION_PROPERTIES.filter(
+    (property) =>
+      !approximately(
+        getLayerPropertyValueAtFrame(layer, property, from),
+        getLayerPropertyValueAtFrame(layer, property, to),
+      ),
+  );
+}
+
+function changedKeys(
+  layer: Layer,
+  property: (typeof CRAFT_MOTION_PROPERTIES)[number],
+  from: number,
+  to: number,
+) {
+  const track = getResolvedLayerAnimationTracks(layer)[property] ?? [];
+  return track.filter((key, index) => {
+    const previous = track[index - 1];
+    return (
+      Boolean(previous) &&
+      key.frame > from &&
+      key.frame <= to &&
+      !approximately(key.value, previous!.value)
+    );
+  });
+}
+
+function arrivalFrame(layer: Layer, from: number, to: number): number | null {
+  const properties = movingProperties(layer, from, to);
+  if (properties.length === 0) return null;
+  const candidates = [
+    ...new Set([
+      to,
+      ...properties.flatMap((property) =>
+        (getResolvedLayerAnimationTracks(layer)[property] ?? [])
+          .filter((key) => key.frame > from && key.frame <= to)
+          .map((key) => key.frame),
+      ),
+    ]),
+  ].sort((left, right) => left - right);
+  return (
+    candidates.find((frame) =>
+      properties.every((property) =>
+        approximately(
+          getLayerPropertyValueAtFrame(layer, property, frame),
+          getLayerPropertyValueAtFrame(layer, property, to),
+        ),
+      ),
+    ) ?? null
+  );
+}
+
+function isAccelerating(easing: string): boolean {
+  return easing === 'ease-in' || (easing.endsWith('-in') && !easing.endsWith('-in-out'));
+}
+
+function isDecelerating(easing: string): boolean {
+  return easing === 'ease-out' || (easing.endsWith('-out') && !easing.endsWith('-in-out'));
+}
+
+function isClippedChild(layer: Layer, composition: Composition): boolean {
+  return Boolean(
+    layer.parentId &&
+    composition.layers.some(
+      (candidate) => candidate.id === layer.parentId && candidate.clipChildren,
+    ),
+  );
+}
+
+function relatedGroups(layers: Layer[]): Map<string, Layer[]> {
+  const groups = new Map<string, Layer[]>();
+  for (const layer of layers) {
+    if (!layer.groupId) continue;
+    groups.set(layer.groupId, [...(groups.get(layer.groupId) ?? []), layer]);
+  }
+  return groups;
+}
+
 export function reviewCompositionDesign(composition: Composition): DesignQaReport {
   const lifecycle = computeKeyframeFrames(composition);
   const frameById = new Map(lifecycle.map((item) => [item.keyframeId, item.frame]));
@@ -113,6 +203,7 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
       !layer.isGuide &&
       onCanvas(getLayerTransformAtFrame(layer, onAirFrame), composition),
   );
+  const visibleText = visibleLayers.filter((layer) => layer.element.type === 'text');
   for (const layer of visibleLayers) {
     const pose = getLayerTransformAtFrame(layer, onAirFrame);
     if (
@@ -219,6 +310,97 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
           [from, to],
         );
       }
+
+      const phase =
+        composition.keyframes.find((keyframe) => keyframe.id === transition.fromKeyframeId)
+          ?.role === 'start'
+          ? 'entrance'
+          : composition.keyframes.find((keyframe) => keyframe.id === transition.toKeyframeId)
+                ?.role === 'end'
+            ? 'exit'
+            : null;
+      if (phase) {
+        const wrongKeys = movingProperties(layer, from, to)
+          .flatMap((property) => changedKeys(layer, property, from, to))
+          .filter((key) =>
+            phase === 'entrance' ? isAccelerating(key.easing) : isDecelerating(key.easing),
+          );
+        if (wrongKeys.length > 0) {
+          add(
+            `motion.easing-direction.${transition.id}.${layer.id}`,
+            'warning',
+            'motion',
+            `“${layer.name}” uses ${wrongKeys[0]!.easing} while ${phase === 'entrance' ? 'entering; entrances should decelerate' : 'exiting; exits should accelerate'}.`,
+            [layer.id],
+            [from, to],
+          );
+        }
+      }
+    }
+
+    for (const [groupId, layers] of relatedGroups(visibleLayers)) {
+      const clusters = new Map<string, Layer[]>();
+      for (const layer of layers) {
+        if (layer.semantics.tags.includes('qa:allow-lockstep')) continue;
+        const first = getLayerTransformAtFrame(layer, from);
+        const last = getLayerTransformAtFrame(layer, to);
+        const dx = last.x - first.x;
+        const dy = last.y - first.y;
+        if (Math.hypot(dx, dy) <= 1) continue;
+        const signature = [
+          ...new Set(
+            (['x', 'y'] as const).flatMap((property) =>
+              changedKeys(layer, property, from, to).map((key) => key.frame),
+            ),
+          ),
+        ].join(',');
+        const key = `${dx.toFixed(3)}:${dy.toFixed(3)}:${signature}`;
+        clusters.set(key, [...(clusters.get(key) ?? []), layer]);
+      }
+      for (const cluster of clusters.values()) {
+        if (cluster.length < 3) continue;
+        add(
+          `motion.lockstep.${transition.id}.${groupId}`,
+          'warning',
+          'motion',
+          `${cluster.length} related layers share the same translation and key timing; review whether the motion needs hierarchy or stagger.`,
+          cluster.map((layer) => layer.id),
+          [from, to],
+        );
+      }
+    }
+  }
+
+  const entranceTransition = composition.transitions.find(
+    (transition) =>
+      composition.keyframes.find((keyframe) => keyframe.id === transition.fromKeyframeId)?.role ===
+        'start' &&
+      composition.keyframes.find((keyframe) => keyframe.id === transition.toKeyframeId)?.role ===
+        'step',
+  );
+  if (entranceTransition) {
+    const from = frameById.get(entranceTransition.fromKeyframeId) ?? startFrame;
+    const to = frameById.get(entranceTransition.toKeyframeId) ?? onAirFrame;
+    for (const [groupId, layers] of relatedGroups(visibleLayers)) {
+      const entrants = layers
+        .filter(
+          (layer) =>
+            !layer.clipChildren &&
+            !isClippedChild(layer, composition) &&
+            !layer.semantics.tags.includes('qa:allow-no-stagger'),
+        )
+        .map((layer) => ({ layer, arrival: arrivalFrame(layer, from, to) }))
+        .filter((entry): entry is { layer: Layer; arrival: number } => entry.arrival !== null);
+      if (entrants.length < 3 || new Set(entrants.map((entry) => entry.arrival)).size !== 1)
+        continue;
+      add(
+        `motion.no-stagger.${entranceTransition.id}.${groupId}`,
+        'info',
+        'motion',
+        `${entrants.length} related layers arrive on the same frame; consider a short cascade or mask reveal.`,
+        entrants.map((entry) => entry.layer.id),
+        [from, to],
+      );
     }
   }
 
@@ -227,19 +409,107 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
   for (const headline of headlines) {
     if (headline.element.type !== 'text') continue;
     for (const subheadline of subheadlines) {
-      if (
-        subheadline.element.type === 'text' &&
-        headline.element.fontSize <= subheadline.element.fontSize
-      ) {
+      if (subheadline.element.type !== 'text') continue;
+      if (headline.groupId && subheadline.groupId && headline.groupId !== subheadline.groupId)
+        continue;
+      const ratio = headline.element.fontSize / Math.max(1, subheadline.element.fontSize);
+      if (ratio < 1.2) {
         add(
-          `typography.hierarchy.${headline.id}.${subheadline.id}`,
+          `typography.scale-ratio.${headline.id}.${subheadline.id}`,
           'warning',
           'typography',
-          'Headline type is not larger than subheadline type.',
+          `Headline/subheadline type ratio is ${ratio.toFixed(2)}; use at least 1.20 for a clear hierarchy.`,
           [headline.id, subheadline.id],
           [onAirFrame],
         );
       }
+    }
+  }
+
+  for (const [, layers] of relatedGroups(visibleText)) {
+    for (let index = 0; index < layers.length; index++) {
+      const left = layers[index]!;
+      if (left.semantics.tags.includes('optical-offset')) continue;
+      const leftX = getLayerTransformAtFrame(left, onAirFrame).x;
+      for (const right of layers.slice(index + 1)) {
+        if (right.semantics.tags.includes('optical-offset')) continue;
+        const rightX = getLayerTransformAtFrame(right, onAirFrame).x;
+        const difference = Math.abs(leftX - rightX);
+        if (difference < 1 || difference > 8) continue;
+        add(
+          `layout.edge-alignment.${left.id}.${right.id}`,
+          'warning',
+          'layout',
+          `“${left.name}” and “${right.name}” left edges differ by ${difference.toFixed(1)} px; align them or tag an intentional optical-offset.`,
+          [left.id, right.id],
+          [onAirFrame],
+        );
+      }
+    }
+  }
+
+  const containers = visibleLayers
+    .filter((layer) => layer.semantics.role === 'container')
+    .map((container) => {
+      const bounds = getLayerTransformAtFrame(container, onAirFrame);
+      const children = visibleLayers.filter((layer) => layer.parentId === container.id);
+      if (children.length === 0) return null;
+      const poses = children.map((layer) => getLayerTransformAtFrame(layer, onAirFrame));
+      const content = {
+        left: Math.min(...poses.map((pose) => pose.x)),
+        top: Math.min(...poses.map((pose) => pose.y)),
+        right: Math.max(...poses.map((pose) => pose.x + pose.width)),
+        bottom: Math.max(...poses.map((pose) => pose.y + pose.height)),
+      };
+      return {
+        container,
+        siblingKey: container.parentId ?? 'root',
+        padding: [
+          content.left - bounds.x,
+          content.top - bounds.y,
+          bounds.x + bounds.width - content.right,
+          bounds.y + bounds.height - content.bottom,
+        ],
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  const containerGroups = new Map<string, typeof containers>();
+  for (const entry of containers) {
+    containerGroups.set(entry.siblingKey, [
+      ...(containerGroups.get(entry.siblingKey) ?? []),
+      entry,
+    ]);
+  }
+  for (const [siblingKey, entries] of containerGroups) {
+    if (entries.length < 2) continue;
+    const inconsistent = [0, 1, 2, 3].some((edge) => {
+      const values = entries.map((entry) => entry.padding[edge]!);
+      return Math.max(...values) - Math.min(...values) > 4;
+    });
+    if (!inconsistent) continue;
+    add(
+      `layout.padding-rhythm.${siblingKey}`,
+      'info',
+      'layout',
+      'Sibling containers use inconsistent inner padding; review the spacing rhythm.',
+      entries.map((entry) => entry.container.id),
+      [onAirFrame],
+    );
+  }
+
+  for (const layer of composition.layers) {
+    if (!layer.loop) continue;
+    for (const [property, keys] of Object.entries(layer.loop.tracks)) {
+      if (!keys || keys.length < 2) continue;
+      if (approximately(keys[0]!.value, keys.at(-1)!.value)) continue;
+      add(
+        `loop.seam.${layer.id}.${property}`,
+        'warning',
+        'loop',
+        `“${layer.name}” loop property ${property} does not return to its starting value at the seam.`,
+        [layer.id],
+        [0, layer.loop.durationFrames],
+      );
     }
   }
 
@@ -296,7 +566,6 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
       ? 1
       : visibleLayers.filter((layer) => layer.semantics.role !== 'none').length /
         visibleLayers.length;
-  const visibleText = visibleLayers.filter((layer) => layer.element.type === 'text');
   const editableTextCoverage =
     visibleText.length === 0
       ? 1
@@ -306,7 +575,7 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
     warning: findings.filter((finding) => finding.severity === 'warning').length,
     info: findings.filter((finding) => finding.severity === 'info').length,
   };
-  const score = Math.max(0, 100 - summary.error * 20 - summary.warning * 7 - summary.info * 2);
+  const score = Math.max(0, 100 - summary.error * 20 - summary.warning * 5 - summary.info);
   return {
     score,
     summary,
