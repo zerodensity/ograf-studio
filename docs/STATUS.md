@@ -29,7 +29,10 @@ AI-first broadcast authoring and OGraf compliance hardening.
   frame durations, and require an explicit down/nearest/up rounding choice.
 - Document v13 adds line height, tracking, text transform, vertical alignment, baseline shift,
   minimum shrink size, and overflow policy. Preview provides source-image overlay plus advisory
-  broadcast QA and real-browser Latin/Turkish/Arabic replacement-text stress tests.
+  broadcast QA and real-browser Latin/Turkish/Arabic replacement-text stress tests. Source overlays
+  preserve authored image-layer bounds; portable Photoshop SVG composites infer their shared
+  composition offset from embedded plate assets, while unmatched images retain intrinsic dimensions
+  instead of stretching to the full frame.
 - React/Vite visual editor with DOM-based canvas, timeline, data fields, preview, and ZIP export.
 - Document v11 supports multiple independent data bindings on one layer. The Inspector adds,
   retargets, and removes binding rows; compiler/runtime/capture apply the ordered list, validation
@@ -139,9 +142,11 @@ AI-first broadcast authoring and OGraf compliance hardening.
 - The main canvas now has explicit Edit and OGraf Preview modes. Preview replaces the authoring DOM
   with the latest compiled runtime in the same zoomable/pannable viewport. It automatically rebuilds
   and loads when the template changes, applies preview-data changes through a debounced
-  `updateAction`, and exposes only previous/next/goto Step, Take Out, render-type, and custom-action
-  controls. Internal replacement and cleanup still call `dispose`, while preview calls stay outside
-  project revision and undo history.
+  `updateAction`, and exposes Start, previous/next/goto Step, Take Out, render-type, and custom-action
+  controls. Start reloads the same data/render configuration from any lifecycle state and
+  immediately plays the entrance to the first Step, so End is never a navigation dead end. Internal
+  replacement and cleanup still call `dispose`, while preview calls stay outside project revision
+  and undo history.
 - Edit, main-canvas OGraf Preview, and Preview & Export now share the same effective preview-data
   semantics: explicit test values override declared field defaults, and local `asset:<id>` image
   values resolve to browser-loadable data URIs before reaching a Graphic instance. Data-bound image

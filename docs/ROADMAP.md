@@ -119,9 +119,10 @@
   changing compatibility-sensitive package namespaces, project formats, or MCP tool names.
 - Main-canvas OGraf runtime preview is implemented as an Edit/Preview mode switch. It mounts an
   automatically refreshed compiled runtime in the normal zoomable/pannable viewport. Load,
-  data updates, and disposal are automatic; the visible controls are Step navigation/goto, Take Out,
-  render type, and custom actions. Advanced schedules, logs, certification, and export remain in
-  Preview & Export.
+  data updates, and disposal are automatic; the visible controls are Start/replay, Step
+  navigation/goto, Take Out, render type, and custom actions. Start reloads the current data/render
+  configuration from End or any Step and immediately plays the entrance to Step 1. Advanced
+  schedules, logs, certification, and export remain in Preview & Export.
 - Local AI-agent authoring is implemented through a revisioned MCP server, live editor bridge,
   exact-artifact certification tools, workspace-confined save/export, and a reusable
   `ograf-authoring` Skill. Browser-rendered PNG composition/viewport capture, diagnostic mattes,
@@ -157,4 +158,6 @@
 - Accessibility, onboarding, keyboard workflow, and documentation polish.
 - The Preview & Export panel includes non-gating broadcast QA for Step-frame title-safe placement,
   text size/floors, packaged-font fallback, backing contrast, interlaced thin rules, long
-  Latin/Turkish/Arabic replacement values, and source-image overlay comparison.
+  Latin/Turkish/Arabic replacement values, and source-image overlay comparison. Comparison overlays
+  preserve authored layer geometry, infer Photoshop SVG-composite placement from embedded plate
+  assets, and fall back to intrinsic image dimensions rather than full-frame stretching.

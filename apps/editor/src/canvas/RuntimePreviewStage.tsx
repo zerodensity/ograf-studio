@@ -10,7 +10,12 @@ import {
 } from 'react';
 import { compileDescriptor } from '@ograf-editor/codegen';
 import { registerGraphicElement } from '@ograf-editor/ograf-runtime';
-import type { Graphic, RenderType, ReturnPayload } from '@ograf-editor/ograf-types';
+import type {
+  Graphic,
+  PlayActionReturnPayload,
+  RenderType,
+  ReturnPayload,
+} from '@ograf-editor/ograf-types';
 import type { Project } from '@ograf-editor/scene-model';
 import { useTestDataStore } from '../state/testDataStore';
 import { isInteractiveShortcutTarget } from '../state/keyboardShortcuts';
@@ -82,6 +87,21 @@ export function RuntimePreviewStage({ project, onExit, style }: RuntimePreviewSt
     () => getStagePasteboardLayout(composition.width, composition.height, zoom),
     [composition.height, composition.width, zoom],
   );
+  const createLoadRequest = useCallback(() => {
+    const loadData = latestDataRef.current;
+    return {
+      loadSignature: JSON.stringify(loadData),
+      params: {
+        data: loadData,
+        renderType,
+        renderCharacteristics: {
+          resolution: { width: composition.width, height: composition.height },
+          frameRate: composition.frameRate,
+          accessToPublicInternet: false,
+        },
+      },
+    };
+  }, [composition.frameRate, composition.height, composition.width, renderType]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -96,17 +116,7 @@ export function RuntimePreviewStage({ project, onExit, style }: RuntimePreviewSt
     setBusy(true);
     setMessage('Loading OGraf preview…');
 
-    const loadData = latestDataRef.current;
-    const loadSignature = JSON.stringify(loadData);
-    const params = {
-      data: loadData,
-      renderType,
-      renderCharacteristics: {
-        resolution: { width: composition.width, height: composition.height },
-        frameRate: composition.frameRate,
-        accessToPublicInternet: false,
-      },
-    };
+    const { loadSignature, params } = createLoadRequest();
 
     void graphic
       .load(params)
@@ -136,7 +146,7 @@ export function RuntimePreviewStage({ project, onExit, style }: RuntimePreviewSt
       void graphic.dispose({});
       graphic.remove();
     };
-  }, [composition.frameRate, composition.height, composition.width, descriptor, renderType]);
+  }, [createLoadRequest, descriptor]);
 
   useEffect(() => {
     if (!isLoaded || busy) return;
@@ -264,22 +274,46 @@ export function RuntimePreviewStage({ project, onExit, style }: RuntimePreviewSt
     }
   };
 
+  const presentPlayResult = (
+    result: PlayActionReturnPayload | undefined,
+    params: { delta?: number; goto?: number },
+  ) => {
+    const step = result?.currentStep;
+    setCurrentStep(step);
+    if (step === undefined) {
+      setPhase(params.delta === -1 ? 'start' : 'end');
+      setMessage(params.delta === -1 ? 'Returned to Start.' : 'Reached End.');
+    } else {
+      setPhase('step');
+      setMessage(`On ${stepNames[step] ?? `Step ${step + 1}`}.`);
+    }
+  };
+
   const handlePlay = (params: { delta?: number; goto?: number }) =>
     void invoke(
       'playAction',
       (graphic) => graphic.playAction(params),
-      (result) => {
-        const step = result?.currentStep;
-        setCurrentStep(step);
-        if (step === undefined) {
-          setPhase(params.delta === -1 ? 'start' : 'end');
-          setMessage(params.delta === -1 ? 'Returned to Start.' : 'Reached End.');
-        } else {
-          setPhase('step');
-          setMessage(`On ${stepNames[step] ?? `Step ${step + 1}`}.`);
-        }
-      },
+      (result) => presentPlayResult(result, params),
     );
+
+  const handleStart = () => {
+    const { loadSignature, params } = createLoadRequest();
+    void invoke<PlayActionReturnPayload>(
+      'restart preview',
+      async (graphic) => {
+        const loadResult = await graphic.load(params);
+        if (!successful(loadResult)) {
+          return {
+            statusCode: loadResult?.statusCode ?? 550,
+            statusMessage: `Load failed: ${loadResult?.statusMessage ?? 'unknown error'}`,
+          };
+        }
+        lastAttemptedDataSignatureRef.current = loadSignature;
+        return graphic.playAction({ delta: 1 });
+      },
+      (result) => presentPlayResult(result, { delta: 1 }),
+    );
+  };
 
   const handleStop = () =>
     void invoke(
@@ -364,6 +398,14 @@ export function RuntimePreviewStage({ project, onExit, style }: RuntimePreviewSt
           <option value="realtime">Realtime</option>
           <option value="non-realtime">Non-realtime</option>
         </select>
+        <button
+          type="button"
+          onClick={handleStart}
+          disabled={busy || !isLoaded}
+          title="Restart preview and play from OGraf Start to the first Step"
+        >
+          Start
+        </button>
         <button
           type="button"
           onClick={() => handlePlay({ delta: -1 })}
