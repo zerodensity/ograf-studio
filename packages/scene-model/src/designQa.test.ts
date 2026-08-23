@@ -46,5 +46,12 @@ describe('design and motion QA', () => {
     expect(
       report.findings.some((finding) => finding.layerIds.includes(lowerThird.layers.panel)),
     ).toBe(false);
+    expect(
+      report.findings.some(
+        (finding) =>
+          finding.id.startsWith('motion.no-entrance') &&
+          Object.values(lowerThird.layers).some((layerId) => finding.layerIds.includes(layerId)),
+      ),
+    ).toBe(false);
   });
 });

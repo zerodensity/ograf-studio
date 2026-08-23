@@ -7,6 +7,7 @@ import {
   createLayerPropertyKeyframe,
   createLayerOfKind,
   createTransition,
+  materializeLowerThird,
   type Composition,
   type Layer,
 } from '@ograf-editor/scene-model';
@@ -105,6 +106,21 @@ describe('compileDescriptor', () => {
     expect(descriptor.layers[0]!.clipParentId).toBeNull();
     expect(descriptor.layers[1]!.clipParentId).toBe(parent.id);
     expect(descriptor.layers[1]!.element).toMatchObject({ fill: child.element.fill });
+  });
+
+  it('compiles the default lower-third wipe as only ordinary layers and clip relations', () => {
+    const composition = createComposition();
+    const result = materializeLowerThird(composition);
+    const descriptor = compileDescriptor(composition);
+    const panel = descriptor.layers.find((layer) => layer.id === result.layers.panel)!;
+    const children = descriptor.layers.filter((layer) => layer.id !== panel.id);
+    const serialized = JSON.stringify(descriptor);
+
+    expect(panel.clipParentId).toBeNull();
+    expect(children.every((layer) => layer.clipParentId === panel.id)).toBe(true);
+    expect(serialized).not.toContain('clipChildren');
+    expect(serialized).not.toContain('parentId');
+    expect(serialized).not.toContain('groupId');
   });
 
   it('resolves a binding fieldId to the field key as dataKey', () => {

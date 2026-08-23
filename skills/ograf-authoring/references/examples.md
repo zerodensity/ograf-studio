@@ -1,15 +1,13 @@
 # Example: animated lower third
 
 1. Read capabilities and the current revision, then call `create_lower_third` with the intended
-   placement, initial headline/subheadline, field keys, theme, and left-in/down-out motion.
+   placement, initial headline/subheadline, field keys, and theme. Keep the default `wipe` for a
+   professional mask reveal, or explicitly choose `stagger`, `slide`, or `none` when required.
 2. Capture the returned layer, field, canvas-group, and timeline-group IDs. Refine the ordinary
    generated layers with normal element/transform operations and assign any additional semantic
    tags needed for later queries.
-3. Read the timeline, then refine independent keys if the recipe timing needs customization:
-   - background `x`: off-canvas to on-canvas with `cubic-out`;
-   - name `opacity`: 0 to 1 with `sine-out`;
-   - role `x` and `opacity`: slightly delayed, with separate easing;
-   - shadow opacity/blur only on the background.
+3. Read the timeline and confirm the default panel width wipe arrives with `cubic-out` and the End
+   key uses `cubic-in`. Refine independent keys only when the brief needs motion beyond the recipe.
 4. Use `ograf_preview_operations` for uncommitted visual refinements. If the change substantially
    affects layout/theme/motion, use `ograf_propose_operations` so the human can Accept or Reject it
    in OGraf Studio.

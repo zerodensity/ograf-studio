@@ -85,7 +85,9 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 - Prefer `sessionId: "editor"` when collaborating in the visible application.
 - Assign meaningful `set_layer_semantics` roles, tags, and descriptions to authored layers. Use
   `create_lower_third` for the standard grouped semantic recipe and `ograf_query_scene` for compact
-  later selection. Semantic metadata guides authoring and QA but never enters compiled playout.
+  later selection. Its default `wipe` style uses the panel as a compiled clipping mask with a
+  decelerating entrance and accelerating exit; choose `stagger`, `slide`, or `none` only when the
+  brief calls for them. Semantic metadata guides authoring and QA but never enters compiled playout.
 - Use Brand Kit operations to create typed design tokens and `bind_design_token` to apply them to
   compatible layer properties. Token links are authoring metadata; OGraf Studio materializes their
   current values into standard element properties so the exported template has no token-runtime
