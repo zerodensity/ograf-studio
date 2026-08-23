@@ -3,6 +3,7 @@ import {
   buildExportArtifactsWithRuntime,
   validatePackageLayout,
   type ExportArtifacts,
+  type ExportProfile,
 } from '@ograf-editor/codegen';
 import type { Graphic, OGrafManifest } from '@ograf-editor/ograf-types';
 import type { Composition, Project } from '@ograf-editor/scene-model';
@@ -24,8 +25,12 @@ export interface OGrafCompatibilityResult {
 }
 
 /** Compiles the exact files that will be certified and, only after certification, saved. */
-export function buildExportArtifacts(project: Project, composition: Composition): ExportArtifacts {
-  return buildExportArtifactsWithRuntime(project, composition, graphicRuntimeSource);
+export function buildExportArtifacts(
+  project: Project,
+  composition: Composition,
+  profile?: ExportProfile,
+): ExportArtifacts {
+  return buildExportArtifactsWithRuntime(project, composition, graphicRuntimeSource, profile);
 }
 
 function defaultsFromManifest(manifest: OGrafManifest): Record<string, unknown> {
@@ -94,6 +99,56 @@ function validateReturnPayload(
 
 type CallableGraphic = HTMLElement & Graphic & Record<string, unknown>;
 
+interface CertificationRealm {
+  frame: HTMLIFrameElement;
+  window: Window;
+  document: Document;
+}
+
+function createCertificationRealm(): CertificationRealm {
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.tabIndex = -1;
+  frame.style.cssText =
+    'position:fixed;left:-100000px;top:-100000px;width:1px;height:1px;border:0;visibility:hidden;';
+  document.body.appendChild(frame);
+  const realmWindow = frame.contentWindow;
+  const realmDocument = frame.contentDocument;
+  if (!realmWindow || !realmDocument) {
+    frame.remove();
+    throw new Error('Could not create the disposable certification document.');
+  }
+  return { frame, window: realmWindow, document: realmDocument };
+}
+
+async function importModuleInRealm(
+  realm: CertificationRealm,
+  moduleUrl: string,
+): Promise<{ default?: CustomElementConstructor }> {
+  const resultKey = `__ografCertification_${crypto.randomUUID().replaceAll('-', '_')}`;
+  const eventName = `${resultKey}_ready`;
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      realm.window.removeEventListener(eventName, finish);
+      const result = (realm.window as unknown as Record<string, unknown>)[resultKey] as
+        { module?: { default?: CustomElementConstructor }; error?: string } | undefined;
+      delete (realm.window as unknown as Record<string, unknown>)[resultKey];
+      if (result?.module) resolve(result.module);
+      else reject(new Error(result?.error || 'The certification module did not return a result.'));
+    };
+    realm.window.addEventListener(eventName, finish, { once: true });
+    const script = realm.document.createElement('script');
+    script.type = 'module';
+    script.textContent = `
+      import(${JSON.stringify(moduleUrl)}).then(
+        (module) => { window[${JSON.stringify(resultKey)}] = { module }; window.dispatchEvent(new Event(${JSON.stringify(eventName)})); },
+        (error) => { window[${JSON.stringify(resultKey)}] = { error: error instanceof Error ? error.message : String(error) }; window.dispatchEvent(new Event(${JSON.stringify(eventName)})); }
+      );
+    `;
+    realm.document.head.appendChild(script);
+  });
+}
+
 async function callGraphicMethod(
   graphic: CallableGraphic,
   method: keyof Graphic,
@@ -119,19 +174,18 @@ async function validateModuleAndLifecycle(
   const moduleErrors: string[] = [];
   const lifecycleErrors: string[] = [];
   const moduleUrl = URL.createObjectURL(new Blob([artifacts.mainJs], { type: 'text/javascript' }));
-  let tagName = '';
+  let realm: CertificationRealm | null = null;
   try {
-    const graphicModule = (await import(/* @vite-ignore */ moduleUrl)) as {
-      default?: CustomElementConstructor;
-    };
+    realm = createCertificationRealm();
+    const graphicModule = await importModuleInRealm(realm, moduleUrl);
     if (typeof graphicModule.default !== 'function') {
       moduleErrors.push('main.js must default-export a Graphic custom-element class.');
       return { moduleErrors, lifecycleErrors };
     }
 
-    tagName = `ograf-compatibility-${crypto.randomUUID()}`;
-    customElements.define(tagName, graphicModule.default);
-    const methodProbe = document.createElement(tagName) as CallableGraphic;
+    const tagName = `ograf-compatibility-${crypto.randomUUID()}`;
+    realm.window.customElements.define(tagName, graphicModule.default);
+    const methodProbe = realm.document.createElement(tagName) as CallableGraphic;
     const requiredMethods: (keyof Graphic)[] = [
       'load',
       'dispose',
@@ -157,9 +211,9 @@ async function validateModuleAndLifecycle(
     ];
 
     for (const renderType of renderTypes) {
-      const graphic = document.createElement(tagName) as CallableGraphic;
+      const graphic = realm.document.createElement(tagName) as CallableGraphic;
       graphic.style.cssText = 'position:fixed;left:-100000px;top:-100000px;visibility:hidden;';
-      document.body.appendChild(graphic);
+      realm.document.body.appendChild(graphic);
       lifecycleErrors.push(...(await callGraphicMethod(graphic, 'load', { renderType })));
       if (renderType === 'realtime') {
         lifecycleErrors.push(
@@ -189,6 +243,7 @@ async function validateModuleAndLifecycle(
       : '';
     moduleErrors.push(`main.js could not be imported: ${detail}${recovery}`);
   } finally {
+    realm?.frame.remove();
     URL.revokeObjectURL(moduleUrl);
   }
   return { moduleErrors, lifecycleErrors };

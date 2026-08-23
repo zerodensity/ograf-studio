@@ -19,7 +19,7 @@ interface MountedLottie {
 
 const lottieAnimations = new WeakMap<HTMLElement, MountedLottie>();
 
-/** Smallest legible fraction of the authored text size used by shrink-to-fit. */
+/** Legacy default retained for migrated projects; each text element now carries an absolute floor. */
 export const SHRINK_TO_FIT_MIN_RATIO = 0.5;
 
 /** Disconnects shrink-to-fit observation before a renderer discards a content host. */
@@ -101,19 +101,41 @@ export function renderElementContent(
       content.style.fontSize = `${element.fontSize}px`;
       content.style.fontWeight = String(element.fontWeight);
       content.style.textAlign = element.textAlign;
-      content.style.whiteSpace = element.autoFit === 'auto-size' ? 'pre' : 'pre-wrap';
+      content.style.letterSpacing = `${element.letterSpacing}px`;
+      content.style.textTransform = element.textTransform;
+      content.style.display = 'flex';
+      content.style.flexDirection = 'column';
+      content.style.justifyContent =
+        element.verticalAlign === 'middle'
+          ? 'center'
+          : element.verticalAlign === 'bottom'
+            ? 'flex-end'
+            : 'flex-start';
+      content.style.transform = `translateY(${element.baselineShift}px)`;
+      content.style.whiteSpace =
+        element.autoFit === 'auto-size'
+          ? 'pre'
+          : element.overflowPolicy === 'ellipsis'
+            ? 'nowrap'
+            : 'pre-wrap';
       // Shrink-to-fit changes glyph size, not the authored line grid. Keeping the line height in
       // pixels prevents subsequent lines/baselines from moving vertically as longer data forces a
       // smaller fitted font. Other modes retain normal proportional line-height behavior.
       content.style.lineHeight =
-        element.autoFit === 'shrink-to-fit' ? `${element.fontSize * 1.2}px` : '1.2';
-      content.style.overflow = element.autoFit === 'shrink-to-fit' ? 'hidden' : 'visible';
+        element.autoFit === 'shrink-to-fit'
+          ? `${element.fontSize * element.lineHeight}px`
+          : String(element.lineHeight);
+      content.style.overflow =
+        element.autoFit === 'shrink-to-fit' || element.overflowPolicy !== 'visible'
+          ? 'hidden'
+          : 'visible';
+      content.style.textOverflow = element.overflowPolicy === 'ellipsis' ? 'ellipsis' : 'clip';
       content.textContent = element.content;
       container.appendChild(content);
       if (element.autoFit === 'shrink-to-fit') {
         const fit = () => {
           if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
-          const floor = Math.max(1, element.fontSize * SHRINK_TO_FIT_MIN_RATIO);
+          const floor = Math.min(element.fontSize, Math.max(1, element.minFontSize));
           let lower = floor;
           let upper = Math.max(floor, element.fontSize);
           content.style.fontSize = `${floor}px`;
@@ -122,7 +144,7 @@ export function renderElementContent(
             content.scrollHeight <= container.clientHeight + 0.5;
           if (!fitsAtFloor) {
             content.style.fontSize = `${Math.floor(floor * 10) / 10}px`;
-            content.dataset.ografShrinkRatio = String(SHRINK_TO_FIT_MIN_RATIO);
+            content.dataset.ografShrinkRatio = String(floor / element.fontSize);
             content.dataset.ografShrinkDegenerate = 'true';
             return;
           }

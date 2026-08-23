@@ -3,3 +3,4 @@ export * from './compileDataSchema';
 export * from './compileDescriptor';
 export * from './assembleManifest';
 export * from './buildExportArtifacts';
+export * from './exportProfiles';

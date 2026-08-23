@@ -27,6 +27,7 @@ import { useSelectionStore } from '../state/selectionStore';
 import { lifecycleRetimeBounds, MIN_LIFECYCLE_TRANSITION_FRAMES } from '../state/lifecycleRetime';
 import { Panel } from './Panel';
 import { formatFrameDuration } from './timelineFormatting';
+import { FrameDurationControl } from './FrameDurationControl';
 import { EASING_OPTION_GROUPS, easingLabel } from './easingOptions';
 import { EasingCurveEditor } from './EasingCurveEditor';
 import { buildTimelineEntries } from './timelineFolders';
@@ -134,6 +135,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const duration = formatFrameDuration(durationFrames, composition.frameRate);
 
   const [pixelsPerFrame, setPixelsPerFrame] = useState(DEFAULT_PX_PER_FRAME);
+  const [trackScalePercent, setTrackScalePercent] = useState(100);
   const [expandedLayerIds, setExpandedLayerIds] = useState<Set<string>>(() => new Set());
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
   const [lifecycleDragPreview, setLifecycleDragPreview] = useState<{
@@ -224,6 +226,9 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
     selectedLayer && selectedLayerProperty
       ? (selectedLayer.loop?.tracks[selectedLayerProperty] ?? [])
       : [];
+  const showKeyEditor = Boolean(
+    selectedLayer && (selectedPropertyKeyframe || selectedLayerKeyframe || selectedLayerProperty),
+  );
 
   useEffect(() => {
     if (
@@ -233,6 +238,15 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
       setPreviewLoopLayerId(null);
     }
   }, [composition.layers, previewLoopLayerId, setPreviewLoopLayerId]);
+
+  useEffect(() => {
+    if (!lifecycleRetimeNotice) return;
+    const timeout = window.setTimeout(
+      () => setLifecycleRetimeNotice(null),
+      lifecycleRetimeNotice.warnings.length > 0 ? 6000 : 3500,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [lifecycleRetimeNotice]);
 
   const createLoopForSelectedProperty = () => {
     if (!selectedLayer || !selectedLayerProperty) return;
@@ -536,7 +550,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
 
   return (
     <Panel title="Timeline" style={style}>
-      <div className="timeline-panel">
+      <div className={`timeline-panel${showKeyEditor ? ' has-key-editor' : ''}`}>
         <div className="timeline-toolbar">
           <div className="timeline-transport" role="group" aria-label="Timeline playback">
             <button
@@ -591,24 +605,15 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
               checked={pauseAtOgrafSteps}
               onChange={(event) => setPauseAtOgrafSteps(event.target.checked)}
             />
-            <span>Pause at OGraf steps</span>
+            <span>Pause at Steps</span>
           </label>
 
           <div className="timeline-readout" aria-label="Timeline position and duration">
-            <span className="timeline-readout-item">
-              <span className="timeline-readout-label">Current</span>
-              <strong>{displayedFrame}</strong>
-            </span>
+            <strong>{displayedFrame}</strong>
             <span className="timeline-readout-divider">/</span>
-            <span className="timeline-readout-item">
-              <span className="timeline-readout-label">Total frames</span>
-              <strong>{durationFrames}</strong>
-            </span>
-            <span className="timeline-readout-separator" />
-            <span className="timeline-readout-item duration">
-              <span className="timeline-readout-label">Duration</span>
-              <strong>{duration}</strong>
-            </span>
+            <strong>{durationFrames} f</strong>
+            <span className="timeline-readout-separator">·</span>
+            <strong className="timeline-readout-duration">{duration}</strong>
           </div>
 
           <div className="timeline-edit-controls">
@@ -616,48 +621,10 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
               {'+ Step'}
             </button>
             <button type="button" onClick={handleAddLayerKeyframe} disabled={!selectedLayerId}>
-              {'◆ Layer key'}
+              {'◆ Add Keyframe'}
             </button>
-            <button
-              type="button"
-              disabled={selectedLayerIds.length < 2}
-              title="Organize selected layers in a timeline-only group"
-              onClick={() => createSelectedTimelineGroup(selectedLayerIds)}
-            >
-              {'+ Group'}
-            </button>
-            {selectedLayerId && selectedLayerKeyframeId && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (selectedLayerProperty) {
-                    removeLayerPropertyKeyframe(
-                      selectedLayerId,
-                      selectedLayerProperty,
-                      selectedLayerKeyframeId,
-                    );
-                  } else {
-                    removeLayerKeyframe(selectedLayerId, selectedLayerKeyframeId);
-                  }
-                  clearLayerKeyframe();
-                }}
-              >
-                {'Delete key'}
-              </button>
-            )}
           </div>
           <div className="timeline-zoom-controls" role="group" aria-label="Timeline zoom">
-            <button
-              type="button"
-              aria-label="Zoom timeline out"
-              title="Zoom timeline out"
-              disabled={pixelsPerFrame <= MIN_PX_PER_FRAME}
-              onClick={() =>
-                setPixelsPerFrame((value) => Math.max(MIN_PX_PER_FRAME, value - PX_PER_FRAME_STEP))
-              }
-            >
-              −
-            </button>
             <input
               type="range"
               min={MIN_PX_PER_FRAME}
@@ -667,39 +634,19 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
               aria-label="Timeline horizontal zoom"
               onChange={(event) => setPixelsPerFrame(Number(event.target.value))}
             />
-            <button
-              type="button"
-              aria-label="Zoom timeline in"
-              title="Zoom timeline in"
-              disabled={pixelsPerFrame >= MAX_PX_PER_FRAME}
-              onClick={() =>
-                setPixelsPerFrame((value) => Math.min(MAX_PX_PER_FRAME, value + PX_PER_FRAME_STEP))
-              }
-            >
-              +
-            </button>
             <output>{Math.round((pixelsPerFrame / DEFAULT_PX_PER_FRAME) * 100)}%</output>
           </div>
           {incomingTransition && (
             <div className="timeline-transition-controls">
-              <label>
-                Incoming frames
-                <input
-                  aria-label="Incoming lifecycle transition frames"
-                  type="number"
-                  min={MIN_TRANSITION_FRAMES}
-                  step={1}
-                  value={incomingTransition.durationFrames}
-                  onChange={(e) =>
-                    updateTransition(incomingTransition.id, {
-                      durationFrames: Math.max(
-                        MIN_TRANSITION_FRAMES,
-                        Math.round(Number(e.target.value)),
-                      ),
-                    })
-                  }
-                />
-              </label>
+              <FrameDurationControl
+                label="Incoming lifecycle transition"
+                frames={incomingTransition.durationFrames}
+                frameRate={composition.frameRate}
+                minFrames={MIN_TRANSITION_FRAMES}
+                onChange={(durationFrames) =>
+                  updateTransition(incomingTransition.id, { durationFrames })
+                }
+              />
               <label>
                 Lifecycle easing
                 <select
@@ -726,20 +673,21 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
           )}
           {activeKeyframe && (
             <span className={`timeline-state-role ${activeKeyframe.role}`}>
-              {activeKeyframe.role}
-            </span>
-          )}
-          {lifecycleRetimeNotice && (
-            <span
-              className={`timeline-lifecycle-notice${lifecycleRetimeNotice.warnings.length > 0 ? ' warning' : ''}`}
-              role="status"
-              title={[lifecycleRetimeNotice.message, ...lifecycleRetimeNotice.warnings].join(' ')}
-            >
-              {lifecycleRetimeNotice.warnings.length > 0 ? '⚠' : '✓'}{' '}
-              {lifecycleRetimeNotice.warnings[0] ?? lifecycleRetimeNotice.message}
+              {activeKeyframe.name} · {activeKeyframe.role}
             </span>
           )}
         </div>
+
+        {lifecycleRetimeNotice && (
+          <div
+            className={`timeline-lifecycle-toast${lifecycleRetimeNotice.warnings.length > 0 ? ' warning' : ''}`}
+            role="status"
+            title={[lifecycleRetimeNotice.message, ...lifecycleRetimeNotice.warnings].join(' ')}
+          >
+            {lifecycleRetimeNotice.warnings.length > 0 ? '⚠' : '✓'}{' '}
+            {lifecycleRetimeNotice.warnings[0] ?? lifecycleRetimeNotice.message}
+          </div>
+        )}
 
         <div className="timeline-body">
           <div className="timeline-gutter" ref={gutterRef}>
@@ -773,14 +721,6 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       >
                         {collapsed ? '▸' : '▾'}
                       </button>
-                      <input
-                        type="color"
-                        className="timeline-folder-color"
-                        value={folder.color}
-                        aria-label={`${folder.name} color`}
-                        title="Timeline group color"
-                        onChange={(event) => setTimelineFolderColor(folder.id, event.target.value)}
-                      />
                       {editingFolderId === folder.id ? (
                         <input
                           autoFocus
@@ -932,8 +872,35 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         .filter(Boolean)
                         .join(' ')}
                       style={{ left: frame * pixelsPerFrame }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${keyframe.name} at frame ${frame}`}
                       title={`${keyframe.name} · frame ${frame}${keyframe.role === 'start' ? ' · Start is fixed' : ' · Drag to move'}`}
                       onPointerDown={(e) => handleKeyframeMarkerPointerDown(e, i)}
+                      onKeyDown={(event) => {
+                        if ((event.target as HTMLElement).tagName === 'INPUT') return;
+                        if (
+                          (event.key === 'Delete' || event.key === 'Backspace') &&
+                          keyframe.role === 'step'
+                        ) {
+                          event.preventDefault();
+                          removeKeyframe(keyframe.id);
+                          return;
+                        }
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setActiveKeyframe(keyframe.id);
+                          controller?.seek(frame);
+                          return;
+                        }
+                        if (i > 0 && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+                          event.preventDefault();
+                          commitLifecycleMove(
+                            keyframe.id,
+                            frame + (event.key === 'ArrowLeft' ? -1 : 1),
+                          );
+                        }
+                      }}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
                         setEditingKeyframeId(keyframe.id);
@@ -956,20 +923,6 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         />
                       ) : (
                         <span className="timeline-keyframe-marker-name">{keyframe.name}</span>
-                      )}
-                      {keyframe.role === 'step' && (
-                        <button
-                          type="button"
-                          className="timeline-keyframe-marker-delete"
-                          title="Delete keyframe"
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeKeyframe(keyframe.id);
-                          }}
-                        >
-                          {'✕'}
-                        </button>
                       )}
                     </div>
                   );
@@ -1042,7 +995,29 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         key={keyframe.id}
                         className={`timeline-keyframe-dot${keyframe.id === selectedLayerKeyframeId ? ' active' : ''}`}
                         style={{ left: keyframe.frame * pixelsPerFrame }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`${layer.name} key at frame ${keyframe.frame}`}
                         title={`${layer.name} · frame ${keyframe.frame}`}
+                        onFocus={() => selectLayerKeyframe(layer.id, keyframe.id)}
+                        onKeyDown={(event) => {
+                          if (layer.isLocked) return;
+                          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                            event.preventDefault();
+                            moveLayerKeyframe(
+                              layer.id,
+                              keyframe.id,
+                              keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
+                            );
+                          } else if (
+                            (event.key === 'Delete' || event.key === 'Backspace') &&
+                            orderedKeys.length > 1
+                          ) {
+                            event.preventDefault();
+                            removeLayerKeyframe(layer.id, keyframe.id);
+                            clearLayerKeyframe();
+                          }
+                        }}
                         onPointerDown={(event) =>
                           handleLayerKeyframePointerDown(
                             event,
@@ -1104,7 +1079,30 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           key={keyframe.id}
                           className={`timeline-keyframe-dot property${keyframe.id === selectedLayerKeyframeId && selectedLayerProperty === property ? ' active' : ''}`}
                           style={{ left: keyframe.frame * pixelsPerFrame }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`${animatablePropertyLabel(property)} key at frame ${keyframe.frame}`}
                           title={`${animatablePropertyLabel(property)} · frame ${keyframe.frame} · value ${keyframe.value.toFixed(3)}`}
+                          onFocus={() => selectLayerKeyframe(layer.id, keyframe.id, property)}
+                          onKeyDown={(event) => {
+                            if (layer.isLocked) return;
+                            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                              event.preventDefault();
+                              moveLayerPropertyKeyframe(
+                                layer.id,
+                                property,
+                                keyframe.id,
+                                keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
+                              );
+                            } else if (
+                              (event.key === 'Delete' || event.key === 'Backspace') &&
+                              propertyKeys.length > 1
+                            ) {
+                              event.preventDefault();
+                              removeLayerPropertyKeyframe(layer.id, property, keyframe.id);
+                              clearLayerKeyframe();
+                            }
+                          }}
                           onPointerDown={(event) =>
                             handleLayerKeyframePointerDown(
                               event,
@@ -1162,396 +1160,392 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
             </div>
           </div>
         </div>
-        <aside className="timeline-key-editor" aria-label="Keyframe editor">
-          <h3>Keyframe editor</h3>
-          {selectedLayer && (selectedPropertyKeyframe || selectedLayerKeyframe) ? (
-            <div className="timeline-layer-key-controls">
-              <div className="timeline-key-editor-selection">
-                <strong>{selectedLayer.name}</strong>
-                <span>
-                  {selectedLayerProperty
-                    ? animatablePropertyLabel(selectedLayerProperty)
-                    : 'Layer transform'}
-                  {' · frame '}
-                  {(selectedPropertyKeyframe ?? selectedLayerKeyframe)!.frame}
-                </span>
-              </div>
-              <label>
-                Incoming easing
-                <select
-                  aria-label="Selected layer key easing"
-                  value={(selectedPropertyKeyframe ?? selectedLayerKeyframe)!.easing}
-                  onChange={(event) =>
-                    selectedLayerProperty && selectedPropertyKeyframe
-                      ? updateLayerPropertyKeyframeEasing(
-                          selectedLayer.id,
-                          selectedLayerProperty,
-                          selectedPropertyKeyframe.id,
-                          event.target.value as EasingPreset,
-                        )
-                      : selectedLayerKeyframe &&
-                        updateLayerKeyframeEasing(
-                          selectedLayer.id,
-                          selectedLayerKeyframe.id,
-                          event.target.value as EasingPreset,
-                        )
-                  }
-                >
-                  {EASING_OPTION_GROUPS.map((group) => (
-                    <optgroup key={group.label} label={group.label}>
-                      {group.options.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              </label>
-              {selectedLayerProperty && selectedPropertyKeyframe && (
-                <>
-                  <EasingCurveEditor
-                    easing={selectedPropertyKeyframe.easing}
-                    curve={selectedPropertyKeyframe.curve}
-                    onChange={(curve) =>
-                      updateLayerPropertyKeyframeCurve(
-                        selectedLayer.id,
-                        selectedLayerProperty,
-                        selectedPropertyKeyframe.id,
-                        curve,
-                      )
-                    }
-                  />
-                  <div
-                    className="timeline-retime-controls"
-                    role="group"
-                    aria-label="Track retiming"
-                  >
-                    <button
-                      type="button"
-                      title="Nudge selected key one frame earlier"
-                      onClick={() =>
-                        moveLayerPropertyKeyframe(
-                          selectedLayer.id,
-                          selectedLayerProperty,
-                          selectedPropertyKeyframe.id,
-                          selectedPropertyKeyframe.frame - 1,
-                        )
-                      }
-                    >
-                      Key −1
-                    </button>
-                    <button
-                      type="button"
-                      title="Nudge selected key one frame later"
-                      onClick={() =>
-                        moveLayerPropertyKeyframe(
-                          selectedLayer.id,
-                          selectedLayerProperty,
-                          selectedPropertyKeyframe.id,
-                          selectedPropertyKeyframe.frame + 1,
-                        )
-                      }
-                    >
-                      Key +1
-                    </button>
-                    <button
-                      type="button"
-                      title="Shift this complete property track one frame earlier"
-                      onClick={() =>
-                        offsetLayerPropertyTrack(selectedLayer.id, selectedLayerProperty, -1)
-                      }
-                    >
-                      Track −1
-                    </button>
-                    <button
-                      type="button"
-                      title="Shift this complete property track one frame later"
-                      onClick={() =>
-                        offsetLayerPropertyTrack(selectedLayer.id, selectedLayerProperty, 1)
-                      }
-                    >
-                      Track +1
-                    </button>
-                    <button
-                      type="button"
-                      title="Compress track timing to 80%"
-                      onClick={() =>
-                        scaleLayerPropertyTrack(selectedLayer.id, selectedLayerProperty, 0.8)
-                      }
-                    >
-                      80%
-                    </button>
-                    <button
-                      type="button"
-                      title="Stretch track timing to 125%"
-                      onClick={() =>
-                        scaleLayerPropertyTrack(selectedLayer.id, selectedLayerProperty, 1.25)
-                      }
-                    >
-                      125%
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        reverseLayerPropertyTrack(selectedLayer.id, selectedLayerProperty)
-                      }
-                    >
-                      Reverse
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        distributeLayerPropertyTrack(selectedLayer.id, selectedLayerProperty)
-                      }
-                    >
-                      Distribute
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          ) : (
-            <p className="timeline-key-editor-empty">
-              Select a layer or property key to edit its easing and timing.
-            </p>
-          )}
-          {selectedLayer && selectedLayerProperty && (
-            <section className="timeline-loop-editor" aria-label="Layer loop editor">
-              <div className="timeline-loop-editor-heading">
-                <strong>Local property loop</strong>
-                {selectedLayer.loop && (
-                  <button
-                    type="button"
-                    className={previewLoopLayerId === selectedLayer.id ? 'active' : ''}
-                    onClick={() =>
-                      setPreviewLoopLayerId(
-                        previewLoopLayerId === selectedLayer.id ? null : selectedLayer.id,
-                      )
+        {showKeyEditor && (
+          <aside className="timeline-key-editor" aria-label="Keyframe editor">
+            <h3>Keyframe editor</h3>
+            {selectedLayer && (selectedPropertyKeyframe || selectedLayerKeyframe) && (
+              <div className="timeline-layer-key-controls">
+                <div className="timeline-key-editor-selection">
+                  <strong>{selectedLayer.name}</strong>
+                  <span>
+                    {selectedLayerProperty
+                      ? animatablePropertyLabel(selectedLayerProperty)
+                      : 'Layer transform'}
+                    {' · frame '}
+                    {(selectedPropertyKeyframe ?? selectedLayerKeyframe)!.frame}
+                  </span>
+                </div>
+                <label>
+                  Incoming easing
+                  <select
+                    aria-label="Selected layer key easing"
+                    value={(selectedPropertyKeyframe ?? selectedLayerKeyframe)!.easing}
+                    onChange={(event) =>
+                      selectedLayerProperty && selectedPropertyKeyframe
+                        ? updateLayerPropertyKeyframeEasing(
+                            selectedLayer.id,
+                            selectedLayerProperty,
+                            selectedPropertyKeyframe.id,
+                            event.target.value as EasingPreset,
+                          )
+                        : selectedLayerKeyframe &&
+                          updateLayerKeyframeEasing(
+                            selectedLayer.id,
+                            selectedLayerKeyframe.id,
+                            event.target.value as EasingPreset,
+                          )
                     }
                   >
-                    {previewLoopLayerId === selectedLayer.id ? 'Stop preview' : 'Preview'}
-                  </button>
-                )}
-              </div>
-              {!selectedLayer.loop ? (
-                <button type="button" onClick={createLoopForSelectedProperty}>
-                  Create loop for {animatablePropertyLabel(selectedLayerProperty)}
-                </button>
-              ) : (
-                <>
-                  <div className="timeline-loop-grid">
-                    <label>
-                      Duration
-                      <input
-                        type="number"
-                        min={1}
-                        value={selectedLayer.loop.durationFrames}
-                        onChange={(event) =>
-                          setLayerLoop(selectedLayer.id, {
-                            durationFrames: Number(event.target.value),
-                          })
+                    {EASING_OPTION_GROUPS.map((group) => (
+                      <optgroup key={group.label} label={group.label}>
+                        {group.options.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+                {selectedLayerProperty && selectedPropertyKeyframe && (
+                  <>
+                    <details className="timeline-advanced-section">
+                      <summary>Advanced curve</summary>
+                      <EasingCurveEditor
+                        easing={selectedPropertyKeyframe.easing}
+                        curve={selectedPropertyKeyframe.curve}
+                        onChange={(curve) =>
+                          updateLayerPropertyKeyframeCurve(
+                            selectedLayer.id,
+                            selectedLayerProperty,
+                            selectedPropertyKeyframe.id,
+                            curve,
+                          )
                         }
                       />
-                    </label>
-                    <label>
-                      Phase
-                      <input
-                        type="number"
-                        value={selectedLayer.loop.phaseOffsetFrames}
-                        onChange={(event) =>
-                          setLayerLoop(selectedLayer.id, {
-                            phaseOffsetFrames: Number(event.target.value),
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Repeats
-                      <input
-                        type="number"
-                        min={1}
-                        placeholder="∞"
-                        value={selectedLayer.loop.repeatCount ?? ''}
-                        onChange={(event) =>
-                          setLayerLoop(selectedLayer.id, {
-                            repeatCount:
-                              event.target.value === '' ? null : Number(event.target.value),
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Active while
-                      <select
-                        value={
-                          selectedLayer.loop.activation.type === 'lifecycle'
-                            ? 'lifecycle'
-                            : `step:${selectedLayer.loop.activation.stepKeyframeId}`
-                        }
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setLayerLoop(selectedLayer.id, {
-                            activation:
-                              value === 'lifecycle'
-                                ? { type: 'lifecycle' }
-                                : { type: 'step', stepKeyframeId: value.slice(5) },
-                          });
-                        }}
-                      >
-                        <option value="lifecycle">Graphic is on-air</option>
-                        {composition.keyframes
-                          .filter((keyframe) => keyframe.role === 'step')
-                          .map((keyframe) => (
-                            <option key={keyframe.id} value={`step:${keyframe.id}`}>
-                              {keyframe.name}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  </div>
-                  {selectedLoopTrack.length === 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const value = getLayerPropertyValueAtFrame(
-                          selectedLayer,
-                          selectedLayerProperty,
-                          displayedFrame,
-                        );
-                        updateSelectedLoopTrack([
-                          createLayerPropertyKeyframe(0, value, { easing: 'linear' }),
-                          createLayerPropertyKeyframe(selectedLayer.loop!.durationFrames, value, {
-                            easing: 'sine-in-out',
-                          }),
-                        ]);
-                      }}
-                    >
-                      Add {animatablePropertyLabel(selectedLayerProperty)} to loop
-                    </button>
-                  ) : (
-                    <div className="timeline-loop-keys">
-                      <div className="timeline-loop-key header">
-                        <span>Frame</span>
-                        <span>Value</span>
-                        <span>Incoming easing</span>
-                        <span />
-                      </div>
-                      {selectedLoopTrack.map((key) => (
-                        <div className="timeline-loop-key" key={key.id}>
+                    </details>
+                    <details className="timeline-advanced-section">
+                      <summary>Track Actions…</summary>
+                      <div className="timeline-track-actions">
+                        <button
+                          type="button"
+                          title="Shift this complete property track one frame earlier"
+                          onClick={() =>
+                            offsetLayerPropertyTrack(selectedLayer.id, selectedLayerProperty, -1)
+                          }
+                        >
+                          Shift −1 frame
+                        </button>
+                        <button
+                          type="button"
+                          title="Shift this complete property track one frame later"
+                          onClick={() =>
+                            offsetLayerPropertyTrack(selectedLayer.id, selectedLayerProperty, 1)
+                          }
+                        >
+                          Shift +1 frame
+                        </button>
+                        <label className="timeline-track-scale">
+                          Scale
                           <input
-                            aria-label="Loop key frame"
                             type="number"
-                            min={0}
-                            max={selectedLayer.loop!.durationFrames}
-                            value={key.frame}
-                            onChange={(event) =>
-                              updateSelectedLoopTrack(
-                                selectedLoopTrack.map((candidate) =>
-                                  candidate.id === key.id
-                                    ? { ...candidate, frame: Number(event.target.value) }
-                                    : candidate,
-                                ),
-                              )
-                            }
+                            min={1}
+                            step={1}
+                            value={trackScalePercent}
+                            onChange={(event) => setTrackScalePercent(Number(event.target.value))}
                           />
-                          <input
-                            aria-label="Loop key value"
-                            type="number"
-                            step="any"
-                            value={key.value}
-                            onChange={(event) =>
-                              updateSelectedLoopTrack(
-                                selectedLoopTrack.map((candidate) =>
-                                  candidate.id === key.id
-                                    ? { ...candidate, value: Number(event.target.value) }
-                                    : candidate,
-                                ),
-                              )
-                            }
-                          />
-                          <select
-                            aria-label="Loop key incoming easing"
-                            value={key.easing}
-                            onChange={(event) =>
-                              updateSelectedLoopTrack(
-                                selectedLoopTrack.map((candidate) =>
-                                  candidate.id === key.id
-                                    ? {
-                                        ...candidate,
-                                        easing: event.target.value as EasingPreset,
-                                        curve: undefined,
-                                      }
-                                    : candidate,
-                                ),
-                              )
-                            }
-                          >
-                            {EASING_OPTION_GROUPS.flatMap((group) => group.options).map(
-                              (option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ),
-                            )}
-                          </select>
+                          <span>%</span>
                           <button
                             type="button"
-                            aria-label="Delete loop key"
-                            disabled={selectedLoopTrack.length <= 2}
                             onClick={() =>
-                              updateSelectedLoopTrack(
-                                selectedLoopTrack.filter((candidate) => candidate.id !== key.id),
+                              scaleLayerPropertyTrack(
+                                selectedLayer.id,
+                                selectedLayerProperty,
+                                Math.max(1, trackScalePercent) / 100,
                               )
                             }
                           >
-                            ×
+                            Apply
                           </button>
-                        </div>
-                      ))}
-                      <div className="timeline-loop-actions">
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            reverseLayerPropertyTrack(selectedLayer.id, selectedLayerProperty)
+                          }
+                        >
+                          Reverse track
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            distributeLayerPropertyTrack(selectedLayer.id, selectedLayerProperty)
+                          }
+                        >
+                          Distribute keys
+                        </button>
+                      </div>
+                    </details>
+                  </>
+                )}
+              </div>
+            )}
+            {selectedLayer && selectedLayerProperty && (
+              <details className="timeline-loop-editor" aria-label="Layer loop editor">
+                <summary>Local property loop</summary>
+                <div className="timeline-loop-editor-content">
+                  {selectedLayer.loop && (
+                    <div className="timeline-loop-editor-heading">
+                      <span>{animatablePropertyLabel(selectedLayerProperty)}</span>
+                      <button
+                        type="button"
+                        className={previewLoopLayerId === selectedLayer.id ? 'active' : ''}
+                        onClick={() =>
+                          setPreviewLoopLayerId(
+                            previewLoopLayerId === selectedLayer.id ? null : selectedLayer.id,
+                          )
+                        }
+                      >
+                        {previewLoopLayerId === selectedLayer.id ? 'Stop preview' : 'Preview'}
+                      </button>
+                    </div>
+                  )}
+                  {!selectedLayer.loop ? (
+                    <button type="button" onClick={createLoopForSelectedProperty}>
+                      Add Loop…
+                    </button>
+                  ) : (
+                    <>
+                      <div className="timeline-loop-grid">
+                        <label>
+                          Duration
+                          <input
+                            type="number"
+                            min={1}
+                            value={selectedLayer.loop.durationFrames}
+                            onChange={(event) =>
+                              setLayerLoop(selectedLayer.id, {
+                                durationFrames: Number(event.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Repeats
+                          <input
+                            type="number"
+                            min={1}
+                            placeholder="∞"
+                            value={selectedLayer.loop.repeatCount ?? ''}
+                            onChange={(event) =>
+                              setLayerLoop(selectedLayer.id, {
+                                repeatCount:
+                                  event.target.value === '' ? null : Number(event.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Active while
+                          <select
+                            value={
+                              selectedLayer.loop.activation.type === 'lifecycle'
+                                ? 'lifecycle'
+                                : `step:${selectedLayer.loop.activation.stepKeyframeId}`
+                            }
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setLayerLoop(selectedLayer.id, {
+                                activation:
+                                  value === 'lifecycle'
+                                    ? { type: 'lifecycle' }
+                                    : { type: 'step', stepKeyframeId: value.slice(5) },
+                              });
+                            }}
+                          >
+                            <option value="lifecycle">Graphic is on-air</option>
+                            {composition.keyframes
+                              .filter((keyframe) => keyframe.role === 'step')
+                              .map((keyframe) => (
+                                <option key={keyframe.id} value={`step:${keyframe.id}`}>
+                                  {keyframe.name}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                      </div>
+                      <details className="timeline-loop-advanced">
+                        <summary>Advanced loop settings</summary>
+                        <label>
+                          Phase offset frames
+                          <input
+                            type="number"
+                            value={selectedLayer.loop.phaseOffsetFrames}
+                            onChange={(event) =>
+                              setLayerLoop(selectedLayer.id, {
+                                phaseOffsetFrames: Number(event.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                      </details>
+                      {selectedLoopTrack.length === 0 ? (
                         <button
                           type="button"
                           onClick={() => {
-                            const occupied = new Set(selectedLoopTrack.map((key) => key.frame));
-                            const frame = Array.from(
-                              { length: selectedLayer.loop!.durationFrames + 1 },
-                              (_, index) => index,
-                            ).find((candidate) => !occupied.has(candidate));
-                            if (frame === undefined) return;
-                            const fallback = selectedLoopTrack[0]?.value ?? 0;
+                            const value = getLayerPropertyValueAtFrame(
+                              selectedLayer,
+                              selectedLayerProperty,
+                              displayedFrame,
+                            );
                             updateSelectedLoopTrack([
-                              ...selectedLoopTrack,
+                              createLayerPropertyKeyframe(0, value, { easing: 'linear' }),
                               createLayerPropertyKeyframe(
-                                frame,
-                                getTrackValueAtFrame(selectedLoopTrack, frame, fallback),
+                                selectedLayer.loop!.durationFrames,
+                                value,
+                                {
+                                  easing: 'sine-in-out',
+                                },
                               ),
                             ]);
                           }}
                         >
-                          + Key
+                          Add {animatablePropertyLabel(selectedLayerProperty)} to loop
                         </button>
-                        <button type="button" onClick={() => updateSelectedLoopTrack([])}>
-                          Remove property
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          onClick={() => {
-                            removeLayerLoop(selectedLayer.id);
-                            setPreviewLoopLayerId(null);
-                          }}
-                        >
-                          Remove loop
-                        </button>
-                      </div>
-                    </div>
+                      ) : (
+                        <div className="timeline-loop-keys">
+                          <div className="timeline-loop-key header">
+                            <span>Frame</span>
+                            <span>Value</span>
+                            <span>Incoming easing</span>
+                            <span />
+                          </div>
+                          {selectedLoopTrack.map((key) => (
+                            <div className="timeline-loop-key" key={key.id}>
+                              <input
+                                aria-label="Loop key frame"
+                                type="number"
+                                min={0}
+                                max={selectedLayer.loop!.durationFrames}
+                                value={key.frame}
+                                onChange={(event) =>
+                                  updateSelectedLoopTrack(
+                                    selectedLoopTrack.map((candidate) =>
+                                      candidate.id === key.id
+                                        ? { ...candidate, frame: Number(event.target.value) }
+                                        : candidate,
+                                    ),
+                                  )
+                                }
+                              />
+                              <input
+                                aria-label="Loop key value"
+                                type="number"
+                                step="any"
+                                value={key.value}
+                                onChange={(event) =>
+                                  updateSelectedLoopTrack(
+                                    selectedLoopTrack.map((candidate) =>
+                                      candidate.id === key.id
+                                        ? { ...candidate, value: Number(event.target.value) }
+                                        : candidate,
+                                    ),
+                                  )
+                                }
+                              />
+                              <select
+                                aria-label="Loop key incoming easing"
+                                value={key.easing}
+                                onChange={(event) =>
+                                  updateSelectedLoopTrack(
+                                    selectedLoopTrack.map((candidate) =>
+                                      candidate.id === key.id
+                                        ? {
+                                            ...candidate,
+                                            easing: event.target.value as EasingPreset,
+                                            curve: undefined,
+                                          }
+                                        : candidate,
+                                    ),
+                                  )
+                                }
+                              >
+                                {EASING_OPTION_GROUPS.flatMap((group) => group.options).map(
+                                  (option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ),
+                                )}
+                              </select>
+                              <button
+                                type="button"
+                                aria-label="Delete loop key"
+                                disabled={selectedLoopTrack.length <= 2}
+                                onClick={() =>
+                                  updateSelectedLoopTrack(
+                                    selectedLoopTrack.filter(
+                                      (candidate) => candidate.id !== key.id,
+                                    ),
+                                  )
+                                }
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          <div className="timeline-loop-actions">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const occupied = new Set(selectedLoopTrack.map((key) => key.frame));
+                                const frame = Array.from(
+                                  { length: selectedLayer.loop!.durationFrames + 1 },
+                                  (_, index) => index,
+                                ).find((candidate) => !occupied.has(candidate));
+                                if (frame === undefined) return;
+                                const fallback = selectedLoopTrack[0]?.value ?? 0;
+                                updateSelectedLoopTrack([
+                                  ...selectedLoopTrack,
+                                  createLayerPropertyKeyframe(
+                                    frame,
+                                    getTrackValueAtFrame(selectedLoopTrack, frame, fallback),
+                                  ),
+                                ]);
+                              }}
+                            >
+                              + Key
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      <details className="timeline-loop-danger">
+                        <summary>Loop actions…</summary>
+                        <div className="timeline-loop-actions">
+                          {selectedLoopTrack.length > 0 && (
+                            <button type="button" onClick={() => updateSelectedLoopTrack([])}>
+                              Remove property
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="danger"
+                            onClick={() => {
+                              removeLayerLoop(selectedLayer.id);
+                              setPreviewLoopLayerId(null);
+                            }}
+                          >
+                            Remove loop
+                          </button>
+                        </div>
+                      </details>
+                    </>
                   )}
-                </>
-              )}
-            </section>
-          )}
-        </aside>
+                </div>
+              </details>
+            )}
+          </aside>
+        )}
         {frameMenu && frameMenuLayer && (
           <ContextMenu
             x={frameMenu.x}
@@ -1598,7 +1592,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 : [
                     {
                       id: 'insert-frame',
-                      label: 'Insert Frame',
+                      label: 'Insert Hold Key',
                       disabled: frameMenuLayer.isLocked || Boolean(frameMenuKeyframe),
                       title: 'Hold the preceding authored pose through this frame',
                       onSelect: () => {
@@ -1647,6 +1641,13 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 id: 'rename-timeline-group',
                 label: 'Rename Group',
                 onSelect: () => beginFolderRename(folderMenuFolder.id, folderMenuFolder.name),
+              },
+              {
+                id: 'change-timeline-group-color',
+                label: 'Group Color',
+                onSelect: () => undefined,
+                colorValue: folderMenuFolder.color,
+                onColorChange: (color) => setTimelineFolderColor(folderMenuFolder.id, color),
               },
               {
                 id: 'ungroup-timeline-group',

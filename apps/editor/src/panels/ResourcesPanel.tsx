@@ -1,15 +1,26 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import {
+  findAssetConsumers,
+  findMissingAssetReferences,
+  isSafePackagePath,
+  type Asset,
+} from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { Panel } from './Panel';
 import './ResourcesPanel.css';
 
-const PLACEHOLDER_GROUPS = ['Compositions', 'Image sequences'] as const;
+const formatBytes = (bytes = 0) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 export function ResourcesPanel() {
   const composition = useActiveComposition();
   const importAsset = useProjectStore((s) => s.importAsset);
   const importSvgBundle = useProjectStore((s) => s.importSvgBundle);
+  const updateAsset = useProjectStore((s) => s.updateAsset);
   const removeAsset = useProjectStore((s) => s.removeAsset);
   const createComponent = useProjectStore((s) => s.createComponent);
   const instantiateComponent = useProjectStore((s) => s.instantiateComponent);
@@ -20,13 +31,18 @@ export function ResourcesPanel() {
   const [svgImportStatus, setSvgImportStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
+  const sourceInputRef = useRef<HTMLInputElement>(null);
+  const missingReferences = useMemo(() => findMissingAssetReferences(composition), [composition]);
 
   useEffect(() => {
     const loaded: FontFace[] = [];
     let cancelled = false;
     for (const asset of composition.assets.filter((candidate) => candidate.kind === 'font')) {
       const family = asset.fontFamily || asset.name.replace(/\.[^.]+$/, '');
-      const face = new FontFace(family, `url(${asset.dataUri})`, { weight: '100 900' });
+      const face = new FontFace(family, `url(${asset.dataUri})`, {
+        weight: asset.fontWeight || '100 900',
+        style: asset.fontStyle || 'normal',
+      });
       void face
         .load()
         .then((ready) => {
@@ -60,10 +76,18 @@ export function ResourcesPanel() {
           setSvgImportStatus(error instanceof Error ? error.message : String(error));
         });
     } else {
-      for (const file of files.filter((file) => file.type.startsWith('image/'))) {
+      for (const file of files) {
         void importAsset(file);
       }
+      setSvgImportStatus(
+        `${files.length} resource${files.length === 1 ? '' : 's'} imported; identical payloads reuse one registry entry.`,
+      );
     }
+  };
+
+  const usageCount = (asset: Asset) => {
+    const consumers = findAssetConsumers(composition, asset);
+    return consumers.layerIds.length + consumers.fieldIds.length + consumers.fontLayerIds.length;
   };
 
   return (
@@ -145,13 +169,40 @@ export function ResourcesPanel() {
                 .map((asset) => (
                   <li key={asset.id} className="resources-asset-row">
                     <img src={asset.dataUri} alt="" className="resources-asset-thumb" />
-                    <span className="resources-asset-name" title={asset.name}>
-                      {asset.name}
-                    </span>
+                    <div className="resources-asset-fields">
+                      <input
+                        aria-label="Resource name"
+                        value={asset.name}
+                        onChange={(event) => updateAsset(asset.id, { name: event.target.value })}
+                      />
+                      <span className="resources-asset-meta">
+                        {asset.originalFileName || asset.name} · {asset.mimeType} ·{' '}
+                        {formatBytes(asset.byteSize)} · {usageCount(asset)} use(s)
+                      </span>
+                      <input
+                        aria-label="Package path"
+                        className={
+                          !asset.packagePath || isSafePackagePath(asset.packagePath)
+                            ? ''
+                            : 'invalid'
+                        }
+                        placeholder={`assets/${asset.id}`}
+                        value={asset.packagePath ?? ''}
+                        onChange={(event) =>
+                          updateAsset(asset.id, { packagePath: event.target.value || undefined })
+                        }
+                      />
+                    </div>
                     <button
                       type="button"
                       className="data-table-delete"
+                      disabled={usageCount(asset) > 0}
                       onClick={() => removeAsset(asset.id)}
+                      title={
+                        usageCount(asset) > 0
+                          ? 'Remove or retarget every resource use first'
+                          : 'Remove resource'
+                      }
                     >
                       {'✕'}
                     </button>
@@ -187,9 +238,162 @@ export function ResourcesPanel() {
                 .filter((asset) => asset.kind === 'font')
                 .map((asset) => (
                   <li key={asset.id} className="resources-asset-row">
-                    <span className="resources-asset-name" title={asset.name}>
-                      {asset.fontFamily || asset.name}
+                    <span
+                      className="resources-font-preview"
+                      style={{
+                        fontFamily: asset.fontFamily,
+                        fontWeight: asset.fontWeight,
+                        fontStyle: asset.fontStyle,
+                      }}
+                    >
+                      Aa 123
                     </span>
+                    <div className="resources-asset-fields">
+                      <input
+                        aria-label="Resource name"
+                        value={asset.name}
+                        onChange={(event) => updateAsset(asset.id, { name: event.target.value })}
+                      />
+                      <span className="resources-asset-meta">
+                        {asset.originalFileName || asset.name} · {asset.mimeType} ·{' '}
+                        {formatBytes(asset.byteSize)} · {usageCount(asset)} use(s)
+                      </span>
+                      <input
+                        aria-label="Font family"
+                        placeholder="Font family"
+                        value={asset.fontFamily ?? ''}
+                        onChange={(event) =>
+                          updateAsset(asset.id, { fontFamily: event.target.value })
+                        }
+                      />
+                      <div className="resources-asset-inline">
+                        <input
+                          aria-label="Font weight"
+                          placeholder="100 900"
+                          value={asset.fontWeight ?? ''}
+                          onChange={(event) =>
+                            updateAsset(asset.id, { fontWeight: event.target.value })
+                          }
+                        />
+                        <select
+                          aria-label="Font style"
+                          value={asset.fontStyle ?? 'normal'}
+                          onChange={(event) =>
+                            updateAsset(asset.id, {
+                              fontStyle: event.target.value as Asset['fontStyle'],
+                            })
+                          }
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="italic">Italic</option>
+                          <option value="oblique">Oblique</option>
+                        </select>
+                      </div>
+                      <input
+                        aria-label="Package path"
+                        className={
+                          !asset.packagePath || isSafePackagePath(asset.packagePath)
+                            ? ''
+                            : 'invalid'
+                        }
+                        placeholder={`assets/${asset.id}`}
+                        value={asset.packagePath ?? ''}
+                        onChange={(event) =>
+                          updateAsset(asset.id, { packagePath: event.target.value || undefined })
+                        }
+                      />
+                      <input
+                        aria-label="Font license name"
+                        placeholder="License name, e.g. OFL-1.1"
+                        value={asset.licenseName ?? ''}
+                        onChange={(event) =>
+                          updateAsset(asset.id, { licenseName: event.target.value })
+                        }
+                      />
+                      <input
+                        aria-label="Font license URL"
+                        placeholder="License URL"
+                        value={asset.licenseUrl ?? ''}
+                        onChange={(event) =>
+                          updateAsset(asset.id, { licenseUrl: event.target.value })
+                        }
+                      />
+                      <textarea
+                        aria-label="Font license text"
+                        rows={2}
+                        placeholder="Optional license text packaged under licenses/"
+                        value={asset.licenseText ?? ''}
+                        onChange={(event) =>
+                          updateAsset(asset.id, { licenseText: event.target.value })
+                        }
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="data-table-delete"
+                      disabled={usageCount(asset) > 0}
+                      onClick={() => removeAsset(asset.id)}
+                      title={
+                        usageCount(asset) > 0
+                          ? 'Remove or retarget every resource use first'
+                          : 'Remove resource'
+                      }
+                    >
+                      {'✕'}
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="data-panel-section">
+          <div className="data-panel-section-header">
+            <h3>Source attachments</h3>
+            <button type="button" onClick={() => sourceInputRef.current?.click()}>
+              {'+ Attach Source'}
+            </button>
+            <input
+              ref={sourceInputRef}
+              type="file"
+              accept=".css,.json,.txt,.md,.xml,.license,text/*,application/json"
+              multiple
+              className="resources-file-input"
+              onChange={handleFileChange}
+            />
+          </div>
+          {composition.assets.filter((asset) => asset.kind === 'source').length === 0 ? (
+            <p className="panel-placeholder">No source documents attached.</p>
+          ) : (
+            <ul className="resources-asset-list">
+              {composition.assets
+                .filter((asset) => asset.kind === 'source')
+                .map((asset) => (
+                  <li key={asset.id} className="resources-asset-row">
+                    <div className="resources-asset-fields">
+                      <input
+                        aria-label="Resource name"
+                        value={asset.name}
+                        onChange={(event) => updateAsset(asset.id, { name: event.target.value })}
+                      />
+                      <span className="resources-asset-meta">
+                        {asset.originalFileName || asset.name} · {asset.mimeType} ·{' '}
+                        {formatBytes(asset.byteSize)}
+                      </span>
+                      <input
+                        aria-label="Package path"
+                        className={
+                          !asset.packagePath || isSafePackagePath(asset.packagePath)
+                            ? ''
+                            : 'invalid'
+                        }
+                        placeholder={`assets/${asset.id}`}
+                        value={asset.packagePath ?? ''}
+                        onChange={(event) =>
+                          updateAsset(asset.id, { packagePath: event.target.value || undefined })
+                        }
+                      />
+                    </div>
                     <button
                       type="button"
                       className="data-table-delete"
@@ -203,11 +407,11 @@ export function ResourcesPanel() {
           )}
         </section>
 
-        <ul className="panel-placeholder-list">
-          {PLACEHOLDER_GROUPS.map((group) => (
-            <li key={group}>{group}</li>
-          ))}
-        </ul>
+        {missingReferences.length > 0 && (
+          <p className="resources-asset-warning" role="alert">
+            Missing resources: {missingReferences.join(', ')}
+          </p>
+        )}
       </div>
     </Panel>
   );

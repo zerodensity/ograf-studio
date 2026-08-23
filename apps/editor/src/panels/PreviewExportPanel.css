@@ -27,6 +27,14 @@
   overflow: hidden;
 }
 
+.preview-source-overlay {
+  position: absolute;
+  inset: 0;
+  object-fit: fill;
+  pointer-events: none;
+  transform-origin: top left;
+}
+
 .preview-controls {
   display: flex;
   flex-direction: column;
@@ -224,4 +232,17 @@
   margin: 6px 0 0;
   font-size: 11px;
   color: var(--text-dim);
+}
+
+.preview-qa-results {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.preview-qa-results .warning {
+  color: #ffb86b;
 }

@@ -6,6 +6,8 @@ export interface ContextMenuItem {
   id: string;
   label: string;
   onSelect: () => void;
+  colorValue?: string;
+  onColorChange?: (value: string) => void;
   disabled?: boolean;
   separatorBefore?: boolean;
   title?: string;
@@ -65,23 +67,44 @@ export function ContextMenu({ x, y, ariaLabel, items, onClose }: ContextMenuProp
       style={{ left: position.x, top: position.y }}
       onContextMenu={(event) => event.preventDefault()}
     >
-      {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          role="menuitem"
-          className={item.separatorBefore ? 'with-separator' : undefined}
-          disabled={item.disabled}
-          title={item.title}
-          onClick={() => {
-            if (item.disabled) return;
-            item.onSelect();
-            onClose();
-          }}
-        >
-          {item.label}
-        </button>
-      ))}
+      {items.map((item) =>
+        item.colorValue && item.onColorChange ? (
+          <label
+            key={item.id}
+            className={`context-menu-color${item.separatorBefore ? ' with-separator' : ''}`}
+            role="menuitem"
+            title={item.title}
+          >
+            <span>{item.label}</span>
+            <input
+              type="color"
+              aria-label={item.label}
+              value={item.colorValue}
+              disabled={item.disabled}
+              onChange={(event) => {
+                item.onColorChange?.(event.target.value);
+                onClose();
+              }}
+            />
+          </label>
+        ) : (
+          <button
+            key={item.id}
+            type="button"
+            role="menuitem"
+            className={item.separatorBefore ? 'with-separator' : undefined}
+            disabled={item.disabled}
+            title={item.title}
+            onClick={() => {
+              if (item.disabled) return;
+              item.onSelect();
+              onClose();
+            }}
+          >
+            {item.label}
+          </button>
+        ),
+      )}
     </div>,
     document.body,
   );

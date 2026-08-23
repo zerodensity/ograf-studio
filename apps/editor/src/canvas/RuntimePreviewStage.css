@@ -12,8 +12,7 @@
 }
 
 .runtime-preview-toolbar button,
-.runtime-preview-toolbar select,
-.runtime-preview-notice button {
+.runtime-preview-toolbar select {
   padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -25,8 +24,7 @@
 }
 
 .runtime-preview-toolbar button:hover:not(:disabled),
-.runtime-preview-toolbar select:hover:not(:disabled),
-.runtime-preview-notice button:hover {
+.runtime-preview-toolbar select:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
@@ -85,12 +83,6 @@
   background: #20242a;
   color: var(--text-dim);
   font-size: 11px;
-}
-
-.runtime-preview-notice.stale {
-  border-bottom-color: #8a6820;
-  background: #312a19;
-  color: #ffd77a;
 }
 
 .runtime-preview-frame {

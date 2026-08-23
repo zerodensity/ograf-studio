@@ -109,6 +109,7 @@ export function InspectorPanel() {
   const imageSrc = layer.element.type === 'image' ? layer.element.src : null;
   const sequenceFrames = layer.element.type === 'image-sequence' ? layer.element.frames : [];
   const selectedFontFamily = layer.element.type === 'text' ? layer.element.fontFamily : '';
+  const selectedFontSize = layer.element.type === 'text' ? layer.element.fontSize : 1;
   const importedFontOptions = composition.assets
     .filter((asset) => asset.kind === 'font')
     .map((asset) => ({
@@ -560,6 +561,21 @@ export function InspectorPanel() {
               />
             </label>
             <label className="inspector-row">
+              <span>Weight</span>
+              <input
+                type="number"
+                min={100}
+                max={900}
+                step={100}
+                value={layer.element.fontWeight}
+                onChange={(e) =>
+                  setTextElement({
+                    fontWeight: Math.max(100, Math.min(900, Number(e.target.value))),
+                  })
+                }
+              />
+            </label>
+            <label className="inspector-row">
               <span>Align</span>
               <select
                 value={layer.element.textAlign}
@@ -603,6 +619,85 @@ export function InspectorPanel() {
             >
               Aa Broadcast Graphics 123
             </div>
+            <div className="inspector-grid">
+              <label className="inspector-row">
+                <span>Line height</span>
+                <input
+                  type="number"
+                  min={0.5}
+                  step={0.05}
+                  value={layer.element.lineHeight}
+                  onChange={(e) =>
+                    setTextElement({ lineHeight: Math.max(0.5, Number(e.target.value)) })
+                  }
+                />
+              </label>
+              <label className="inspector-row">
+                <span>Tracking</span>
+                <input
+                  type="number"
+                  step={0.1}
+                  value={layer.element.letterSpacing}
+                  onChange={(e) => setTextElement({ letterSpacing: Number(e.target.value) })}
+                />
+              </label>
+            </div>
+            <div className="inspector-grid">
+              <label className="inspector-row">
+                <span>Baseline</span>
+                <input
+                  type="number"
+                  step={0.5}
+                  value={layer.element.baselineShift}
+                  onChange={(e) => setTextElement({ baselineShift: Number(e.target.value) })}
+                />
+              </label>
+              <label className="inspector-row">
+                <span>Minimum size</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={selectedFontSize}
+                  value={layer.element.minFontSize}
+                  onChange={(e) =>
+                    setTextElement({
+                      minFontSize: Math.max(1, Math.min(selectedFontSize, Number(e.target.value))),
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <label className="inspector-row">
+              <span>Vertical</span>
+              <select
+                value={layer.element.verticalAlign}
+                onChange={(event) =>
+                  setTextElement({
+                    verticalAlign: event.target.value as TextElement['verticalAlign'],
+                  })
+                }
+              >
+                <option value="top">Top</option>
+                <option value="middle">Middle</option>
+                <option value="bottom">Bottom</option>
+              </select>
+            </label>
+            <label className="inspector-row">
+              <span>Transform</span>
+              <select
+                value={layer.element.textTransform}
+                onChange={(event) =>
+                  setTextElement({
+                    textTransform: event.target.value as TextElement['textTransform'],
+                  })
+                }
+              >
+                <option value="none">None</option>
+                <option value="uppercase">Uppercase</option>
+                <option value="lowercase">Lowercase</option>
+                <option value="capitalize">Capitalize</option>
+              </select>
+            </label>
             <label className="inspector-row">
               <span>Text sizing</span>
               <select
@@ -614,6 +709,21 @@ export function InspectorPanel() {
                 <option value="auto-size">Auto size box</option>
                 <option value="shrink-to-fit">Shrink text to box</option>
                 <option value="fixed">Fixed box</option>
+              </select>
+            </label>
+            <label className="inspector-row">
+              <span>Overflow</span>
+              <select
+                value={layer.element.overflowPolicy}
+                onChange={(event) =>
+                  setTextElement({
+                    overflowPolicy: event.target.value as TextElement['overflowPolicy'],
+                  })
+                }
+              >
+                <option value="visible">Visible</option>
+                <option value="clip">Clip</option>
+                <option value="ellipsis">Ellipsis</option>
               </select>
             </label>
             <p className="inspector-hint">

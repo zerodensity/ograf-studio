@@ -923,6 +923,17 @@ export function applyAuthoringOperations(
         if (!/^[A-Za-z0-9+/]*={0,2}$/.test(compact) || compact.length % 4 !== 0) {
           throw new Error('Asset data must be a valid base64 payload without a data-URI prefix.');
         }
+        const dataUri = `data:${operation.mimeType};base64,${compact}`;
+        const duplicate = composition.assets.find(
+          (candidate) => candidate.mimeType === operation.mimeType && candidate.dataUri === dataUri,
+        );
+        if (duplicate) {
+          summary.generatedIds.push({ operationIndex, kind: 'asset', id: duplicate.id });
+          summary.warnings.push(
+            `Operation ${operationIndex}: reused identical asset "${duplicate.name}" (${duplicate.id}).`,
+          );
+          break;
+        }
         const asset = createAsset({
           name: operation.name.trim(),
           kind: operation.mimeType.startsWith('font/')
@@ -931,11 +942,38 @@ export function applyAuthoringOperations(
               ? 'image'
               : 'source',
           mimeType: operation.mimeType,
-          dataUri: `data:${operation.mimeType};base64,${compact}`,
+          dataUri,
+          originalFileName: operation.name.trim(),
+          byteSize:
+            Math.floor((compact.length * 3) / 4) -
+            (compact.endsWith('==') ? 2 : compact.endsWith('=') ? 1 : 0),
           ...(operation.fontFamily ? { fontFamily: operation.fontFamily.trim() } : {}),
+          ...(operation.fontWeight ? { fontWeight: operation.fontWeight.trim() } : {}),
+          ...(operation.fontStyle ? { fontStyle: operation.fontStyle } : {}),
+          ...(operation.packagePath ? { packagePath: operation.packagePath.trim() } : {}),
+          ...(operation.licenseName ? { licenseName: operation.licenseName } : {}),
+          ...(operation.licenseUrl ? { licenseUrl: operation.licenseUrl } : {}),
+          ...(operation.licenseText ? { licenseText: operation.licenseText } : {}),
         });
         composition.assets.push(asset);
         summary.generatedIds.push({ operationIndex, kind: 'asset', id: asset.id });
+        break;
+      }
+      case 'update_asset': {
+        const asset = composition.assets.find((candidate) => candidate.id === operation.assetId);
+        if (!asset) throw new Error(`Asset not found: ${operation.assetId}`);
+        if (operation.name !== undefined) asset.name = operation.name.trim();
+        if (operation.fontFamily !== undefined) asset.fontFamily = operation.fontFamily.trim();
+        if (operation.fontWeight !== undefined) asset.fontWeight = operation.fontWeight.trim();
+        if (operation.fontStyle !== undefined) asset.fontStyle = operation.fontStyle;
+        if (operation.packagePath !== undefined) {
+          const packagePath = operation.packagePath?.trim();
+          if (packagePath) asset.packagePath = packagePath;
+          else delete asset.packagePath;
+        }
+        if (operation.licenseName !== undefined) asset.licenseName = operation.licenseName;
+        if (operation.licenseUrl !== undefined) asset.licenseUrl = operation.licenseUrl;
+        if (operation.licenseText !== undefined) asset.licenseText = operation.licenseText;
         break;
       }
       case 'remove_asset': {

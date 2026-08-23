@@ -1,8 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { assembleManifest, compileDescriptor } from '@ograf-editor/codegen';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  assembleManifest,
+  BUILT_IN_EXPORT_PROFILES,
+  compileDescriptor,
+  getExportProfile,
+  type ExportProfileMode,
+} from '@ograf-editor/codegen';
 import { registerGraphicElement } from '@ograf-editor/ograf-runtime';
 import type { Graphic, RenderType, ScheduledAction } from '@ograf-editor/ograf-types';
 import { validateManifest } from '@ograf-editor/validation';
+import {
+  computeKeyframeFrames,
+  runBroadcastQa,
+  type BroadcastQaIssue,
+} from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useTestDataStore, type TestValue } from '../state/testDataStore';
 import { exportProjectAsZip } from '../state/exportPackage';
@@ -14,6 +25,7 @@ import {
 import { useFitZoom } from '../canvas/useFitZoom';
 import { transparencyCheckerboardStyle } from '../canvas/compositionBackground';
 import { resolvePreviewDataRecord } from '../state/previewData';
+import { measureAgentText } from '../state/agentCapture';
 import { Panel } from './Panel';
 import './PreviewExportPanel.css';
 
@@ -42,6 +54,16 @@ const DEFAULT_SCHEDULE_PARAMS_JSON: Record<ScheduledAction['action']['type'], st
 let logCounter = 0;
 let scheduleRowCounter = 0;
 
+function successful(result: unknown): boolean {
+  return !(
+    typeof result === 'object' &&
+    result !== null &&
+    'statusCode' in result &&
+    typeof result.statusCode === 'number' &&
+    result.statusCode >= 400
+  );
+}
+
 export function PreviewExportPanel() {
   const project = useProjectStore((s) => s.project);
   const composition = useActiveComposition();
@@ -55,6 +77,7 @@ export function PreviewExportPanel() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [currentStep, setCurrentStep] = useState<number | undefined>();
   const [renderType, setRenderType] = useState<RenderType>('realtime');
+  const [isPreviewLoaded, setIsPreviewLoaded] = useState(false);
   const [dataForm, setDataForm] = useState<Record<string, TestValue>>({});
   const [exportStatus, setExportStatus] = useState('');
   const [isExporting, setIsExporting] = useState(false);
@@ -62,8 +85,25 @@ export function PreviewExportPanel() {
   const [compatibility, setCompatibility] = useState<OGrafCompatibilityResult | null>(null);
   const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
   const [scrubTimestamp, setScrubTimestamp] = useState(0);
+  const [exportProfileId, setExportProfileId] = useState<ExportProfileMode>('dual');
+  const exportProfile = getExportProfile(exportProfileId);
+  const [qaIssues, setQaIssues] = useState<BroadcastQaIssue[] | null>(null);
+  const [isRunningQa, setIsRunningQa] = useState(false);
+  const [interlacedQa, setInterlacedQa] = useState(false);
+  const [comparisonAssetId, setComparisonAssetId] = useState('');
+  const [comparisonOpacity, setComparisonOpacity] = useState(0.5);
+  const comparisonAsset = composition.assets.find(
+    (asset) => asset.id === comparisonAssetId && asset.kind === 'image',
+  );
 
   const descriptor = useMemo(() => compileDescriptor(composition), [composition]);
+  const previewData = useMemo(
+    () => resolvePreviewDataRecord(composition, dataForm),
+    [composition, dataForm],
+  );
+  const latestPreviewDataRef = useRef(previewData);
+  const lastAttemptedDataSignatureRef = useRef<string | null>(null);
+  latestPreviewDataRef.current = previewData;
   const manifest = useMemo(
     () => assembleManifest(project, composition, descriptor),
     [project, composition, descriptor],
@@ -78,32 +118,7 @@ export function PreviewExportPanel() {
     setDataForm(next);
   };
 
-  // Rebuilds the live preview instance whenever the descriptor changes — same "every edit
-  // invalidates the instance" behavior as Stage.tsx's master timeline, and arguably more correct
-  // here: it forces re-testing after an edit rather than showing possibly-stale harness state.
-  useEffect(() => {
-    const tagName = registerGraphicElement(descriptor);
-    const container = containerRef.current;
-    if (!container) return;
-    container.replaceChildren();
-    const el = document.createElement(tagName) as HTMLElement & Graphic;
-    container.appendChild(el);
-    graphicRef.current = el;
-    setCurrentStep(undefined);
-    setLog([]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [descriptor]);
-
-  useEffect(() => {
-    resetDataForm();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [composition.dataFields, project.mainCompositionId]);
-
-  useEffect(() => {
-    setCompatibility(null);
-  }, [project, composition]);
-
-  const appendLog = (method: string, params: unknown, result: unknown) => {
+  const appendLog = useCallback((method: string, params: unknown, result: unknown) => {
     const isError =
       typeof result === 'object' &&
       result !== null &&
@@ -121,30 +136,48 @@ export function PreviewExportPanel() {
         ...prev,
       ].slice(0, 30),
     );
-  };
+  }, []);
 
-  const call = async <T,>(
-    method: string,
-    params: unknown,
-    fn: (graphic: HTMLElement & Graphic) => Promise<T>,
-  ) => {
-    const graphic = graphicRef.current;
-    if (!graphic) return;
-    try {
-      const result = await fn(graphic);
-      appendLog(method, params, result);
-    } catch (err) {
-      appendLog(method, params, {
-        statusCode: 550,
-        statusMessage: err instanceof Error ? err.message : String(err),
-      });
-    }
-  };
+  const call = useCallback(
+    async <T,>(
+      method: string,
+      params: unknown,
+      fn: (graphic: HTMLElement & Graphic) => Promise<T>,
+    ) => {
+      const graphic = graphicRef.current;
+      if (!graphic) return;
+      try {
+        const result = await fn(graphic);
+        appendLog(method, params, result);
+      } catch (err) {
+        appendLog(method, params, {
+          statusCode: 550,
+          statusMessage: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [appendLog],
+  );
 
-  const handleLoad = () => {
-    const runtimeData = resolvePreviewDataRecord(composition, dataForm);
+  // Rebuilds the live preview instance whenever the descriptor changes — same "every edit
+  // invalidates the instance" behavior as Stage.tsx's master timeline, and arguably more correct
+  // here: it forces re-testing after an edit rather than showing possibly-stale harness state.
+  useEffect(() => {
+    const tagName = registerGraphicElement(descriptor);
+    const container = containerRef.current;
+    if (!container) return;
+    container.replaceChildren();
+    const el = document.createElement(tagName) as HTMLElement & Graphic;
+    container.appendChild(el);
+    graphicRef.current = el;
+    setIsPreviewLoaded(false);
+    setCurrentStep(undefined);
+    setLog([]);
+
+    const data = latestPreviewDataRef.current;
+    const dataSignature = JSON.stringify(data);
     const params = {
-      data: runtimeData,
+      data,
       renderType,
       renderCharacteristics: {
         resolution: { width: composition.width, height: composition.height },
@@ -152,8 +185,59 @@ export function PreviewExportPanel() {
         accessToPublicInternet: false,
       },
     };
-    void call('load', params, (g) => g.load(params));
-  };
+    void el
+      .load(params)
+      .then((result) => {
+        if (graphicRef.current !== el) return;
+        appendLog('load', params, result);
+        if (!successful(result)) return;
+        lastAttemptedDataSignatureRef.current = dataSignature;
+        setIsPreviewLoaded(true);
+      })
+      .catch((error) => {
+        if (graphicRef.current !== el) return;
+        appendLog('load', params, {
+          statusCode: 550,
+          statusMessage: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    return () => {
+      if (graphicRef.current === el) graphicRef.current = null;
+      void el.dispose({});
+      el.remove();
+    };
+  }, [
+    appendLog,
+    composition.frameRate,
+    composition.height,
+    composition.width,
+    descriptor,
+    renderType,
+  ]);
+
+  useEffect(() => {
+    resetDataForm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composition.dataFields, project.mainCompositionId]);
+
+  useEffect(() => {
+    setCompatibility(null);
+  }, [project, composition, exportProfileId]);
+
+  useEffect(() => {
+    if (!isPreviewLoaded) return;
+    const signature = JSON.stringify(previewData);
+    if (lastAttemptedDataSignatureRef.current === signature) return;
+
+    const timeout = window.setTimeout(() => {
+      lastAttemptedDataSignatureRef.current = signature;
+      const params = { data: previewData };
+      void call('updateAction', params, (graphic) => graphic.updateAction(params));
+    }, 150);
+
+    return () => window.clearTimeout(timeout);
+  }, [call, isPreviewLoaded, previewData]);
 
   const handlePlayAction = (params: { delta?: number; goto?: number }) => {
     void call('playAction', params, async (g) => {
@@ -169,11 +253,6 @@ export function PreviewExportPanel() {
       setCurrentStep(undefined);
       return result;
     });
-
-  const handleUpdateData = () => {
-    const params = { data: resolvePreviewDataRecord(composition, dataForm) };
-    void call('updateAction', params, (g) => g.updateAction(params));
-  };
 
   const handleCustomAction = (actionId: string) => {
     const params = { id: actionId, payload: {} };
@@ -225,7 +304,7 @@ export function PreviewExportPanel() {
     setIsExporting(true);
     setExportStatus('');
     try {
-      const result = await exportProjectAsZip(project, composition);
+      const result = await exportProjectAsZip(project, composition, exportProfile);
       setCompatibility(result.compatibility);
       if (result.saveResult === 'cancelled') {
         setExportStatus('Export cancelled.');
@@ -245,7 +324,9 @@ export function PreviewExportPanel() {
     setIsCheckingCompatibility(true);
     setExportStatus('Running OGraf devtool-compatible checks…');
     try {
-      const result = await certifyExportArtifacts(buildExportArtifacts(project, composition));
+      const result = await certifyExportArtifacts(
+        buildExportArtifacts(project, composition, exportProfile),
+      );
       setCompatibility(result);
       setExportStatus(
         result.valid
@@ -257,6 +338,76 @@ export function PreviewExportPanel() {
       setExportStatus(err instanceof Error ? err.message : 'Compatibility test failed.');
     } finally {
       setIsCheckingCompatibility(false);
+    }
+  };
+
+  const handleBroadcastQa = async () => {
+    setIsRunningQa(true);
+    const issues = runBroadcastQa(project, { interlacedOutput: interlacedQa });
+    const lifecycle = computeKeyframeFrames(composition);
+    const stepIds = new Set(
+      composition.keyframes
+        .filter((keyframe) => keyframe.role === 'step')
+        .map((keyframe) => keyframe.id),
+    );
+    const frame =
+      lifecycle.find((item) => stepIds.has(item.keyframeId))?.frame ?? lifecycle[0]?.frame ?? 0;
+    const stressSamples = [
+      'BREAKING NEWS — REPRESENTATIVE LONG REPLACEMENT TEXT 00:00',
+      'İstanbul İzmir Şampiyonluk gündemi — العربية 1234567890',
+    ];
+    try {
+      for (const layer of composition.layers.filter(
+        (candidate) => candidate.isVisible && candidate.element.type === 'text',
+      )) {
+        for (const text of stressSamples) {
+          const result = await measureAgentText({
+            project,
+            compositionId: composition.id,
+            layerId: layer.id,
+            text,
+            frame,
+          });
+          if (result.overflowsParent || result.degenerate) {
+            issues.push({
+              severity: 'warning',
+              category: 'typography',
+              compositionId: composition.id,
+              layerId: layer.id,
+              frame,
+              message: `${layer.name} ${result.degenerate ? 'hits its minimum font-size floor' : 'overflows its authored box'} with stress value “${text}”.`,
+            });
+          }
+          if (result.resolvedFont.requestedFamily !== result.resolvedFont.resolvedFamily) {
+            issues.push({
+              severity: 'warning',
+              category: 'resources',
+              compositionId: composition.id,
+              layerId: layer.id,
+              frame,
+              message: `${layer.name} requested ${result.resolvedFont.requestedFamily} but resolved to ${result.resolvedFont.resolvedFamily}.`,
+            });
+          }
+        }
+      }
+      setQaIssues(
+        issues.filter(
+          (issue, index) =>
+            issues.findIndex((candidate) => candidate.message === issue.message) === index,
+        ),
+      );
+    } catch (error) {
+      setQaIssues([
+        ...issues,
+        {
+          severity: 'warning',
+          category: 'typography',
+          compositionId: composition.id,
+          message: `Browser text stress test failed: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ]);
+    } finally {
+      setIsRunningQa(false);
     }
   };
 
@@ -280,6 +431,19 @@ export function PreviewExportPanel() {
                   : undefined),
               }}
             />
+            {comparisonAsset && (
+              <img
+                className="preview-source-overlay"
+                src={comparisonAsset.dataUri}
+                alt="Source design comparison overlay"
+                style={{
+                  width: composition.width,
+                  height: composition.height,
+                  opacity: comparisonOpacity,
+                  transform: `scale(${zoom})`,
+                }}
+              />
+            )}
           </div>
         </div>
 
@@ -292,10 +456,11 @@ export function PreviewExportPanel() {
               <option value="realtime">realtime</option>
               <option value="non-realtime">non-realtime</option>
             </select>
-            <button type="button" onClick={handleLoad}>
-              Load
-            </button>
-            <button type="button" onClick={() => handlePlayAction({ delta: -1 })}>
+            <button
+              type="button"
+              onClick={() => handlePlayAction({ delta: -1 })}
+              disabled={!isPreviewLoaded}
+            >
               {'⏮ Prev step'}
             </button>
             <span className="preview-step-indicator">
@@ -303,11 +468,15 @@ export function PreviewExportPanel() {
                 ? 'off-step'
                 : `step ${currentStep + 1} / ${descriptor.stepCount}`}
             </span>
-            <button type="button" onClick={() => handlePlayAction({ delta: 1 })}>
+            <button
+              type="button"
+              onClick={() => handlePlayAction({ delta: 1 })}
+              disabled={!isPreviewLoaded}
+            >
               {'Next step ⏭'}
             </button>
-            <button type="button" onClick={handleStop}>
-              Stop
+            <button type="button" onClick={handleStop} disabled={!isPreviewLoaded}>
+              Take Out
             </button>
           </div>
 
@@ -390,16 +559,18 @@ export function PreviewExportPanel() {
                   />
                 </label>
               ))}
-              <button type="button" onClick={handleUpdateData}>
-                Send updateAction
-              </button>
             </div>
           )}
 
           {descriptor.customActions.length > 0 && (
             <div className="preview-controls-row">
               {descriptor.customActions.map((action) => (
-                <button key={action.id} type="button" onClick={() => handleCustomAction(action.id)}>
+                <button
+                  key={action.id}
+                  type="button"
+                  disabled={!isPreviewLoaded}
+                  onClick={() => handleCustomAction(action.id)}
+                >
                   {action.name || action.id}
                 </button>
               ))}
@@ -424,7 +595,88 @@ export function PreviewExportPanel() {
         </div>
 
         <section className="data-panel-section">
+          <h3>Typography & broadcast QA</h3>
+          <div className="preview-controls-row">
+            <label className="preview-data-row">
+              <span>Source overlay</span>
+              <select
+                value={comparisonAssetId}
+                onChange={(event) => setComparisonAssetId(event.target.value)}
+              >
+                <option value="">Off</option>
+                {composition.assets
+                  .filter((asset) => asset.kind === 'image')
+                  .map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {comparisonAsset && (
+              <label className="preview-data-row">
+                <span>Overlay opacity</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={comparisonOpacity}
+                  onChange={(event) => setComparisonOpacity(Number(event.target.value))}
+                />
+              </label>
+            )}
+            <label className="preview-data-row">
+              <span>Interlaced</span>
+              <input
+                type="checkbox"
+                checked={interlacedQa}
+                onChange={(event) => setInterlacedQa(event.target.checked)}
+              />
+            </label>
+            <button type="button" disabled={isRunningQa} onClick={() => void handleBroadcastQa()}>
+              {isRunningQa ? 'Testing…' : 'Run broadcast QA'}
+            </button>
+          </div>
+          <p className="panel-placeholder">
+            Checks Step-frame safe areas, minimum text size, packaged fonts, backing contrast,
+            optional interlaced rules, and long Latin/Turkish/Arabic replacement text in the real
+            browser renderer. QA is advisory and does not replace OGraf certification.
+          </p>
+          {qaIssues && (
+            <ul className="preview-qa-results">
+              {qaIssues.length === 0 ? (
+                <li className="preview-validation-check-valid">✓ No QA warnings.</li>
+              ) : (
+                qaIssues.map((issue, index) => (
+                  <li key={`${issue.message}-${index}`} className={issue.severity}>
+                    {issue.severity === 'warning' ? '⚠' : 'ℹ'} [{issue.category}] {issue.message}
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
+        </section>
+
+        <section className="data-panel-section">
           <h3>Export</h3>
+          <label className="preview-data-row">
+            <span>Export profile</span>
+            <select
+              value={exportProfileId}
+              onChange={(event) => setExportProfileId(event.target.value as ExportProfileMode)}
+            >
+              {BUILT_IN_EXPORT_PROFILES.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="panel-placeholder">
+            Output-only profile: {exportProfile.mode}. The editable project render-mode flags and ID
+            are not changed.
+          </p>
           <p className={`preview-validation${validation.valid ? '' : ' invalid'}`}>
             {validation.valid
               ? '✓ Manifest schema precheck passed.'
@@ -439,7 +691,7 @@ export function PreviewExportPanel() {
           )}
           <p className={`preview-validation${compatibility?.valid ? '' : ' invalid'}`}>
             {compatibility?.valid
-              ? '✓ OGraf v1 certified: package, module API, realtime and non-realtime tests passed.'
+              ? `✓ OGraf v1 certified for ${exportProfile.name}: package, module API, and declared lifecycle tests passed.`
               : compatibility
                 ? '✕ OGraf compatibility certification failed.'
                 : 'Not yet certified. Certification always runs again immediately before saving.'}

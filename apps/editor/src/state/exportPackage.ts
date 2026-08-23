@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import type { Composition, Project } from '@ograf-editor/scene-model';
+import type { ExportProfile } from '@ograf-editor/codegen';
 import { saveBlobToFile } from './fileIO';
 import {
   buildExportArtifacts,
@@ -23,8 +24,9 @@ export type ExportZipResult = ExportArtifacts & {
 export async function exportProjectAsZip(
   project: Project,
   composition: Composition,
+  profile?: ExportProfile,
 ): Promise<ExportZipResult> {
-  const artifacts = buildExportArtifacts(project, composition);
+  const artifacts = buildExportArtifacts(project, composition, profile);
   const compatibility = await certifyExportArtifacts(artifacts);
   if (!compatibility.valid) {
     throw new Error(
@@ -40,7 +42,7 @@ export async function exportProjectAsZip(
   const blob = await zip.generateAsync({ type: 'blob' });
   const saveResult = await saveBlobToFile(
     blob,
-    `${project.name || 'untitled'}.ograf.zip`,
+    `${project.name || 'untitled'}${profile?.fileNameSuffix ?? ''}.ograf.zip`,
     ZIP_FILE_TYPES,
   );
   return { ...artifacts, compatibility, saveResult };

@@ -145,7 +145,18 @@ function normalizeComposition(composition: LegacyComposition): Composition {
     }));
     const element =
       legacyLayer.element.type === 'text'
-        ? { ...legacyLayer.element, autoFit: legacyLayer.element.autoFit ?? 'auto-size' }
+        ? {
+            ...legacyLayer.element,
+            lineHeight: legacyLayer.element.lineHeight ?? 1.2,
+            letterSpacing: legacyLayer.element.letterSpacing ?? 0,
+            textTransform: legacyLayer.element.textTransform ?? 'none',
+            verticalAlign: legacyLayer.element.verticalAlign ?? 'top',
+            baselineShift: legacyLayer.element.baselineShift ?? 0,
+            minFontSize:
+              legacyLayer.element.minFontSize ?? Math.max(1, legacyLayer.element.fontSize * 0.5),
+            overflowPolicy: legacyLayer.element.overflowPolicy ?? 'visible',
+            autoFit: legacyLayer.element.autoFit ?? 'auto-size',
+          }
         : legacyLayer.element;
     const effects = normalizeLayerEffects(legacyLayer.effects ?? createLayerEffects());
     if (legacyLayer.keyframes?.length) {

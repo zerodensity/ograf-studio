@@ -15,6 +15,13 @@ packages, and an optional local MCP authoring server for AI-assisted workflows.
   components, custom actions, and safe asset removal.
 - Added reusable component snapshots with independently editable inserted instances.
 - Added portable Photoshop SVG bundle import with companion CSS, images, and fonts.
+- Added disposable-realm OGraf certification and serialized browser rendering jobs.
+- Added a resource manager for images, fonts, and source attachments with metadata, usage guards,
+  deduplication, package paths, font descriptors, and license packaging.
+- Added named real-time, non-real-time, and dual-mode export profiles that never mutate source.
+- Added paired frame/millisecond timing controls with non-representable-duration warnings and
+  explicit down/nearest/up rounding.
+- Added broadcast typography controls, source-design overlays, and browser-rendered text stress QA.
 
 ## Highlights
 

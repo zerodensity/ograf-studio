@@ -28,13 +28,11 @@ import { viewportScrollForPointer, type ViewportPanOrigin } from './viewportPan'
 import './RuntimePreviewStage.css';
 
 type RuntimeGraphic = HTMLElement & Graphic;
-type PreviewPhase = 'unloaded' | 'start' | 'step' | 'end' | 'disposed' | 'error';
+type PreviewPhase = 'unloaded' | 'start' | 'step' | 'end' | 'error';
 
 interface RuntimePreviewStageProps {
   project: Project;
-  stale: boolean;
   onExit: () => void;
-  onReload: () => void;
   style?: CSSProperties;
 }
 
@@ -42,13 +40,7 @@ function successful(result: ReturnPayload | undefined): boolean {
   return !result || result.statusCode < 400;
 }
 
-export function RuntimePreviewStage({
-  project,
-  stale,
-  onExit,
-  onReload,
-  style,
-}: RuntimePreviewStageProps) {
+export function RuntimePreviewStage({ project, onExit, style }: RuntimePreviewStageProps) {
   const composition =
     project.compositions.find((candidate) => candidate.id === project.mainCompositionId) ??
     project.compositions[0]!;
@@ -69,6 +61,9 @@ export function RuntimePreviewStage({
   const viewportRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const graphicRef = useRef<RuntimeGraphic | null>(null);
+  const latestDataRef = useRef(data);
+  const lastAttemptedDataSignatureRef = useRef<string | null>(null);
+  latestDataRef.current = data;
   const fitZoom = useFitZoom(viewportRef, composition.width, composition.height);
   const [manualZoom, setManualZoom] = useState<number | null>(null);
   const zoom = manualZoom ?? fitZoom;
@@ -82,7 +77,7 @@ export function RuntimePreviewStage({
   const [isLoaded, setIsLoaded] = useState(false);
   const [currentStep, setCurrentStep] = useState<number | undefined>();
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('Compiled snapshot ready — press Load.');
+  const [message, setMessage] = useState('Loading OGraf preview…');
   const pasteboard = useMemo(
     () => getStagePasteboardLayout(composition.width, composition.height, zoom),
     [composition.height, composition.width, zoom],
@@ -95,12 +90,91 @@ export function RuntimePreviewStage({
     const graphic = document.createElement(tagName) as RuntimeGraphic;
     container.replaceChildren(graphic);
     graphicRef.current = graphic;
+    setIsLoaded(false);
+    setCurrentStep(undefined);
+    setPhase('unloaded');
+    setBusy(true);
+    setMessage('Loading OGraf preview…');
+
+    const loadData = latestDataRef.current;
+    const loadSignature = JSON.stringify(loadData);
+    const params = {
+      data: loadData,
+      renderType,
+      renderCharacteristics: {
+        resolution: { width: composition.width, height: composition.height },
+        frameRate: composition.frameRate,
+        accessToPublicInternet: false,
+      },
+    };
+
+    void graphic
+      .load(params)
+      .then((result) => {
+        if (graphicRef.current !== graphic) return;
+        if (!successful(result)) {
+          setPhase('error');
+          setMessage(`Load failed: ${result?.statusMessage ?? `status ${result?.statusCode}`}`);
+          return;
+        }
+        lastAttemptedDataSignatureRef.current = loadSignature;
+        setIsLoaded(true);
+        setPhase('start');
+        setMessage('Preview ready at Start.');
+      })
+      .catch((error) => {
+        if (graphicRef.current !== graphic) return;
+        setPhase('error');
+        setMessage(`Load failed: ${error instanceof Error ? error.message : String(error)}`);
+      })
+      .finally(() => {
+        if (graphicRef.current === graphic) setBusy(false);
+      });
+
     return () => {
-      graphicRef.current = null;
+      if (graphicRef.current === graphic) graphicRef.current = null;
       void graphic.dispose({});
       graphic.remove();
     };
-  }, [descriptor]);
+  }, [composition.frameRate, composition.height, composition.width, descriptor, renderType]);
+
+  useEffect(() => {
+    if (!isLoaded || busy) return;
+    const signature = JSON.stringify(data);
+    if (lastAttemptedDataSignatureRef.current === signature) return;
+
+    const timeout = window.setTimeout(() => {
+      const graphic = graphicRef.current;
+      if (!graphic) return;
+      lastAttemptedDataSignatureRef.current = signature;
+      setBusy(true);
+      void graphic
+        .updateAction({ data })
+        .then((result) => {
+          if (graphicRef.current !== graphic) return;
+          if (!successful(result)) {
+            setPhase('error');
+            setMessage(
+              `Automatic data update failed: ${result?.statusMessage ?? `status ${result?.statusCode}`}`,
+            );
+            return;
+          }
+          setMessage('Preview data updated automatically.');
+        })
+        .catch((error) => {
+          if (graphicRef.current !== graphic) return;
+          setPhase('error');
+          setMessage(
+            `Automatic data update failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        })
+        .finally(() => {
+          if (graphicRef.current === graphic) setBusy(false);
+        });
+    }, 150);
+
+    return () => window.clearTimeout(timeout);
+  }, [busy, data, isLoaded]);
 
   const requestStageZoom = useCallback(
     (direction: 'in' | 'out', client?: { x: number; y: number }) => {
@@ -190,27 +264,6 @@ export function RuntimePreviewStage({
     }
   };
 
-  const handleLoad = () =>
-    void invoke(
-      'Load',
-      (graphic) =>
-        graphic.load({
-          data,
-          renderType,
-          renderCharacteristics: {
-            resolution: { width: composition.width, height: composition.height },
-            frameRate: composition.frameRate,
-            accessToPublicInternet: false,
-          },
-        }),
-      () => {
-        setIsLoaded(true);
-        setCurrentStep(undefined);
-        setPhase('start');
-        setMessage('Loaded at Start.');
-      },
-    );
-
   const handlePlay = (params: { delta?: number; goto?: number }) =>
     void invoke(
       'playAction',
@@ -228,13 +281,6 @@ export function RuntimePreviewStage({
       },
     );
 
-  const handleUpdate = () =>
-    void invoke(
-      'updateAction',
-      (graphic) => graphic.updateAction({ data }),
-      () => setMessage('Data updated on the loaded graphic.'),
-    );
-
   const handleStop = () =>
     void invoke(
       'stopAction',
@@ -243,18 +289,6 @@ export function RuntimePreviewStage({
         setCurrentStep(undefined);
         setPhase('end');
         setMessage('stopAction completed at End.');
-      },
-    );
-
-  const handleDispose = () =>
-    void invoke(
-      'Dispose',
-      (graphic) => graphic.dispose({}),
-      () => {
-        setIsLoaded(false);
-        setCurrentStep(undefined);
-        setPhase('disposed');
-        setMessage('Runtime disposed. Press Load to initialize it again.');
       },
     );
 
@@ -305,11 +339,9 @@ export function RuntimePreviewStage({
         ? 'Start'
         : phase === 'end'
           ? 'End'
-          : phase === 'disposed'
-            ? 'Disposed'
-            : phase === 'error'
-              ? 'Error'
-              : 'Unloaded';
+          : phase === 'error'
+            ? 'Error'
+            : 'Unloaded';
 
   return (
     <section className="canvas-stage runtime-preview-stage" style={style}>
@@ -326,15 +358,12 @@ export function RuntimePreviewStage({
         <select
           aria-label="OGraf render type"
           value={renderType}
-          disabled={busy || isLoaded}
+          disabled={busy}
           onChange={(event) => setRenderType(event.target.value as RenderType)}
         >
           <option value="realtime">Realtime</option>
           <option value="non-realtime">Non-realtime</option>
         </select>
-        <button type="button" onClick={handleLoad} disabled={busy}>
-          Load
-        </button>
         <button
           type="button"
           onClick={() => handlePlay({ delta: -1 })}
@@ -368,19 +397,13 @@ export function RuntimePreviewStage({
             ))}
           </select>
         )}
-        <button type="button" onClick={handleUpdate} disabled={busy || !isLoaded}>
-          Update Data
-        </button>
         <button
           type="button"
           onClick={handleStop}
           disabled={busy || !isLoaded || phase === 'end'}
           title="stopAction"
         >
-          Stop / Take Out
-        </button>
-        <button type="button" onClick={handleDispose} disabled={busy || !isLoaded}>
-          Dispose
+          Take Out
         </button>
         {descriptor.customActions.map((action) => (
           <button
@@ -397,18 +420,9 @@ export function RuntimePreviewStage({
           {busy ? 'Working…' : phaseLabel}
         </span>
       </div>
-      {(stale || message) && (
-        <div className={`runtime-preview-notice${stale ? ' stale' : ''}`} role="status">
-          <span>
-            {stale
-              ? 'Template changed — this preview is still running the previous snapshot.'
-              : message}
-          </span>
-          {stale && (
-            <button type="button" onClick={onReload}>
-              Reload Preview
-            </button>
-          )}
+      {message && (
+        <div className="runtime-preview-notice" role="status">
+          <span>{message}</span>
         </div>
       )}
       <div className="canvas-stage-workspace">

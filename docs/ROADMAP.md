@@ -12,11 +12,15 @@
 ## 2. Reliability and packaging — in progress
 
 - Runtime/concurrency/cleanup tests, package smoke tests, migrations, browser E2E, and CI.
+- Browser-backed certification now runs in a disposable iframe realm, and certification, PNG
+  capture, frame strips, and text measurement share one serialized browser-work queue.
 - Exact-artifact pre-save certification (official schema, package paths, module import/API, realtime
   and non-realtime lifecycle) is implemented; automated cross-browser CI remains queued.
 - Versioned project documents.
-- Asset-ID resource graph and deduplicated ZIP assets are implemented; packaged fonts and richer
-  URL/internet-requirement validation remain queued.
+- Asset-ID resource graph and deduplicated ZIP assets are implemented. The Resources panel manages
+  images, fonts, and source attachments with original filenames, sizes, usage guards, package paths,
+  font family/weight/style previews, license metadata/text packaging, and missing-reference reports.
+  Richer URL/internet-requirement validation remains queued.
 - Best-effort OGraf package import is implemented with exact embedded-source preference,
   editor-descriptor reconstruction, packaged-image recovery, manifest-only third-party fallback,
   conversion validation, and a visible loss report. General opaque-JavaScript visual recovery is
@@ -43,6 +47,11 @@
 - Bounded OGraf lifecycle-marker retiming is implemented with full-height drag targets, keyboard
   nudging, preview-only pointer movement, atomic adjacent-transition balancing, and stranded layer-
   key warnings. Start stays fixed and lifecycle reordering remains an explicit future operation.
+- Lifecycle and update-transition controls display frames and milliseconds together. Durations that
+  land between integer broadcast frames are flagged with explicit down/nearest/up choices.
+- Timeline progressive disclosure is implemented: the primary toolbar contains transport, Step/key
+  creation, compact time, and one zoom slider; grouping and deletion stay in context/keyboard paths,
+  while custom curves, track transforms, and local loops appear only when selected and expanded.
 - Safe areas, rulers/guides, grid/guide/layer snapping, alignment/distribution, authoring bounds and
   overflow preview, locking, persistent grouping, parenting, and responsive constraints
   (implemented). Persistent groups now have canvas context-menu Group/Ungroup commands, complete
@@ -54,8 +63,9 @@
   MCP operations expose create/rename/recolor/ungroup semantics, and the authoring Skill recommends
   them for related multi-layer components. They remain independent from canvas object groups and
   are excluded from compiled OGraf output.
-- System-font selection with live preview and auto-size/shrink/fixed text policies (implemented);
-  packaged fonts, richer overflow policies, localization, and RTL remain queued.
+- System/packaged-font selection with live preview, weight, line height, tracking, baseline shift,
+  vertical alignment, case transforms, minimum shrink size, and visible/clip/ellipsis overflow is
+  implemented. Full localization and authored RTL direction remain queued.
 - Multiple independent data bindings per layer are implemented across the Inspector, source
   migration, capture, compiler/runtime, OGraf import, validation, duplication, and MCP operations.
 - SVG image import now accepts a Photoshop-style bundle selection and embeds companion CSS, local
@@ -87,17 +97,19 @@
 - CSS blur and configurable drop shadow, including per-property animation of numeric effect values,
   are implemented.
 - Structured custom actions and full GDD controls.
-- Canonical thumbnails, presets, release/version metadata, and compatibility targets.
+- Built-in real-time, non-real-time, and dual-mode export profiles derive manifest identity and
+  capability flags without mutating the editable project. Custom user-defined profile persistence,
+  canonical thumbnails, release metadata, and compatibility targets remain queued.
 
 ## 5. Integration and experience — queued
 
 - The user-facing product rename from OGraf Editor to **OGraf Studio** is implemented without
   changing compatibility-sensitive package namespaces, project formats, or MCP tool names.
 - Main-canvas OGraf runtime preview is implemented as an Edit/Preview mode switch. It mounts an
-  immutable compiled snapshot in the normal zoomable/pannable viewport and provides realtime Load,
-  Step navigation/goto, Update Data, Stop/Take Out, Dispose, and custom-action controls. Snapshot
-  invalidation is explicit; advanced schedules, logs, certification, and export remain in Preview &
-  Export.
+  automatically refreshed compiled runtime in the normal zoomable/pannable viewport. Load,
+  data updates, and disposal are automatic; the visible controls are Step navigation/goto, Take Out,
+  render type, and custom actions. Advanced schedules, logs, certification, and export remain in
+  Preview & Export.
 - Local AI-agent authoring is implemented through a revisioned MCP server, live editor bridge,
   exact-artifact certification tools, workspace-confined save/export, and a reusable
   `ograf-authoring` Skill. Browser-rendered PNG composition/viewport capture, diagnostic mattes,
@@ -127,3 +139,6 @@
 - Optional OGraf Server API renderer testing.
 - Renderer compatibility matrix.
 - Accessibility, onboarding, keyboard workflow, and documentation polish.
+- The Preview & Export panel includes non-gating broadcast QA for Step-frame title-safe placement,
+  text size/floors, packaged-font fallback, backing contrast, interlaced thin rules, long
+  Latin/Turkish/Arabic replacement values, and source-image overlay comparison.

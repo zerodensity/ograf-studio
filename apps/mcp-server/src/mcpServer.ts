@@ -11,7 +11,9 @@ import {
 } from '@ograf-editor/authoring-core';
 import {
   buildExportArtifactsWithRuntime,
+  getExportProfile,
   validatePackageLayout,
+  type ExportProfileMode,
   type ExportArtifacts,
 } from '@ograf-editor/codegen';
 import {
@@ -95,20 +97,27 @@ function runtimeSource(): Promise<string> {
 async function artifactsFor(
   workspace: AuthoringWorkspace,
   sessionId: string,
+  profileId?: ExportProfileMode,
 ): Promise<ExportArtifacts> {
   const project = workspace.get(sessionId).snapshot().project;
-  return buildExportArtifactsWithRuntime(project, mainComposition(project), await runtimeSource());
+  return buildExportArtifactsWithRuntime(
+    project,
+    mainComposition(project),
+    await runtimeSource(),
+    profileId ? getExportProfile(profileId) : undefined,
+  );
 }
 
 async function certifiedArtifacts(
   workspace: AuthoringWorkspace,
   bridge: EditorBridge,
   sessionId: string,
+  profileId?: ExportProfileMode,
 ): Promise<{
   artifacts: ExportArtifacts;
   certification: Awaited<ReturnType<EditorBridge['certify']>>;
 }> {
-  const artifacts = await artifactsFor(workspace, sessionId);
+  const artifacts = await artifactsFor(workspace, sessionId, profileId);
   const staticErrors = [...artifacts.errors, ...validatePackageLayout(artifacts)];
   if (staticErrors.length > 0) {
     throw new Error(`OGraf certification failed:\n${staticErrors.join('\n')}`);
@@ -944,6 +953,25 @@ export function createOGrafMcpServer(
               type: 'enum',
               values: ['left', 'center', 'right'],
               default: 'left',
+            },
+            lineHeight: { type: 'number', minimum: 0.5, default: 1.2 },
+            letterSpacing: { type: 'number', default: 0 },
+            textTransform: {
+              type: 'enum',
+              values: ['none', 'uppercase', 'lowercase', 'capitalize'],
+              default: 'none',
+            },
+            verticalAlign: {
+              type: 'enum',
+              values: ['top', 'middle', 'bottom'],
+              default: 'top',
+            },
+            baselineShift: { type: 'number', default: 0 },
+            minFontSize: { type: 'number', minimum: 1, default: 24 },
+            overflowPolicy: {
+              type: 'enum',
+              values: ['visible', 'clip', 'ellipsis'],
+              default: 'visible',
             },
             autoFit: {
               type: 'enum',
@@ -1893,12 +1921,15 @@ export function createOGrafMcpServer(
       title: 'Certify exact OGraf output artifacts',
       description:
         'Requires a connected and responsive live browser editor. Compiles the exact output artifacts and runs the mandatory project, manifest, package, module, and lifecycle checks in that browser.',
-      inputSchema: { sessionId: z.string().default('editor') },
+      inputSchema: {
+        sessionId: z.string().default('editor'),
+        profile: z.enum(['realtime', 'non-realtime', 'dual']).optional(),
+      },
       annotations: readOnly,
     },
-    async ({ sessionId }) => {
-      const { certification } = await certifiedArtifacts(workspace, bridge, sessionId);
-      return textResult({ sessionId, certification });
+    async ({ sessionId, profile }) => {
+      const { certification } = await certifiedArtifacts(workspace, bridge, sessionId, profile);
+      return textResult({ sessionId, profile: profile ?? 'project-declared', certification });
     },
   );
 
@@ -1941,13 +1972,19 @@ export function createOGrafMcpServer(
         path: z.string(),
         confirm: z.literal(true),
         overwrite: z.boolean().default(false),
+        profile: z.enum(['realtime', 'non-realtime', 'dual']).default('dual'),
       },
       annotations: mutation,
     },
-    async ({ sessionId, path, overwrite }) => {
+    async ({ sessionId, path, overwrite, profile }) => {
       if (!path.toLowerCase().endsWith('.ograf.zip'))
         throw new Error('Package path must end in .ograf.zip.');
-      const { artifacts, certification } = await certifiedArtifacts(workspace, bridge, sessionId);
+      const { artifacts, certification } = await certifiedArtifacts(
+        workspace,
+        bridge,
+        sessionId,
+        profile,
+      );
       const zip = new JSZip();
       zip.file(artifacts.manifestFileName, JSON.stringify(artifacts.manifest, null, 2));
       zip.file('main.js', artifacts.mainJs);
@@ -1958,7 +1995,7 @@ export function createOGrafMcpServer(
       const target = workspace.resolveAllowedPath(path);
       await atomicWrite(target, output, overwrite);
       return textResult(
-        { sessionId, path: target, certification },
+        { sessionId, path: target, profile, certification },
         `Certified and exported ${target}`,
       );
     },

@@ -180,20 +180,23 @@ is a set of normal independent layers. Component definitions are not compiled, s
 packages have no studio-specific component runtime or vendor dependency.
 
 The main canvas has mutually exclusive authoring and OGraf-runtime surfaces. Entering OGraf Preview
-deep-clones the current project, compiles that immutable composition through `compileDescriptor`, and
-mounts a freshly registered `GraphicElement` in the same pasteboard viewport. Its toolbar calls the
-real `load`, `playAction`, `updateAction`, `stopAction`, `customAction`, and `dispose` methods; previous,
-next, and goto controls are presentations of OGraf `playAction` parameters rather than an editor
-timeline simulation. The authoring Stage is unmounted, so selections, guides, rulers, Moveable, and
-test affordances cannot leak into the runtime surface. Subsequent project edits mark the snapshot
-stale by content fingerprint and require an explicit reload; lifecycle calls never mutate the project,
-revision, selection, or undo history. The detailed Preview & Export panel remains responsible for
-logs, non-realtime schedules, certification, and package output.
+compiles the current composition through `compileDescriptor` and mounts a freshly registered
+`GraphicElement` in the same pasteboard viewport. Template edits rebuild, dispose, and automatically
+load the runtime instance from the latest project, so the visible preview does not retain a stale
+snapshot. Its toolbar calls the real `load`, `playAction`, `updateAction`, `stopAction`,
+`customAction`, and `dispose` methods. `load` runs automatically when the surface mounts,
+`updateAction` follows preview-data edits after a short debounce, and `dispose` remains automatic
+cleanup. Previous, next, and goto controls are presentations of OGraf `playAction` parameters rather
+than an editor timeline simulation; absolute goto is the standard zero-based
+`playAction({ goto })` contract. The authoring Stage is unmounted, so selections, guides, rulers,
+Moveable, and test affordances cannot leak into the runtime surface. Preview lifecycle calls never
+mutate the project, revision, selection, or undo history. The detailed Preview & Export panel remains
+responsible for logs, non-realtime schedules, certification, and package output.
 
 All in-editor render surfaces share one preview-data rule. A bound property resolves from an explicit
 field-ID test value when present, otherwise from the field definition's declared default. Before a
 payload enters an in-browser Graphic instance, image-url values using editor-only `asset:<id>`
-references are resolved through the snapshot's asset table into browser-loadable data URIs. This
+references are resolved through the current project's asset table into browser-loadable data URIs. This
 resolution is preview-only: packaged output still rewrites those references to certified relative
 resource paths, and externally supplied playout data remains ordinary OGraf data.
 
@@ -202,6 +205,27 @@ CSS/images/fonts, injects CSS into an SVG `style` node, replaces matching relati
 data URIs, registers selected fonts, and reports unresolved paths. It does not execute imported code
 or add a runtime dependency, and it preserves the SVG as one image asset rather than claiming that
 arbitrary Photoshop output can be losslessly reconstructed as editable scene geometry.
+
+The resource registry retains output bytes separately from authoring metadata. Identical data URI
+payloads are deduplicated, while each resource may retain its original filename, byte size, safe
+relative package path, and font/license descriptors. Direct references are usage-checked before UI
+removal. Packaged font weight/style descriptors flow through the compiled descriptor into local
+`@font-face`; optional license text is emitted under `licenses/` without adding a runtime dependency.
+
+Certification imports each exact generated module inside a fresh hidden iframe realm, exercises its
+declared lifecycle, and destroys the entire realm afterward. This prevents custom-element registry
+or DOM/font state from leaking between repeated certifications. Agent-requested certification,
+capture, contact sheets, and text measurement share one browser-work queue so they cannot overlap.
+
+Export profiles are compile-time projections, not project mutations. The built-in real-time,
+non-real-time, and dual profiles derive `supportsRealTime`, `supportsNonRealTime`, graphic ID suffix,
+and output filename from a cloned project snapshot. The editable document, undo history, MCP
+revision, and subsequent profile exports remain unchanged.
+
+Text layout is structured document data: line-height multiplier, pixel tracking, case transform,
+vertical alignment, baseline shift, minimum shrink size, and overflow policy all pass unchanged to
+the shared DOM renderer. Advisory broadcast QA samples on-air Step frames and uses that same browser
+renderer for replacement-text stress values; it never changes OGraf certification validity.
 
 Timeline Groups are editor-only authoring organization. For backward-compatible source persistence,
 `Composition.layout.timelineFolders` still stores group identity, name, color, and member layer IDs,
@@ -292,3 +316,10 @@ Document version 11 replaces the singular `layer.binding` with an ordered `layer
 Migration wraps every legacy binding without changing its field, target property, or value map.
 Each target property may appear once; the editor, capture path, compiler, realtime runtime, and
 non-realtime runtime apply the complete list in order.
+
+Document version 12 adds composition-local reusable component snapshots. Migration backfills an
+empty definition list; compiled OGraf output remains ordinary independent layers.
+
+Document version 13 adds structured text layout and legibility fields: line height, tracking, case
+transform, vertical alignment, baseline shift, minimum shrink size, and overflow policy. Migration
+derives neutral values and preserves the previous 50% shrink floor.

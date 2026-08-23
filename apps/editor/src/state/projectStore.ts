@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import {
   createAsset,
+  dataUriByteSize,
+  findAssetConsumers,
   buildComponentDefinition,
   createCustomActionDefinition,
   computeKeyframeFrames,
@@ -33,6 +35,7 @@ import {
   TRANSFORM_ANIMATION_PROPERTIES,
   EFFECT_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
+  type Asset,
   type Composition,
   type ComponentDefinition,
   type CompositionLayout,
@@ -224,6 +227,22 @@ interface ProjectActions {
   /** Reads `file` as a `data:` URI and adds it to the active composition's asset registry. */
   importAsset: (file: File) => Promise<string>;
   importSvgBundle: (files: File[]) => Promise<{ assetId: string; warnings: string[] }>;
+  updateAsset: (
+    assetId: string,
+    patch: Partial<
+      Pick<
+        Asset,
+        | 'name'
+        | 'packagePath'
+        | 'fontFamily'
+        | 'fontWeight'
+        | 'fontStyle'
+        | 'licenseName'
+        | 'licenseUrl'
+        | 'licenseText'
+      >
+    >,
+  ) => void;
   removeAsset: (assetId: string) => void;
   createComponent: (layerIds: string[], name?: string) => string | null;
   instantiateComponent: (componentId: string, offset?: { x: number; y: number }) => string[];
@@ -1562,19 +1581,28 @@ export const useProjectStore = create<ProjectStore>()(
                 : extension === 'ttf'
                   ? 'font/ttf'
                   : undefined;
-        const mimeType = fontMime ?? file.type ?? 'application/octet-stream';
+        const mimeType = (fontMime ?? file.type) || 'application/octet-stream';
+        const kind = fontMime ? 'font' : mimeType.startsWith('image/') ? 'image' : 'source';
         const asset = createAsset({
           name: file.name,
-          kind: fontMime ? 'font' : 'image',
+          kind,
           dataUri,
           mimeType,
+          originalFileName: file.name,
+          byteSize: file.size || dataUriByteSize(dataUri),
           ...(fontMime ? { fontFamily: file.name.replace(/\.[^.]+$/, '') } : {}),
+          ...(fontMime ? { fontWeight: '100 900', fontStyle: 'normal' as const } : {}),
         });
+        let assetId = asset.id;
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
-          composition.assets.push(asset);
+          const duplicate = composition.assets.find(
+            (candidate) => candidate.dataUri === dataUri && candidate.mimeType === mimeType,
+          );
+          if (duplicate) assetId = duplicate.id;
+          else composition.assets.push(asset);
         });
-        return asset.id;
+        return assetId;
       },
 
       importSvgBundle: async (files) => {
@@ -1586,9 +1614,27 @@ export const useProjectStore = create<ProjectStore>()(
         return { assetId: result.svgAsset.id, warnings: result.warnings };
       },
 
+      updateAsset: (assetId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const asset = composition.assets.find((candidate) => candidate.id === assetId);
+          if (!asset) return;
+          Object.assign(asset, patch);
+        }),
+
       removeAsset: (assetId) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const asset = composition.assets.find((candidate) => candidate.id === assetId);
+          if (!asset) return;
+          const consumers = findAssetConsumers(composition, asset);
+          if (
+            consumers.layerIds.length > 0 ||
+            consumers.fieldIds.length > 0 ||
+            consumers.fontLayerIds.length > 0
+          ) {
+            return;
+          }
           composition.assets = composition.assets.filter((a) => a.id !== assetId);
         }),
     };

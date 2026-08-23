@@ -28,8 +28,8 @@ Save/export must certify the same artifact bytes that are written. If certificat
 - Custom cubic Bézier curves override the named easing for that key.
 - Authored transform/effect edits write every lifecycle frame; frame-scoped edits require an
   explicit frame.
-- Shrink-to-fit never renders below 50% of authored font size. A degenerate result means the floor
-  was reached and the box still cannot contain the text.
+- Shrink-to-fit never renders below the text layer's authored `minFontSize`. A degenerate result
+  means that floor was reached and the box still cannot contain the text.
 - Duplicate-group frame offsets never clamp keys; insufficient duration is an atomic error.
 - A clipping parent masks only direct children whose `parentId` points to it. The mask follows the
   parent's animated transformed bounds, rotation/origin, and rectangle radius; duplicated groups

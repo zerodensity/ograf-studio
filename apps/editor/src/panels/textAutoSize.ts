@@ -11,12 +11,19 @@ export function measureAutoSizedText(element: TextElement): { width: number; hei
     visibility: 'hidden',
     pointerEvents: 'none',
     whiteSpace: 'pre',
-    lineHeight: '1.2',
+    lineHeight: String(element.lineHeight),
+    letterSpacing: `${element.letterSpacing}px`,
+    textTransform: element.textTransform,
     fontFamily: element.fontFamily,
     fontSize: `${Math.max(1, element.fontSize)}px`,
     fontWeight: String(element.fontWeight),
   });
-  probe.textContent = element.content || ' ';
+  probe.textContent =
+    (element.textTransform === 'uppercase'
+      ? element.content.toUpperCase()
+      : element.textTransform === 'lowercase'
+        ? element.content.toLowerCase()
+        : element.content) || ' ';
   document.body.appendChild(probe);
   const bounds = probe.getBoundingClientRect();
   probe.remove();

@@ -1,5 +1,4 @@
-import { useMemo, useState } from 'react';
-import type { Project } from '@ograf-editor/scene-model';
+import { useState } from 'react';
 import { Menubar } from '../panels/Menubar';
 import { LeftSidebar } from './LeftSidebar';
 import { Stage } from '../canvas/Stage';
@@ -24,17 +23,9 @@ type RightTabId = keyof typeof RIGHT_TABS;
 export function AppShell() {
   const [rightTab, setRightTab] = useState<RightTabId>('inspector');
   const project = useProjectStore((state) => state.project);
-  const projectFingerprint = useMemo(() => JSON.stringify(project), [project]);
-  const [runtimePreview, setRuntimePreview] = useState<{
-    snapshot: Project;
-    sourceFingerprint: string;
-  } | null>(null);
+  const [runtimePreview, setRuntimePreview] = useState(false);
 
-  const openRuntimePreview = () =>
-    setRuntimePreview({
-      snapshot: structuredClone(project),
-      sourceFingerprint: projectFingerprint,
-    });
+  const openRuntimePreview = () => setRuntimePreview(true);
 
   const left = useResizable({
     key: 'left-sidebar',
@@ -73,10 +64,8 @@ export function AppShell() {
       <ResizeHandle axis="col" gridColumn="2" gridRow="3 / 6" onPointerDown={left.startDrag} />
       {runtimePreview ? (
         <RuntimePreviewStage
-          project={runtimePreview.snapshot}
-          stale={projectFingerprint !== runtimePreview.sourceFingerprint}
-          onExit={() => setRuntimePreview(null)}
-          onReload={openRuntimePreview}
+          project={project}
+          onExit={() => setRuntimePreview(false)}
           style={{ gridColumn: 3, gridRow: 3 }}
         />
       ) : (

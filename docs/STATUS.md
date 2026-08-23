@@ -10,6 +10,19 @@ OGraf compliance and architecture hardening.
 
 - The user-facing product name is **OGraf Studio**. Existing `@ograf-editor/*` package names,
   `.ogeproj` source compatibility, persisted IDs, and MCP tool names remain unchanged.
+- Browser certification is isolated in a disposable iframe/custom-element registry. Certification,
+  PNG capture, contact sheets, and text measurement run through one serialized browser-work queue;
+  packaged-font waits remain bounded and bridge health continues to expose responsiveness/latency.
+- Resources now manage images, fonts, and source attachments with original filename/size metadata,
+  payload deduplication, safe custom package paths, missing-reference detection, usage-aware removal,
+  font family/weight/style preview, and optional license metadata/text packaged under `licenses/`.
+- Preview & Export offers immutable built-in real-time, non-real-time, and dual-mode profiles. Each
+  derives output capability flags and a collision-safe graphic ID without changing project state.
+- Timeline and update-crossfade controls pair integer frames with milliseconds, detect fractional
+  frame durations, and require an explicit down/nearest/up rounding choice.
+- Document v13 adds line height, tracking, text transform, vertical alignment, baseline shift,
+  minimum shrink size, and overflow policy. Preview provides source-image overlay plus advisory
+  broadcast QA and real-browser Latin/Turkish/Arabic replacement-text stress tests.
 - React/Vite visual editor with DOM-based canvas, timeline, data fields, preview, and ZIP export.
 - Document v11 supports multiple independent data bindings on one layer. The Inspector adds,
   retargets, and removes binding rows; compiler/runtime/capture apply the ordered list, validation
@@ -66,7 +79,7 @@ OGraf compliance and architecture hardening.
 - Color-coded layer tracks with matching key diamonds, visible key-to-key exposure bars, duration
   labels, gutter swatches, and five-frame ruler labels.
 - Persistent playback transport with previous/next-frame stepping, play/pause, stop-to-zero,
-  end-of-timeline replay, and live current-frame/total-frame/elapsed-duration readouts.
+  end-of-timeline replay, and one compact current-frame/total-frame/elapsed-duration readout.
 - Mouse scrubbing from the playhead head or its full vertical line, the ruler, or empty layer-track
   space; all scrub paths pause playback and clamp precisely to the authored frame range.
 - The main canvas keeps fit-to-view as its default and adds pointer-anchored template zoom from
@@ -105,10 +118,11 @@ OGraf compliance and architecture hardening.
   Stage pasteboard uses an editor-only checkerboard, continuous through a transparent composition;
   Preview uses the same zoom-stable pattern while runtime and export remain genuinely transparent.
 - The main canvas now has explicit Edit and OGraf Preview modes. Preview replaces the authoring DOM
-  with an immutable compiled-runtime snapshot in the same zoomable/pannable viewport and exposes
-  Load, previous/next/goto Step, Update Data, Stop/Take Out, Dispose, render-type, and custom-action
-  controls. Project edits never mutate the running instance; they produce a reloadable stale-snapshot
-  warning, while preview calls stay outside project revision and undo history.
+  with the latest compiled runtime in the same zoomable/pannable viewport. It automatically rebuilds
+  and loads when the template changes, applies preview-data changes through a debounced
+  `updateAction`, and exposes only previous/next/goto Step, Take Out, render-type, and custom-action
+  controls. Internal replacement and cleanup still call `dispose`, while preview calls stay outside
+  project revision and undo history.
 - Edit, main-canvas OGraf Preview, and Preview & Export now share the same effective preview-data
   semantics: explicit test values override declared field defaults, and local `asset:<id>` image
   values resolve to browser-loadable data URIs before reaching a Graphic instance. Data-bound image
@@ -149,18 +163,17 @@ OGraf compliance and architecture hardening.
 - Every property key has its own incoming easing and optional editable cubic Bézier curve. The
   timeline includes a live SVG curve preview with draggable handles and precise control-point
   fields; the editor evaluator and generated GSAP runtime consume the same curve data.
-- Easing, curve, and retiming controls live in a permanently reserved Keyframe Editor dock on the
-  timeline's right. Selecting or clearing a key no longer changes the toolbar height or moves the
-  ruler; short panels scroll the dock internally while preserving the track viewport.
-- Selected property tracks support collision-safe key nudging, whole-track offsets, proportional
-  80%/125% scaling, reversal, and even distribution. Invalid compressions are atomic no-ops instead
-  of creating duplicate frames that would fail certification.
+- The Keyframe Editor dock appears only for a selected key or property. Incoming easing remains
+  immediate; the Bézier editor, whole-track transforms, and local loops use collapsed advanced
+  sections. Key diamonds are keyboard-focusable and support one-frame arrow nudging and deletion.
+- Selected property tracks support collision-safe key nudging, whole-track offsets, user-entered
+  proportional scaling, reversal, and even distribution from one Track Actions menu. Invalid
+  compressions are atomic no-ops instead of creating duplicate frames that would fail certification.
 - Blur, drop-shadow alpha, X/Y offset, and softness are animatable numeric tracks and update through
   the same deterministic runtime as transform properties. Shadow enable and color remain static
   discrete settings.
-- A built-in 90-frame Full-HD lower-third demo is loadable from the menubar. Its five independently
-  animated layers exercise entrance/hold/exit keys, multiple easing families, text bindings, system
-  fonts, shrink-to-fit typography, blur, glow/drop shadow, transparent output, and OGraf lifecycle.
+- The former lower-third example remains an internal regression fixture but is no longer exposed in
+  the production menubar or bundled as a user-facing demo workflow.
 - Cyan canvas dots identify data-bound layers and explain themselves on hover. They are editor-only
   affordances and automatically disappear during timeline playback, returning on pause or finish.
 - Compiler, lifecycle, migration, and validation tests plus CI and handover protocol.
@@ -224,8 +237,9 @@ OGraf compliance and architecture hardening.
   while per-stop data binding remains future work.
 - Document v9 adds one deterministic local loop clip per layer. Alpha, position, size, rotation,
   origin, numeric effects, and gradient-stop offsets retain independent local tracks/easing on a
-  shared clip duration, activated for the on-air lifecycle or one OGraf Step. The Keyframe Editor
-  can create, edit, and live-preview loops; MCP exposes atomic loop configuration/track operations.
+  shared clip duration, activated for the on-air lifecycle or one OGraf Step. A collapsed Local
+  Property Loop section can create, edit, and live-preview loops; phase and destructive operations
+  use nested advanced disclosures. MCP exposes atomic loop configuration/track operations.
   Runtime phase derives from absolute action/schedule time, and realtime image sequences now derive
   their frame from elapsed time instead of accumulating timer callbacks.
 - MCP certification, source save, and package export compile the shared exact artifact object and
@@ -286,7 +300,7 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 
 ## Verification baseline
 
-- `npm test`: 212 tests pass across 46 files after timeline, transport, scrubbing, canvas zoom,
+- `npm test`: 219 tests pass across 48 files after timeline, transport, scrubbing, canvas zoom,
   OGraf-step playback, Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,

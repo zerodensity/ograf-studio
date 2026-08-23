@@ -89,6 +89,42 @@ describe('export package artifacts', () => {
     });
   });
 
+  it('deduplicates identical resources and packages custom paths plus font license text', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const dataUri = 'data:font/woff2;base64,d09GMg==';
+    composition.assets.push(
+      createAsset({
+        name: 'Rubik Regular',
+        kind: 'font',
+        mimeType: 'font/woff2',
+        dataUri,
+        fontFamily: 'Rubik',
+        fontWeight: '400',
+        packagePath: 'fonts/rubik-regular.woff2',
+        licenseText: 'OFL test license',
+      }),
+      createAsset({
+        name: 'Duplicate bytes',
+        kind: 'font',
+        mimeType: 'font/woff2',
+        dataUri,
+        fontFamily: 'Rubik Duplicate',
+      }),
+    );
+
+    const artifacts = buildExportArtifacts(project, composition);
+
+    expect(artifacts.resources).toEqual([
+      expect.objectContaining({ path: 'fonts/rubik-regular.woff2' }),
+      expect.objectContaining({
+        path: expect.stringMatching(/^licenses\/.+-LICENSE\.txt$/),
+        data: 'OFL test license',
+        base64: false,
+      }),
+    ]);
+  });
+
   it('blocks packaging before invoking a save flow when validation fails', async () => {
     const project = createProject({ name: '' });
     await expect(exportProjectAsZip(project, project.compositions[0]!)).rejects.toThrow(
