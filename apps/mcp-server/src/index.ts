@@ -1,14 +1,18 @@
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
+import { localhostHostValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import { EditorBridge } from './editorBridge';
 import { createOGrafMcpServer } from './mcpServer';
 import { AuthoringWorkspace } from './workspace';
 
 export function createOGrafAuthoringHost() {
-  const app = createMcpExpressApp({ host: '127.0.0.1' });
+  const app = express();
+  // Editable projects can legitimately include packaged fonts, images, Lottie JSON, and source
+  // references. Keep this bounded but comfortably above the 100 kB Express default.
+  app.use(express.json({ limit: '16mb' }));
+  app.use(localhostHostValidation());
   const httpServer = createServer(app);
   const workspace = new AuthoringWorkspace();
   const bridge = new EditorBridge(httpServer, workspace);

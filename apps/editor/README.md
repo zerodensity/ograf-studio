@@ -1,4 +1,4 @@
-# OGraf Editor application
+# OGraf Studio application
 
 This workspace contains the React/Vite visual editor. Use the repository-root commands so the
 descriptor-driven OGraf runtime is built before the application starts.

@@ -151,7 +151,7 @@ function createLayer(name: string, element: Element): Layer {
     loop: null,
     element,
     effects: createLayerEffects(),
-    binding: null,
+    bindings: [],
   };
 }
 
@@ -361,6 +361,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
     height: 1080,
     backgroundColor: 'transparent',
     frameRate: DEFAULT_FRAME_RATE,
+    updateTransitionFrames: 0,
     layout: {
       showRulers: true,
       showActionSafe: false,
@@ -380,13 +381,14 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
     dataFields: [],
     customActions: [],
     assets: [],
+    components: [],
     ...overrides,
     keyframes,
     transitions,
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 10;
+export const PROJECT_DOCUMENT_VERSION = 12;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });
@@ -397,6 +399,8 @@ export function createProject(overrides: Partial<Project> = {}): Project {
     description: '',
     version: '0.1.0',
     author: { name: '' },
+    supportsRealTime: true,
+    supportsNonRealTime: true,
     mainCompositionId: mainComposition.id,
     compositions: [mainComposition],
     ...overrides,

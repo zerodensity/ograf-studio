@@ -272,12 +272,15 @@ export function renderAnimatedElementAtTime(
  * properties are string-typed, so the override always stringifies.
  */
 export function resolveBoundElement(layer: CompiledLayer, data: Record<string, unknown>): Element {
-  if (!layer.binding) return layer.element;
-  const value = data[layer.binding.dataKey];
-  if (value === undefined) return layer.element;
-  const resolvedValue =
-    layer.binding.targetProperty === 'fill' && value && typeof value === 'object'
-      ? value
-      : String(value);
-  return { ...layer.element, [layer.binding.targetProperty]: resolvedValue } as Element;
+  const bindings = layer.bindings ?? (layer.binding ? [layer.binding] : []);
+  return bindings.reduce<Element>((element, binding) => {
+    const value = data[binding.dataKey];
+    if (value === undefined) return element;
+    const mappedValue = binding.valueMap?.[String(value)] ?? value;
+    const resolvedValue =
+      binding.targetProperty === 'fill' && mappedValue && typeof mappedValue === 'object'
+        ? mappedValue
+        : String(mappedValue);
+    return { ...element, [binding.targetProperty]: resolvedValue } as Element;
+  }, layer.element);
 }

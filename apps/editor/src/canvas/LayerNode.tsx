@@ -130,10 +130,10 @@ export function LayerNode({
       style={style}
     >
       <div className="layer-content-host" ref={contentRef} />
-      {layer.binding && !isPlaying && (
+      {layer.bindings.length > 0 && !isPlaying && (
         <span
           className="layer-binding-indicator"
-          title="Data-bound layer — edit its field and property in the Inspector"
+          title={`${layer.bindings.length} data binding${layer.bindings.length === 1 ? '' : 's'} — edit fields and properties in the Inspector`}
           aria-label="Data-bound layer"
         />
       )}

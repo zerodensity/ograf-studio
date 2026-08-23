@@ -44,6 +44,7 @@ type LegacyLayer = Omit<
   | 'parentId'
   | 'clipChildren'
   | 'constraints'
+  | 'bindings'
 > & {
   keyframes?: LayerKeyframe[];
   poses?: Record<string, LayerTransform>;
@@ -55,16 +56,26 @@ type LegacyLayer = Omit<
   parentId?: string | null;
   clipChildren?: boolean;
   constraints?: Layer['constraints'];
+  bindings?: Layer['bindings'];
+  /** Document v10 and older supported only one binding per layer. */
+  binding?: Layer['bindings'][number] | null;
 };
 
-type LegacyComposition = Omit<Composition, 'keyframes' | 'layers' | 'layout'> & {
+type LegacyComposition = Omit<Composition, 'keyframes' | 'layers' | 'layout' | 'components'> & {
   keyframes: LegacyKeyframe[];
   layers: LegacyLayer[];
   layout?: Partial<Composition['layout']>;
+  updateTransitionFrames?: number;
+  components?: Composition['components'];
 };
 
-type LegacyProject = Omit<Project, 'documentVersion' | 'compositions'> & {
+type LegacyProject = Omit<
+  Project,
+  'documentVersion' | 'compositions' | 'supportsRealTime' | 'supportsNonRealTime'
+> & {
   documentVersion?: number;
+  supportsRealTime?: boolean;
+  supportsNonRealTime?: boolean;
   compositions: LegacyComposition[];
 };
 
@@ -126,13 +137,19 @@ function normalizeComposition(composition: LegacyComposition): Composition {
   }
 
   const layers: Layer[] = composition.layers.map((legacyLayer) => {
+    const bindings = (
+      legacyLayer.bindings ?? (legacyLayer.binding ? [legacyLayer.binding] : [])
+    ).map((binding) => ({
+      ...binding,
+      ...(binding.valueMap ? { valueMap: { ...binding.valueMap } } : {}),
+    }));
     const element =
       legacyLayer.element.type === 'text'
         ? { ...legacyLayer.element, autoFit: legacyLayer.element.autoFit ?? 'auto-size' }
         : legacyLayer.element;
     const effects = normalizeLayerEffects(legacyLayer.effects ?? createLayerEffects());
     if (legacyLayer.keyframes?.length) {
-      const { poses: _poses, ...layer } = legacyLayer;
+      const { poses: _poses, binding: _binding, bindings: _bindings, ...layer } = legacyLayer;
       const normalizedLayer: Layer = {
         ...layer,
         isLocked: legacyLayer.isLocked ?? false,
@@ -140,6 +157,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
         parentId: legacyLayer.parentId ?? null,
         clipChildren: legacyLayer.clipChildren ?? false,
         constraints: legacyLayer.constraints ?? { horizontal: 'left', vertical: 'top' },
+        bindings,
         element,
         effects,
         keyframes: sortLayerKeyframes(legacyLayer.keyframes).map((keyframe) => ({
@@ -226,6 +244,8 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       poses: _poses,
       keyframes: _keyframes,
       animationTracks: _animationTracks,
+      binding: _binding,
+      bindings: _bindings,
       ...layer
     } = legacyLayer;
     const normalizedLayer: Layer = {
@@ -235,6 +255,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       parentId: legacyLayer.parentId ?? null,
       clipChildren: legacyLayer.clipChildren ?? false,
       constraints: legacyLayer.constraints ?? { horizontal: 'left', vertical: 'top' },
+      bindings,
       element,
       effects,
       keyframes: animationKeys,
@@ -247,12 +268,14 @@ function normalizeComposition(composition: LegacyComposition): Composition {
 
   return {
     ...composition,
+    updateTransitionFrames: Math.max(0, Math.round(composition.updateTransitionFrames ?? 0)),
     keyframes: normalizedKeyframes,
     transitions,
     layers,
     assets: composition.assets ?? [],
     customActions: composition.customActions ?? [],
     dataFields: composition.dataFields ?? [],
+    components: composition.components ?? [],
     layout: {
       showRulers: composition.layout?.showRulers ?? true,
       showActionSafe: composition.layout?.showActionSafe ?? false,
@@ -282,6 +305,8 @@ export function migrateProject(project: Project | LegacyProject): Project {
   return {
     ...cloned,
     documentVersion: PROJECT_DOCUMENT_VERSION,
+    supportsRealTime: cloned.supportsRealTime ?? true,
+    supportsNonRealTime: cloned.supportsNonRealTime ?? true,
     compositions: cloned.compositions.map(normalizeComposition),
   };
 }

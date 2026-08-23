@@ -14,6 +14,6 @@ describe('lower third example', () => {
       new Set(descriptor.layers.flatMap((layer) => layer.keyframes.map((key) => key.easing))).size,
     ).toBeGreaterThan(5);
     expect(descriptor.layers.some((layer) => layer.effects.dropShadowEnabled)).toBe(true);
-    expect(descriptor.layers.filter((layer) => layer.binding)).toHaveLength(2);
+    expect(descriptor.layers.filter((layer) => layer.bindings.length > 0)).toHaveLength(2);
   });
 });

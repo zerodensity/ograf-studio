@@ -47,6 +47,34 @@
   gap: 6px;
 }
 
+.inspector-binding-list {
+  display: grid;
+  gap: 7px;
+}
+
+.inspector-binding {
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
+}
+
+.inspector-binding-remove {
+  justify-self: end;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.inspector-binding-remove:hover {
+  color: #ff7b86;
+}
+
 .inspector-button-row button,
 .inspector-row button {
   border: 1px solid var(--border);

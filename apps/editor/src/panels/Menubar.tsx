@@ -105,7 +105,7 @@ export function Menubar({ style }: { style?: CSSProperties }) {
 
   return (
     <header className="menubar" style={style}>
-      <span className="menubar-brand">OGraf Editor</span>
+      <span className="menubar-brand">OGraf Studio</span>
       <span className="menubar-project-name">{projectName}</span>
       <nav className="menubar-actions">
         <button type="button" onClick={handleNew}>

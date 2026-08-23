@@ -17,7 +17,7 @@ export type {
 } from '@ograf-editor/ograf-types';
 
 /**
- * Project/Composition -> CompiledGraphicDescriptor. Resolves each layer's `binding.fieldId` to the
+ * Project/Composition -> CompiledGraphicDescriptor. Resolves each layer binding's `fieldId` to the
  * field's `key` (the name the runtime `data` payload actually uses), and drops guide layers
  * (design-time-only, excluded from anything that ships).
  */
@@ -47,7 +47,6 @@ export function compileDescriptor(
   const layers: CompiledLayer[] = composition.layers
     .filter((layer) => options.includeGuides || !layer.isGuide)
     .map((layer) => {
-      const dataKey = layer.binding ? fieldKeyById.get(layer.binding.fieldId) : undefined;
       const animationTracks = getResolvedLayerAnimationTracks(layer);
       const clipParent = layer.parentId
         ? composition.layers.find(
@@ -86,10 +85,18 @@ export function compileDescriptor(
               ),
             }
           : null,
-        binding:
-          layer.binding && dataKey !== undefined
-            ? { dataKey, targetProperty: layer.binding.targetProperty }
-            : null,
+        bindings: layer.bindings.flatMap((binding) => {
+          const dataKey = fieldKeyById.get(binding.fieldId);
+          return dataKey === undefined
+            ? []
+            : [
+                {
+                  dataKey,
+                  targetProperty: binding.targetProperty,
+                  ...(binding.valueMap ? { valueMap: structuredClone(binding.valueMap) } : {}),
+                },
+              ];
+        }),
         clipParentId: clipParent?.id ?? null,
       };
     });
@@ -99,6 +106,14 @@ export function compileDescriptor(
     height: composition.height,
     backgroundColor: composition.backgroundColor,
     frameRate: composition.frameRate,
+    updateTransitionFrames: composition.updateTransitionFrames,
+    fonts: composition.assets
+      .filter((asset) => asset.kind === 'font')
+      .map((asset) => ({
+        family: asset.fontFamily || asset.name.replace(/\.[^.]+$/, ''),
+        source: `asset:${asset.id}`,
+        mimeType: asset.mimeType,
+      })),
     layers,
     keyframes,
     transitions: composition.transitions.map((t) => ({

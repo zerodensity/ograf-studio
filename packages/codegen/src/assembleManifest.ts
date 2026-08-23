@@ -34,8 +34,7 @@ function compileActionDurations(descriptor: CompiledGraphicDescriptor): Manifest
       duration: 0,
       ...(steps.length > 0 ? { steps } : {}),
     },
-    // Data swaps are instantaneous — no "update pulse" animation is modeled yet.
-    { type: 'updateAction', duration: 0 },
+    { type: 'updateAction', duration: msFor(descriptor.updateTransitionFrames ?? 0) },
     {
       type: 'stopAction',
       duration: msFor(transitionInto(endKeyframeId)?.durationFrames ?? 0),
@@ -71,8 +70,8 @@ export function assembleManifest(
     id: project.id,
     name: project.name,
     main: 'main.js',
-    supportsRealTime: true,
-    supportsNonRealTime: true,
+    supportsRealTime: project.supportsRealTime,
+    supportsNonRealTime: project.supportsNonRealTime,
     version: project.version,
     stepCount: descriptor.stepCount,
     actionDurations: compileActionDurations(descriptor),

@@ -1,4 +1,4 @@
-# ZD OGraf Editor
+# OGraf Studio
 
 A browser-based visual editor for creating EBU OGraf-compatible HTML5 broadcast graphics such as
 lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-driven templates.
@@ -6,13 +6,26 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
+## New in OGraf Studio
+
+- Renamed the product to **OGraf Studio** across the application and current documentation.
+- Added state-aware exits that animate directly from the active Step to End.
+- Added multiple independent property bindings per layer.
+- Closed structural editor/MCP parity gaps for lifecycle markers, canvas groups, reusable
+  components, custom actions, and safe asset removal.
+- Added reusable component snapshots with independently editable inserted instances.
+- Added portable Photoshop SVG bundle import with companion CSS, images, and fonts.
+
 ## Highlights
 
 - WYSIWYG canvas with layers, grouping, guides, rulers, snapping, clipping, and responsive layout
   aids.
 - Independent per-property animation tracks, per-key easing and curves, local loops, and freely
   movable OGraf lifecycle Steps.
-- Data fields and bindings for text, images, colors, and structured gradients.
+- Data fields with multiple independent property bindings per layer for text, images, colors, and
+  structured gradients.
+- Reusable authoring components that snapshot selected layers and bound fields, then insert fresh
+  independently editable OGraf layer groups without adding a proprietary runtime dependency.
 - Self-contained Lottie JSON layers with deterministic loop playback in editor preview, OGraf
   realtime playback, and non-realtime `goToTime()` seeking.
 - Start, pausable Step, and End lifecycle preview using the same compiled timeline as export.
@@ -27,7 +40,7 @@ packages, and an optional local MCP authoring server for AI-assisted workflows.
 
 | File                      | Purpose                            | How to open it                                                                                  |
 | ------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `.ogeproj`                | Editable ZD OGraf Editor source    | **Open Project**                                                                                |
+| `.ogeproj`                | Editable OGraf Studio source       | **Open Project**                                                                                |
 | `.ograf.zip`              | Certified playout package          | **Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
 | Loose OGraf package files | Manifest, `main.js`, and resources | Select them together with **Import OGraf**                                                      |
 | SVG and raster images     | Reusable image assets              | **Resources → Import Image**                                                                    |
@@ -39,10 +52,12 @@ reconstructed as editable layers. The import report lists everything recovered, 
 
 ### SVG and Photoshop exports
 
-SVG files can be imported as image assets. External companion CSS files are not currently ingested
-automatically. For portable results, inline the required styles in the SVG, convert critical text to
-paths, or ensure the referenced fonts are installed on every authoring and playout machine. Relative
-font/image URLs and external `@font-face` rules remain a known conversion boundary.
+Use **Resources → Import Image/SVG Bundle** and select one SVG together with its companion CSS,
+linked images, and local font files. OGraf Studio injects the CSS into the SVG, replaces selected
+relative image/font URLs with data URIs, removes the external XML stylesheet reference, and
+registers selected fonts as project font assets. Any unresolved relative URL is reported in the
+Resources panel. The result remains one portable image asset; Photoshop's rasterized content and
+arbitrary SVG structure are not decomposed into independently editable studio layers.
 
 ### Lottie animations
 
@@ -119,7 +134,7 @@ Use `mcp-remote` as a local compatibility bridge.
 ```json
 {
   "mcpServers": {
-    "ograf-editor": {
+    "ograf-studio": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "http://127.0.0.1:4318/mcp", "--allow-http"]
     }

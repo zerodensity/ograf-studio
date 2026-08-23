@@ -16,11 +16,19 @@ import type {
   LayerEffects,
   LayerTransform,
   LayerLoopClip,
+  GradientPaint,
 } from '@ograf-editor/scene-model';
 
 export interface CompiledLayerBinding {
   dataKey: string;
   targetProperty: string;
+  valueMap?: Record<string, string | number | boolean | GradientPaint>;
+}
+
+export interface CompiledFontResource {
+  family: string;
+  source: string;
+  mimeType: string;
 }
 
 export interface CompiledLayer {
@@ -33,7 +41,10 @@ export interface CompiledLayer {
   animationTracks: Partial<Record<AnimatableLayerProperty, CompiledLayerPropertyKeyframe[]>>;
   /** Deterministic local property clip; authoring IDs are retained only for source correlation. */
   loop?: LayerLoopClip | null;
-  binding: CompiledLayerBinding | null;
+  /** Ordered bindings; each target property may appear at most once. */
+  bindings: CompiledLayerBinding[];
+  /** Legacy editor-generated descriptors before document v11. */
+  binding?: CompiledLayerBinding | null;
   /** Runtime-only clipping relation; general authoring parent metadata remains compiled away. */
   clipParentId?: string | null;
 }
@@ -79,6 +90,8 @@ export interface CompiledGraphicDescriptor {
   height: number;
   backgroundColor: string;
   frameRate: number;
+  updateTransitionFrames?: number;
+  fonts?: CompiledFontResource[];
   layers: CompiledLayer[];
   keyframes: CompiledKeyframe[];
   transitions: CompiledTransition[];

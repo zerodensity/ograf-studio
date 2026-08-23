@@ -74,6 +74,40 @@ describe('layer editing commands', () => {
     expect(composition.layers.map((layer) => layer.groupId)).toEqual([null, null]);
   });
 
+  it('saves selected layers as a reusable component and inserts independent instances', () => {
+    const parentId = useProjectStore.getState().addLayer('rectangle');
+    const childId = useProjectStore.getState().addLayer('text');
+    useProjectStore.getState().setLayerParent(childId, parentId);
+    const componentId = useProjectStore
+      .getState()
+      .createComponent([parentId, childId], 'Lower third block');
+    expect(componentId).toBeTruthy();
+    expect(activeComposition().components[0]).toMatchObject({
+      id: componentId,
+      name: 'Lower third block',
+    });
+
+    const instanceIds = useProjectStore
+      .getState()
+      .instantiateComponent(componentId!, { x: 60, y: 30 });
+    const instanceLayers = activeComposition().layers.filter((layer) =>
+      instanceIds.includes(layer.id),
+    );
+    expect(instanceLayers).toHaveLength(2);
+    expect(new Set(instanceLayers.map((layer) => layer.groupId)).size).toBe(1);
+    expect(instanceLayers[1]!.parentId).toBe(instanceLayers[0]!.id);
+    expect(findLayerKeyframeAtFrame(instanceLayers[0]!, 12)?.transform).toMatchObject({
+      x: 160,
+      y: 130,
+    });
+
+    useProjectStore.getState().removeComponent(componentId!);
+    expect(activeComposition().components).toHaveLength(0);
+    expect(
+      activeComposition().layers.filter((layer) => instanceIds.includes(layer.id)),
+    ).toHaveLength(2);
+  });
+
   it('organizes layers in editor-only timeline folders without changing layer data', () => {
     const firstId = useProjectStore.getState().addLayer('rectangle');
     const secondId = useProjectStore.getState().addLayer('text');

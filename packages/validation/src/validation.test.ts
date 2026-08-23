@@ -3,6 +3,7 @@ import { assembleManifest, compileDescriptor } from '@ograf-editor/codegen';
 import {
   createComposition,
   computeKeyframeFrames,
+  createFieldDefinition,
   createLayerKeyframe,
   createLayerOfKind,
   createProject,
@@ -73,5 +74,29 @@ describe('project validation', () => {
     expect(validateProject(project).valid).toBe(true);
     layer.element.animationData.assets = [{ id: 'logo', p: 'images/logo.png' }];
     expect(validateProject(project).errors.join(' ')).toMatch(/embed images in the JSON/);
+  });
+
+  it('rejects duplicate binding targets on one layer', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('text');
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(
+        computeKeyframeFrames(composition)[index]!.frame,
+        defaultTransformForRole('text', keyframe.role),
+      ),
+    );
+    const first = createFieldDefinition('text', { key: 'headline' });
+    const second = createFieldDefinition('text', { key: 'alternate_headline' });
+    layer.bindings = [
+      { fieldId: first.id, targetProperty: 'content' },
+      { fieldId: second.id, targetProperty: 'content' },
+    ];
+    composition.layers = [layer];
+    composition.dataFields = [first, second];
+
+    expect(validateProject(project).errors.join(' ')).toMatch(
+      /binds target property "content" more than once/,
+    );
   });
 });

@@ -395,10 +395,10 @@ export class EditorBridge {
     }
   }
 
-  certify(artifacts: ExportArtifacts, timeoutMs = 20_000): Promise<CompatibilityResult> {
+  certify(artifacts: ExportArtifacts, timeoutMs = 60_000): Promise<CompatibilityResult> {
     if (!this.connected) {
       throw new Error(
-        'Certification requires the OGraf Editor to be open and connected to the local MCP server.',
+        'Certification requires OGraf Studio to be open and connected to the local MCP server.',
       );
     }
     this.#assertResponsive('certification', timeoutMs);
@@ -421,7 +421,7 @@ export class EditorBridge {
   async capture(request: BrowserCaptureRequest, timeoutMs = 30_000): Promise<PublishedCapture> {
     if (!this.connected) {
       throw new Error(
-        'Capture requires the OGraf Editor to be open and connected to the local MCP server.',
+        'Capture requires OGraf Studio to be open and connected to the local MCP server.',
       );
     }
     this.#assertResponsive('capture', timeoutMs);
@@ -441,7 +441,7 @@ export class EditorBridge {
   async renderStrip(request: BrowserStripRequest, timeoutMs = 60_000): Promise<PublishedStrip> {
     if (!this.connected) {
       throw new Error(
-        'Frame-strip rendering requires the OGraf Editor to be open and connected to the local MCP server.',
+        'Frame-strip rendering requires OGraf Studio to be open and connected to the local MCP server.',
       );
     }
     this.#assertResponsive('frame-strip rendering', timeoutMs);
@@ -463,7 +463,7 @@ export class EditorBridge {
   ): Promise<BrowserMeasureTextResult> {
     if (!this.connected) {
       throw new Error(
-        'Text measurement requires the OGraf Editor to be open and connected to the local MCP server.',
+        'Text measurement requires OGraf Studio to be open and connected to the local MCP server.',
       );
     }
     this.#assertResponsive('text measurement', timeoutMs);
@@ -495,7 +495,7 @@ export class EditorBridge {
     const latency = health.latencyMs === null ? 'unavailable' : `${health.latencyMs} ms`;
     const remedy = health.connected
       ? 'The editor tab is likely backgrounded or minimised, which can throttle its main thread and requestAnimationFrame. Bring the editor tab to the foreground and retry.'
-      : 'Open the OGraf Editor and keep it connected to this MCP server, then retry.';
+      : 'Open OGraf Studio and keep it connected to this MCP server, then retry.';
     return new Error(
       `Browser OGraf ${operation} timed out after ${timeoutMs} ms. Bridge heartbeat latency ${latency}. ${remedy} (connected: ${health.connected}, responsive: ${health.responsive})`,
     );

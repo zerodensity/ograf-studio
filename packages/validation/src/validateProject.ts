@@ -31,6 +31,12 @@ function validateComposition(composition: Composition, errors: string[], warning
   }
   if (!finitePositive(composition.frameRate))
     errors.push(`${prefix}: frame rate must be positive.`);
+  if (
+    !Number.isInteger(composition.updateTransitionFrames) ||
+    composition.updateTransitionFrames < 0
+  ) {
+    errors.push(`${prefix}: update transition frames must be a non-negative integer.`);
+  }
 
   const starts = composition.keyframes.filter((keyframe) => keyframe.role === 'start');
   const ends = composition.keyframes.filter((keyframe) => keyframe.role === 'end');
@@ -52,6 +58,34 @@ function validateComposition(composition: Composition, errors: string[], warning
   }
   for (const duplicate of duplicates(composition.assets.map((asset) => asset.id))) {
     errors.push(`${prefix}: duplicate asset id "${duplicate}".`);
+  }
+  for (const duplicate of duplicates(composition.components.map((component) => component.id))) {
+    errors.push(`${prefix}: duplicate component id "${duplicate}".`);
+  }
+  for (const component of composition.components) {
+    if (!component.name.trim()) errors.push(`${prefix}: component names cannot be empty.`);
+    if (component.layers.length === 0) {
+      errors.push(`${prefix}: component "${component.name}" contains no layers.`);
+    }
+    for (const duplicate of duplicates(component.layers.map((layer) => layer.id))) {
+      errors.push(`${prefix}: component "${component.name}" repeats layer id "${duplicate}".`);
+    }
+    for (const duplicate of duplicates(component.dataFields.map((field) => field.id))) {
+      errors.push(`${prefix}: component "${component.name}" repeats field id "${duplicate}".`);
+    }
+    for (const duplicate of duplicates(component.dataFields.map((field) => field.key))) {
+      errors.push(`${prefix}: component "${component.name}" repeats field key "${duplicate}".`);
+    }
+    const componentFieldIds = new Set(component.dataFields.map((field) => field.id));
+    for (const layer of component.layers) {
+      for (const binding of layer.bindings) {
+        if (!componentFieldIds.has(binding.fieldId)) {
+          errors.push(
+            `${prefix}: component "${component.name}" layer "${layer.name}" references a missing component field.`,
+          );
+        }
+      }
+    }
   }
 
   const expectedEdges = new Set(
@@ -286,10 +320,22 @@ function validateComposition(composition: Composition, errors: string[], warning
     if (!asset.dataUri.startsWith('data:')) {
       errors.push(`${prefix}: asset "${asset.name}" must contain a data URI.`);
     }
+    if (asset.kind === 'font' && !asset.fontFamily?.trim()) {
+      errors.push(`${prefix}: font asset "${asset.name}" requires a font family name.`);
+    }
   }
   for (const layer of composition.layers) {
-    if (layer.binding && !fieldIds.has(layer.binding.fieldId)) {
-      errors.push(`${prefix}: layer "${layer.name}" references a missing data field.`);
+    for (const binding of layer.bindings) {
+      if (!fieldIds.has(binding.fieldId)) {
+        errors.push(`${prefix}: layer "${layer.name}" references a missing data field.`);
+      }
+    }
+    for (const targetProperty of duplicates(
+      layer.bindings.map((binding) => binding.targetProperty),
+    )) {
+      errors.push(
+        `${prefix}: layer "${layer.name}" binds target property "${targetProperty}" more than once.`,
+      );
     }
     if (layer.element.type === 'image' && layer.element.src) {
       validateAssetReference(layer.element.src, `layer "${layer.name}"`);
@@ -335,6 +381,9 @@ export function validateProject(project: Project): ProjectValidationResult {
   const warnings: string[] = [];
   if (!project.id.trim()) errors.push('Project id is required.');
   if (!project.name.trim()) errors.push('Project name is required.');
+  if (!project.supportsRealTime && !project.supportsNonRealTime) {
+    errors.push('Project must support real-time, non-real-time, or both render modes.');
+  }
   if (!project.compositions.some((composition) => composition.id === project.mainCompositionId)) {
     errors.push('Main composition id does not reference an existing composition.');
   }

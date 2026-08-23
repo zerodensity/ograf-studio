@@ -187,7 +187,13 @@ async function resolvedFonts(
 }
 
 async function waitForRenderableDom(root: HTMLElement): Promise<void> {
-  await document.fonts.ready;
+  // A certified package may reference sidecar font URLs that are intentionally unavailable while
+  // its module is exercised from a temporary blob URL. Do not let one such pending face block all
+  // subsequent editor captures forever; the editor's imported data-URI face is already available.
+  await Promise.race([
+    document.fonts.ready,
+    new Promise<void>((resolve) => window.setTimeout(resolve, 1_000)),
+  ]);
   const images = [...root.querySelectorAll('img')];
   await Promise.all(
     images.map((image) => {
@@ -275,18 +281,16 @@ function effectiveElement(
     string | number | boolean | import('@ograf-editor/scene-model').GradientPaint
   >,
 ): Element {
-  if (!layer.binding) return resolveElementAssetReferences(layer.element, composition.assets);
-  const field = composition.dataFields.find((candidate) => candidate.id === layer.binding?.fieldId);
-  const element =
-    !field || data[field.key] === undefined
-      ? layer.element
-      : ({
-          ...layer.element,
-          [layer.binding.targetProperty]:
-            layer.binding.targetProperty === 'fill' && typeof data[field.key] === 'object'
-              ? data[field.key]
-              : String(data[field.key]),
-        } as Element);
+  const element = layer.bindings.reduce<Element>((resolved, binding) => {
+    const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
+    if (!field || data[field.key] === undefined) return resolved;
+    const value = binding.valueMap?.[String(data[field.key])] ?? data[field.key];
+    return {
+      ...resolved,
+      [binding.targetProperty]:
+        binding.targetProperty === 'fill' && typeof value === 'object' ? value : String(value),
+    } as Element;
+  }, layer.element);
   return resolveElementAssetReferences(element, composition.assets);
 }
 
@@ -540,8 +544,9 @@ export async function measureAgentText(
     throw new Error(`Layer ${request.layerId} is not a text layer.`);
   const frame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(request.frame)));
   const transform = getLayerTransformAtFrame(layer, frame);
-  const defaultValue = layer.binding
-    ? composition.dataFields.find((field) => field.id === layer.binding?.fieldId)?.defaultValue
+  const contentBinding = layer.bindings.find((binding) => binding.targetProperty === 'content');
+  const defaultValue = contentBinding
+    ? composition.dataFields.find((field) => field.id === contentBinding.fieldId)?.defaultValue
     : undefined;
   const text = request.text ?? String(defaultValue ?? layer.element.content);
   const element: TextElement = { ...layer.element, content: text };

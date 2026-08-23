@@ -2,13 +2,17 @@ import {
   EFFECT_ANIMATION_PROPERTIES,
   TRANSFORM_ANIMATION_PROPERTIES,
   computeKeyframeFrames,
+  buildComponentDefinition,
+  createCustomActionDefinition,
   createFieldDefinition,
   createAsset,
   createId,
+  createKeyframe,
   createLayerKeyframe,
   createLayerLoopClip,
   createLayerOfKind,
   createLayerPropertyKeyframe,
+  createTransition,
   defaultTransformForRole,
   findLayerKeyframeAtFrame,
   getLayerAnimatableProperties,
@@ -19,6 +23,8 @@ import {
   gradientStopIndexForProperty,
   normalizeAuthoredTransformPatch,
   normalizeLayerEffects,
+  instantiateComponentDefinition,
+  planLifecycleRetime,
   pruneInvalidGradientStopTracks,
   resizeConstrainedTransform,
   sortLayerKeyframes,
@@ -397,7 +403,7 @@ function duplicateGroup(
 
     if (bindings === 'clone') {
       const boundFieldIds = [
-        ...new Set(sources.flatMap((layer) => (layer.binding ? [layer.binding.fieldId] : []))),
+        ...new Set(sources.flatMap((layer) => layer.bindings.map((binding) => binding.fieldId))),
       ];
       for (const sourceFieldId of boundFieldIds) {
         const sourceField = composition.dataFields.find((field) => field.id === sourceFieldId);
@@ -517,9 +523,12 @@ function duplicateGroup(
       if (layer.element.type === 'text') {
         layer.element.content = literalRewrite(layer.element.content, operation.labelRewrite, n);
       }
-      if (bindings === 'clear') layer.binding = null;
-      else if (bindings === 'clone' && layer.binding) {
-        layer.binding.fieldId = fieldIds[layer.binding.fieldId]!;
+      if (bindings === 'clear') layer.bindings = [];
+      else if (bindings === 'clone') {
+        layer.bindings = layer.bindings.map((binding) => ({
+          ...binding,
+          fieldId: fieldIds[binding.fieldId]!,
+        }));
       }
       summary.generatedIds.push({ operationIndex, kind: 'layer', id: layer.id });
       summary.affectedLayerIds.push(layer.id);
@@ -536,7 +545,9 @@ function recordOperation(summary: AuthoringChangeSummary, operation: AuthoringOp
   const compositionId = 'compositionId' in operation ? operation.compositionId : undefined;
   if (compositionId) summary.affectedCompositionIds.push(compositionId);
   if ('layerId' in operation) summary.affectedLayerIds.push(operation.layerId);
-  if ('layerIds' in operation) summary.affectedLayerIds.push(...operation.layerIds);
+  if ('layerIds' in operation && Array.isArray(operation.layerIds)) {
+    summary.affectedLayerIds.push(...operation.layerIds);
+  }
   if ('frame' in operation && typeof operation.frame === 'number') {
     summary.affectedFrames.push(Math.round(operation.frame));
   }
@@ -567,15 +578,21 @@ export function applyAuthoringOperations(
     clearedBindings: [],
     warnings: [],
     duplicateGroups: [],
+    componentInstances: [],
   };
 
   operations.forEach((operation, operationIndex) => {
     recordOperation(summary, operation);
     if (operation.type === 'set_project_metadata') {
+      if (operation.id !== undefined) project.id = operation.id;
       if (operation.name !== undefined) project.name = operation.name;
       if (operation.description !== undefined) project.description = operation.description;
       if (operation.version !== undefined) project.version = operation.version;
       if (operation.author !== undefined) project.author = clone(operation.author);
+      if (operation.supportsRealTime !== undefined)
+        project.supportsRealTime = operation.supportsRealTime;
+      if (operation.supportsNonRealTime !== undefined)
+        project.supportsNonRealTime = operation.supportsNonRealTime;
       return;
     }
 
@@ -591,12 +608,134 @@ export function applyAuthoringOperations(
         if (operation.width !== undefined) composition.width = operation.width;
         if (operation.height !== undefined) composition.height = operation.height;
         if (operation.frameRate !== undefined) composition.frameRate = operation.frameRate;
+        if (operation.updateTransitionFrames !== undefined)
+          composition.updateTransitionFrames = Math.max(
+            0,
+            Math.round(operation.updateTransitionFrames),
+          );
         if (operation.backgroundColor !== undefined)
           composition.backgroundColor = operation.backgroundColor;
         break;
       case 'set_composition_layout':
         Object.assign(composition.layout, operation.patch);
         break;
+      case 'add_lifecycle_step': {
+        const endIndex = composition.keyframes.findIndex((keyframe) => keyframe.role === 'end');
+        const insertionIndex = endIndex >= 0 ? endIndex : composition.keyframes.length;
+        const previousKeyframe = composition.keyframes[insertionIndex - 1];
+        const nextKeyframe = composition.keyframes[insertionIndex];
+        const replacedTransition =
+          previousKeyframe && nextKeyframe
+            ? composition.transitions.find(
+                (transition) =>
+                  transition.fromKeyframeId === previousKeyframe.id &&
+                  transition.toKeyframeId === nextKeyframe.id,
+              )
+            : undefined;
+        const stepNumber =
+          composition.keyframes.filter((keyframe) => keyframe.role === 'step').length + 1;
+        const keyframe = createKeyframe({
+          name: operation.name?.trim() || `Step ${stepNumber}`,
+          role: 'step',
+        });
+        composition.keyframes.splice(insertionIndex, 0, keyframe);
+        if (replacedTransition) {
+          composition.transitions = composition.transitions.filter(
+            (transition) => transition.id !== replacedTransition.id,
+          );
+        }
+        if (previousKeyframe) {
+          composition.transitions.push(
+            createTransition(previousKeyframe.id, keyframe.id, {
+              durationFrames: replacedTransition?.durationFrames ?? 12,
+              easing: replacedTransition?.easing ?? 'ease-in-out',
+            }),
+          );
+        }
+        if (nextKeyframe) {
+          composition.transitions.push(createTransition(keyframe.id, nextKeyframe.id));
+        }
+        summary.generatedIds.push({
+          operationIndex,
+          kind: 'lifecycle-keyframe',
+          id: keyframe.id,
+        });
+        break;
+      }
+      case 'rename_lifecycle_keyframe': {
+        const keyframe = composition.keyframes.find(
+          (candidate) => candidate.id === operation.keyframeId,
+        );
+        if (!keyframe) throw new Error(`Lifecycle keyframe not found: ${operation.keyframeId}`);
+        const name = operation.name.trim();
+        if (!name) throw new Error('Lifecycle keyframe name cannot be empty.');
+        keyframe.name = name;
+        break;
+      }
+      case 'move_lifecycle_keyframe': {
+        const plan = planLifecycleRetime(composition, operation.keyframeId, operation.frame);
+        if (!plan) {
+          throw new Error(`Lifecycle keyframe cannot be moved: ${operation.keyframeId}`);
+        }
+        for (const update of plan.transitionUpdates) {
+          const transition = composition.transitions.find(
+            (candidate) => candidate.id === update.transitionId,
+          );
+          if (transition) transition.durationFrames = update.durationFrames;
+        }
+        summary.affectedFrames.push(plan.currentFrame, plan.targetFrame);
+        summary.warnings.push(
+          ...plan.warnings.map((warning) => `Operation ${operationIndex}: ${warning}`),
+        );
+        break;
+      }
+      case 'remove_lifecycle_step': {
+        const index = composition.keyframes.findIndex(
+          (candidate) => candidate.id === operation.keyframeId,
+        );
+        const keyframe = composition.keyframes[index];
+        if (!keyframe) throw new Error(`Lifecycle keyframe not found: ${operation.keyframeId}`);
+        if (keyframe.role !== 'step') throw new Error('Only pausable Step states can be removed.');
+        const removedFrame = computeKeyframeFrames(composition)[index]?.frame ?? 0;
+        const previous = composition.keyframes[index - 1];
+        const next = composition.keyframes[index + 1];
+        const inbound = composition.transitions.find(
+          (transition) => transition.toKeyframeId === keyframe.id,
+        );
+        const outbound = composition.transitions.find(
+          (transition) => transition.fromKeyframeId === keyframe.id,
+        );
+        composition.keyframes.splice(index, 1);
+        composition.transitions = composition.transitions.filter(
+          (transition) =>
+            transition.fromKeyframeId !== keyframe.id && transition.toKeyframeId !== keyframe.id,
+        );
+        if (previous && next) {
+          composition.transitions.push(
+            createTransition(previous.id, next.id, {
+              durationFrames: (inbound?.durationFrames ?? 0) + (outbound?.durationFrames ?? 0),
+              easing: outbound?.easing ?? inbound?.easing ?? 'ease-in-out',
+            }),
+          );
+        }
+        const retainedKeys = composition.layers.reduce(
+          (count, layer) =>
+            count +
+            Object.values(getResolvedLayerAnimationTracks(layer)).reduce(
+              (layerCount, keys) =>
+                layerCount + (keys ?? []).filter((key) => key.frame === removedFrame).length,
+              0,
+            ),
+          0,
+        );
+        if (retainedKeys > 0) {
+          summary.warnings.push(
+            `Operation ${operationIndex}: removed Step at frame ${removedFrame}; ${retainedKeys} layer property ${retainedKeys === 1 ? 'key remains' : 'keys remain'} at that authored frame.`,
+          );
+        }
+        summary.affectedFrames.push(removedFrame);
+        break;
+      }
       case 'add_canvas_guide': {
         if (!Number.isFinite(operation.position)) throw new Error('Guide position must be finite.');
         const id = createId('guide');
@@ -682,6 +821,103 @@ export function applyAuthoringOperations(
         );
         break;
       }
+      case 'group_layers': {
+        const members = [...new Set(operation.layerIds)];
+        if (members.length < 2) throw new Error('group_layers requires at least two layer IDs.');
+        for (const layerId of members) layerFor(composition, layerId);
+        const id = operation.id ?? createId('group');
+        if (composition.layers.some((layer) => layer.groupId === id)) {
+          throw new Error(`Canvas group id already exists: ${id}`);
+        }
+        for (const layer of composition.layers) {
+          if (members.includes(layer.id)) layer.groupId = id;
+        }
+        summary.generatedIds.push({ operationIndex, kind: 'canvas-group', id });
+        summary.affectedLayerIds.push(...members);
+        break;
+      }
+      case 'ungroup_layers': {
+        if (operation.groupId && operation.layerIds?.length) {
+          throw new Error('ungroup_layers accepts groupId or layerIds, not both.');
+        }
+        const groupIds = new Set<string>();
+        if (operation.groupId) groupIds.add(operation.groupId);
+        for (const layerId of operation.layerIds ?? []) {
+          const groupId = layerFor(composition, layerId).groupId;
+          if (groupId) groupIds.add(groupId);
+        }
+        if (groupIds.size === 0) throw new Error('ungroup_layers matched no canvas groups.');
+        for (const layer of composition.layers) {
+          if (layer.groupId && groupIds.has(layer.groupId)) {
+            layer.groupId = null;
+            summary.affectedLayerIds.push(layer.id);
+          }
+        }
+        break;
+      }
+      case 'save_component': {
+        if (
+          operation.id &&
+          composition.components.some((candidate) => candidate.id === operation.id)
+        ) {
+          throw new Error(`Component id already exists: ${operation.id}`);
+        }
+        const definition = buildComponentDefinition(
+          composition,
+          operation.layerIds,
+          operation.name,
+          operation.id,
+        );
+        composition.components.push(definition);
+        summary.generatedIds.push({ operationIndex, kind: 'component', id: definition.id });
+        break;
+      }
+      case 'instantiate_component': {
+        const definition = composition.components.find(
+          (candidate) => candidate.id === operation.componentId,
+        );
+        if (!definition) throw new Error(`Component not found: ${operation.componentId}`);
+        const instance = instantiateComponentDefinition(composition, definition, {
+          x: operation.offset?.x ?? 40,
+          y: operation.offset?.y ?? 40,
+        });
+        composition.dataFields.push(...instance.dataFields);
+        composition.layers.push(...instance.layers);
+        for (const layer of instance.layers) {
+          summary.generatedIds.push({ operationIndex, kind: 'layer', id: layer.id });
+          summary.affectedLayerIds.push(layer.id);
+        }
+        for (const field of instance.dataFields) {
+          summary.generatedIds.push({ operationIndex, kind: 'field', id: field.id });
+        }
+        summary.componentInstances.push({
+          operationIndex,
+          componentId: definition.id,
+          groupId: instance.groupId,
+          layers: instance.layerIds,
+          fields: instance.fieldIds,
+        });
+        break;
+      }
+      case 'rename_component': {
+        const definition = composition.components.find(
+          (candidate) => candidate.id === operation.componentId,
+        );
+        if (!definition) throw new Error(`Component not found: ${operation.componentId}`);
+        const name = operation.name.trim();
+        if (!name) throw new Error('Component name cannot be empty.');
+        definition.name = name;
+        break;
+      }
+      case 'remove_component': {
+        if (!composition.components.some((candidate) => candidate.id === operation.componentId)) {
+          throw new Error(`Component not found: ${operation.componentId}`);
+        }
+        composition.components = composition.components.filter(
+          (candidate) => candidate.id !== operation.componentId,
+        );
+        break;
+      }
       case 'add_asset': {
         const compact = operation.data.replace(/\s+/g, '');
         if (!/^[A-Za-z0-9+/]*={0,2}$/.test(compact) || compact.length % 4 !== 0) {
@@ -689,11 +925,60 @@ export function applyAuthoringOperations(
         }
         const asset = createAsset({
           name: operation.name.trim(),
+          kind: operation.mimeType.startsWith('font/')
+            ? 'font'
+            : operation.mimeType.startsWith('image/')
+              ? 'image'
+              : 'source',
           mimeType: operation.mimeType,
           dataUri: `data:${operation.mimeType};base64,${compact}`,
+          ...(operation.fontFamily ? { fontFamily: operation.fontFamily.trim() } : {}),
         });
         composition.assets.push(asset);
         summary.generatedIds.push({ operationIndex, kind: 'asset', id: asset.id });
+        break;
+      }
+      case 'remove_asset': {
+        const asset = composition.assets.find((candidate) => candidate.id === operation.assetId);
+        if (!asset) throw new Error(`Asset not found: ${operation.assetId}`);
+        const reference = `asset:${asset.id}`;
+        const layerConsumers = composition.layers.filter((layer) => {
+          if (layer.element.type === 'image') return layer.element.src === reference;
+          if (layer.element.type === 'image-sequence') {
+            return layer.element.frames.includes(reference);
+          }
+          return false;
+        });
+        const fieldConsumers = composition.dataFields.filter(
+          (field) => field.type === 'image-url' && field.defaultValue === reference,
+        );
+        if ((layerConsumers.length > 0 || fieldConsumers.length > 0) && !operation.force) {
+          throw new Error(
+            `Cannot remove asset "${asset.name}" while referenced by ${layerConsumers.length} layer(s) and ${fieldConsumers.length} data field(s). Pass force=true to clear those references atomically.`,
+          );
+        }
+        if (operation.force) {
+          for (const layer of layerConsumers) {
+            if (layer.element.type === 'image') layer.element.src = null;
+            else if (layer.element.type === 'image-sequence') {
+              layer.element.frames = layer.element.frames.filter((frame) => frame !== reference);
+            }
+            summary.affectedLayerIds.push(layer.id);
+          }
+          for (const field of fieldConsumers) field.defaultValue = '';
+        }
+        if (
+          asset.kind === 'font' &&
+          composition.layers.some(
+            (layer) =>
+              layer.element.type === 'text' && layer.element.fontFamily === asset.fontFamily,
+          )
+        ) {
+          summary.warnings.push(
+            `Operation ${operationIndex}: removed font asset "${asset.name}" while text layers still request family "${asset.fontFamily}"; those layers will use renderer fallback fonts.`,
+          );
+        }
+        composition.assets = composition.assets.filter((candidate) => candidate.id !== asset.id);
         break;
       }
       case 'add_layer': {
@@ -1025,8 +1310,8 @@ export function applyAuthoringOperations(
           (candidate) => candidate.id === operation.fieldId,
         );
         if (!field) throw new Error(`Data field not found: ${operation.fieldId}`);
-        const consumers = composition.layers.filter(
-          (layer) => layer.binding?.fieldId === operation.fieldId,
+        const consumers = composition.layers.filter((layer) =>
+          layer.bindings.some((binding) => binding.fieldId === operation.fieldId),
         );
         if (consumers.length > 0 && !operation.force) {
           throw new Error(
@@ -1034,12 +1319,19 @@ export function applyAuthoringOperations(
           );
         }
         for (const layer of consumers) {
-          layer.binding = null;
-          summary.clearedBindings.push({
-            layerId: layer.id,
-            layerName: layer.name,
-            fieldId: field.id,
-          });
+          const removedBindings = layer.bindings.filter(
+            (binding) => binding.fieldId === operation.fieldId,
+          );
+          layer.bindings = layer.bindings.filter(
+            (binding) => binding.fieldId !== operation.fieldId,
+          );
+          for (const _binding of removedBindings) {
+            summary.clearedBindings.push({
+              layerId: layer.id,
+              layerName: layer.name,
+              fieldId: field.id,
+            });
+          }
           summary.affectedLayerIds.push(layer.id);
         }
         composition.dataFields = composition.dataFields.filter(
@@ -1056,7 +1348,72 @@ export function applyAuthoringOperations(
         ) {
           throw new Error(`Binding references unknown field: ${operation.binding.fieldId}`);
         }
-        layer.binding = operation.binding ? clone(operation.binding) : null;
+        layer.bindings = operation.binding ? [clone(operation.binding)] : [];
+        break;
+      }
+      case 'set_layer_bindings': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        for (const binding of operation.bindings) {
+          if (!composition.dataFields.some((field) => field.id === binding.fieldId)) {
+            throw new Error(`Binding references unknown field: ${binding.fieldId}`);
+          }
+        }
+        const targets = operation.bindings.map((binding) => binding.targetProperty);
+        if (new Set(targets).size !== targets.length) {
+          throw new Error('A layer cannot bind the same target property more than once.');
+        }
+        layer.bindings = clone(operation.bindings);
+        break;
+      }
+      case 'add_custom_action': {
+        const actionId = operation.actionId.trim();
+        if (!actionId) throw new Error('Custom action id cannot be empty.');
+        if (composition.customActions.some((action) => action.actionId === actionId)) {
+          throw new Error(`Custom action id already exists: ${actionId}`);
+        }
+        const action = createCustomActionDefinition({
+          ...(operation.id ? { id: operation.id } : {}),
+          actionId,
+          name: operation.name?.trim() || actionId,
+          description: operation.description ?? '',
+        });
+        if (composition.customActions.some((candidate) => candidate.id === action.id)) {
+          throw new Error(`Custom action definition id already exists: ${action.id}`);
+        }
+        composition.customActions.push(action);
+        summary.generatedIds.push({ operationIndex, kind: 'custom-action', id: action.id });
+        break;
+      }
+      case 'update_custom_action': {
+        const action = composition.customActions.find(
+          (candidate) => candidate.actionId === operation.actionId,
+        );
+        if (!action) throw new Error(`Custom action not found: ${operation.actionId}`);
+        if (operation.nextActionId !== undefined) {
+          const nextActionId = operation.nextActionId.trim();
+          if (!nextActionId) throw new Error('Custom action id cannot be empty.');
+          if (
+            composition.customActions.some(
+              (candidate) => candidate.id !== action.id && candidate.actionId === nextActionId,
+            )
+          ) {
+            throw new Error(`Custom action id already exists: ${nextActionId}`);
+          }
+          action.actionId = nextActionId;
+        }
+        if (operation.name !== undefined) action.name = operation.name;
+        if (operation.description !== undefined) action.description = operation.description;
+        break;
+      }
+      case 'remove_custom_action': {
+        const action = composition.customActions.find(
+          (candidate) => candidate.actionId === operation.actionId,
+        );
+        if (!action) throw new Error(`Custom action not found: ${operation.actionId}`);
+        composition.customActions = composition.customActions.filter(
+          (candidate) => candidate.id !== action.id,
+        );
         break;
       }
       case 'set_transition': {

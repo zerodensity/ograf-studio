@@ -94,6 +94,13 @@ const curve = z
   .object({ x1: z.number(), y1: z.number(), x2: z.number(), y2: z.number() })
   .nullable()
   .optional();
+const valueMapSchema = z
+  .record(z.string(), z.union([z.string(), z.number(), z.boolean(), gradientPaintSchema]))
+  .optional();
+const layerBindingSchema = z.union([
+  z.object({ fieldId: z.string(), targetProperty: z.string(), valueMap: valueMapSchema }),
+  z.object({ fieldKey: z.string(), targetProperty: z.string(), valueMap: valueMapSchema }),
+]);
 const transform = z
   .object({
     x: z.number().optional(),
@@ -121,12 +128,15 @@ const effects = z
 export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('set_project_metadata'),
+    id: z.string().min(1).optional(),
     name: z.string().optional(),
     description: z.string().optional(),
     version: z.string().optional(),
     author: z
       .object({ name: z.string(), email: z.string().optional(), url: z.string().optional() })
       .optional(),
+    supportsRealTime: z.boolean().optional(),
+    supportsNonRealTime: z.boolean().optional(),
   }),
   z.object({
     type: z.literal('set_composition'),
@@ -135,6 +145,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     width: z.number().positive().optional(),
     height: z.number().positive().optional(),
     frameRate: z.number().positive().optional(),
+    updateTransitionFrames: z.number().int().nonnegative().optional(),
     backgroundColor: z.string().optional(),
   }),
   z.object({
@@ -155,6 +166,28 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
         overflowPreview: z.enum(['visible', 'clip']).optional(),
       })
       .strict(),
+  }),
+  z.object({
+    type: z.literal('add_lifecycle_step'),
+    compositionId,
+    name: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('rename_lifecycle_keyframe'),
+    compositionId,
+    keyframeId: z.string(),
+    name: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('move_lifecycle_keyframe'),
+    compositionId,
+    keyframeId: z.string(),
+    frame,
+  }),
+  z.object({
+    type: z.literal('remove_lifecycle_step'),
+    compositionId,
+    keyframeId: z.string(),
   }),
   z.object({
     type: z.literal('add_canvas_guide'),
@@ -197,11 +230,64 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     groupId: z.string().min(1),
   }),
   z.object({
+    type: z.literal('group_layers'),
+    compositionId,
+    layerIds: z.array(z.string()).min(2),
+  }),
+  z.object({
+    type: z.literal('ungroup_layers'),
+    compositionId,
+    layerIds: z.array(z.string()).optional(),
+    groupId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('save_component'),
+    compositionId,
+    layerIds: z.array(z.string()).min(1),
+    name: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('instantiate_component'),
+    compositionId,
+    componentId: z.string().min(1),
+    offset: z.object({ x: z.number().optional(), y: z.number().optional() }).strict().optional(),
+  }),
+  z.object({
+    type: z.literal('rename_component'),
+    compositionId,
+    componentId: z.string().min(1),
+    name: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('remove_component'),
+    compositionId,
+    componentId: z.string().min(1),
+  }),
+  z.object({
     type: z.literal('add_asset'),
     compositionId,
     name: z.string().min(1),
-    mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']),
+    mimeType: z.enum([
+      'image/png',
+      'image/jpeg',
+      'image/gif',
+      'image/webp',
+      'image/svg+xml',
+      'font/ttf',
+      'font/otf',
+      'font/woff',
+      'font/woff2',
+      'text/css',
+      'text/plain',
+    ]),
+    fontFamily: z.string().min(1).optional(),
     data: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('remove_asset'),
+    compositionId,
+    assetId: z.string(),
+    force: z.boolean().default(false),
   }),
   z.object({
     type: z.literal('add_layer'),
@@ -435,12 +521,34 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     compositionId,
     layerId,
     layerName,
-    binding: z
-      .union([
-        z.object({ fieldId: z.string(), targetProperty: z.string() }),
-        z.object({ fieldKey: z.string(), targetProperty: z.string() }),
-      ])
-      .nullable(),
+    binding: layerBindingSchema.nullable(),
+  }),
+  z.object({
+    type: z.literal('set_layer_bindings'),
+    compositionId,
+    layerId,
+    layerName,
+    bindings: z.array(layerBindingSchema),
+  }),
+  z.object({
+    type: z.literal('add_custom_action'),
+    compositionId,
+    actionId: z.string().min(1),
+    name: z.string().optional(),
+    description: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('update_custom_action'),
+    compositionId,
+    actionId: z.string(),
+    nextActionId: z.string().min(1).optional(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('remove_custom_action'),
+    compositionId,
+    actionId: z.string(),
   }),
   z.object({
     type: z.literal('set_transition'),

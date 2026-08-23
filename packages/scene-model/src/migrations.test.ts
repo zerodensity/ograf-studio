@@ -114,7 +114,7 @@ describe('migrateProject', () => {
     expect(layer.effects).toMatchObject({ blur: 0, dropShadowEnabled: false });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(10);
+    expect(migrated.documentVersion).toBe(12);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -133,6 +133,26 @@ describe('migrateProject', () => {
       guides: [],
       timelineFolders: [],
     });
+  });
+
+  it('migrates the legacy singular layer binding into the ordered binding list', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('text');
+    const legacyLayer = layer as unknown as {
+      binding: { fieldId: string; targetProperty: string };
+      bindings?: unknown;
+    };
+    delete legacyLayer.bindings;
+    legacyLayer.binding = { fieldId: 'headline-field', targetProperty: 'content' };
+    project.compositions[0]!.layers = [layer];
+    project.documentVersion = 10;
+
+    const migrated = migrateProject(project);
+
+    expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
+      { fieldId: 'headline-field', targetProperty: 'content' },
+    ]);
+    expect(migrated.documentVersion).toBe(12);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {

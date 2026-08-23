@@ -46,16 +46,21 @@ Call `ograf_apply_operations` with `sessionId`, `expectedRevision`, `operations`
 Supported operation discriminators:
 
 - Project/composition: `set_project_metadata`, `set_composition`, `set_composition_layout`,
-  `add_canvas_guide`, `update_canvas_guide`, `remove_canvas_guide`, `create_timeline_group`,
-  `rename_timeline_group`, `set_timeline_group_color`, `ungroup_timeline_group`
-- Assets: `add_asset`
+  `add_lifecycle_step`, `rename_lifecycle_keyframe`, `move_lifecycle_keyframe`,
+  `remove_lifecycle_step`, `add_canvas_guide`, `update_canvas_guide`, `remove_canvas_guide`,
+  `create_timeline_group`, `rename_timeline_group`, `set_timeline_group_color`,
+  `ungroup_timeline_group`
+- Assets: `add_asset`, `remove_asset`
 - Layers: `add_layer`, `duplicate_group`, `remove_layer`, `rename_layer`, `set_layer_flags`,
-  `set_layer_layout`, `reorder_layers`
+  `set_layer_layout`, `group_layers`, `ungroup_layers`, `reorder_layers`
+- Components: `save_component`, `instantiate_component`, `rename_component`, `remove_component`
 - Content/style: `update_element`, `update_transform`, `update_effects`
 - Timeline: `set_property_key`, `set_property_track`, `stagger_property_track`,
   `move_property_key`, `remove_property_key`, `set_property_key_easing`, `set_transition`,
   `set_layer_loop`, `set_loop_property_track`, `remove_layer_loop`
-- Data: `add_data_field`, `update_data_field`, `remove_data_field`, `set_layer_binding`
+- Data: `add_data_field`, `update_data_field`, `remove_data_field`, `set_layer_bindings`,
+  `set_layer_binding` (legacy single-binding replace)
+- Actions: `add_custom_action`, `update_custom_action`, `remove_custom_action`
 
 `add_layer.kind` supports `rectangle`, `ellipse`, `text`, `image`, `path`, and `image-sequence`. It returns the generated layer ID in `summary.generatedIds`.
 
@@ -84,7 +89,26 @@ properties may use different incoming easing while sharing the clip duration. Us
 
 `add_asset` accepts an image MIME type and base64 payload without a data-URI prefix. Use its returned
 ID as `asset:<id>` in image `src`, sequence frames, and image-url defaults. Export writes each
-registered asset once.
+registered asset once. `remove_asset` refuses referenced image/sequence/default-value assets unless
+`force: true` clears those references atomically; removing an in-use font reports fallback risk.
+
+Lifecycle mutation is explicit: use `rename_lifecycle_keyframe` for labels,
+`move_lifecycle_keyframe` for bounded adjacent-transition retiming, and `remove_lifecycle_step` only
+for pausable Steps. Start cannot move and Start/End cannot be removed. Treat stranded-key warnings
+as actionable; lifecycle edits never silently move layer property keys.
+
+`group_layers` assigns a generated persistent canvas group ID to at least two existing layers;
+`ungroup_layers` accepts that `groupId` or member `layerIds` and dissolves the complete matching
+group. These are transform/selection groups, distinct from UI-only Timeline Groups.
+
+Use `save_component` when a layer selection should become a reusable authoring resource.
+`instantiate_component` materializes fresh ordinary layers and bound fields and returns complete
+source-to-instance mappings. Instances are intentionally independent: update them with normal
+layer/field operations. Removing a definition never removes instances already inserted.
+
+Custom actions are declarative OGraf manifest entries. Use `add_custom_action`,
+`update_custom_action`, and `remove_custom_action` with unique public `actionId` values; they do not
+authorize arbitrary JavaScript payloads.
 
 `duplicate_group` accepts `source.groupId`, `source.parentId`, or raw `source.layerIds`. It creates
 independent copies with fresh groups and returns source→copy layer/field mappings. Transform offsets
@@ -132,8 +156,10 @@ offset and opacity are in 0..1. Use a `gradient` data field to bind the complete
 binding is not supported. Animate an existing stop position through `set_property_key`,
 `set_property_track`, or `stagger_property_track` with property `fill.stops[N].offset`.
 
-For a data binding, call `set_layer_binding` with `{fieldId,targetProperty}` or
-`{fieldKey,targetProperty}`. Do not guess target-property names.
+For one or more data bindings on a layer, call `set_layer_bindings` with an ordered `bindings`
+array. Each entry accepts `{fieldId,targetProperty}` or `{fieldKey,targetProperty}`; do not guess
+target-property names, and do not repeat one target property. Use `set_layer_binding` only when an
+intentional legacy-compatible single-binding replacement should also discard any additional rows.
 `update_data_field` accepts `fieldId` or unique `fieldKey` and can change key, label, default, and
 required state in place.
 `remove_data_field` refuses to orphan bindings and names their layers; `force: true` clears those
