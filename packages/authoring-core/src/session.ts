@@ -138,6 +138,7 @@ export class AuthoringSession {
         clearedBindings: [],
         warnings: [],
         duplicateGroups: [],
+        componentInstances: [],
       },
     });
     return this.snapshot();
@@ -168,6 +169,7 @@ export class AuthoringSession {
       clearedBindings: [],
       warnings: [],
       duplicateGroups: [],
+      componentInstances: [],
     };
     const undoToken = createId('undo');
     this.#undo.push({ token: undoToken, project: clone(this.#project), summary });

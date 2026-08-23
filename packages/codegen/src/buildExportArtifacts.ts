@@ -21,6 +21,12 @@ const EXTENSION_BY_MIME: Record<string, string> = {
   'image/gif': 'gif',
   'image/webp': 'webp',
   'image/svg+xml': 'svg',
+  'font/ttf': 'ttf',
+  'font/otf': 'otf',
+  'font/woff': 'woff',
+  'font/woff2': 'woff2',
+  'text/css': 'css',
+  'text/plain': 'txt',
 };
 
 export function generateMainJs(
@@ -37,6 +43,11 @@ for (const layer of exportedDescriptor.layers) {
     layer.element.frames = layer.element.frames.map((frame) =>
       frame.startsWith('assets/') ? new URL(frame, exportedModuleBaseUrl).href : frame
     );
+  }
+}
+for (const font of exportedDescriptor.fonts ?? []) {
+  if (font.source?.startsWith('assets/')) {
+    font.source = new URL(font.source, exportedModuleBaseUrl).href;
   }
 }
 class ExportedGraphic extends GraphicElement {
@@ -101,6 +112,9 @@ function packageDescriptorResources(
     } else if (layer.element.type === 'image-sequence') {
       layer.element.frames = layer.element.frames.map(packageUri);
     }
+  }
+  for (const font of packaged.fonts ?? []) {
+    font.source = packageUri(font.source);
   }
   for (const field of packagedComposition.dataFields) {
     if (field.type === 'image-url' && typeof field.defaultValue === 'string') {

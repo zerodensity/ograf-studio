@@ -1,5 +1,5 @@
 {
-  "documentVersion": 8,
+  "documentVersion": 12,
   "id": "project-eff35a63-f6a0-47b6-a4d9-a67fc194fd78",
   "name": "News Lower Third",
   "description": "News lower third with mask-driven reveals: clipped headline bar, circular photo crop, diagonal slanted kicker, clipped ticker window, and an animated gradient glint sweep.",
@@ -426,7 +426,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-4cb2a352-7b79-4f04-9451-36514e78ac2d",
@@ -718,10 +718,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-89628fbf-5dd1-4bd5-9271-2c56e4c7227e"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-89628fbf-5dd1-4bd5-9271-2c56e4c7227e"
+            }
+          ]
         },
         {
           "id": "layer-1951a548-4e06-4d4f-9ce1-be63d4a8a167",
@@ -1128,7 +1130,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-ec415969-3b2b-4e52-90a0-99ecb1cbeadb",
@@ -1405,10 +1407,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-2db400ef-6ddc-4642-a4c8-2c19d729854d"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-2db400ef-6ddc-4642-a4c8-2c19d729854d"
+            }
+          ]
         },
         {
           "id": "layer-8ecbf575-041b-4d89-a500-96852d746df7",
@@ -1685,10 +1689,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-6a72f2d4-f9a3-4ee4-8ca2-bebf8454171f"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-6a72f2d4-f9a3-4ee4-8ca2-bebf8454171f"
+            }
+          ]
         },
         {
           "id": "layer-c7070f3b-338b-4ad3-903b-db248bc5b91d",
@@ -2065,10 +2071,12 @@
             "dropShadowOffsetY": 10,
             "dropShadowBlur": 26
           },
-          "binding": {
-            "targetProperty": "fill",
-            "fieldId": "field-3a5b044b-bf66-4e43-a51f-82d183dde814"
-          }
+          "bindings": [
+            {
+              "targetProperty": "fill",
+              "fieldId": "field-3a5b044b-bf66-4e43-a51f-82d183dde814"
+            }
+          ]
         },
         {
           "id": "layer-414d303f-c900-46b1-ad07-cd96c2c7b730",
@@ -2345,10 +2353,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-b268f894-fb0f-4d20-bc10-360bf4a29d3a"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-b268f894-fb0f-4d20-bc10-360bf4a29d3a"
+            }
+          ]
         },
         {
           "id": "layer-78911ccb-0aac-4be0-946f-b369e9166536",
@@ -2699,7 +2709,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-8715487e-ff47-40f3-95a9-a1fc8f8af118",
@@ -3081,7 +3091,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 24
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-68c27c11-bc40-406c-adbd-c2d607d1f789",
@@ -3352,10 +3362,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "src",
-            "fieldId": "field-920c7604-acbb-4172-9ec9-88ab455031b7"
-          }
+          "bindings": [
+            {
+              "targetProperty": "src",
+              "fieldId": "field-920c7604-acbb-4172-9ec9-88ab455031b7"
+            }
+          ]
         },
         {
           "id": "layer-3e1cc2c9-cdc6-4752-9599-b220589e9bd2",
@@ -3711,10 +3723,12 @@
             "dropShadowOffsetY": 6,
             "dropShadowBlur": 16
           },
-          "binding": {
-            "targetProperty": "fill",
-            "fieldId": "field-35588cc0-8f40-48f0-8df6-f6bce4f2fc94"
-          }
+          "bindings": [
+            {
+              "targetProperty": "fill",
+              "fieldId": "field-35588cc0-8f40-48f0-8df6-f6bce4f2fc94"
+            }
+          ]
         },
         {
           "id": "layer-1af76ebb-07e5-46b0-8bc4-90519c6ddbc2",
@@ -3991,10 +4005,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-e4f5c4b2-f91d-44a2-be91-ea5beac1567c"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-e4f5c4b2-f91d-44a2-be91-ea5beac1567c"
+            }
+          ]
         },
         {
           "id": "layer-6dec235e-cb68-4495-a6a4-0ece46079d63",
@@ -4370,7 +4386,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-7910af19-ef60-40cd-8b67-b2a985adc6cc",
@@ -4647,10 +4663,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-23c914a8-8d2d-4ce6-a381-7deaade95f50"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-23c914a8-8d2d-4ce6-a381-7deaade95f50"
+            }
+          ]
         }
       ],
       "dataFields": [
@@ -4758,6 +4776,7 @@
         }
       ],
       "customActions": [],
+      "components": [],
       "assets": [
         {
           "id": "asset-1bdcb675-47ab-4ad1-a9bb-47a1ab20ec7d",

@@ -44,7 +44,7 @@ function editableFixture() {
     defaultValue: 'Breaking News',
     required: true,
   });
-  text.binding = { fieldId: field.id, targetProperty: 'content' };
+  text.bindings = [{ fieldId: field.id, targetProperty: 'content' }];
 
   const image = createLayerOfKind('image');
   if (image.element.type !== 'image') throw new Error('Expected image layer.');
@@ -96,7 +96,7 @@ describe('best-effort OGraf import', () => {
     expect(result.layers).toHaveLength(2);
     expect(result.layers[0]?.keyframes.map((key) => key.frame)).toEqual([0, 12, 24]);
     expect(result.dataFields).toHaveLength(1);
-    expect(result.layers[0]?.binding?.fieldId).toBe(result.dataFields[0]?.id);
+    expect(result.layers[0]?.bindings[0]?.fieldId).toBe(result.dataFields[0]?.id);
     expect(result.customActions[0]).toMatchObject({ actionId: 'flash', name: 'Flash' });
     expect(result.assets).toHaveLength(1);
     expect(result.layers[1]?.element).toMatchObject({

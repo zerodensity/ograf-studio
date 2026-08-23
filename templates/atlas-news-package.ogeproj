@@ -1,5 +1,5 @@
 {
-  "documentVersion": 9,
+  "documentVersion": 12,
   "id": "project-7f37bc69-538f-4e41-a6e4-43dbd932895f",
   "name": "Atlas News Package",
   "description": "Broadcast news package: mask-driven wipe reveals, a seamlessly drifting striped backdrop, a two-copy infinite ticker crawl, an orbiting accent ring, a pulsing live dot, a breathing badge sheen and a blinking clock colon.",
@@ -429,7 +429,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-3d3bce13-acb7-4dd6-8843-c7bbb51de6ba",
@@ -732,10 +732,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-055fe59a-eb3a-4f1d-a09e-3a5444327278"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-055fe59a-eb3a-4f1d-a09e-3a5444327278"
+            }
+          ]
         },
         {
           "id": "layer-6423df88-22fa-4f0d-a109-03fbafdf931a",
@@ -1038,10 +1040,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-055fe59a-eb3a-4f1d-a09e-3a5444327278"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-055fe59a-eb3a-4f1d-a09e-3a5444327278"
+            }
+          ]
         },
         {
           "id": "layer-bc0e1536-bd09-4440-a011-8a3b111a12d1",
@@ -1419,10 +1423,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "fill",
-            "fieldId": "field-beb1a526-7054-475e-8c13-32696e3492e2"
-          }
+          "bindings": [
+            {
+              "targetProperty": "fill",
+              "fieldId": "field-beb1a526-7054-475e-8c13-32696e3492e2"
+            }
+          ]
         },
         {
           "id": "layer-56647da1-71fb-419c-83ec-48d3bdf00371",
@@ -1700,10 +1706,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-d0774b17-4679-41c0-bc47-b60ca97287bb"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-d0774b17-4679-41c0-bc47-b60ca97287bb"
+            }
+          ]
         },
         {
           "id": "layer-c631f8a8-fb12-467e-b311-7588906f5276",
@@ -2081,7 +2089,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-407277d2-510d-44d2-9358-0c7878757e11",
@@ -2359,10 +2367,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-c9dcf901-7743-4aaf-970b-074f9dd310cd"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-c9dcf901-7743-4aaf-970b-074f9dd310cd"
+            }
+          ]
         },
         {
           "id": "layer-e61bbad7-2a6e-4f6c-9eda-56a1d2363059",
@@ -2640,10 +2650,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-3094c285-ee7a-4627-9b52-2b9f7ab7f138"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-3094c285-ee7a-4627-9b52-2b9f7ab7f138"
+            }
+          ]
         },
         {
           "id": "layer-1adcb489-436a-4ea7-859e-9d77b6a3562a",
@@ -3006,10 +3018,12 @@
             "dropShadowOffsetY": 12,
             "dropShadowBlur": 30
           },
-          "binding": {
-            "targetProperty": "fill",
-            "fieldId": "field-f1cd35ed-304d-4b16-99ad-39542b63ed3c"
-          }
+          "bindings": [
+            {
+              "targetProperty": "fill",
+              "fieldId": "field-f1cd35ed-304d-4b16-99ad-39542b63ed3c"
+            }
+          ]
         },
         {
           "id": "layer-a6b48a54-76fe-4ff5-8829-508fe6017ed9",
@@ -3483,7 +3497,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-ae4cff04-9df4-44c5-a3ed-1081ff0a2b4d",
@@ -3761,10 +3775,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-b0a54895-a766-45e6-9e4b-c45be52001d5"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-b0a54895-a766-45e6-9e4b-c45be52001d5"
+            }
+          ]
         },
         {
           "id": "layer-822a0433-257b-4b2a-9397-184062f7770f",
@@ -4108,7 +4124,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-d8e48794-c19d-42a2-966f-b4bdcc58af6a",
@@ -4476,7 +4492,7 @@
             "dropShadowOffsetY": 10,
             "dropShadowBlur": 26
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-5a09ca77-ccd8-44ed-b8a6-1b82485e7b87",
@@ -4748,10 +4764,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "src",
-            "fieldId": "field-70fc8b7a-98f9-41b4-982b-039f8ac5128a"
-          }
+          "bindings": [
+            {
+              "targetProperty": "src",
+              "fieldId": "field-70fc8b7a-98f9-41b4-982b-039f8ac5128a"
+            }
+          ]
         },
         {
           "id": "layer-2f18a959-1f0e-4fab-be2d-375167684071",
@@ -5116,7 +5134,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-2459da83-1c6a-411a-bca0-6c8b4d75a132",
@@ -5458,10 +5476,12 @@
             "dropShadowOffsetY": 6,
             "dropShadowBlur": 18
           },
-          "binding": {
-            "targetProperty": "fill",
-            "fieldId": "field-beb1a526-7054-475e-8c13-32696e3492e2"
-          }
+          "bindings": [
+            {
+              "targetProperty": "fill",
+              "fieldId": "field-beb1a526-7054-475e-8c13-32696e3492e2"
+            }
+          ]
         },
         {
           "id": "layer-3c2d4ec4-2e9e-4ca3-8cf6-cf106bccd866",
@@ -5739,10 +5759,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-2008ee05-1841-426a-869e-1c06d8ab9801"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-2008ee05-1841-426a-869e-1c06d8ab9801"
+            }
+          ]
         },
         {
           "id": "layer-0f7d4585-bfda-4138-974b-c009df798fd0",
@@ -6164,10 +6186,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "fill",
-            "fieldId": "field-224d7d8e-dc18-43e0-92ee-21c5082e0c29"
-          }
+          "bindings": [
+            {
+              "targetProperty": "fill",
+              "fieldId": "field-224d7d8e-dc18-43e0-92ee-21c5082e0c29"
+            }
+          ]
         },
         {
           "id": "layer-a46f7138-17b4-4855-9395-3d9a3090b201",
@@ -6472,7 +6496,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-5e19cd7e-e9df-4bbc-9d92-08b3e51f54b8",
@@ -6750,10 +6774,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-1a9e9b48-1afd-4c51-8526-e1fcd412899d"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-1a9e9b48-1afd-4c51-8526-e1fcd412899d"
+            }
+          ]
         },
         {
           "id": "layer-f4f84e97-33ce-44bd-8816-3df3ddcb526a",
@@ -7100,7 +7126,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-2d60abe2-3b47-44c2-9675-7291e4d4434a",
@@ -7378,10 +7404,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-a9438669-9a91-45ff-9355-f26d8ebf86eb"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-a9438669-9a91-45ff-9355-f26d8ebf86eb"
+            }
+          ]
         },
         {
           "id": "layer-851e0c93-7d7c-4f4d-b03b-5b5d5888942d",
@@ -7702,7 +7730,7 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": null
+          "bindings": []
         },
         {
           "id": "layer-569d279a-6ec0-40cd-8b3e-b6c0a51088b2",
@@ -7980,10 +8008,12 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
-          "binding": {
-            "targetProperty": "content",
-            "fieldId": "field-d07c45f7-38a3-46e0-a4e6-9a4754d70e6d"
-          }
+          "bindings": [
+            {
+              "targetProperty": "content",
+              "fieldId": "field-d07c45f7-38a3-46e0-a4e6-9a4754d70e6d"
+            }
+          ]
         }
       ],
       "dataFields": [
@@ -8143,6 +8173,7 @@
         }
       ],
       "customActions": [],
+      "components": [],
       "assets": [
         {
           "id": "asset-e88c61ce-3a23-40e3-ac88-046ca99c8e70",

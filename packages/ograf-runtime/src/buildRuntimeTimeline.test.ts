@@ -62,7 +62,7 @@ function descriptor(): CompiledGraphicDescriptor {
           transformOriginX: track('transformOriginX'),
           transformOriginY: track('transformOriginY'),
         },
-        binding: null,
+        bindings: [],
       },
     ],
     keyframes: [

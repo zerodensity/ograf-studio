@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createFieldDefinition, createRectangleLayer } from '@ograf-editor/scene-model';
+import {
+  createFieldDefinition,
+  createRectangleLayer,
+  createTextLayer,
+} from '@ograf-editor/scene-model';
 import { resolveEffectiveElement } from './dataBinding';
 
 describe('resolveEffectiveElement', () => {
@@ -8,13 +12,28 @@ describe('resolveEffectiveElement', () => {
     const field = createFieldDefinition('color', {
       defaultValue: '#ff0000',
     });
-    layer.binding = { fieldId: field.id, targetProperty: 'fill' };
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'fill' }];
     if (layer.element.type !== 'rectangle') throw new Error('Expected rectangle layer.');
     layer.element.fill = '#0000ff';
 
     expect(resolveEffectiveElement(layer, {}, [], [field])).toMatchObject({ fill: '#ff0000' });
     expect(resolveEffectiveElement(layer, { [field.id]: '#00ff00' }, [], [field])).toMatchObject({
       fill: '#00ff00',
+    });
+  });
+
+  it('applies multiple independent bindings to one layer in order', () => {
+    const layer = createTextLayer();
+    const content = createFieldDefinition('text', { defaultValue: 'Studio headline' });
+    const color = createFieldDefinition('color', { defaultValue: '#ff3366' });
+    layer.bindings = [
+      { fieldId: content.id, targetProperty: 'content' },
+      { fieldId: color.id, targetProperty: 'color' },
+    ];
+
+    expect(resolveEffectiveElement(layer, {}, [], [content, color])).toMatchObject({
+      content: 'Studio headline',
+      color: '#ff3366',
     });
   });
 });

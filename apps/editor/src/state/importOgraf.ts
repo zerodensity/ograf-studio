@@ -486,6 +486,8 @@ function projectFromManifest(
     description: manifest.description ?? '',
     version: manifest.version ?? '0.1.0',
     author: manifest.author ? clone(manifest.author) : { name: '' },
+    supportsRealTime: manifest.supportsRealTime,
+    supportsNonRealTime: manifest.supportsNonRealTime,
     mainCompositionId: composition.id,
     compositions: [composition],
   });
@@ -615,14 +617,15 @@ function projectFromDescriptor(
     layer.keyframes = clone(compiled.keyframes);
     layer.animationTracks = clone(compiled.animationTracks);
     layer.loop = compiled.loop ? clone(compiled.loop) : null;
-    if (compiled.binding) {
-      let field = fieldByKey.get(compiled.binding.dataKey);
+    const compiledBindings = compiled.bindings ?? (compiled.binding ? [compiled.binding] : []);
+    for (const binding of compiledBindings) {
+      let field = fieldByKey.get(binding.dataKey);
       if (!field) {
-        const type = fieldTypeForBinding(compiled.binding.targetProperty, element);
+        const type = fieldTypeForBinding(binding.targetProperty, element);
         field = createFieldDefinition(type, {
-          key: compiled.binding.dataKey,
-          label: compiled.binding.dataKey,
-          defaultValue: currentBoundValue(compiled.binding.targetProperty, element, type),
+          key: binding.dataKey,
+          label: binding.dataKey,
+          defaultValue: currentBoundValue(binding.targetProperty, element, type),
         });
         dataFields.push(field);
         fieldByKey.set(field.key, field);
@@ -630,7 +633,11 @@ function projectFromDescriptor(
           `Binding data key "${field.key}" was absent from the manifest schema; an editable field was inferred.`,
         );
       }
-      layer.binding = { fieldId: field.id, targetProperty: compiled.binding.targetProperty };
+      layer.bindings.push({
+        fieldId: field.id,
+        targetProperty: binding.targetProperty,
+        ...(binding.valueMap ? { valueMap: clone(binding.valueMap) } : {}),
+      });
     }
     if (compiled.clipParentId) layer.parentId = compiled.clipParentId;
     layers.push(layer);
@@ -675,6 +682,8 @@ function projectFromDescriptor(
     description: manifest.description ?? '',
     version: manifest.version ?? '0.1.0',
     author: manifest.author ? clone(manifest.author) : { name: '' },
+    supportsRealTime: manifest.supportsRealTime,
+    supportsNonRealTime: manifest.supportsNonRealTime,
     mainCompositionId: composition.id,
     compositions: [composition],
   });

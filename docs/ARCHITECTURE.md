@@ -80,7 +80,7 @@ A composition is an ordered chain of states:
 start -> zero or more pausable steps -> end
 ```
 
-Start and end are authored visual states but are not OGraf steps. `playAction()` moves from start through steps and eventually to end. `stopAction()` moves directly to end. A composition without pausable steps exports `stepCount: 0`.
+Start and end are authored visual states but are not OGraf steps. `playAction()` moves from start through steps and eventually to end. `stopAction()` interpolates directly from the currently rendered visual state to End over the incoming End-transition duration; it never scrubs through later Step poses that happen to sit between them on the authoring ruler. The realtime action and non-realtime action-schedule sampler use the same direct interpolation rule. A composition without pausable steps exports `stepCount: 0`.
 
 ## Animation model
 
@@ -169,6 +169,16 @@ transitions, property tracks, or OGraf actions. From a Step, the next Play targe
 after the last Step, it plays through End. Space invokes the same controller unless focus belongs to
 a form or editable control.
 
+Lifecycle-marker retiming is planned in `packages/scene-model` and consumed by both OGraf Studio
+and `authoring-core`. Browser gestures and MCP operations therefore enforce identical duration
+bounds, preserve the same property-key semantics, and report the same retiming warnings.
+
+Reusable components are composition-local authoring snapshots containing selected layers and only
+their referenced data fields. Insertion remaps every layer, key, loop, field, binding, and internal
+parent ID; it applies a placement offset and assigns one fresh persistent canvas group. The result
+is a set of normal independent layers. Component definitions are not compiled, so exported OGraf
+packages have no studio-specific component runtime or vendor dependency.
+
 The main canvas has mutually exclusive authoring and OGraf-runtime surfaces. Entering OGraf Preview
 deep-clones the current project, compiles that immutable composition through `compileDescriptor`, and
 mounts a freshly registered `GraphicElement` in the same pasteboard viewport. Its toolbar calls the
@@ -186,6 +196,12 @@ payload enters an in-browser Graphic instance, image-url values using editor-onl
 references are resolved through the snapshot's asset table into browser-loadable data URIs. This
 resolution is preview-only: packaged output still rewrites those references to certified relative
 resource paths, and externally supplied playout data remains ordinary OGraf data.
+
+The SVG bundle importer is an authoring-time portability transform. It accepts one SVG plus selected
+CSS/images/fonts, injects CSS into an SVG `style` node, replaces matching relative references with
+data URIs, registers selected fonts, and reports unresolved paths. It does not execute imported code
+or add a runtime dependency, and it preserves the SVG as one image asset rather than claiming that
+arbitrary Photoshop output can be losslessly reconstructed as editable scene geometry.
 
 Timeline Groups are editor-only authoring organization. For backward-compatible source persistence,
 `Composition.layout.timelineFolders` still stores group identity, name, color, and member layer IDs,
@@ -268,3 +284,11 @@ valid unchanged; structured gradient paints require no migration rewrite.
 
 Document version 9 adds an optional deterministic local loop clip to every layer. Migration
 backfills `loop: null` without changing any evaluated finite timeline pose.
+
+Document version 10 adds self-contained Lottie layers with deterministic absolute-time loop
+sampling.
+
+Document version 11 replaces the singular `layer.binding` with an ordered `layer.bindings[]` list.
+Migration wraps every legacy binding without changing its field, target property, or value map.
+Each target property may appear once; the editor, capture path, compiler, realtime runtime, and
+non-realtime runtime apply the complete list in order.

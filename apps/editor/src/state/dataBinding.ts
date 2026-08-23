@@ -30,7 +30,7 @@ export const BINDABLE_PROPERTIES: Record<ElementType, BindableProperty[]> = {
 
 /**
  * The element a layer should render with, given live test data — the authored `element` is left
- * untouched; a bound property is overridden only for display when a test value is present.
+ * untouched; each bound property is overridden only for display when a test value is present.
  * Fill bindings may carry a complete gradient object; other bindable properties stringify.
  */
 export function resolveEffectiveElement(
@@ -39,20 +39,18 @@ export function resolveEffectiveElement(
   assets: Asset[] = [],
   dataFields: FieldDefinition[] = [],
 ): Element {
-  if (!layer.binding) return resolveElementAssetReferences(layer.element, assets);
-  const hasTestValue = Object.prototype.hasOwnProperty.call(testValues, layer.binding.fieldId);
-  const value = hasTestValue
-    ? testValues[layer.binding.fieldId]
-    : dataFields.find((field) => field.id === layer.binding?.fieldId)?.defaultValue;
-  const element =
-    value === undefined
-      ? layer.element
-      : ({
-          ...layer.element,
-          [layer.binding.targetProperty]:
-            layer.binding.targetProperty === 'fill' && typeof value === 'object'
-              ? value
-              : String(value),
-        } as Element);
+  const element = layer.bindings.reduce<Element>((resolved, binding) => {
+    const hasTestValue = Object.prototype.hasOwnProperty.call(testValues, binding.fieldId);
+    const value = hasTestValue
+      ? testValues[binding.fieldId]
+      : dataFields.find((field) => field.id === binding.fieldId)?.defaultValue;
+    if (value === undefined) return resolved;
+    const mapped = binding.valueMap?.[String(value)] ?? value;
+    return {
+      ...resolved,
+      [binding.targetProperty]:
+        binding.targetProperty === 'fill' && typeof mapped === 'object' ? mapped : String(mapped),
+    } as Element;
+  }, layer.element);
   return resolveElementAssetReferences(element, assets);
 }

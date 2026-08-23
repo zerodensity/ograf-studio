@@ -2,7 +2,9 @@ import gsap from 'gsap';
 import type { CompiledGraphicDescriptor, CompiledLayer } from '@ograf-editor/ograf-types';
 import {
   clipPathForParentBounds,
+  cubicBezierProgress,
   EFFECT_ANIMATION_PROPERTIES,
+  easedProgress,
   getLoopFrameAtElapsed,
   getTrackValueAtFrame,
   isGradientStopOffsetProperty,
@@ -20,6 +22,78 @@ export interface CompiledLayerVisualState {
   effects: LayerEffects;
   paintTracks: LayerAnimationTracks;
   paintFrame: number;
+}
+
+function incomingProgress(
+  layer: CompiledLayer,
+  property: AnimatableLayerProperty,
+  targetFrame: number,
+  progress: number,
+): number {
+  const targetKey = [...(layer.animationTracks[property] ?? [])]
+    .sort((left, right) => left.frame - right.frame)
+    .reverse()
+    .find((key) => key.frame <= targetFrame);
+  if (!targetKey) return progress;
+  return targetKey.curve
+    ? cubicBezierProgress(progress, targetKey.curve)
+    : easedProgress(progress, targetKey.easing);
+}
+
+function interpolate(from: number, to: number, progress: number): number {
+  return from + (to - from) * progress;
+}
+
+/**
+ * Interpolates directly between two already-resolved visual states. This is intentionally not a
+ * composition-frame sample: an OGraf stop from Step 1 to End must not expose Step 2 or Step 3 merely
+ * because those states sit between the source and End on the authoring ruler.
+ */
+export function interpolateCompiledLayerVisualState(
+  layer: CompiledLayer,
+  source: CompiledLayerVisualState,
+  target: CompiledLayerVisualState,
+  progress: number,
+  targetFrame: number,
+): CompiledLayerVisualState {
+  const clampedProgress = Math.min(1, Math.max(0, progress));
+  const transform = { ...source.transform };
+  for (const property of TRANSFORM_ANIMATION_PROPERTIES) {
+    const eased = incomingProgress(layer, property, targetFrame, clampedProgress);
+    transform[property] = interpolate(
+      source.transform[property],
+      target.transform[property],
+      eased,
+    );
+  }
+
+  const effects = { ...source.effects };
+  for (const property of EFFECT_ANIMATION_PROPERTIES) {
+    const eased = incomingProgress(layer, property, targetFrame, clampedProgress);
+    effects[property] = interpolate(source.effects[property], target.effects[property], eased);
+  }
+
+  const paintTracks: LayerAnimationTracks = {};
+  const paintProperties = new Set<AnimatableLayerProperty>([
+    ...(Object.keys(source.paintTracks) as AnimatableLayerProperty[]),
+    ...(Object.keys(target.paintTracks) as AnimatableLayerProperty[]),
+  ]);
+  for (const property of paintProperties) {
+    if (!isGradientStopOffsetProperty(property)) continue;
+    const from = source.paintTracks[property]?.[0]?.value ?? 0;
+    const to = target.paintTracks[property]?.[0]?.value ?? from;
+    const eased = incomingProgress(layer, property, targetFrame, clampedProgress);
+    paintTracks[property] = [
+      {
+        id: `${layer.id}:${property}:transition`,
+        frame: 0,
+        value: interpolate(from, to, eased),
+        easing: 'linear',
+      },
+    ];
+  }
+
+  return { transform, effects, paintTracks, paintFrame: 0 };
 }
 
 function firstTransform(layer: CompiledLayer): LayerTransform {

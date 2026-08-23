@@ -402,7 +402,7 @@ describe('AuthoringSession', () => {
       { layerId, layerName: 'Bound headline', fieldId },
     ]);
     expect(removed.project.compositions[0]!.dataFields).toHaveLength(0);
-    expect(removed.project.compositions[0]!.layers[0]!.binding).toBeNull();
+    expect(removed.project.compositions[0]!.layers[0]!.bindings).toEqual([]);
   });
 
   it('registers assets once and duplicates independent grouped layers with cloned fields', () => {
@@ -464,7 +464,7 @@ describe('AuthoringSession', () => {
       'd2_high',
       'd3_high',
     ]);
-    expect(new Set(composition.layers.map((layer) => layer.binding?.fieldId)).size).toBe(3);
+    expect(new Set(composition.layers.map((layer) => layer.bindings[0]?.fieldId)).size).toBe(3);
     expect(duplicated.summary.duplicateGroups[0]!.copies).toHaveLength(2);
     session.apply({
       expectedRevision: 3,
@@ -617,6 +617,48 @@ describe('AuthoringSession', () => {
         expect.stringContaining('moved lifecycle frame'),
       ]),
     );
+  });
+
+  it('saves and instantiates reusable components as independent standard layers', () => {
+    const session = new AuthoringSession(createProject(), 'component-session');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [
+        { type: 'add_layer', kind: 'rectangle', name: 'Panel' },
+        { type: 'add_layer', kind: 'text', name: 'Label' },
+      ],
+    });
+    const layerIds = created.summary.generatedIds.map((entry) => entry.id);
+    const saved = session.apply({
+      expectedRevision: 1,
+      operations: [
+        { type: 'save_component', layerIds, name: 'Score row', id: 'component-score-row' },
+      ],
+    });
+    expect(saved.project.compositions[0]!.components[0]).toMatchObject({
+      id: 'component-score-row',
+      name: 'Score row',
+    });
+
+    const inserted = session.apply({
+      expectedRevision: 2,
+      operations: [
+        {
+          type: 'instantiate_component',
+          componentId: 'component-score-row',
+          offset: { x: 100, y: 50 },
+        },
+      ],
+    });
+    const instance = inserted.summary.componentInstances[0]!;
+    const instanceLayers = inserted.project.compositions[0]!.layers.filter((layer) =>
+      Object.values(instance.layers).includes(layer.id),
+    );
+    expect(instanceLayers).toHaveLength(2);
+    expect(new Set(instanceLayers.map((layer) => layer.groupId))).toEqual(
+      new Set([instance.groupId]),
+    );
+    expect(instanceLayers.every((layer) => layer.name.startsWith('Score row — '))).toBe(true);
   });
 
   it('records browser and agent changes and makes reset undoable', () => {

@@ -123,6 +123,8 @@ export type ElementType = Element['type'];
 export interface LayerBinding {
   fieldId: string;
   targetProperty: string;
+  /** Optional data-value mapping applied before assigning the bound element property. */
+  valueMap?: Record<string, string | number | boolean | GradientPaint>;
 }
 
 export type HorizontalConstraint = 'left' | 'right' | 'left-right' | 'center' | 'scale';
@@ -265,8 +267,8 @@ export interface Layer {
   element: Element;
   /** Static CSS effects shared by editor preview and the exported runtime. */
   effects: LayerEffects;
-  /** When set, `targetProperty` on `element` is driven by data at runtime instead of its authored value. */
-  binding: LayerBinding | null;
+  /** Ordered data bindings applied to independent element properties at runtime. */
+  bindings: LayerBinding[];
 }
 
 export type KeyframeRole = 'start' | 'step' | 'end';
@@ -323,9 +325,11 @@ export interface CustomActionDefinition {
 export interface Asset {
   id: string;
   name: string;
-  kind: 'image';
+  kind: 'image' | 'font' | 'source';
   dataUri: string;
   mimeType: string;
+  /** CSS family name registered by the exported runtime when kind is font. */
+  fontFamily?: string;
 }
 
 export interface CanvasGuide {
@@ -340,6 +344,17 @@ export interface TimelineFolder {
   name: string;
   color: string;
   layerIds: string[];
+}
+
+/**
+ * An authoring-only reusable snapshot. Instantiation materializes ordinary independent layers and
+ * data fields, so exported OGraf packages never depend on a proprietary component runtime.
+ */
+export interface ComponentDefinition {
+  id: string;
+  name: string;
+  layers: Layer[];
+  dataFields: FieldDefinition[];
 }
 
 export interface CompositionLayout {
@@ -366,6 +381,8 @@ export interface Composition {
   backgroundColor: string;
   /** Frames per second the timeline is authored/scrubbed against (transition durations are in frames at this rate). */
   frameRate: number;
+  /** Crossfade duration for updateAction, authored in composition frames. */
+  updateTransitionFrames: number;
   /** Persistent authoring layout controls; excluded from compiled OGraf output. */
   layout: CompositionLayout;
   layers: Layer[];
@@ -374,6 +391,8 @@ export interface Composition {
   dataFields: FieldDefinition[];
   customActions: CustomActionDefinition[];
   assets: Asset[];
+  /** Reusable authoring snapshots; omitted from compiled OGraf output. */
+  components: ComponentDefinition[];
 }
 
 export interface ProjectAuthor {
@@ -390,6 +409,8 @@ export interface Project {
   description: string;
   version: string;
   author: ProjectAuthor;
+  supportsRealTime: boolean;
+  supportsNonRealTime: boolean;
   mainCompositionId: string;
   compositions: Composition[];
 }

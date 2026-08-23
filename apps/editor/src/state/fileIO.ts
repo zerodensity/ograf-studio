@@ -5,11 +5,11 @@ const AUTOSAVE_KEY = 'ograf-editor:autosave-project';
 const FILE_TYPES = [
   // Deliberately does not end in .json: ograf-devtool discovers every JSON file in a selected
   // directory as a possible manifest and would report an editor source file as incompatible.
-  { description: 'OGraf Editor Project Source', accept: { 'application/json': ['.ogeproj'] } },
+  { description: 'OGraf Studio Project Source', accept: { 'application/json': ['.ogeproj'] } },
 ];
 const OPEN_FILE_TYPES = [
   {
-    description: 'OGraf Editor Project Source',
+    description: 'OGraf Studio Project Source',
     accept: { 'application/json': ['.ogeproj', '.ogeproj.json'] },
   },
 ];
@@ -137,7 +137,7 @@ function openProjectViaInputFallback(): Promise<Project | null> {
         .then((text) => {
           const parsed: unknown = JSON.parse(text);
           if (!isProject(parsed)) {
-            reject(new Error('That file is not a valid OGraf Editor project.'));
+            reject(new Error('That file is not a valid OGraf Studio project.'));
             return;
           }
           resolve(parsed);
@@ -157,7 +157,7 @@ export async function openProjectFromFile(): Promise<Project | null> {
       const file = await handle.getFile();
       const text = await file.text();
       const parsed: unknown = JSON.parse(text);
-      if (!isProject(parsed)) throw new Error('That file is not a valid OGraf Editor project.');
+      if (!isProject(parsed)) throw new Error('That file is not a valid OGraf Studio project.');
       return parsed;
     } catch (err) {
       if (isAbort(err)) return null;

@@ -48,3 +48,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.resources-component-name {
+  flex: 1;
+  min-width: 72px;
+}
+
+.resources-component-count {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}

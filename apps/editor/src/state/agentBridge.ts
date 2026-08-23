@@ -78,6 +78,10 @@ export function useAgentBridge(): void {
       if (stopped) return;
       socket = new WebSocket(BRIDGE_URL);
       socket.addEventListener('open', () => {
+        if (stopped) {
+          socket?.close();
+          return;
+        }
         status({ connected: true, activity: 'Agent connected' });
         send({ type: 'editor.hello', project: useProjectStore.getState().project });
       });
@@ -194,8 +198,11 @@ export function useAgentBridge(): void {
         }
       });
       socket.addEventListener('close', () => {
+        // React StrictMode intentionally mounts, cleans up, and remounts effects in development.
+        // The disposed bridge must not overwrite the status of its replacement connection.
+        if (stopped) return;
         status({ connected: false, revision: null, activity: 'Agent bridge offline' });
-        if (!stopped) reconnectTimer = window.setTimeout(connect, 3000);
+        reconnectTimer = window.setTimeout(connect, 3000);
       });
       socket.addEventListener('error', () => socket?.close());
     };

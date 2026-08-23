@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import {
   createAsset,
+  buildComponentDefinition,
   createCustomActionDefinition,
   computeKeyframeFrames,
   createFieldDefinition,
@@ -23,6 +24,7 @@ import {
   getLayerTransformAtFrame,
   getTotalFrames,
   migrateProject,
+  instantiateComponentDefinition,
   normalizeLayerEffects,
   pruneInvalidGradientStopTracks,
   normalizeAuthoredTransformPatch,
@@ -32,6 +34,7 @@ import {
   EFFECT_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
   type Composition,
+  type ComponentDefinition,
   type CompositionLayout,
   type CubicBezierCurve,
   type CustomActionDefinition,
@@ -66,6 +69,7 @@ import {
 } from '../canvas/layoutGeometry';
 import { useTimelineStore } from './timelineStore';
 import { planLifecycleRetime, type LifecycleRetimePlan } from './lifecycleRetime';
+import { buildSvgBundle } from './svgBundleImport';
 
 export type { NewLayerKind } from '@ograf-editor/scene-model';
 
@@ -86,10 +90,20 @@ interface ProjectState {
 interface ProjectActions {
   newProject: () => void;
   loadProject: (project: Project) => void;
-  setProjectMeta: (patch: Partial<Pick<Project, 'name' | 'description' | 'version'>>) => void;
+  setProjectMeta: (
+    patch: Partial<
+      Pick<
+        Project,
+        'id' | 'name' | 'description' | 'version' | 'supportsRealTime' | 'supportsNonRealTime'
+      >
+    >,
+  ) => void;
   updateCompositionSettings: (
     patch: Partial<
-      Pick<Composition, 'name' | 'width' | 'height' | 'frameRate' | 'backgroundColor'>
+      Pick<
+        Composition,
+        'name' | 'width' | 'height' | 'frameRate' | 'updateTransitionFrames' | 'backgroundColor'
+      >
     >,
   ) => void;
   updateCompositionLayout: (patch: Partial<Omit<CompositionLayout, 'guides'>>) => void;
@@ -198,7 +212,7 @@ interface ProjectActions {
     fieldId: string,
     patch: Partial<Pick<FieldDefinition, 'key' | 'label' | 'type' | 'defaultValue' | 'required'>>,
   ) => void;
-  setLayerBinding: (layerId: string, binding: LayerBinding | null) => void;
+  setLayerBindings: (layerId: string, bindings: LayerBinding[]) => void;
 
   addCustomAction: () => string;
   removeCustomAction: (actionDefId: string) => void;
@@ -209,7 +223,12 @@ interface ProjectActions {
 
   /** Reads `file` as a `data:` URI and adds it to the active composition's asset registry. */
   importAsset: (file: File) => Promise<string>;
+  importSvgBundle: (files: File[]) => Promise<{ assetId: string; warnings: string[] }>;
   removeAsset: (assetId: string) => void;
+  createComponent: (layerIds: string[], name?: string) => string | null;
+  instantiateComponent: (componentId: string, offset?: { x: number; y: number }) => string[];
+  renameComponent: (componentId: string, name: string) => void;
+  removeComponent: (componentId: string) => void;
 }
 
 function generateUniqueKey(existingKeys: string[], prefix: string): string {
@@ -414,6 +433,8 @@ export const useProjectStore = create<ProjectStore>()(
           if (next.width !== undefined && !(next.width > 0)) delete next.width;
           if (next.height !== undefined && !(next.height > 0)) delete next.height;
           if (next.frameRate !== undefined && !(next.frameRate > 0)) delete next.frameRate;
+          if (next.updateTransitionFrames !== undefined)
+            next.updateTransitionFrames = Math.max(0, Math.round(next.updateTransitionFrames));
           const newSize = {
             width: next.width ?? composition.width,
             height: next.height ?? composition.height,
@@ -1150,6 +1171,60 @@ export const useProjectStore = create<ProjectStore>()(
           }
         }),
 
+      createComponent: (layerIds, name) => {
+        const snapshot = useProjectStore.getState();
+        const composition = getActiveComposition(snapshot.project, snapshot.activeCompositionId);
+        if (layerIds.length === 0) return null;
+        let definition: ComponentDefinition;
+        try {
+          definition = buildComponentDefinition(
+            composition,
+            layerIds,
+            name ?? `Component ${composition.components.length + 1}`,
+          );
+        } catch {
+          return null;
+        }
+        set((state) => {
+          getActiveComposition(state.project, state.activeCompositionId).components.push(
+            definition,
+          );
+        });
+        return definition.id;
+      },
+
+      instantiateComponent: (componentId, offset = { x: 40, y: 40 }) => {
+        const snapshot = useProjectStore.getState();
+        const composition = getActiveComposition(snapshot.project, snapshot.activeCompositionId);
+        const definition = composition.components.find((candidate) => candidate.id === componentId);
+        if (!definition) return [];
+        const instance = instantiateComponentDefinition(composition, definition, offset);
+        set((state) => {
+          const target = getActiveComposition(state.project, state.activeCompositionId);
+          target.dataFields.push(...instance.dataFields);
+          target.layers.push(...instance.layers);
+        });
+        return instance.layers.map((layer) => layer.id);
+      },
+
+      renameComponent: (componentId, name) =>
+        set((state) => {
+          const definition = getActiveComposition(
+            state.project,
+            state.activeCompositionId,
+          ).components.find((candidate) => candidate.id === componentId);
+          const trimmed = name.trim();
+          if (definition && trimmed) definition.name = trimmed;
+        }),
+
+      removeComponent: (componentId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          composition.components = composition.components.filter(
+            (candidate) => candidate.id !== componentId,
+          );
+        }),
+
       createTimelineFolder: (layerIds) => {
         const unique = [...new Set(layerIds)];
         if (unique.length < 2) return null;
@@ -1404,7 +1479,7 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           composition.dataFields = composition.dataFields.filter((f) => f.id !== fieldId);
           for (const layer of composition.layers) {
-            if (layer.binding?.fieldId === fieldId) layer.binding = null;
+            layer.bindings = layer.bindings.filter((binding) => binding.fieldId !== fieldId);
           }
         }),
 
@@ -1425,11 +1500,11 @@ export const useProjectStore = create<ProjectStore>()(
           Object.assign(field, nextPatch);
         }),
 
-      setLayerBinding: (layerId, binding) =>
+      setLayerBindings: (layerId, bindings) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((l) => l.id === layerId);
-          if (layer && !layer.isLocked) layer.binding = binding;
+          if (layer && !layer.isLocked) layer.bindings = bindings;
         }),
 
       addCustomAction: () => {
@@ -1476,17 +1551,39 @@ export const useProjectStore = create<ProjectStore>()(
           reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'));
           reader.readAsDataURL(file);
         });
+        const extension = file.name.split('.').at(-1)?.toLowerCase();
+        const fontMime =
+          extension === 'woff2'
+            ? 'font/woff2'
+            : extension === 'woff'
+              ? 'font/woff'
+              : extension === 'otf'
+                ? 'font/otf'
+                : extension === 'ttf'
+                  ? 'font/ttf'
+                  : undefined;
+        const mimeType = fontMime ?? file.type ?? 'application/octet-stream';
         const asset = createAsset({
           name: file.name,
-          kind: 'image',
+          kind: fontMime ? 'font' : 'image',
           dataUri,
-          mimeType: file.type || 'application/octet-stream',
+          mimeType,
+          ...(fontMime ? { fontFamily: file.name.replace(/\.[^.]+$/, '') } : {}),
         });
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           composition.assets.push(asset);
         });
         return asset.id;
+      },
+
+      importSvgBundle: async (files) => {
+        const result = await buildSvgBundle(files);
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          composition.assets.push(result.svgAsset, ...result.fontAssets);
+        });
+        return { assetId: result.svgAsset.id, warnings: result.warnings };
       },
 
       removeAsset: (assetId) =>

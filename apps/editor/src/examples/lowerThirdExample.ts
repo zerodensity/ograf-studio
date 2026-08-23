@@ -114,7 +114,7 @@ export function createLowerThirdExampleProject(): Project {
 
   const name = createLayerOfKind('text');
   name.name = 'Presenter Name';
-  name.binding = { fieldId: nameField.id, targetProperty: 'content' };
+  name.bindings = [{ fieldId: nameField.id, targetProperty: 'content' }];
   if (name.element.type === 'text') {
     name.element.content = 'ALEX MORGAN';
     name.element.color = '#ffffff';
@@ -133,7 +133,7 @@ export function createLowerThirdExampleProject(): Project {
 
   const title = createLayerOfKind('text');
   title.name = 'Presenter Title';
-  title.binding = { fieldId: titleField.id, targetProperty: 'content' };
+  title.bindings = [{ fieldId: titleField.id, targetProperty: 'content' }];
   if (title.element.type === 'text') {
     title.element.content = 'Senior Broadcast Producer';
     title.element.color = '#8edcff';

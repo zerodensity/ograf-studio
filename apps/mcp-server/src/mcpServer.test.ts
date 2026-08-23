@@ -348,7 +348,7 @@ describe('OGraf MCP authoring host', () => {
     });
     expect(edited.isError).not.toBe(true);
     const composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
-    expect(composition.layers[0]!.binding?.fieldId).toBe(composition.dataFields[0]!.id);
+    expect(composition.layers[0]!.bindings[0]?.fieldId).toBe(composition.dataFields[0]!.id);
     for (const { frame } of computeKeyframeFrames(composition)) {
       expect(getLayerTransformAtFrame(composition.layers[0]!, frame).x).toBe(456);
     }
@@ -398,7 +398,7 @@ describe('OGraf MCP authoring host', () => {
     const composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
     const layer = composition.layers[0]!;
     const field = composition.dataFields[0]!;
-    expect(layer.binding?.fieldId).toBe(field.id);
+    expect(layer.bindings[0]?.fieldId).toBe(field.id);
     expect(field.defaultValue).toBe('Retargeted without a read');
     for (const { frame } of computeKeyframeFrames(composition)) {
       expect(getLayerTransformAtFrame(layer, frame).x).toBe(777);
@@ -441,6 +441,186 @@ describe('OGraf MCP authoring host', () => {
           .project.compositions[0]!.dataFields.map((item) => [item.key, item.defaultValue]),
       ),
     ).toMatchObject({ copy2_headline: 'Day two', copy3_headline: 'Day three' });
+  });
+
+  it('sets multiple independent bindings on one layer with field-key selectors', async () => {
+    const sessionId = 'multiple-binding-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const applied = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'add_layer', kind: 'text', name: 'Bound headline' },
+          { type: 'add_data_field', fieldType: 'text', key: 'headline' },
+          { type: 'add_data_field', fieldType: 'color', key: 'headline_color' },
+          {
+            type: 'set_layer_bindings',
+            layerName: 'Bound headline',
+            bindings: [
+              { fieldKey: 'headline', targetProperty: 'content' },
+              { fieldKey: 'headline_color', targetProperty: 'color' },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(applied.isError).not.toBe(true);
+    const composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    expect(composition.layers[0]!.bindings).toEqual([
+      { fieldId: composition.dataFields[0]!.id, targetProperty: 'content' },
+      { fieldId: composition.dataFields[1]!.id, targetProperty: 'color' },
+    ]);
+  });
+
+  it('matches structural editor actions for lifecycle, canvas groups, custom actions, and assets', async () => {
+    const sessionId = 'editor-parity-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const created = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'add_layer', kind: 'rectangle', name: 'Plate' },
+          { type: 'add_layer', kind: 'text', name: 'Headline' },
+          { type: 'add_lifecycle_step', name: 'Second state' },
+          {
+            type: 'add_custom_action',
+            actionId: 'flash',
+            name: 'Flash graphic',
+            description: 'Operator-triggered accent.',
+          },
+          {
+            type: 'add_asset',
+            name: 'pixel.png',
+            mimeType: 'image/png',
+            data: 'iVBORw0KGgo=',
+          },
+        ],
+      },
+    });
+    expect(created.isError).not.toBe(true);
+    let composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    const layerIds = composition.layers.map((layer) => layer.id);
+    const addedStep = composition.keyframes.find((keyframe) => keyframe.name === 'Second state')!;
+    const assetId = composition.assets[0]!.id;
+
+    const edited = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        operations: [
+          { type: 'group_layers', layerIds },
+          {
+            type: 'rename_lifecycle_keyframe',
+            keyframeId: addedStep.id,
+            name: 'Renamed state',
+          },
+          { type: 'move_lifecycle_keyframe', keyframeId: addedStep.id, frame: 26 },
+          {
+            type: 'update_custom_action',
+            actionId: 'flash',
+            nextActionId: 'pulse',
+            name: 'Pulse graphic',
+          },
+          { type: 'remove_asset', assetId },
+        ],
+      },
+    });
+    expect(edited.isError).not.toBe(true);
+    composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    expect(new Set(composition.layers.map((layer) => layer.groupId)).size).toBe(1);
+    expect(composition.layers[0]!.groupId).toBeTruthy();
+    expect(composition.keyframes.find((keyframe) => keyframe.id === addedStep.id)?.name).toBe(
+      'Renamed state',
+    );
+    expect(
+      computeKeyframeFrames(composition).find((keyframe) => keyframe.keyframeId === addedStep.id)
+        ?.frame,
+    ).toBe(26);
+    expect(composition.customActions[0]).toMatchObject({
+      actionId: 'pulse',
+      name: 'Pulse graphic',
+    });
+    expect(composition.assets).toEqual([]);
+
+    const removed = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 2,
+        operations: [
+          { type: 'ungroup_layers', layerIds: [layerIds[0]] },
+          { type: 'remove_lifecycle_step', keyframeId: addedStep.id },
+          { type: 'remove_custom_action', actionId: 'pulse' },
+        ],
+      },
+    });
+    expect(removed.isError).not.toBe(true);
+    composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    expect(composition.layers.every((layer) => layer.groupId === null)).toBe(true);
+    expect(composition.keyframes.some((keyframe) => keyframe.id === addedStep.id)).toBe(false);
+    expect(composition.customActions).toEqual([]);
+  });
+
+  it('saves and instantiates reusable components with complete generated mappings', async () => {
+    const sessionId = 'component-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const created = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'add_layer', kind: 'rectangle', name: 'Row plate' },
+          { type: 'add_layer', kind: 'text', name: 'Row label' },
+        ],
+      },
+    });
+    expect(created.isError).not.toBe(true);
+    let composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    const sourceIds = composition.layers.map((layer) => layer.id);
+
+    const saved = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        operations: [{ type: 'save_component', name: 'Score row', layerIds: sourceIds }],
+      },
+    });
+    expect(saved.isError).not.toBe(true);
+    composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    const componentId = composition.components[0]!.id;
+
+    const inserted = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 2,
+        operations: [{ type: 'instantiate_component', componentId, offset: { x: 120, y: 60 } }],
+      },
+    });
+    expect(inserted.isError).not.toBe(true);
+    const payload = inserted.structuredContent as { results: unknown[] };
+    expect(payload.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'instantiate_component',
+          componentId,
+          groupId: expect.any(String),
+          layers: expect.any(Object),
+          fields: expect.any(Object),
+        }),
+      ]),
+    );
+    composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    expect(composition.layers).toHaveLength(4);
+    expect(new Set(composition.layers.slice(2).map((layer) => layer.groupId)).size).toBe(1);
   });
 
   it('duplicates a nine-layer cell with authored-key frame offsets and anchored lifecycle keys', async () => {
@@ -1216,7 +1396,7 @@ describe('OGraf MCP authoring host', () => {
       arguments: { sessionId: 'editor' },
     });
     expect(result.isError).toBe(true);
-    expect(JSON.stringify(result.content)).toContain('requires the OGraf Editor to be open');
+    expect(JSON.stringify(result.content)).toContain('requires OGraf Studio to be open');
   });
 
   it('fails PNG capture closed without mutating revision when no editor is connected', async () => {
@@ -1232,7 +1412,7 @@ describe('OGraf MCP authoring host', () => {
     ] as const) {
       const result = await client.callTool({ name, arguments: arguments_ });
       expect(result.isError).toBe(true);
-      expect(JSON.stringify(result.content)).toContain('requires the OGraf Editor to be open');
+      expect(JSON.stringify(result.content)).toContain('requires OGraf Studio to be open');
     }
     expect(host.workspace.get('editor').revision).toBe(before);
   });
@@ -1247,7 +1427,7 @@ describe('OGraf MCP authoring host', () => {
         arguments: { sessionId: 'editor', path, confirm: true },
       });
       expect(result.isError).toBe(true);
-      expect(JSON.stringify(result.content)).toContain('requires the OGraf Editor to be open');
+      expect(JSON.stringify(result.content)).toContain('requires OGraf Studio to be open');
     }
   });
 

@@ -4,6 +4,8 @@
 
 - Explicit start/step/end model and migration.
 - Normative lifecycle state machine and contract tests.
+- State-aware Stop/Take Out transitions go directly from the active rendered state to End in the
+  declared stop duration, without traversing later Step poses (realtime and non-realtime).
 - Truthful non-realtime declaration.
 - Shared timeline IR, strict schema validation, and blocked invalid exports.
 
@@ -54,6 +56,12 @@
   are excluded from compiled OGraf output.
 - System-font selection with live preview and auto-size/shrink/fixed text policies (implemented);
   packaged fonts, richer overflow policies, localization, and RTL remain queued.
+- Multiple independent data bindings per layer are implemented across the Inspector, source
+  migration, capture, compiler/runtime, OGraf import, validation, duplication, and MCP operations.
+- SVG image import now accepts a Photoshop-style bundle selection and embeds companion CSS, local
+  image URLs, and font URLs into one portable SVG while registering selected fonts. Best-effort
+  semantic decomposition of simple SVG shapes/text into editable layers remains queued; complex or
+  rasterized Photoshop SVGs deliberately remain single image assets.
 
 ## 4. Advanced graphics — queued
 
@@ -62,9 +70,13 @@
   playback, scheduled non-realtime sampling, validation, and MCP authoring. Ping-pong, multiple
   clips per layer, dedicated ticker content flow, and cycle-synchronized exits remain queued.
 
+- Reusable components are implemented as portable authoring snapshots: save selected layers and
+  bound fields, insert independently editable grouped instances with complete ID remapping, rename
+  or remove definitions, and perform the same workflow through MCP. Live master-instance syncing,
+  per-instance overrides, and cross-composition component libraries remain queued.
 - Deterministic clip-to-parent masking is implemented for animated rotation-aware parent bounds and
   rounded rectangle corners, including diagonal wipes. Arbitrary alpha/luma/path masks remain
-  queued alongside blend modes, video, nested compositions, and reusable components.
+  queued alongside blend modes, video, and nested compositions.
 - Basic Lottie support is implemented as a first-class self-contained layer: JSON import/re-import,
   bundled light canvas player, absolute-time loop sampling, editor scrubbing, realtime playback,
   deterministic non-realtime seeking, validation, export, and MCP schema support. Segments,
@@ -79,6 +91,8 @@
 
 ## 5. Integration and experience — queued
 
+- The user-facing product rename from OGraf Editor to **OGraf Studio** is implemented without
+  changing compatibility-sensitive package namespaces, project formats, or MCP tool names.
 - Main-canvas OGraf runtime preview is implemented as an Edit/Preview mode switch. It mounts an
   immutable compiled snapshot in the normal zoomable/pannable viewport and provides realtime Load,
   Step navigation/goto, Update Data, Stop/Take Out, Dispose, and custom-action controls. Snapshot
@@ -107,6 +121,9 @@
   runtime masks, group duplication remaps clipping relations, clipped text/lint diagnostics use
   visible bounds, and structured gradient paint replaces fixed sheen assets without leaving the
   certified save/export path.
+- Structural editor/MCP parity is implemented for lifecycle Step add/rename/move/remove, persistent
+  canvas grouping, custom action CRUD, and reference-safe asset removal. Existing generic track,
+  transform, element, duplication, and layout operations cover the remaining editor mutations.
 - Optional OGraf Server API renderer testing.
 - Renderer compatibility matrix.
 - Accessibility, onboarding, keyboard workflow, and documentation polish.

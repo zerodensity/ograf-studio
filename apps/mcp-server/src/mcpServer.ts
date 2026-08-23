@@ -172,7 +172,8 @@ function inspectComposition(composition: Composition) {
       parentId: layer.parentId,
       clipChildren: layer.clipChildren,
       constraints: layer.constraints,
-      binding: layer.binding,
+      bindings: layer.bindings,
+      binding: layer.bindings[0] ?? null,
       animatedProperties: getLayerAnimatableProperties(layer).filter((property) =>
         isAnimatedTrack(getResolvedLayerAnimationTracks(layer)[property] ?? []),
       ),
@@ -181,6 +182,12 @@ function inspectComposition(composition: Composition) {
     lifecycle: composition.keyframes.map((keyframe) => ({ ...keyframe })),
     transitions: composition.transitions.map((transition) => ({ ...transition })),
     dataFields: composition.dataFields.map((field) => ({ ...field })),
+    components: composition.components.map((component) => ({
+      id: component.id,
+      name: component.name,
+      layerCount: component.layers.length,
+      fieldCount: component.dataFields.length,
+    })),
     layout: {
       ...composition.layout,
       timelineGroups: composition.layout.timelineFolders,
@@ -276,7 +283,8 @@ function projectSnapshotProjection(
             projectedLayer.parentId = layer.parentId;
             projectedLayer.clipChildren = layer.clipChildren;
             projectedLayer.constraints = layer.constraints;
-            projectedLayer.binding = layer.binding;
+            projectedLayer.bindings = layer.bindings;
+            projectedLayer.binding = layer.bindings[0] ?? null;
           }
           if (sections.has('elements')) {
             projectedLayer.element = layer.element;
@@ -325,6 +333,12 @@ function projectSnapshotProjection(
       if (sections.has('metadata')) {
         projectedComposition.customActions = composition.customActions;
         projectedComposition.assets = composition.assets;
+        projectedComposition.components = composition.components.map((component) => ({
+          id: component.id,
+          name: component.name,
+          layerCount: component.layers.length,
+          fieldCount: component.dataFields.length,
+        }));
       }
       return projectedComposition;
     }),
@@ -356,7 +370,20 @@ function generatedOperationResults(
   project: Project,
 ) {
   return generatedIds.flatMap((generated) => {
-    if (!['layer', 'field', 'guide', 'asset', 'timeline-group', 'loop'].includes(generated.kind)) {
+    if (
+      ![
+        'layer',
+        'field',
+        'guide',
+        'asset',
+        'timeline-group',
+        'canvas-group',
+        'custom-action',
+        'component',
+        'lifecycle-keyframe',
+        'loop',
+      ].includes(generated.kind)
+    ) {
       return [];
     }
     const operation = operations[generated.operationIndex];
@@ -391,6 +418,46 @@ function generatedOperationResults(
         {
           ...base,
           ...(group ? { name: group.name, color: group.color, layerIds: [...group.layerIds] } : {}),
+        },
+      ];
+    }
+    if (generated.kind === 'canvas-group') return [base];
+    if (generated.kind === 'custom-action') {
+      const action = project.compositions
+        .flatMap((composition) => composition.customActions)
+        .find((candidate) => candidate.id === generated.id);
+      return [
+        {
+          ...base,
+          ...(action ? { actionId: action.actionId, name: action.name } : {}),
+        },
+      ];
+    }
+    if (generated.kind === 'component') {
+      const component = project.compositions
+        .flatMap((composition) => composition.components)
+        .find((candidate) => candidate.id === generated.id);
+      return [
+        {
+          ...base,
+          ...(component
+            ? {
+                name: component.name,
+                layerCount: component.layers.length,
+                fieldCount: component.dataFields.length,
+              }
+            : {}),
+        },
+      ];
+    }
+    if (generated.kind === 'lifecycle-keyframe') {
+      const keyframe = project.compositions
+        .flatMap((composition) => composition.keyframes)
+        .find((candidate) => candidate.id === generated.id);
+      return [
+        {
+          ...base,
+          ...(keyframe ? { name: keyframe.name, role: keyframe.role } : {}),
         },
       ];
     }
@@ -445,6 +512,9 @@ function normalizeOperationSelectors(
     if (operation.type === 'add_layer') operation.id = createId('layer');
     if (operation.type === 'add_data_field') operation.id = createId('field');
     if (operation.type === 'create_timeline_group') operation.id = createId('timeline-group');
+    if (operation.type === 'group_layers') operation.id = createId('group');
+    if (operation.type === 'save_component') operation.id = createId('component');
+    if (operation.type === 'add_custom_action') operation.id = createId('action');
     if (operation.type === 'set_layer_loop') operation.id = createId('layer-loop');
 
     if ('layerName' in operation || 'layerId' in operation) {
@@ -495,22 +565,31 @@ function normalizeOperationSelectors(
       delete operation.layerNamePattern;
     }
 
-    if (operation.type === 'set_layer_binding' && operation.binding) {
-      const binding = operation.binding as Record<string, unknown>;
-      const fieldId = typeof binding.fieldId === 'string' ? binding.fieldId : undefined;
-      const fieldKey = typeof binding.fieldKey === 'string' ? binding.fieldKey : undefined;
-      if (fieldId && fieldKey) {
-        throw new Error(`Operation ${index}: binding accepts fieldId or fieldKey, not both.`);
+    if (operation.type === 'set_layer_binding' || operation.type === 'set_layer_bindings') {
+      const bindings = (
+        operation.type === 'set_layer_binding'
+          ? operation.binding
+            ? [operation.binding]
+            : []
+          : operation.bindings
+      ) as unknown[];
+      for (const rawBinding of bindings) {
+        const binding = rawBinding as Record<string, unknown>;
+        const fieldId = typeof binding.fieldId === 'string' ? binding.fieldId : undefined;
+        const fieldKey = typeof binding.fieldKey === 'string' ? binding.fieldKey : undefined;
+        if (fieldId && fieldKey) {
+          throw new Error(`Operation ${index}: binding accepts fieldId or fieldKey, not both.`);
+        }
+        if (!fieldId && !fieldKey) {
+          throw new Error(`Operation ${index}: binding fieldId or fieldKey is required.`);
+        }
+        if (fieldKey) {
+          const field = composition.dataFields.find((candidate) => candidate.key === fieldKey);
+          if (!field) throw new Error(`Operation ${index}: data field key not found: ${fieldKey}`);
+          binding.fieldId = field.id;
+        }
+        delete binding.fieldKey;
       }
-      if (!fieldId && !fieldKey) {
-        throw new Error(`Operation ${index}: binding fieldId or fieldKey is required.`);
-      }
-      if (fieldKey) {
-        const field = composition.dataFields.find((candidate) => candidate.key === fieldKey);
-        if (!field) throw new Error(`Operation ${index}: data field key not found: ${fieldKey}`);
-        binding.fieldId = field.id;
-      }
-      delete binding.fieldKey;
     }
 
     if (operation.type === 'update_data_field') {
@@ -939,6 +1018,9 @@ export function createOGrafMcpServer(
             'Each loop property key owns its incoming easing and optional cubic-bezier curve independently.',
         },
         bindings: {
+          operations: ['set_layer_bindings', 'set_layer_binding (legacy single-binding replace)'],
+          semantics:
+            'A layer may bind multiple independent element properties. Bindings are applied in order and a target property may appear only once.',
           fieldTypes: ['text', 'textarea', 'number', 'boolean', 'color', 'gradient', 'image-url'],
           gradient:
             'A gradient field binds the complete rectangle/ellipse fill object. Per-stop paths are not supported.',
@@ -951,6 +1033,25 @@ export function createOGrafMcpServer(
             'image-sequence': [],
             lottie: [],
           },
+        },
+        editorParity: {
+          lifecycle: [
+            'add_lifecycle_step',
+            'rename_lifecycle_keyframe',
+            'move_lifecycle_keyframe',
+            'remove_lifecycle_step',
+          ],
+          canvasGroups: ['group_layers', 'ungroup_layers'],
+          reusableComponents: [
+            'save_component',
+            'instantiate_component',
+            'rename_component',
+            'remove_component',
+          ],
+          customActions: ['add_custom_action', 'update_custom_action', 'remove_custom_action'],
+          assets: ['add_asset', 'remove_asset'],
+          detail:
+            'Lifecycle retiming shares the browser editor planner and therefore returns the same duration bounds and warnings. Structural canvas groups, reusable-component snapshots, custom actions, and asset removal use the same canonical project mutations as OGraf Studio.',
         },
         canvasLayout: {
           safeAreas: ['action-safe-5-percent', 'title-safe-10-percent'],
@@ -984,10 +1085,20 @@ export function createOGrafMcpServer(
           fileScope: workspace.root,
         },
         assets: {
-          operation: 'add_asset',
+          operations: ['add_asset', 'remove_asset'],
           referenceSyntax: 'asset:<id>',
           semantics:
-            'Assets persist once in composition.assets; editor/capture resolve references and certified package export writes each registry entry once.',
+            'Assets persist once in composition.assets; editor/capture resolve references and certified package export writes each registry entry once. remove_asset refuses referenced image sources unless force=true, which clears those references; removing an in-use font reports a fallback warning.',
+        },
+        reusableComponents: {
+          operations: [
+            'save_component',
+            'instantiate_component',
+            'rename_component',
+            'remove_component',
+          ],
+          semantics:
+            'A saved component snapshots selected layers and their bound fields. Instantiation returns complete layer/field mappings, remaps internal parents, assigns a fresh persistent canvas group, and creates independently editable ordinary OGraf layers. Component definitions are authoring-only and never enter compiled output.',
         },
       });
     },
@@ -1447,8 +1558,11 @@ export function createOGrafMcpServer(
           const measurementFrame = firstStepFrame(composition);
           for (const layer of composition.layers) {
             if (layer.element.type !== 'text' || !layer.isVisible || layer.isGuide) continue;
-            const field = layer.binding
-              ? composition.dataFields.find((candidate) => candidate.id === layer.binding?.fieldId)
+            const contentBinding = layer.bindings.find(
+              (binding) => binding.targetProperty === 'content',
+            );
+            const field = contentBinding
+              ? composition.dataFields.find((candidate) => candidate.id === contentBinding.fieldId)
               : undefined;
             const supplied = field ? testValues?.[field.key] : undefined;
             const values = [
@@ -1653,7 +1767,7 @@ export function createOGrafMcpServer(
     {
       title: 'Apply atomic OGraf authoring operations',
       description:
-        'Atomically applies scene, timeline, loop, data, lifecycle, asset, duplication, and canvas-layout operations using expectedRevision. Creation returns stable IDs. set_layer_loop creates/updates one layer-local deterministic clip; activation type lifecycle runs while the graphic is on-air, while type step requires a pausable stepKeyframeId. set_loop_property_track writes local 0..durationFrames numeric keys with independent incoming easing/curves; these keys never become composition keys or OGraf Steps, null repeatCount is infinite, and remove_layer_loop removes the complete clip. create_timeline_group organizes at least two independent layer rows for editor/MCP readability and returns a stable timeline-group ID; rename_timeline_group, set_timeline_group_color, and ungroup_timeline_group edit only that UI organization and never alter paint order, layer tracks, canvas object groups, or compiled OGraf output. add_asset accepts base64 (without a data-URI prefix) and returns an asset ID usable as asset:<id>. Operations with one layer accept layerId or exact layerName (ambiguity is rejected); exact layerName and fieldKey selectors resolve entities created earlier in the same batch. set_layer_binding accepts fieldId or unique fieldKey, and update_data_field accepts fieldId or unique fieldKey. set_layer_layout clipChildren=true makes that layer an animated rotation-aware mask for direct children whose parentId points to it; rectangle borderRadius rounds the transformed mask, and duplicate_group preserves/remaps this relation. rectangle/ellipse fill accepts either a solid color string or {type:"linear"|"radial"|"conic",angle,stops:[{offset,color,opacity}]}; animate a stop with numeric property fill.stops[N].offset (zero-based, values 0..1). stagger_property_track accepts layerIds or a * wildcard layerNamePattern resolved in document order. update_transform/update_effects default scope="authored" and write every lifecycle frame; scope="frame" requires frame for animation edits. duplicate_group creates independent grouped copies and complete layer/field mappings; frameOffset shifts only non-lifecycle authored keys, keeps lifecycle compatibility keys anchored, and rejects genuine authored keys moved outside the duration. dryRun is revision-neutral and atomic. Higher indexes paint later/on top; property easing is incoming. Every authoring warning is returned verbatim in the primary text response with its operation index and affected layer.',
+        'Atomically applies scene, timeline, loop, data, lifecycle, asset, duplication, component, and canvas-layout operations using expectedRevision. Creation returns stable IDs. Lifecycle rename/move/remove uses the same retiming planner, duration bounds, and warnings as OGraf Studio. group_layers/ungroup_layers persist canvas object groups; save_component/instantiate_component create portable authoring snapshots and independently editable standard-layer instances with complete mappings; custom-action CRUD edits controller-visible actions; remove_asset refuses live image references unless force=true. set_layer_loop creates/updates one layer-local deterministic clip; activation type lifecycle runs while the graphic is on-air, while type step requires a pausable stepKeyframeId. set_loop_property_track writes local 0..durationFrames numeric keys with independent incoming easing/curves; these keys never become composition keys or OGraf Steps, null repeatCount is infinite, and remove_layer_loop removes the complete clip. create_timeline_group organizes at least two independent layer rows for editor/MCP readability and returns a stable timeline-group ID; rename_timeline_group, set_timeline_group_color, and ungroup_timeline_group edit only that UI organization and never alter paint order, layer tracks, canvas object groups, or compiled OGraf output. add_asset accepts base64 (without a data-URI prefix) and returns an asset ID usable as asset:<id>. Operations with one layer accept layerId or exact layerName (ambiguity is rejected); exact layerName and fieldKey selectors resolve entities created earlier in the same batch. set_layer_bindings replaces an ordered multi-property binding list and accepts fieldId or unique fieldKey for each entry; set_layer_binding remains the legacy single-binding replacement. update_data_field accepts fieldId or unique fieldKey. set_layer_layout clipChildren=true makes that layer an animated rotation-aware mask for direct children whose parentId points to it; rectangle borderRadius rounds the transformed mask, and duplicate_group preserves/remaps this relation. rectangle/ellipse fill accepts either a solid color string or {type:"linear"|"radial"|"conic",angle,stops:[{offset,color,opacity}]}; animate a stop with numeric property fill.stops[N].offset (zero-based, values 0..1). stagger_property_track accepts layerIds or a * wildcard layerNamePattern resolved in document order. update_transform/update_effects default scope="authored" and write every lifecycle frame; scope="frame" requires frame for animation edits. duplicate_group creates independent grouped copies and complete layer/field mappings; frameOffset shifts only non-lifecycle authored keys, keeps lifecycle compatibility keys anchored, and rejects genuine authored keys moved outside the duration. dryRun is revision-neutral and atomic. Higher indexes paint later/on top; property easing is incoming. Every authoring warning is returned verbatim in the primary text response with its operation index and affected layer.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -1696,7 +1810,15 @@ export function createOGrafMcpServer(
           type: 'duplicate_group',
           copies: group.copies,
         }));
-        const results = [...generatedResults, ...duplicateResults];
+        const componentResults = result.summary.componentInstances.map((instance) => ({
+          index: instance.operationIndex,
+          type: 'instantiate_component',
+          componentId: instance.componentId,
+          groupId: instance.groupId,
+          layers: instance.layers,
+          fields: instance.fields,
+        }));
+        const results = [...generatedResults, ...duplicateResults, ...componentResults];
         const runLint = dryRun && (broadcastLint || interlacedOutput);
         const lintWarnings = runLint ? broadcastLintWarnings(result.project, interlacedOutput) : [];
         const response = {

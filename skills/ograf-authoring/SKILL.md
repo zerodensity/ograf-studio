@@ -1,11 +1,11 @@
 ---
 name: ograf-authoring
-description: Create, inspect, animate, validate, certify, save, and export EBU OGraf-compatible broadcast graphics through the OGraf Editor MCP server. Use for lower thirds, scoreboards, tickers, looping backgrounds, HTML5 broadcast templates, .ogeproj project files, .ograf.zip packages, scene/layer edits, per-property keyframes and local loops, easing, data fields, bindings, and OGraf compliance work.
+description: Create, inspect, animate, validate, certify, save, and export EBU OGraf-compatible broadcast graphics through the OGraf Studio MCP server. Use for lower thirds, scoreboards, tickers, looping backgrounds, HTML5 broadcast templates, .ogeproj project files, .ograf.zip packages, scene/layer edits, per-property keyframes and local loops, easing, data fields, bindings, and OGraf compliance work.
 ---
 
 # OGraf Authoring
 
-Use the OGraf Editor as the source of truth and keep every generated result editable in its canonical project model. Treat final OGraf certification as a hard gate, not a best-effort check.
+Use OGraf Studio as the source of truth and keep every generated result editable in its canonical project model. Treat final OGraf certification as a hard gate, not a best-effort check.
 
 If the MCP dependency is unavailable, use
 [references/setup.md](./references/setup.md) to start or recover the local editor and server. Do not
@@ -81,6 +81,9 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   for long-lived references and surgical key edits.
 - Register reusable image payloads once with `add_asset`, then use `asset:<id>` in image elements,
   image sequences, or image-url defaults. Do not repeat base64 in layer definitions.
+- Use `set_layer_bindings` when one layer exposes more than one data-driven property. Each binding
+  accepts a stable `fieldId` or unique `fieldKey`, and each target property may appear only once.
+  `set_layer_binding` remains a legacy single-binding replacement and clears any additional rows.
 - Use `duplicate_group` for independent repeated cells. Animate the source before duplication if
   its animation must be copied. A positive `frameOffset` shifts non-lifecycle authored keys only;
   Start/Step/End compatibility keys remain anchored. Ensure headroom for the shifted authored keys;

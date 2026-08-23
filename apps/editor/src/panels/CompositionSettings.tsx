@@ -4,6 +4,8 @@ import { COMPOSITION_PRESETS, matchesCompositionPreset } from './compositionPres
 
 export function CompositionSettings() {
   const composition = useActiveComposition();
+  const project = useProjectStore((s) => s.project);
+  const setProjectMeta = useProjectStore((s) => s.setProjectMeta);
   const update = useProjectStore((s) => s.updateCompositionSettings);
   const updateLayout = useProjectStore((s) => s.updateCompositionLayout);
   const addGuide = useProjectStore((s) => s.addCanvasGuide);
@@ -78,6 +80,33 @@ export function CompositionSettings() {
           step="any"
           value={Number(composition.frameRate.toFixed(3))}
           onChange={(e) => update({ frameRate: Number(e.target.value) })}
+        />
+      </label>
+      <label className="inspector-row">
+        <span>Update crossfade frames</span>
+        <input
+          type="number"
+          min={0}
+          value={composition.updateTransitionFrames}
+          onChange={(e) => update({ updateTransitionFrames: Number(e.target.value) })}
+        />
+      </label>
+
+      <h3 className="inspector-section">Render modes</h3>
+      <label className="inspector-row inspector-checkbox-row">
+        <span>Real-time</span>
+        <input
+          type="checkbox"
+          checked={project.supportsRealTime}
+          onChange={(event) => setProjectMeta({ supportsRealTime: event.target.checked })}
+        />
+      </label>
+      <label className="inspector-row inspector-checkbox-row">
+        <span>Non-real-time</span>
+        <input
+          type="checkbox"
+          checked={project.supportsNonRealTime}
+          onChange={(event) => setProjectMeta({ supportsNonRealTime: event.target.checked })}
         />
       </label>
 

@@ -1,4 +1,4 @@
-# OGraf Editor
+# OGraf Studio
 
 A browser-based visual editor for authoring OGraf-compliant HTML5 broadcast graphics templates (lower thirds, scoreboards, tickers), inspired by Loopic (https://app.loopic.io). OGraf spec: https://ograf.ebu.io/v1/specification/docs/Specification.html
 

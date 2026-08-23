@@ -46,7 +46,7 @@ export function InspectorPanel() {
   const updateLayerElement = useProjectStore((s) => s.updateLayerElement);
   const updateLayerPaint = useProjectStore((s) => s.updateLayerPaint);
   const updateLayerEffects = useProjectStore((s) => s.updateLayerEffects);
-  const setLayerBinding = useProjectStore((s) => s.setLayerBinding);
+  const setLayerBindings = useProjectStore((s) => s.setLayerBindings);
   const toggleLayerLock = useProjectStore((s) => s.toggleLayerLock);
   const setLayerParent = useProjectStore((s) => s.setLayerParent);
   const setLayerClipChildren = useProjectStore((s) => s.setLayerClipChildren);
@@ -109,6 +109,13 @@ export function InspectorPanel() {
   const imageSrc = layer.element.type === 'image' ? layer.element.src : null;
   const sequenceFrames = layer.element.type === 'image-sequence' ? layer.element.frames : [];
   const selectedFontFamily = layer.element.type === 'text' ? layer.element.fontFamily : '';
+  const importedFontOptions = composition.assets
+    .filter((asset) => asset.kind === 'font')
+    .map((asset) => ({
+      label: asset.fontFamily || asset.name.replace(/\.[^.]+$/, ''),
+      value: asset.fontFamily || asset.name.replace(/\.[^.]+$/, ''),
+    }));
+  const availableFontOptions = [...importedFontOptions, ...FONT_OPTIONS];
 
   return (
     <Panel title="Inspector">
@@ -193,52 +200,98 @@ export function InspectorPanel() {
         </div>
         {layer.groupId && <p className="inspector-hint">Persistent group: {layer.groupId}</p>}
 
-        <h3 className="inspector-section">Data Binding</h3>
-        <label className="inspector-row">
-          <span>Field</span>
-          <select
-            value={layer.binding?.fieldId ?? ''}
-            onChange={(e) => {
-              const fieldId = e.target.value;
-              if (!fieldId) {
-                setLayerBinding(layer.id, null);
-                return;
+        <h3 className="inspector-section">Data Bindings</h3>
+        <div className="inspector-binding-list">
+          {layer.bindings.map((binding, index) => (
+            <div className="inspector-binding" key={`${binding.targetProperty}:${index}`}>
+              <label className="inspector-row">
+                <span>Field</span>
+                <select
+                  aria-label={`Binding ${index + 1} field`}
+                  value={binding.fieldId}
+                  onChange={(event) => {
+                    const bindings = layer.bindings.map((candidate, candidateIndex) =>
+                      candidateIndex === index
+                        ? { ...candidate, fieldId: event.target.value }
+                        : candidate,
+                    );
+                    setLayerBindings(layer.id, bindings);
+                  }}
+                >
+                  {composition.dataFields.map((field) => (
+                    <option key={field.id} value={field.id}>
+                      {field.label || field.key}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="inspector-row">
+                <span>Property</span>
+                <select
+                  aria-label={`Binding ${index + 1} property`}
+                  value={binding.targetProperty}
+                  onChange={(event) => {
+                    const bindings = layer.bindings.map((candidate, candidateIndex) =>
+                      candidateIndex === index
+                        ? { ...candidate, targetProperty: event.target.value }
+                        : candidate,
+                    );
+                    setLayerBindings(layer.id, bindings);
+                  }}
+                >
+                  {BINDABLE_PROPERTIES[layer.element.type]
+                    .filter(
+                      (property) =>
+                        property.value === binding.targetProperty ||
+                        !layer.bindings.some(
+                          (candidate, candidateIndex) =>
+                            candidateIndex !== index && candidate.targetProperty === property.value,
+                        ),
+                    )
+                    .map((property) => (
+                      <option key={property.value} value={property.value}>
+                        {property.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="inspector-binding-remove"
+                aria-label={`Remove binding ${index + 1}`}
+                onClick={() =>
+                  setLayerBindings(
+                    layer.id,
+                    layer.bindings.filter((_, candidateIndex) => candidateIndex !== index),
+                  )
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            disabled={
+              composition.dataFields.length === 0 ||
+              BINDABLE_PROPERTIES[layer.element.type].every((property) =>
+                layer.bindings.some((binding) => binding.targetProperty === property.value),
+              )
+            }
+            onClick={() => {
+              const targetProperty = BINDABLE_PROPERTIES[layer.element.type].find(
+                (property) =>
+                  !layer.bindings.some((binding) => binding.targetProperty === property.value),
+              )?.value;
+              const fieldId = composition.dataFields[0]?.id;
+              if (targetProperty && fieldId) {
+                setLayerBindings(layer.id, [...layer.bindings, { fieldId, targetProperty }]);
               }
-              const defaultTarget = BINDABLE_PROPERTIES[layer.element.type][0]?.value;
-              setLayerBinding(
-                layer.id,
-                defaultTarget ? { fieldId, targetProperty: defaultTarget } : null,
-              );
             }}
           >
-            <option value="">None</option>
-            {composition.dataFields.map((field) => (
-              <option key={field.id} value={field.id}>
-                {field.label || field.key}
-              </option>
-            ))}
-          </select>
-        </label>
-        {layer.binding && (
-          <label className="inspector-row">
-            <span>Property</span>
-            <select
-              value={layer.binding.targetProperty}
-              onChange={(e) =>
-                setLayerBinding(layer.id, {
-                  fieldId: layer.binding!.fieldId,
-                  targetProperty: e.target.value,
-                })
-              }
-            >
-              {BINDABLE_PROPERTIES[layer.element.type].map((prop) => (
-                <option key={prop.value} value={prop.value}>
-                  {prop.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+            + Add Binding
+          </button>
+        </div>
 
         <h3 className="inspector-section">Transform — frame {roundedFrame}</h3>
         {!activeLayerKeyframe && (
@@ -419,15 +472,18 @@ export function InspectorPanel() {
         )}
 
         <h3 className="inspector-section">{layer.element.type}</h3>
-        {layer.binding && (
+        {layer.bindings.length > 0 && (
           <p className="inspector-hint">
-            "
-            {
-              BINDABLE_PROPERTIES[layer.element.type].find(
-                (p) => p.value === layer.binding!.targetProperty,
-              )?.label
-            }
-            " is data-driven — the value below is only the design-time default.
+            {layer.bindings
+              .map(
+                (binding) =>
+                  BINDABLE_PROPERTIES[layer.element.type].find(
+                    (property) => property.value === binding.targetProperty,
+                  )?.label ?? binding.targetProperty,
+              )
+              .join(', ')}{' '}
+            {layer.bindings.length === 1 ? 'is' : 'are'} data-driven — values below are design-time
+            defaults.
           </p>
         )}
         {layer.element.type === 'rectangle' && (
@@ -524,10 +580,10 @@ export function InspectorPanel() {
                 value={selectedFontFamily}
                 onChange={(e) => setTextElement({ fontFamily: e.target.value })}
               >
-                {!FONT_OPTIONS.some((option) => option.value === selectedFontFamily) && (
+                {!availableFontOptions.some((option) => option.value === selectedFontFamily) && (
                   <option value={selectedFontFamily}>Current custom font</option>
                 )}
-                {FONT_OPTIONS.map((option) => (
+                {availableFontOptions.map((option) => (
                   <option
                     key={option.value}
                     value={option.value}

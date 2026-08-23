@@ -65,6 +65,12 @@ describe('compileDescriptor', () => {
       color: '#7c6cff',
       layerIds: [parent.id, child.id],
     });
+    composition.components.push({
+      id: 'component-lower-third',
+      name: 'Reusable Lower Third',
+      layers: [structuredClone(parent), structuredClone(child)],
+      dataFields: [],
+    });
 
     const serialized = JSON.stringify(compileDescriptor(composition));
 
@@ -75,6 +81,8 @@ describe('compileDescriptor', () => {
     expect(serialized).not.toContain('showTitleSafe');
     expect(serialized).not.toContain('guide-v');
     expect(serialized).not.toContain('folder-day-one');
+    expect(serialized).not.toContain('component-lower-third');
+    expect(serialized).not.toContain('Reusable Lower Third');
   });
 
   it('compiles only clipping parent relationships and preserves gradient paint', () => {
@@ -102,20 +110,38 @@ describe('compileDescriptor', () => {
   it('resolves a binding fieldId to the field key as dataKey', () => {
     const layer = createLayerOfKind('text');
     const field = createFieldDefinition('text', { key: 'headline', label: 'Headline' });
-    layer.binding = { fieldId: field.id, targetProperty: 'content' };
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'content' }];
     const descriptor = compileDescriptor(compositionWith([layer], { dataFields: [field] }));
     // The runtime only ever sees data keyed by the public field key, never internal field ids.
-    expect(descriptor.layers[0]!.binding).toEqual({
-      dataKey: 'headline',
-      targetProperty: 'content',
-    });
+    expect(descriptor.layers[0]!.bindings).toEqual([
+      { dataKey: 'headline', targetProperty: 'content' },
+    ]);
   });
 
   it('drops a binding whose field no longer exists', () => {
     const layer = createLayerOfKind('text');
-    layer.binding = { fieldId: 'field-that-was-deleted', targetProperty: 'content' };
+    layer.bindings = [{ fieldId: 'field-that-was-deleted', targetProperty: 'content' }];
     const descriptor = compileDescriptor(compositionWith([layer], { dataFields: [] }));
-    expect(descriptor.layers[0]!.binding).toBeNull();
+    expect(descriptor.layers[0]!.bindings).toEqual([]);
+  });
+
+  it('compiles multiple bindings on one layer without exposing internal field ids', () => {
+    const layer = createLayerOfKind('text');
+    const content = createFieldDefinition('text', { key: 'headline' });
+    const color = createFieldDefinition('color', { key: 'headline_color' });
+    layer.bindings = [
+      { fieldId: content.id, targetProperty: 'content' },
+      { fieldId: color.id, targetProperty: 'color' },
+    ];
+
+    const descriptor = compileDescriptor(
+      compositionWith([layer], { dataFields: [content, color] }),
+    );
+
+    expect(descriptor.layers[0]!.bindings).toEqual([
+      { dataKey: 'headline', targetProperty: 'content' },
+      { dataKey: 'headline_color', targetProperty: 'color' },
+    ]);
   });
 
   it('preserves each layer independent animation key timing', () => {

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import { createLayerEffects, createLayerLoopClip } from '@ograf-editor/scene-model';
-import { sampleCompiledLayerVisualState } from './loopRendering';
+import {
+  interpolateCompiledLayerVisualState,
+  sampleCompiledLayerVisualState,
+} from './loopRendering';
+import { resolveBoundElement } from './renderElement';
 
 function layer(): CompiledLayer {
   return {
@@ -48,7 +52,7 @@ function layer(): CompiledLayer {
         ],
       },
     }),
-    binding: null,
+    bindings: [],
   };
 }
 
@@ -60,5 +64,59 @@ describe('compiled loop sampling', () => {
     expect(atPeak.transform.width).toBe(440);
     expect(atPeak.transform.x).toBe(100);
     expect(sampleCompiledLayerVisualState(compiled, 0, 30)).toEqual(atPeak);
+  });
+
+  it('interpolates an exit directly without exposing intervening lifecycle states', () => {
+    const compiled = layer();
+    compiled.loop = null;
+    compiled.animationTracks = {
+      x: [
+        { id: 'x-start', frame: 0, value: 100, easing: 'linear' },
+        { id: 'x-step-1', frame: 10, value: 100, easing: 'linear' },
+        { id: 'x-step-2', frame: 20, value: 900, easing: 'linear' },
+        { id: 'x-end', frame: 30, value: 100, easing: 'linear' },
+      ],
+      opacity: [
+        { id: 'opacity-start', frame: 0, value: 0, easing: 'linear' },
+        { id: 'opacity-step-1', frame: 10, value: 0, easing: 'linear' },
+        { id: 'opacity-step-2', frame: 20, value: 1, easing: 'linear' },
+        { id: 'opacity-end', frame: 30, value: 0, easing: 'linear' },
+      ],
+    };
+
+    const source = sampleCompiledLayerVisualState(compiled, 10);
+    const target = sampleCompiledLayerVisualState(compiled, 30);
+    const halfway = interpolateCompiledLayerVisualState(compiled, source, target, 0.5, 30);
+
+    expect(sampleCompiledLayerVisualState(compiled, 20).transform).toMatchObject({
+      x: 900,
+      opacity: 1,
+    });
+    expect(halfway.transform).toMatchObject({ x: 100, opacity: 0 });
+  });
+
+  it('resolves multiple compiled bindings on independent element properties', () => {
+    const compiled = layer();
+    compiled.element = {
+      type: 'text',
+      content: 'Default',
+      color: '#ffffff',
+      fontFamily: 'sans-serif',
+      fontSize: 48,
+      fontWeight: 600,
+      textAlign: 'left',
+      autoFit: 'fixed',
+    };
+    compiled.bindings = [
+      { dataKey: 'headline', targetProperty: 'content' },
+      { dataKey: 'headlineColor', targetProperty: 'color' },
+    ];
+
+    expect(
+      resolveBoundElement(compiled, {
+        headline: 'Multiple bindings',
+        headlineColor: '#ff3366',
+      }),
+    ).toMatchObject({ content: 'Multiple bindings', color: '#ff3366' });
   });
 });

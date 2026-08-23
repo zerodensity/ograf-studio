@@ -18,10 +18,13 @@ import type { ProjectValidationResult } from '@ograf-editor/validation';
 export type AuthoringOperation =
   | {
       type: 'set_project_metadata';
+      id?: string;
       name?: string;
       description?: string;
       version?: string;
       author?: { name: string; email?: string; url?: string };
+      supportsRealTime?: boolean;
+      supportsNonRealTime?: boolean;
     }
   | {
       type: 'set_composition';
@@ -30,6 +33,7 @@ export type AuthoringOperation =
       width?: number;
       height?: number;
       frameRate?: number;
+      updateTransitionFrames?: number;
       backgroundColor?: string;
     }
   | {
@@ -37,6 +41,24 @@ export type AuthoringOperation =
       compositionId?: string;
       patch: Partial<Omit<CompositionLayout, 'guides'>>;
     }
+  | {
+      type: 'add_lifecycle_step';
+      compositionId?: string;
+      name?: string;
+    }
+  | {
+      type: 'rename_lifecycle_keyframe';
+      compositionId?: string;
+      keyframeId: string;
+      name: string;
+    }
+  | {
+      type: 'move_lifecycle_keyframe';
+      compositionId?: string;
+      keyframeId: string;
+      frame: number;
+    }
+  | { type: 'remove_lifecycle_step'; compositionId?: string; keyframeId: string }
   | {
       type: 'add_canvas_guide';
       compositionId?: string;
@@ -73,12 +95,51 @@ export type AuthoringOperation =
     }
   | { type: 'ungroup_timeline_group'; compositionId?: string; groupId: string }
   | {
+      type: 'group_layers';
+      compositionId?: string;
+      id?: string;
+      layerIds: string[];
+    }
+  | {
+      type: 'ungroup_layers';
+      compositionId?: string;
+      layerIds?: string[];
+      groupId?: string;
+    }
+  | {
+      type: 'save_component';
+      compositionId?: string;
+      id?: string;
+      layerIds: string[];
+      name: string;
+    }
+  | {
+      type: 'instantiate_component';
+      compositionId?: string;
+      componentId: string;
+      offset?: { x?: number; y?: number };
+    }
+  | {
+      type: 'rename_component';
+      compositionId?: string;
+      componentId: string;
+      name: string;
+    }
+  | { type: 'remove_component'; compositionId?: string; componentId: string }
+  | {
       type: 'add_asset';
       compositionId?: string;
       name: string;
       mimeType: string;
+      fontFamily?: string;
       /** Base64 payload without a data-URI prefix. */
       data: string;
+    }
+  | {
+      type: 'remove_asset';
+      compositionId?: string;
+      assetId: string;
+      force?: boolean;
     }
   | {
       type: 'add_layer';
@@ -274,6 +335,29 @@ export type AuthoringOperation =
       binding: LayerBinding | null;
     }
   | {
+      type: 'set_layer_bindings';
+      compositionId?: string;
+      layerId: string;
+      bindings: LayerBinding[];
+    }
+  | {
+      type: 'add_custom_action';
+      compositionId?: string;
+      id?: string;
+      actionId: string;
+      name?: string;
+      description?: string;
+    }
+  | {
+      type: 'update_custom_action';
+      compositionId?: string;
+      actionId: string;
+      nextActionId?: string;
+      name?: string;
+      description?: string;
+    }
+  | { type: 'remove_custom_action'; compositionId?: string; actionId: string }
+  | {
       type: 'set_transition';
       compositionId?: string;
       transitionId: string;
@@ -289,7 +373,18 @@ export interface AuthoringChangeSummary {
   affectedFrames: number[];
   generatedIds: Array<{
     operationIndex: number;
-    kind: 'layer' | 'property-key' | 'field' | 'guide' | 'asset' | 'timeline-group' | 'loop';
+    kind:
+      | 'layer'
+      | 'property-key'
+      | 'lifecycle-keyframe'
+      | 'field'
+      | 'guide'
+      | 'asset'
+      | 'timeline-group'
+      | 'canvas-group'
+      | 'custom-action'
+      | 'component'
+      | 'loop';
     id: string;
   }>;
   clearedBindings: Array<{ layerId: string; layerName: string; fieldId: string }>;
@@ -302,6 +397,13 @@ export interface AuthoringChangeSummary {
       layers: Record<string, string>;
       fields: Record<string, string>;
     }>;
+  }>;
+  componentInstances: Array<{
+    operationIndex: number;
+    componentId: string;
+    groupId: string;
+    layers: Record<string, string>;
+    fields: Record<string, string>;
   }>;
 }
 

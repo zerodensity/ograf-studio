@@ -1,6 +1,6 @@
 # Current Status
 
-Last verified: 2026-08-21
+Last verified: 2026-08-23
 
 ## Current milestone
 
@@ -8,9 +8,33 @@ OGraf compliance and architecture hardening.
 
 ## Working
 
+- The user-facing product name is **OGraf Studio**. Existing `@ograf-editor/*` package names,
+  `.ogeproj` source compatibility, persisted IDs, and MCP tool names remain unchanged.
 - React/Vite visual editor with DOM-based canvas, timeline, data fields, preview, and ZIP export.
+- Document v11 supports multiple independent data bindings on one layer. The Inspector adds,
+  retargets, and removes binding rows; compiler/runtime/capture apply the ordered list, validation
+  rejects duplicate target properties, MCP exposes `set_layer_bindings`, and v10 sources migrate
+  their singular binding automatically.
+- Structural editor/MCP parity now covers lifecycle Step rename/move/remove, persistent canvas
+  group/ungroup, custom action add/update/remove, and reference-safe asset removal. The lifecycle
+  retime planner moved into the shared scene model so browser and MCP mutations use identical
+  bounds and stranded-key warnings.
+- Document v12 adds reusable component snapshots. The Resources panel can save the current layer
+  selection, rename/insert/delete definitions, and select each newly inserted instance. Instances
+  receive fresh layer/key/loop/field IDs, unique field keys, remapped bindings and internal parents,
+  a placement offset, and a new persistent group. MCP exposes the same four operations and returns
+  complete layer/field mappings. Components remain authoring-only; compiled OGraf output contains
+  ordinary independent layers.
+- Photoshop-style SVG bundles can be imported by selecting one SVG with companion CSS, images, and
+  font files. CSS is injected into the SVG, selected relative resources become embedded data URIs,
+  XML stylesheet references are removed, selected fonts are also registered as project font assets,
+  and unresolved paths are reported in the Resources panel. The portable result intentionally
+  remains a single image asset rather than pretending rasterized Photoshop content is editable.
 - Explicit Start → Step(s) → End authoring model with legacy project migration.
 - Correct first-play, boundary-crossing, stop, and zero-step lifecycle resolution.
+- State-aware exits now interpolate directly from the active rendered Step to End using the
+  incoming End keys and declared stop duration. Stopping from an early Step no longer exposes later
+  Step poses; realtime actions and deterministic scheduled `goToTime()` use the same rule.
 - Shared editor/export timeline interpreter, including transform-origin animation.
 - Deterministic non-realtime schedule seeking and timestamp-derived image sequences.
 - Document v10 adds self-contained Lottie JSON layers rendered by a bundled light canvas player.
@@ -262,13 +286,15 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 
 ## Verification baseline
 
-- `npm test`: 197 tests pass across 44 files after timeline, transport, scrubbing, canvas zoom,
+- `npm test`: 212 tests pass across 46 files after timeline, transport, scrubbing, canvas zoom,
   OGraf-step playback, Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,
   typography/effects, per-property animation, retiming, migration, lower-third-demo, and
   compatibility-gate hardening, rotation-aware masking, ticker clipping, animated gradient stops,
-  plus authoring-core and MCP concurrency/tool integration.
+  multi-property data binding, direct state-aware exits, shared lifecycle retiming, reusable
+  component snapshots/instantiation, portable SVG/CSS bundle import, plus
+  authoring-core and MCP concurrency/structural-parity integration.
 - Agent-first live verification: labelled strip exposed an intentionally missing hold; later-index
   paint order and incoming quadratic easing were confirmed from browser PNGs; fallback-font text
   measurement and Turkish overflow stress passed; whole-track/stagger dry runs remained atomic;
