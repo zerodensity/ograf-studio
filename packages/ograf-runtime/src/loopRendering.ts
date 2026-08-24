@@ -79,7 +79,7 @@ export function interpolateCompiledLayerVisualState(
     ...(Object.keys(target.paintTracks) as AnimatableLayerProperty[]),
   ]);
   for (const property of paintProperties) {
-    if (!isGradientStopOffsetProperty(property)) continue;
+    if (!isGradientStopOffsetProperty(property) && property !== 'strokeWidth') continue;
     const from = source.paintTracks[property]?.[0]?.value ?? 0;
     const to = target.paintTracks[property]?.[0]?.value ?? from;
     const eased = incomingProgress(layer, property, targetFrame, clampedProgress);
@@ -132,7 +132,13 @@ export function sampleCompiledLayerVisualState(
   if (loop && localFrame !== undefined) {
     for (const property of Object.keys(loop.tracks) as AnimatableLayerProperty[]) {
       const keys = loop.tracks[property] ?? [];
-      if (keys.length === 0 || isGradientStopOffsetProperty(property)) continue;
+      if (
+        keys.length === 0 ||
+        isGradientStopOffsetProperty(property) ||
+        property === 'strokeWidth'
+      ) {
+        continue;
+      }
       if (TRANSFORM_ANIMATION_PROPERTIES.includes(property as keyof LayerTransform)) {
         const transformProperty = property as keyof LayerTransform;
         transform[transformProperty] = getTrackValueAtFrame(
@@ -153,8 +159,14 @@ export function sampleCompiledLayerVisualState(
     ...(Object.keys(loop?.tracks ?? {}) as AnimatableLayerProperty[]),
   ]);
   for (const property of paintProperties) {
-    if (!isGradientStopOffsetProperty(property)) continue;
-    const baseValue = getTrackValueAtFrame(layer.animationTracks[property] ?? [], baseFrame, 0);
+    if (!isGradientStopOffsetProperty(property) && property !== 'strokeWidth') continue;
+    const fallback =
+      property === 'strokeWidth' && layer.element.type === 'text' ? layer.element.strokeWidth : 0;
+    const baseValue = getTrackValueAtFrame(
+      layer.animationTracks[property] ?? [],
+      baseFrame,
+      fallback,
+    );
     const loopKeys = loop?.tracks[property] ?? [];
     const value =
       localFrame !== undefined && loopKeys.length > 0

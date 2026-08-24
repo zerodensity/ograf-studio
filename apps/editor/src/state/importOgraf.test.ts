@@ -76,6 +76,10 @@ describe('best-effort OGraf import', () => {
   it('reconstructs editable layers, lifecycle, schema, actions, and embedded image data', async () => {
     const { project, composition } = editableFixture();
     const descriptor = compileDescriptor(composition);
+    const legacyText = descriptor.layers[0]!.element as unknown as Record<string, unknown>;
+    delete legacyText.strokeColor;
+    delete legacyText.strokeWidth;
+    delete descriptor.layers[0]!.animationTracks.strokeWidth;
     const manifest = assembleManifest(project, composition, descriptor);
     const zip = await packageBytes({
       [`${manifest.id}.ograf.json`]: JSON.stringify(manifest),
@@ -96,6 +100,11 @@ describe('best-effort OGraf import', () => {
     expect(result).toMatchObject({ width: 1280, height: 720, frameRate: 50 });
     expect(result.layers).toHaveLength(2);
     expect(result.layers[0]!.blendMode).toBe('screen');
+    expect(result.layers[0]!.element).toMatchObject({
+      type: 'text',
+      strokeColor: 'transparent',
+      strokeWidth: 0,
+    });
     expect(result.layers[0]?.keyframes.map((key) => key.frame)).toEqual([0, 12, 24]);
     expect(result.dataFields).toHaveLength(1);
     expect(result.layers[0]?.bindings[0]?.fieldId).toBe(result.dataFields[0]?.id);

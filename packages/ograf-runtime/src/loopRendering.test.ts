@@ -99,6 +99,37 @@ describe('compiled loop sampling', () => {
     expect(halfway.transform).toMatchObject({ x: 100, opacity: 0 });
   });
 
+  it('samples and directly interpolates text stroke width across lifecycle and local loops', () => {
+    const compiled = layer();
+    compiled.element = createTextElement({
+      content: 'Score',
+      strokeColor: '#101820',
+      strokeWidth: 0,
+    });
+    compiled.animationTracks.strokeWidth = [
+      { id: 'stroke-start', frame: 0, value: 0, easing: 'linear' },
+      { id: 'stroke-end', frame: 10, value: 8, easing: 'linear' },
+    ];
+    compiled.loop!.tracks.strokeWidth = [
+      { id: 'stroke-loop-start', frame: 0, value: 2, easing: 'linear' },
+      { id: 'stroke-loop-peak', frame: 10, value: 6, easing: 'linear' },
+      { id: 'stroke-loop-end', frame: 20, value: 2, easing: 'linear' },
+    ];
+
+    expect(sampleCompiledLayerVisualState(compiled, 5).paintTracks.strokeWidth?.[0]?.value).toBe(4);
+    expect(
+      sampleCompiledLayerVisualState(compiled, 5, 10).paintTracks.strokeWidth?.[0]?.value,
+    ).toBe(6);
+
+    compiled.loop = null;
+    const source = sampleCompiledLayerVisualState(compiled, 0);
+    const target = sampleCompiledLayerVisualState(compiled, 10);
+    expect(
+      interpolateCompiledLayerVisualState(compiled, source, target, 0.5, 10).paintTracks
+        .strokeWidth?.[0]?.value,
+    ).toBe(4);
+  });
+
   it('resolves multiple compiled bindings on independent element properties', () => {
     const compiled = layer();
     compiled.element = createTextElement({

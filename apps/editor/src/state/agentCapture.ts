@@ -13,6 +13,7 @@ import {
 } from '@ograf-editor/ograf-runtime';
 import {
   getLayerTransformAtFrame,
+  getLayerPropertyValueAtFrame,
   getTotalFrames,
   isTransformClippedBy,
   valueAtSourcePath,
@@ -218,13 +219,22 @@ async function waitForRenderableDom(root: HTMLElement): Promise<void> {
   );
 }
 
-function fitPrefixIndex(content: HTMLElement, text: string, width: number, height: number): number {
+function fitPrefixIndex(
+  content: HTMLElement,
+  text: string,
+  width: number,
+  height: number,
+  strokeExpansion = 0,
+): number {
   let lower = 0;
   let upper = text.length;
   while (lower < upper) {
     const candidate = Math.ceil((lower + upper) / 2);
     content.textContent = text.slice(0, candidate);
-    if (content.scrollWidth <= width + 0.5 && content.scrollHeight <= height + 0.5) {
+    if (
+      content.scrollWidth + strokeExpansion <= width + 0.5 &&
+      content.scrollHeight + strokeExpansion <= height + 0.5
+    ) {
       lower = candidate;
     } else {
       upper = candidate - 1;
@@ -569,7 +579,11 @@ export async function measureAgentText(
       : boundField?.defaultValue;
   const defaultValue = valueAtSourcePath(rootDefault, contentBinding?.sourcePath);
   const text = request.text ?? String(defaultValue ?? layer.element.content);
-  const element: TextElement = { ...layer.element, content: text };
+  const element: TextElement = {
+    ...layer.element,
+    content: text,
+    strokeWidth: getLayerPropertyValueAtFrame(layer, 'strokeWidth', frame),
+  };
   const host = document.createElement('div');
   Object.assign(host.style, {
     position: 'fixed',
@@ -587,9 +601,10 @@ export async function measureAgentText(
     const content = host.firstElementChild as HTMLElement | null;
     if (!content) throw new Error('Browser text renderer produced no measurable content.');
     const layout = renderedTextMetrics(content);
+    const strokeExpansion = Math.max(0, element.strokeWidth);
     const overflowsParent =
-      content.scrollWidth > host.clientWidth + 0.5 ||
-      content.scrollHeight > host.clientHeight + 0.5;
+      content.scrollWidth + strokeExpansion > host.clientWidth + 0.5 ||
+      content.scrollHeight + strokeExpansion > host.clientHeight + 0.5;
     const appliedShrinkRatio =
       element.autoFit === 'shrink-to-fit' ? Number(content.dataset.ografShrinkRatio ?? 1) : 1;
     const degenerate = content.dataset.ografShrinkDegenerate === 'true';
@@ -606,8 +621,8 @@ export async function measureAgentText(
       layerName: layer.name,
       frame,
       text,
-      width: layout.width,
-      height: layout.height,
+      width: layout.width + strokeExpansion,
+      height: layout.height + strokeExpansion,
       boxWidth: host.clientWidth,
       boxHeight: host.clientHeight,
       lines: layout.lines,
@@ -621,7 +636,7 @@ export async function measureAgentText(
         resolution: 'inferred',
       },
       clippedAt: overflowsParent
-        ? fitPrefixIndex(content, text, host.clientWidth, host.clientHeight)
+        ? fitPrefixIndex(content, text, host.clientWidth, host.clientHeight, strokeExpansion)
         : null,
     };
   } finally {

@@ -77,8 +77,15 @@ function visiblyOnCanvas(layer: Layer, frame: number, composition: Composition):
   );
 }
 
-function solidColours(layer: Layer): string[] {
-  if (layer.element.type === 'text') return [layer.element.color];
+function solidColours(layer: Layer, frame: number): string[] {
+  if (layer.element.type === 'text') {
+    return [
+      layer.element.color,
+      ...(getLayerPropertyValueAtFrame(layer, 'strokeWidth', frame) > 0
+        ? [layer.element.strokeColor]
+        : []),
+    ];
+  }
   if (layer.element.type === 'rectangle' || layer.element.type === 'ellipse') {
     return [
       ...(typeof layer.element.fill === 'string' ? [layer.element.fill] : []),
@@ -545,7 +552,9 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
 
   const solidPalette = [
     ...new Set(
-      visibleLayers.flatMap(solidColours).filter((colour) => /^#[0-9a-f]{6,8}$/i.test(colour)),
+      visibleLayers
+        .flatMap((layer) => solidColours(layer, onAirFrame))
+        .filter((colour) => /^#[0-9a-f]{6,8}$/i.test(colour)),
     ),
   ].sort();
   if (solidPalette.length > 10) {

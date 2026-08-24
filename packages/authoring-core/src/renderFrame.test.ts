@@ -36,6 +36,39 @@ describe('renderCompositionFrameSvg', () => {
     expect(result.svg).toContain('width="1920"');
   });
 
+  it('renders sampled text stroke behind the SVG glyph fill', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw new Error('Expected a text layer.');
+    layer.element.content = 'Outlined';
+    layer.element.strokeColor = '#101820';
+    layer.element.strokeWidth = 0;
+    layer.keyframes = [
+      createLayerKeyframe(0, {
+        x: 100,
+        y: 100,
+        width: 400,
+        height: 80,
+        rotation: 0,
+        opacity: 1,
+        transformOriginX: 0.5,
+        transformOriginY: 0.5,
+      }),
+    ];
+    layer.animationTracks.strokeWidth = [
+      createLayerPropertyKeyframe(0, 0, { easing: 'linear' }),
+      createLayerPropertyKeyframe(10, 8, { easing: 'linear' }),
+    ];
+    composition.layers.push(layer);
+
+    const { svg } = renderCompositionFrameSvg(project, composition.id, 5);
+
+    expect(svg).toContain('stroke="#101820"');
+    expect(svg).toContain('stroke-width="4"');
+    expect(svg).toContain('paint-order="stroke fill"');
+  });
+
   it('samples image sequences from the composition clock and clamps the frame range', () => {
     const project = createProject();
     const composition = project.compositions[0]!;

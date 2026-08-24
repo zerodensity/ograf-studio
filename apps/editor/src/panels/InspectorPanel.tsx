@@ -18,6 +18,7 @@ import {
   BLEND_MODES,
   findLayerKeyframeAtFrame,
   getLayerEffectsAtFrame,
+  getLayerPropertyValueAtFrame,
   getPaintAtFrame,
   listFieldLeafPaths,
   getResolvedLayerAnimationTracks,
@@ -85,6 +86,8 @@ const DESIGN_TOKEN_TARGETS: Record<
   ],
   text: [
     { property: 'color', label: 'Text colour', tokenType: 'color' },
+    { property: 'strokeColor', label: 'Stroke', tokenType: 'color' },
+    { property: 'strokeWidth', label: 'Stroke width', tokenType: 'number' },
     { property: 'fontFamily', label: 'Font family', tokenType: 'font-family' },
     { property: 'fontSize', label: 'Font size', tokenType: 'number' },
     { property: 'fontWeight', label: 'Font weight', tokenType: 'font-weight' },
@@ -100,6 +103,7 @@ export function InspectorPanel() {
   const updateLayerTransform = useProjectStore((s) => s.updateLayerTransform);
   const updateLayerKeyframeEasing = useProjectStore((s) => s.updateLayerKeyframeEasing);
   const updateLayerElement = useProjectStore((s) => s.updateLayerElement);
+  const updateLayerTextStroke = useProjectStore((s) => s.updateLayerTextStroke);
   const updateLayerPaint = useProjectStore((s) => s.updateLayerPaint);
   const updateLayerEffects = useProjectStore((s) => s.updateLayerEffects);
   const setLayerBindings = useProjectStore((s) => s.setLayerBindings);
@@ -138,6 +142,10 @@ export function InspectorPanel() {
     layer.element.type === 'rectangle' || layer.element.type === 'ellipse'
       ? getPaintAtFrame(layer.element.fill, getResolvedLayerAnimationTracks(layer), currentFrame)
       : null;
+  const evaluatedTextStrokeWidth =
+    layer.element.type === 'text'
+      ? getLayerPropertyValueAtFrame(layer, 'strokeWidth', currentFrame)
+      : 0;
 
   const transformInputValue = (key: keyof LayerTransform): number => {
     if (isLiveTransform) return pose[key];
@@ -161,6 +169,18 @@ export function InspectorPanel() {
     setElement(patch);
     if (next.autoFit === 'auto-size') {
       updateLayerTransform(layer.id, roundedFrame, measureAutoSizedText(next));
+    }
+  };
+
+  const setTextStroke = (patch: Partial<Pick<TextElement, 'strokeColor' | 'strokeWidth'>>) => {
+    if (layer.element.type !== 'text') return;
+    updateLayerTextStroke(layer.id, roundedFrame, patch);
+    if (patch.strokeWidth !== undefined && layer.element.autoFit === 'auto-size') {
+      updateLayerTransform(
+        layer.id,
+        roundedFrame,
+        measureAutoSizedText({ ...layer.element, strokeWidth: Math.max(0, patch.strokeWidth) }),
+      );
     }
   };
 
@@ -752,6 +772,30 @@ export function InspectorPanel() {
                 type="color"
                 value={layer.element.color}
                 onChange={(e) => setTextElement({ color: e.target.value })}
+              />
+            </label>
+            <label className="inspector-row">
+              <span>Stroke Color</span>
+              <input
+                type="color"
+                value={
+                  layer.element.strokeColor === 'transparent'
+                    ? '#000000'
+                    : layer.element.strokeColor
+                }
+                onChange={(event) => setTextStroke({ strokeColor: event.target.value })}
+              />
+            </label>
+            <label className="inspector-row">
+              <span>Stroke Width</span>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={evaluatedTextStrokeWidth}
+                onChange={(event) =>
+                  setTextStroke({ strokeWidth: Math.max(0, Number(event.target.value)) })
+                }
               />
             </label>
             <label className="inspector-row">

@@ -359,7 +359,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         } else if (EFFECT_ANIMATION_PROPERTIES.some((candidate) => candidate === property)) {
           const key = property as (typeof EFFECT_ANIMATION_PROPERTIES)[number];
           effects[key] = looped.effects[key] - base.effects[key];
-        } else if (isGradientStopOffsetProperty(property)) {
+        } else if (isGradientStopOffsetProperty(property) || property === 'strokeWidth') {
           paint[property] =
             (looped.paintTracks[property]?.[0]?.value ?? 0) -
             (base.paintTracks[property]?.[0]?.value ?? 0);

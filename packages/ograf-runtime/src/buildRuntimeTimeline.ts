@@ -102,7 +102,7 @@ export function buildRuntimeTimeline(
     applyInitialState();
 
     for (const property of Object.keys(tracks) as AnimatableLayerProperty[]) {
-      if (isGradientStopOffsetProperty(property)) continue;
+      if (isGradientStopOffsetProperty(property) || property === 'strokeWidth') continue;
       const keyframes = [...(tracks[property] ?? [])].sort((a, b) => a.frame - b.frame);
       for (let index = 1; index < keyframes.length; index++) {
         const from = keyframes[index - 1]!;
@@ -164,7 +164,10 @@ export function buildRuntimeTimeline(
   };
   const hasDynamicRendering = descriptor.layers.some(
     (layer) =>
-      layer.clipParentId || Object.keys(layer.animationTracks).some(isGradientStopOffsetProperty),
+      layer.clipParentId ||
+      Object.keys(layer.animationTracks).some(
+        (property) => isGradientStopOffsetProperty(property) || property === 'strokeWidth',
+      ),
   );
   if (hasDynamicRendering) {
     const clipClock = { progress: 0 };

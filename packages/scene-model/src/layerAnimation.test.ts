@@ -7,6 +7,7 @@ import {
   getLayerTransformAtFrame,
   getLayerEffectsAtFrame,
   getLayerAnimatableProperties,
+  getLayerPropertyValueAtFrame,
   getPaintAtFrame,
   getResolvedLayerAnimationTracks,
 } from './layerAnimation';
@@ -114,5 +115,18 @@ describe('independent layer animation', () => {
     expect(getLayerAnimatableProperties(layer)).toContain('fill.stops[1].offset');
     const paint = getPaintAtFrame(layer.element.fill, getResolvedLayerAnimationTracks(layer), 5);
     expect(typeof paint === 'string' ? null : paint.stops[1]?.offset).toBe(0.5);
+  });
+
+  it('exposes and samples text stroke width without creating invalid image tracks', () => {
+    const text = createLayerOfKind('text');
+    text.animationTracks.strokeWidth = [
+      createLayerPropertyKeyframe(0, 0, { easing: 'linear' }),
+      createLayerPropertyKeyframe(10, 8, { easing: 'linear' }),
+    ];
+    const image = createLayerOfKind('image');
+
+    expect(getLayerAnimatableProperties(text)).toContain('strokeWidth');
+    expect(getLayerPropertyValueAtFrame(text, 'strokeWidth', 5)).toBe(4);
+    expect(getLayerAnimatableProperties(image)).not.toContain('strokeWidth');
   });
 });

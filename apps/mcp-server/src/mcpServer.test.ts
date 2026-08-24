@@ -90,6 +90,8 @@ describe('OGraf MCP authoring host', () => {
         text: {
           textAlign: { values: ['left', 'center', 'right'] },
           autoFit: { values: ['auto-size', 'shrink-to-fit', 'fixed'] },
+          strokeColor: { default: 'transparent' },
+          strokeWidth: { default: 0, minimum: 0, animatable: true },
         },
         image: { src: { default: null } },
         path: { viewBoxWidth: { default: 100 } },
@@ -112,6 +114,7 @@ describe('OGraf MCP authoring host', () => {
       },
       designSystem: {
         operations: expect.arrayContaining(['upsert_design_token', 'bind_design_token']),
+        targetProperties: expect.arrayContaining(['strokeColor', 'strokeWidth']),
       },
       aiReview: {
         query: 'ograf_query_scene',
@@ -148,6 +151,9 @@ describe('OGraf MCP authoring host', () => {
       'elastic-in-out',
     );
     expect((result.structuredContent as { blendModes: string[] }).blendModes).toContain('multiply');
+    expect(
+      (result.structuredContent as { animatableProperties: string[] }).animatableProperties,
+    ).toContain('strokeWidth');
   });
 
   it('projects only requested capability sections while retaining compact protocol metadata', async () => {

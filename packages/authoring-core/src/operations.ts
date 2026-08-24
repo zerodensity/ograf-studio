@@ -157,6 +157,17 @@ function assertPropertyApplicable(
   property: AnimatableLayerProperty,
   value?: number,
 ): void {
+  if (property === 'strokeWidth') {
+    if (layer.element.type !== 'text') {
+      throw new Error(
+        `Property "strokeWidth" is supported only by text layers; "${layer.name}" is ${layer.element.type}.`,
+      );
+    }
+    if (value !== undefined && value < 0) {
+      throw new Error('Text stroke width must be non-negative.');
+    }
+    return;
+  }
   const stopIndex = gradientStopIndexForProperty(property);
   if (stopIndex === null) return;
   const fill =
@@ -1394,7 +1405,23 @@ export function applyAuthoringOperations(
         if ('type' in operation.patch && operation.patch.type !== layer.element.type) {
           throw new Error('An element patch cannot change the layer element type.');
         }
+        const previousStrokeWidth =
+          layer.element.type === 'text' ? layer.element.strokeWidth : null;
+        if (layer.element.type === 'text' && operation.patch.strokeWidth !== undefined) {
+          const strokeWidth = Number(operation.patch.strokeWidth);
+          if (!Number.isFinite(strokeWidth)) {
+            throw new Error('Text stroke width must be finite.');
+          }
+          assertPropertyApplicable(layer, 'strokeWidth', strokeWidth);
+        }
         Object.assign(layer.element, operation.patch);
+        if (layer.element.type === 'text' && operation.patch.strokeWidth !== undefined) {
+          const track = layer.animationTracks.strokeWidth;
+          if (!track?.length) materializeTracks(layer);
+          else if (track.length === 1 && track[0]!.value === previousStrokeWidth) {
+            track[0]!.value = layer.element.strokeWidth;
+          }
+        }
         pruneInvalidGradientStopTracks(layer);
         break;
       }

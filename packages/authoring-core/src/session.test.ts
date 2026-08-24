@@ -152,6 +152,89 @@ describe('AuthoringSession', () => {
     expect(getLayerTransformAtFrame(layer, 7).x).toBe(720);
   });
 
+  it('authors text stroke fields and an independent non-negative width track', () => {
+    const session = new AuthoringSession(createProject(), 'text-stroke-session');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [
+        {
+          type: 'add_layer',
+          kind: 'text',
+          name: 'Outlined score',
+        },
+        { type: 'add_layer', kind: 'image', name: 'Unsupported image' },
+      ],
+    });
+    const [textId, imageId] = created.summary.generatedIds.map((entry) => entry.id);
+    const styled = session.apply({
+      expectedRevision: 1,
+      operations: [
+        {
+          type: 'update_element',
+          layerId: textId!,
+          patch: { strokeColor: '#001122', strokeWidth: 2 },
+        },
+      ],
+    });
+    expect(styled.project.compositions[0]!.layers[0]!.animationTracks.strokeWidth?.[0]?.value).toBe(
+      2,
+    );
+    const keyed = session.apply({
+      expectedRevision: 2,
+      operations: [
+        {
+          type: 'set_property_track',
+          layerId: textId!,
+          property: 'strokeWidth',
+          keys: [
+            { frame: 0, value: 0, easing: 'linear' },
+            { frame: 12, value: 6, easing: 'linear' },
+          ],
+        },
+      ],
+    });
+    expect(keyed.project.compositions[0]!.layers[0]!.element).toMatchObject({
+      type: 'text',
+      strokeColor: '#001122',
+      strokeWidth: 2,
+    });
+    expect(keyed.project.compositions[0]!.layers[0]!.animationTracks.strokeWidth).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ frame: 0, value: 0 }),
+        expect.objectContaining({ frame: 12, value: 6 }),
+      ]),
+    );
+    expect(() =>
+      session.apply({
+        expectedRevision: 3,
+        operations: [
+          {
+            type: 'set_property_key',
+            layerId: textId!,
+            property: 'strokeWidth',
+            frame: 6,
+            value: -1,
+          },
+        ],
+      }),
+    ).toThrow('non-negative');
+    expect(() =>
+      session.apply({
+        expectedRevision: 3,
+        operations: [
+          {
+            type: 'set_property_key',
+            layerId: imageId!,
+            property: 'strokeWidth',
+            frame: 6,
+            value: 2,
+          },
+        ],
+      }),
+    ).toThrow('supported only by text layers');
+    expect(session.revision).toBe(3);
+  });
+
   it('updates authored transforms at every lifecycle frame and retains explicit frame scope', () => {
     const session = new AuthoringSession(createProject(), 'authored-transform-session');
     const created = session.apply({
@@ -285,11 +368,22 @@ describe('AuthoringSession', () => {
             { frame: 20, value: 400, easing: 'quad-in' },
           ],
         },
+        {
+          type: 'set_loop_property_track',
+          layerId,
+          property: 'strokeWidth',
+          keys: [
+            { frame: 0, value: 0, easing: 'linear' },
+            { frame: 10, value: 4, easing: 'sine-out' },
+            { frame: 20, value: 0, easing: 'sine-in' },
+          ],
+        },
       ],
     });
     const layer = looped.project.compositions[0]!.layers[0]!;
     expect(layer.loop?.tracks.opacity?.map((key) => key.value)).toEqual([0.2, 1, 0.2]);
     expect(layer.loop?.tracks.width?.[1]).toMatchObject({ value: 440, easing: 'back-out' });
+    expect(layer.loop?.tracks.strokeWidth?.[1]).toMatchObject({ value: 4, easing: 'sine-out' });
     expect(layer.animationTracks).toEqual(before);
     expect(looped.project.compositions[0]!.keyframes).toHaveLength(3);
     expect(looped.validation.valid).toBe(true);
@@ -881,6 +975,86 @@ describe('AuthoringSession', () => {
       }),
     ).toThrow('Design-token ID already exists: design-token-primary');
     expect(session.revision).toBe(3);
+  });
+
+  it('materializes text stroke design tokens before independent animation is authored', () => {
+    const session = new AuthoringSession(createProject(), 'text-stroke-token-session');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'add_layer', kind: 'text', name: 'Score' }],
+    });
+    const layerId = created.summary.generatedIds[0]!.id;
+    const linked = session.apply({
+      expectedRevision: 1,
+      operations: [
+        {
+          type: 'upsert_design_token',
+          id: 'outline-colour',
+          key: 'sports.outline',
+          tokenType: 'color',
+          value: '#101820',
+        },
+        {
+          type: 'upsert_design_token',
+          id: 'outline-width',
+          key: 'sports.outlineWidth',
+          tokenType: 'number',
+          value: 3,
+        },
+        {
+          type: 'bind_design_token',
+          layerId,
+          tokenId: 'outline-colour',
+          targetProperty: 'strokeColor',
+        },
+        {
+          type: 'bind_design_token',
+          layerId,
+          tokenId: 'outline-width',
+          targetProperty: 'strokeWidth',
+        },
+      ],
+    });
+    const layer = linked.project.compositions[0]!.layers[0]!;
+    expect(layer.element).toMatchObject({
+      type: 'text',
+      strokeColor: '#101820',
+      strokeWidth: 3,
+    });
+    expect(layer.animationTracks.strokeWidth?.[0]?.value).toBe(3);
+    expect(layer.designTokenBindings).toEqual(
+      expect.arrayContaining([
+        { tokenId: 'outline-colour', targetProperty: 'strokeColor' },
+        { tokenId: 'outline-width', targetProperty: 'strokeWidth' },
+      ]),
+    );
+
+    const updated = session.apply({
+      expectedRevision: 2,
+      operations: [
+        {
+          type: 'upsert_design_token',
+          tokenId: 'outline-colour',
+          key: 'sports.outline',
+          tokenType: 'color',
+          value: '#ffffff',
+        },
+        {
+          type: 'upsert_design_token',
+          tokenId: 'outline-width',
+          key: 'sports.outlineWidth',
+          tokenType: 'number',
+          value: 5,
+        },
+      ],
+    });
+    const updatedLayer = updated.project.compositions[0]!.layers[0]!;
+    expect(updatedLayer.element).toMatchObject({
+      type: 'text',
+      strokeColor: '#ffffff',
+      strokeWidth: 5,
+    });
+    expect(updatedLayer.animationTracks.strokeWidth?.[0]?.value).toBe(5);
   });
 
   it('explicitly refreshes linked component instances while leaving normal layers portable', () => {

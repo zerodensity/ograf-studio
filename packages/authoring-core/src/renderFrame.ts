@@ -1,6 +1,7 @@
 import {
   getLayerEffectsAtFrame,
   getPaintAtFrame,
+  getLayerPropertyValueAtFrame,
   getResolvedLayerAnimationTracks,
   getLayerTransformAtFrame,
   getTotalFrames,
@@ -60,7 +61,7 @@ function elementSvg(
           : element.verticalAlign === 'bottom'
             ? Math.max(0, height - blockHeight)
             : 0;
-      return `<text x="${x}" y="${verticalOffset + element.baselineShift + element.fontSize}" fill="${escapeXml(element.color)}" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="${anchor}">${lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>`;
+      return `<text x="${x}" y="${verticalOffset + element.baselineShift + element.fontSize}" fill="${escapeXml(element.color)}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="${anchor}">${lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>`;
     }
     case 'image':
       return element.src
@@ -131,17 +132,22 @@ function layerSvg(
   }, layer.element);
   const resolvedElement = resolveElementAssetReferences(boundElement, composition.assets);
   const element =
-    (resolvedElement.type === 'rectangle' || resolvedElement.type === 'ellipse') &&
-    typeof resolvedElement.fill !== 'string'
+    resolvedElement.type === 'text'
       ? {
           ...resolvedElement,
-          fill: getPaintAtFrame(
-            resolvedElement.fill,
-            getResolvedLayerAnimationTracks(layer),
-            frame,
-          ),
+          strokeWidth: getLayerPropertyValueAtFrame(layer, 'strokeWidth', frame),
         }
-      : resolvedElement;
+      : (resolvedElement.type === 'rectangle' || resolvedElement.type === 'ellipse') &&
+          typeof resolvedElement.fill !== 'string'
+        ? {
+            ...resolvedElement,
+            fill: getPaintAtFrame(
+              resolvedElement.fill,
+              getResolvedLayerAnimationTracks(layer),
+              frame,
+            ),
+          }
+        : resolvedElement;
   const parent = layer.parentId
     ? composition.layers.find(
         (candidate) => candidate.id === layer.parentId && candidate.clipChildren,

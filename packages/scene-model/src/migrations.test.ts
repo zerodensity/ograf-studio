@@ -123,7 +123,7 @@ describe('migrateProject', () => {
     });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(19);
+    expect(migrated.documentVersion).toBe(20);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -161,7 +161,7 @@ describe('migrateProject', () => {
     expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
       { fieldId: 'headline-field', targetProperty: 'content', sourcePath: [] },
     ]);
-    expect(migrated.documentVersion).toBe(19);
+    expect(migrated.documentVersion).toBe(20);
   });
 
   it('backfills document-v13 typography without changing the authored font size', () => {
@@ -198,7 +198,7 @@ describe('migrateProject', () => {
       minFontSize: 20,
       overflowPolicy: 'visible',
     });
-    expect(migrated.documentVersion).toBe(19);
+    expect(migrated.documentVersion).toBe(20);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {
@@ -238,7 +238,7 @@ describe('migrateProject', () => {
     project.documentVersion = 16;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(19);
+    expect(migrated.documentVersion).toBe(20);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       key: 'headline',
       defaultValue: 'News',
@@ -257,7 +257,7 @@ describe('migrateProject', () => {
     project.documentVersion = 17;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(19);
+    expect(migrated.documentVersion).toBe(20);
     expect(migrated.compositions[0]!.layers[0]!.blendMode).toBe('normal');
   });
 
@@ -275,12 +275,62 @@ describe('migrateProject', () => {
     project.documentVersion = 18;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(19);
+    expect(migrated.documentVersion).toBe(20);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       properties: [],
       items: null,
     });
     expect(migrated.compositions[0]!.layers[0]!.bindings[0]!.sourcePath).toEqual([]);
     expect(migrated.compositions[0]!.runtimeCollections).toEqual([]);
+  });
+
+  it('backfills document-v20 text stroke on layers and reusable component snapshots', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('text');
+    const componentLayer = createLayerOfKind('text');
+    const preservedLayer = createLayerOfKind('text');
+    if (preservedLayer.element.type !== 'text') throw new Error('Expected text layer.');
+    preservedLayer.element.strokeColor = '#112233';
+    preservedLayer.element.strokeWidth = 4;
+    for (const candidate of [layer, componentLayer]) {
+      const legacyText = candidate.element as unknown as Record<string, unknown>;
+      delete legacyText.strokeColor;
+      delete legacyText.strokeWidth;
+      delete candidate.animationTracks.strokeWidth;
+    }
+    project.compositions[0]!.layers = [layer, preservedLayer];
+    project.compositions[0]!.components = [
+      {
+        id: 'component-legacy-text',
+        name: 'Legacy text',
+        layers: [componentLayer],
+        dataFields: [],
+      },
+    ];
+    project.documentVersion = 19;
+
+    const migrated = migrateProject(project);
+    const migratedLayer = migrated.compositions[0]!.layers[0]!;
+    const migratedComponentLayer = migrated.compositions[0]!.components[0]!.layers[0]!;
+
+    expect(migrated.documentVersion).toBe(20);
+    expect(migratedLayer.element).toMatchObject({
+      type: 'text',
+      strokeColor: 'transparent',
+      strokeWidth: 0,
+    });
+    expect(migratedLayer.animationTracks.strokeWidth?.[0]?.value).toBe(0);
+    expect(migrated.compositions[0]!.layers[1]!.element).toMatchObject({
+      type: 'text',
+      strokeColor: '#112233',
+      strokeWidth: 4,
+    });
+    expect(migratedComponentLayer.element).toMatchObject({
+      type: 'text',
+      strokeColor: 'transparent',
+      strokeWidth: 0,
+    });
+    expect(migratedComponentLayer.animationTracks.strokeWidth?.[0]?.value).toBe(0);
+    expect((layer.element as unknown as Record<string, unknown>).strokeWidth).toBeUndefined();
   });
 });

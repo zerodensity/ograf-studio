@@ -326,6 +326,29 @@ function validateComposition(composition: Composition, errors: string[], warning
     }
     const componentFieldIds = new Set(component.dataFields.map((field) => field.id));
     for (const layer of component.layers) {
+      const owner = `${prefix}: component "${component.name}" layer "${layer.name}"`;
+      if (layer.element.type === 'text') {
+        if (!Number.isFinite(layer.element.strokeWidth) || layer.element.strokeWidth < 0) {
+          errors.push(`${owner} text stroke width must be finite and non-negative.`);
+        }
+      } else if (layer.animationTracks.strokeWidth?.length) {
+        errors.push(
+          `${owner} cannot animate text stroke width on a ${layer.element.type} element.`,
+        );
+      }
+      for (const key of layer.animationTracks.strokeWidth ?? []) {
+        if (!Number.isFinite(key.value) || key.value < 0) {
+          errors.push(`${owner} stroke-width track values must be finite and non-negative.`);
+        }
+      }
+      if (layer.element.type !== 'text' && layer.loop?.tracks.strokeWidth?.length) {
+        errors.push(`${owner} cannot loop text stroke width on a ${layer.element.type} element.`);
+      }
+      for (const key of layer.loop?.tracks.strokeWidth ?? []) {
+        if (!Number.isFinite(key.value) || key.value < 0) {
+          errors.push(`${owner} loop stroke-width values must be finite and non-negative.`);
+        }
+      }
       for (const binding of layer.bindings) {
         if (!componentFieldIds.has(binding.fieldId)) {
           errors.push(
@@ -445,6 +468,11 @@ function validateComposition(composition: Composition, errors: string[], warning
       }
     }
     const tracks = getResolvedLayerAnimationTracks(layer);
+    if (layer.element.type !== 'text' && layer.animationTracks.strokeWidth?.length) {
+      errors.push(
+        `${prefix}: layer "${layer.name}" cannot animate text stroke width on a ${layer.element.type} element.`,
+      );
+    }
     for (const property of getLayerAnimatableProperties(layer)) {
       const propertyKeys = tracks[property] ?? [];
       const stopIndex = gradientStopIndexForProperty(property);
@@ -480,6 +508,11 @@ function validateComposition(composition: Composition, errors: string[], warning
         if (!Number.isFinite(keyframe.value)) {
           errors.push(
             `${prefix}: layer "${layer.name}" property "${property}" has a non-finite value.`,
+          );
+        }
+        if (property === 'strokeWidth' && keyframe.value < 0) {
+          errors.push(
+            `${prefix}: layer "${layer.name}" property "strokeWidth" values must be non-negative.`,
           );
         }
         if (stopIndex !== null && (keyframe.value < 0 || keyframe.value > 1)) {
@@ -520,6 +553,11 @@ function validateComposition(composition: Composition, errors: string[], warning
         errors.push(`${prefix}: layer "${layer.name}" loop references a missing OGraf Step.`);
       }
       for (const [property, keys = []] of Object.entries(loop.tracks)) {
+        if (property === 'strokeWidth' && layer.element.type !== 'text') {
+          errors.push(
+            `${prefix}: layer "${layer.name}" cannot loop text stroke width on a ${layer.element.type} element.`,
+          );
+        }
         if (keys.length === 0) {
           errors.push(`${prefix}: layer "${layer.name}" loop property "${property}" has no keys.`);
           continue;
@@ -538,6 +576,11 @@ function validateComposition(composition: Composition, errors: string[], warning
           if (!Number.isFinite(key.value)) {
             errors.push(
               `${prefix}: layer "${layer.name}" loop property "${property}" has a non-finite value.`,
+            );
+          }
+          if (property === 'strokeWidth' && key.value < 0) {
+            errors.push(
+              `${prefix}: layer "${layer.name}" loop property "strokeWidth" values must be non-negative.`,
             );
           }
         }
@@ -803,6 +846,11 @@ function validateComposition(composition: Composition, errors: string[], warning
         );
       }
     } else if (layer.element.type === 'text') {
+      if (!Number.isFinite(layer.element.strokeWidth) || layer.element.strokeWidth < 0) {
+        errors.push(
+          `${prefix}: text layer "${layer.name}" stroke width must be finite and non-negative.`,
+        );
+      }
       if (!Number.isFinite(layer.element.lineHeight) || layer.element.lineHeight < 0.5) {
         errors.push(`${prefix}: text layer "${layer.name}" line height must be at least 0.5.`);
       }

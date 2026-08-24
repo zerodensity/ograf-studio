@@ -17,6 +17,9 @@ export function measureAutoSizedText(element: TextElement): { width: number; hei
     fontFamily: element.fontFamily,
     fontSize: `${Math.max(1, element.fontSize)}px`,
     fontWeight: String(element.fontWeight),
+    webkitTextStrokeColor: element.strokeColor,
+    webkitTextStrokeWidth: `${Math.max(0, element.strokeWidth)}px`,
+    paintOrder: 'stroke fill',
   });
   probe.textContent =
     (element.textTransform === 'uppercase'
@@ -27,8 +30,9 @@ export function measureAutoSizedText(element: TextElement): { width: number; hei
   document.body.appendChild(probe);
   const bounds = probe.getBoundingClientRect();
   probe.remove();
+  const strokeExpansion = Math.max(0, element.strokeWidth);
   return {
-    width: Math.max(1, Math.ceil(bounds.width)),
-    height: Math.max(1, Math.ceil(bounds.height)),
+    width: Math.max(1, Math.ceil(bounds.width + strokeExpansion)),
+    height: Math.max(1, Math.ceil(bounds.height + strokeExpansion)),
   };
 }

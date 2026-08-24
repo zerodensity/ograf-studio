@@ -104,6 +104,11 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   compatible layer properties. Token links are authoring metadata; OGraf Studio materializes their
   current values into standard element properties so the exported template has no token-runtime
   dependency.
+- Text outlines use static `strokeColor` plus an independent, non-negative numeric `strokeWidth`
+  track. Use them for legibility over unpredictable video, especially sports and score graphics.
+  Keep `paint-order: stroke fill` semantics by authoring through Studio rather than simulating an
+  outline with duplicate text layers. Stroke width can also use a local loop; stroke colour remains
+  static.
 - Use `save_component` plus `instantiate_component` with `linked: false` for permanent independent
   instances. Use `linked: true` only when explicit later refresh is valuable; update a component
   from selected layers and call `refresh_component_instances` deliberately because refresh replaces

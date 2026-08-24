@@ -9,8 +9,8 @@ import {
   PROJECT_DOCUMENT_VERSION,
 } from './factory';
 import {
-  ANIMATABLE_LAYER_PROPERTIES,
   createAnimationTracksFromLegacyLayer,
+  getLayerAnimatableProperties,
   isAnimatableLayerProperty,
   sortLayerKeyframes,
   sortLayerPropertyKeyframes,
@@ -19,6 +19,7 @@ import { normalizeAuthoredTransform } from './authoredTransform';
 import { normalizeLayerEffects } from './layerEffects';
 import type {
   Composition,
+  Element,
   FieldDefinition,
   Keyframe,
   KeyframeRole,
@@ -133,6 +134,23 @@ function normalizeFieldDefinition(field: LegacyFieldDefinition): FieldDefinition
   };
 }
 
+function normalizeElement(element: Element): Element {
+  if (element.type !== 'text') return element;
+  return {
+    ...element,
+    strokeColor: element.strokeColor ?? 'transparent',
+    strokeWidth: element.strokeWidth ?? 0,
+    lineHeight: element.lineHeight ?? 1.2,
+    letterSpacing: element.letterSpacing ?? 0,
+    textTransform: element.textTransform ?? 'none',
+    verticalAlign: element.verticalAlign ?? 'top',
+    baselineShift: element.baselineShift ?? 0,
+    minFontSize: element.minFontSize ?? Math.max(1, element.fontSize * 0.5),
+    overflowPolicy: element.overflowPolicy ?? 'visible',
+    autoFit: element.autoFit ?? 'auto-size',
+  };
+}
+
 function normalizeRoles(keyframes: LegacyKeyframe[]): Keyframe[] {
   const hasExplicitRoles = keyframes.some((keyframe) => keyframe.role !== undefined);
   if (hasExplicitRoles) {
@@ -190,21 +208,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       sourcePath: binding.sourcePath ?? [],
       ...(binding.valueMap ? { valueMap: { ...binding.valueMap } } : {}),
     }));
-    const element =
-      legacyLayer.element.type === 'text'
-        ? {
-            ...legacyLayer.element,
-            lineHeight: legacyLayer.element.lineHeight ?? 1.2,
-            letterSpacing: legacyLayer.element.letterSpacing ?? 0,
-            textTransform: legacyLayer.element.textTransform ?? 'none',
-            verticalAlign: legacyLayer.element.verticalAlign ?? 'top',
-            baselineShift: legacyLayer.element.baselineShift ?? 0,
-            minFontSize:
-              legacyLayer.element.minFontSize ?? Math.max(1, legacyLayer.element.fontSize * 0.5),
-            overflowPolicy: legacyLayer.element.overflowPolicy ?? 'visible',
-            autoFit: legacyLayer.element.autoFit ?? 'auto-size',
-          }
-        : legacyLayer.element;
+    const element = normalizeElement(legacyLayer.element);
     const effects = normalizeLayerEffects(legacyLayer.effects ?? createLayerEffects());
     if (legacyLayer.keyframes?.length) {
       const { poses: _poses, binding: _binding, bindings: _bindings, ...layer } = legacyLayer;
@@ -259,27 +263,33 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       };
       const trackProperties = [
         ...new Set([
-          ...ANIMATABLE_LAYER_PROPERTIES,
+          ...getLayerAnimatableProperties(normalizedLayer),
           ...Object.keys(legacyLayer.animationTracks ?? {}).filter(isAnimatableLayerProperty),
         ]),
       ];
       const hasAnimationTracks = trackProperties.some(
         (property) => (legacyLayer.animationTracks?.[property]?.length ?? 0) > 0,
       );
+      const fallbackTracks = createAnimationTracksFromLegacyLayer(normalizedLayer);
       normalizedLayer.animationTracks = hasAnimationTracks
         ? Object.fromEntries(
-            trackProperties.map((property) => [
-              property,
-              sortLayerPropertyKeyframes(legacyLayer.animationTracks?.[property] ?? []).map(
-                (keyframe) => ({
-                  ...keyframe,
-                  frame: Math.round(keyframe.frame),
-                  value: Number(keyframe.value),
-                }),
-              ),
-            ]),
+            trackProperties.map((property) => {
+              const keys = sortLayerPropertyKeyframes(
+                legacyLayer.animationTracks?.[property] ?? [],
+              ).map((keyframe) => ({
+                ...keyframe,
+                frame: Math.round(keyframe.frame),
+                value: Number(keyframe.value),
+              }));
+              return [
+                property,
+                keys.length === 0 && property === 'strokeWidth'
+                  ? (fallbackTracks.strokeWidth ?? [])
+                  : keys,
+              ];
+            }),
           )
-        : createAnimationTracksFromLegacyLayer(normalizedLayer);
+        : fallbackTracks;
       return normalizedLayer;
     }
 
@@ -357,13 +367,26 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       dataFields: component.dataFields.map((field) =>
         normalizeFieldDefinition(field as LegacyFieldDefinition),
       ),
-      layers: component.layers.map((layer) => ({
-        ...layer,
-        blendMode: layer.blendMode ?? 'normal',
-        semantics: createLayerSemantics(layer.semantics),
-        designTokenBindings: layer.designTokenBindings ?? [],
-        componentLink: null,
-      })),
+      layers: component.layers.map((layer) => {
+        const normalizedLayer: Layer = {
+          ...layer,
+          element: normalizeElement(layer.element),
+          blendMode: layer.blendMode ?? 'normal',
+          semantics: createLayerSemantics(layer.semantics),
+          designTokenBindings: layer.designTokenBindings ?? [],
+          componentLink: null,
+        };
+        if (
+          normalizedLayer.element.type === 'text' &&
+          !normalizedLayer.animationTracks.strokeWidth?.length
+        ) {
+          normalizedLayer.animationTracks = {
+            ...normalizedLayer.animationTracks,
+            strokeWidth: createAnimationTracksFromLegacyLayer(normalizedLayer).strokeWidth ?? [],
+          };
+        }
+        return normalizedLayer;
+      }),
     })),
     designSystem: composition.designSystem ?? { name: 'Brand Kit', tokens: [] },
     layout: {

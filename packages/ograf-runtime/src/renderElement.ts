@@ -1,5 +1,6 @@
 import {
   getPaintAtFrame,
+  getTrackValueAtFrame,
   lottieFrameAtTime,
   paintToCss,
   type Element,
@@ -43,11 +44,36 @@ export function applyAnimatedPaint(
   tracks: LayerAnimationTracks,
   frame: number,
 ): void {
-  const serialized = container.dataset?.ografBasePaint;
-  const content = container.firstElementChild as HTMLElement | null;
-  if (!serialized || !content) return;
-  const paint = JSON.parse(serialized) as Paint;
-  content.style.background = paintToCss(getPaintAtFrame(paint, tracks, frame));
+  const directChild = container.firstElementChild as HTMLElement | null;
+  const renderHost = directChild?.classList?.contains('layer-content-host')
+    ? directChild
+    : container;
+  const serialized = renderHost.dataset?.ografBasePaint;
+  const content = renderHost.firstElementChild as HTMLElement | null;
+  if (!content) return;
+  if (serialized) {
+    const paint = JSON.parse(serialized) as Paint;
+    content.style.background = paintToCss(getPaintAtFrame(paint, tracks, frame));
+  }
+  const strokeTrack = tracks.strokeWidth ?? [];
+  if (strokeTrack.length > 0) {
+    const fallback = strokeTrack[0]?.value ?? 0;
+    content.style.webkitTextStrokeWidth = `${Math.max(
+      0,
+      getTrackValueAtFrame(strokeTrack, frame, fallback),
+    )}px`;
+    content.style.paintOrder = 'stroke fill';
+  }
+}
+
+export function applyTextStrokeStyle(
+  style: CSSStyleDeclaration,
+  strokeColor: string,
+  strokeWidth: number,
+): void {
+  style.webkitTextStrokeColor = strokeColor;
+  style.webkitTextStrokeWidth = `${Math.max(0, strokeWidth)}px`;
+  style.paintOrder = 'stroke fill';
 }
 
 function applyContentBaseStyle(el: HTMLElement | SVGElement): void {
@@ -98,6 +124,7 @@ export function renderElementContent(
       const content = document.createElement('div');
       applyContentBaseStyle(content);
       content.style.color = element.color;
+      applyTextStrokeStyle(content.style, element.strokeColor, element.strokeWidth);
       content.style.fontFamily = element.fontFamily;
       content.style.fontSize = `${element.fontSize}px`;
       content.style.fontWeight = String(element.fontWeight);
@@ -140,9 +167,10 @@ export function renderElementContent(
           let lower = floor;
           let upper = Math.max(floor, element.fontSize);
           content.style.fontSize = `${floor}px`;
+          const strokeExpansion = Math.max(0, element.strokeWidth);
           const fitsAtFloor =
-            content.scrollWidth <= container.clientWidth + 0.5 &&
-            content.scrollHeight <= container.clientHeight + 0.5;
+            content.scrollWidth + strokeExpansion <= container.clientWidth + 0.5 &&
+            content.scrollHeight + strokeExpansion <= container.clientHeight + 0.5;
           if (!fitsAtFloor) {
             content.style.fontSize = `${Math.floor(floor * 10) / 10}px`;
             content.dataset.ografShrinkRatio = String(floor / element.fontSize);
@@ -153,8 +181,8 @@ export function renderElementContent(
             const candidate = (lower + upper) / 2;
             content.style.fontSize = `${candidate}px`;
             if (
-              content.scrollWidth <= container.clientWidth + 0.5 &&
-              content.scrollHeight <= container.clientHeight + 0.5
+              content.scrollWidth + strokeExpansion <= container.clientWidth + 0.5 &&
+              content.scrollHeight + strokeExpansion <= container.clientHeight + 0.5
             ) {
               lower = candidate;
             } else {

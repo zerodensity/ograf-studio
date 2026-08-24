@@ -44,6 +44,10 @@ export interface TextElement {
   type: 'text';
   content: string;
   color: string;
+  /** Glyph outline colour; transparent with zero width preserves legacy rendering. */
+  strokeColor: string;
+  /** Full CSS/SVG text-stroke width in authored composition pixels. */
+  strokeWidth: number;
   fontFamily: string;
   fontSize: number;
   fontWeight: number;
@@ -245,6 +249,7 @@ export type GradientStopOffsetProperty = `fill.stops[${number}].offset`;
 /** Numeric properties that can own keys independently on a layer's shared frame ruler. */
 export type AnimatableLayerProperty =
   | keyof LayerTransform
+  | 'strokeWidth'
   | 'blur'
   | 'dropShadowOpacity'
   | 'dropShadowOffsetX'

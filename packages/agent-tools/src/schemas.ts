@@ -71,6 +71,7 @@ const fixedPropertySchema = z.enum([
   'opacity',
   'transformOriginX',
   'transformOriginY',
+  'strokeWidth',
   'blur',
   'dropShadowOpacity',
   'dropShadowOffsetX',

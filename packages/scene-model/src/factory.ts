@@ -65,6 +65,8 @@ export function createTextElement(overrides: Partial<TextElement> = {}): TextEle
     type: 'text',
     content: 'Text',
     color: '#ffffff',
+    strokeColor: 'transparent',
+    strokeWidth: 0,
     fontFamily: 'system-ui, sans-serif',
     fontWeight: 600,
     textAlign: 'left',
@@ -479,7 +481,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 19;
+export const PROJECT_DOCUMENT_VERSION = 20;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

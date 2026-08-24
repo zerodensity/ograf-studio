@@ -33,7 +33,7 @@ function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: Desi
     return;
   }
   if (property === 'strokeColor') {
-    if (!['rectangle', 'ellipse', 'path'].includes(layer.element.type)) {
+    if (!['rectangle', 'ellipse', 'text', 'path'].includes(layer.element.type)) {
       throw new Error(`Property strokeColor is not supported by ${layer.element.type} layers.`);
     }
     if (token.type !== 'color') {
@@ -42,7 +42,7 @@ function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: Desi
     return;
   }
   if (property === 'strokeWidth') {
-    if (!['rectangle', 'ellipse', 'path'].includes(layer.element.type)) {
+    if (!['rectangle', 'ellipse', 'text', 'path'].includes(layer.element.type)) {
       throw new Error(`Property strokeWidth is not supported by ${layer.element.type} layers.`);
     }
     if (token.type !== 'number') {
@@ -96,11 +96,16 @@ export function applyDesignTokenBinding(
   assertCompatible(layer, binding, token);
   const value = normalizeDesignTokenValue(token.type, token.value);
   const property: DesignTokenTargetProperty = binding.targetProperty;
+  const previousStrokeWidth = 'strokeWidth' in layer.element ? layer.element.strokeWidth : null;
   if (property === 'fill' && 'fill' in layer.element) layer.element.fill = String(value);
   else if (property === 'strokeColor' && 'strokeColor' in layer.element) {
     layer.element.strokeColor = String(value);
   } else if (property === 'strokeWidth' && 'strokeWidth' in layer.element) {
     layer.element.strokeWidth = Math.max(0, Number(value));
+    const track = layer.animationTracks.strokeWidth;
+    if (track?.length === 1 && track[0]!.value === previousStrokeWidth) {
+      track[0]!.value = layer.element.strokeWidth;
+    }
   } else if (property === 'borderRadius' && layer.element.type === 'rectangle') {
     layer.element.borderRadius = Math.max(0, Number(value));
   } else if (property === 'color' && layer.element.type === 'text') {
