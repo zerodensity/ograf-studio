@@ -739,6 +739,7 @@ export function Stage({
                   width: composition.width,
                   height: composition.height,
                   backgroundColor: composition.backgroundColor,
+                  isolation: 'isolate',
                   overflow: composition.layout.overflowPreview,
                 }}
                 onMouseDown={(e) => {

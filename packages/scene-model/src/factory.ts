@@ -160,6 +160,7 @@ function createLayer(name: string, element: Element): Layer {
     name,
     isVisible: true,
     isGuide: false,
+    blendMode: 'normal',
     isLocked: false,
     groupId: null,
     parentId: null,
@@ -441,7 +442,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 17;
+export const PROJECT_DOCUMENT_VERSION = 18;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

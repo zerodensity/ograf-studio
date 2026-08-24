@@ -677,6 +677,7 @@ function projectFromDescriptor(
     layer.id = compiled.id;
     layer.name = nameForLayer(raw, element, index);
     layer.isVisible = compiled.isVisible;
+    layer.blendMode = compiled.blendMode ?? 'normal';
     layer.element = element;
     layer.effects = { ...layer.effects, ...clone(compiled.effects) };
     layer.keyframes = clone(compiled.keyframes);

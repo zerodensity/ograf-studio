@@ -1,5 +1,5 @@
 import * as z from 'zod/v4';
-import type { AnimatableLayerProperty } from '@ograf-editor/scene-model';
+import { BLEND_MODES, type AnimatableLayerProperty } from '@ograf-editor/scene-model';
 
 export const EASING_PRESETS = [
   'linear',
@@ -546,6 +546,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     layerName,
     isVisible: z.boolean().optional(),
     isGuide: z.boolean().optional(),
+    blendMode: z.enum(BLEND_MODES).optional(),
   }),
   z.object({
     type: z.literal('set_layer_layout'),

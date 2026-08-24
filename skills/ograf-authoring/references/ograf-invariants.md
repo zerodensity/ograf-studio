@@ -41,6 +41,9 @@ Save/export must certify the same artifact bytes that are written. If certificat
 - Gradient paints require at least two normalized stops with finite angle, offsets, and opacities.
 - Gradient stop-offset tracks use `fill.stops[N].offset`, reference an existing zero-based stop, and
   keep authored key values within 0..1.
+- Blend modes are static layer properties evaluated inside one isolated transparent composition.
+  They must not depend on, sample, or change according to an external controller/video background.
+  Editor transparency checkerboards remain outside the composition isolation boundary.
 - Loop keys use a separate local `0..durationFrames` ruler. Keep infinite-loop endpoints visually
   seamless unless an offscreen masked wrap is intentional.
 - Semantic roles, tags, and descriptions are authoring-only. They may guide queries, recipes, QA,

@@ -324,6 +324,7 @@ function buildCompositionDom(
     inset: '0',
     overflow: 'hidden',
     backgroundColor: composition.backgroundColor,
+    isolation: 'isolate',
   });
   root.appendChild(compositionRoot);
 
@@ -344,6 +345,7 @@ function buildCompositionDom(
       width: `${transform.width}px`,
       height: `${transform.height}px`,
       opacity: String(transform.opacity),
+      mixBlendMode: layer.blendMode,
       transform: `translate(${transform.x}px, ${transform.y}px) rotate(${transform.rotation}deg)`,
       transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
       filter: layerEffectsToCssFilter(getLayerEffectsAtFrame(layer, frame)),

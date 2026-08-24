@@ -156,6 +156,21 @@ export interface LayerEffects {
   dropShadowBlur: number;
 }
 
+/** Static composition-local CSS blending; never blends against the external video bed. */
+export type BlendMode =
+  | 'normal'
+  | 'multiply'
+  | 'screen'
+  | 'overlay'
+  | 'darken'
+  | 'lighten'
+  | 'color-dodge'
+  | 'color-burn'
+  | 'hard-light'
+  | 'soft-light'
+  | 'difference'
+  | 'exclusion';
+
 /** Authoring-time meaning used by humans and agents; never required by an OGraf renderer. */
 export type SemanticLayerRole =
   | 'none'
@@ -325,6 +340,8 @@ export interface Layer {
   name: string;
   isVisible: boolean;
   isGuide: boolean;
+  /** Static blend against earlier layers inside the isolated OGraf composition only. */
+  blendMode: BlendMode;
   /** Prevents direct authoring edits while retaining normal render/export behavior. */
   isLocked: boolean;
   /** Persistent editor grouping; grouped layers remain independent OGraf layers. */

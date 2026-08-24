@@ -421,7 +421,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         return `@font-face { font-family: "${family}"; src: url("${source}") format("${format}"); font-style: ${font.style || 'normal'}; font-weight: ${font.weight || '100 900'}; font-display: block; }`;
       })
       .join('\n');
-    style.textContent = `${fontFaces}\n:host { display: block; position: relative; overflow: hidden; }`;
+    style.textContent = `${fontFaces}\n:host { display: block; position: relative; overflow: hidden; isolation: isolate; }`;
     shadow.appendChild(style);
 
     this.style.width = `${descriptor.width}px`;
@@ -436,6 +436,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       el.style.top = '0';
       el.style.boxSizing = 'border-box';
       el.style.display = layer.isVisible ? '' : 'none';
+      el.style.mixBlendMode = layer.blendMode ?? 'normal';
       el.style.filter = layerEffectsToCssFilter(layer.effects);
       const firstTransform = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]?.transform;
       if (firstTransform) {

@@ -145,6 +145,10 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   masking with synchronized opacity fades on every child. `duplicate_group` preserves and remaps the
   clipping relationship. The mask follows animated parent rotation and transform origin as well as
   position/size, so rotate the parent to create a diagonal wipe; children retain their own rotation.
+- Use `set_layer_flags.blendMode` for static composition-local compositing. Blend modes operate only
+  against lower layers inside OGraf Studio's isolated transparent composition; they never blend
+  against a controller's external video bed. Do not rely on the editor checkerboard as source
+  imagery, and keep a normal-mode fallback when a target renderer has not been smoke-tested.
 - Rectangle and ellipse `fill` accepts a solid color string or a complete linear/radial/conic
   gradient object. Bind the whole gradient through a `gradient` data field; individual stop paths
   are not binding targets. Animate a stop position with the numeric property

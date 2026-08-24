@@ -42,6 +42,7 @@ type LegacyLayer = Omit<
   | 'animationTracks'
   | 'loop'
   | 'isLocked'
+  | 'blendMode'
   | 'groupId'
   | 'parentId'
   | 'clipChildren'
@@ -57,6 +58,7 @@ type LegacyLayer = Omit<
   animationTracks?: Layer['animationTracks'];
   loop?: Layer['loop'];
   isLocked?: boolean;
+  blendMode?: Layer['blendMode'];
   groupId?: string | null;
   parentId?: string | null;
   clipChildren?: boolean;
@@ -192,6 +194,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       const normalizedLayer: Layer = {
         ...layer,
         isLocked: legacyLayer.isLocked ?? false,
+        blendMode: legacyLayer.blendMode ?? 'normal',
         groupId: legacyLayer.groupId ?? null,
         parentId: legacyLayer.parentId ?? null,
         clipChildren: legacyLayer.clipChildren ?? false,
@@ -293,6 +296,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
     const normalizedLayer: Layer = {
       ...layer,
       isLocked: legacyLayer.isLocked ?? false,
+      blendMode: legacyLayer.blendMode ?? 'normal',
       groupId: legacyLayer.groupId ?? null,
       parentId: legacyLayer.parentId ?? null,
       clipChildren: legacyLayer.clipChildren ?? false,
@@ -329,6 +333,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       ),
       layers: component.layers.map((layer) => ({
         ...layer,
+        blendMode: layer.blendMode ?? 'normal',
         semantics: createLayerSemantics(layer.semantics),
         designTokenBindings: layer.designTokenBindings ?? [],
         componentLink: null,

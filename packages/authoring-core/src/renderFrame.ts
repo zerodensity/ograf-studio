@@ -133,7 +133,7 @@ function layerSvg(
     frame,
     compositionFrameRate,
   );
-  return `<defs>${filters ? `<filter id="${filterId}" x="-100%" y="-100%" width="300%" height="300%">${filters}</filter>` : ''}${clip}</defs><g transform="translate(${transform.x} ${transform.y}) rotate(${transform.rotation} ${originX} ${originY})" opacity="${transform.opacity}"${filters ? ` filter="url(#${filterId})"` : ''}>${clip ? `<g clip-path="url(#${clipId})">${content}</g>` : content}</g>`;
+  return `<defs>${filters ? `<filter id="${filterId}" x="-100%" y="-100%" width="300%" height="300%">${filters}</filter>` : ''}${clip}</defs><g transform="translate(${transform.x} ${transform.y}) rotate(${transform.rotation} ${originX} ${originY})" opacity="${transform.opacity}" style="mix-blend-mode:${layer.blendMode}"${filters ? ` filter="url(#${filterId})"` : ''}>${clip ? `<g clip-path="url(#${clipId})">${content}</g>` : content}</g>`;
 }
 
 export function renderCompositionFrameSvg(
@@ -148,6 +148,6 @@ export function renderCompositionFrameSvg(
     composition.backgroundColor === 'transparent'
       ? ''
       : `<rect width="100%" height="100%" fill="${escapeXml(composition.backgroundColor)}"/>`;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${composition.width}" height="${composition.height}" viewBox="0 0 ${composition.width} ${composition.height}">${background}${composition.layers.map((layer) => layerSvg(layer, normalizedFrame, composition.frameRate, composition)).join('')}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${composition.width}" height="${composition.height}" viewBox="0 0 ${composition.width} ${composition.height}" style="isolation:isolate">${background}${composition.layers.map((layer) => layerSvg(layer, normalizedFrame, composition.frameRate, composition)).join('')}</svg>`;
   return { svg, composition, frame: normalizedFrame };
 }

@@ -123,7 +123,7 @@ describe('migrateProject', () => {
     });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(17);
+    expect(migrated.documentVersion).toBe(18);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -161,7 +161,7 @@ describe('migrateProject', () => {
     expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
       { fieldId: 'headline-field', targetProperty: 'content' },
     ]);
-    expect(migrated.documentVersion).toBe(17);
+    expect(migrated.documentVersion).toBe(18);
   });
 
   it('backfills document-v13 typography without changing the authored font size', () => {
@@ -198,7 +198,7 @@ describe('migrateProject', () => {
       minFontSize: 20,
       overflowPolicy: 'visible',
     });
-    expect(migrated.documentVersion).toBe(17);
+    expect(migrated.documentVersion).toBe(18);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {
@@ -238,7 +238,7 @@ describe('migrateProject', () => {
     project.documentVersion = 16;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(17);
+    expect(migrated.documentVersion).toBe(18);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       key: 'headline',
       defaultValue: 'News',
@@ -247,5 +247,17 @@ describe('migrateProject', () => {
       constraints: {},
       fileExtensions: [],
     });
+  });
+
+  it('backfills document-v18 normal blend mode', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('rectangle');
+    delete (layer as Partial<typeof layer>).blendMode;
+    project.compositions[0]!.layers = [layer];
+    project.documentVersion = 17;
+
+    const migrated = migrateProject(project);
+    expect(migrated.documentVersion).toBe(18);
+    expect(migrated.compositions[0]!.layers[0]!.blendMode).toBe('normal');
   });
 });

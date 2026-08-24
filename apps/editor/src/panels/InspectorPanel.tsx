@@ -8,12 +8,14 @@ import {
 import { useSelectionStore } from '../state/selectionStore';
 import { BINDABLE_PROPERTIES } from '../state/dataBinding';
 import type {
+  BlendMode,
   DesignTokenTargetProperty,
   DesignTokenType,
   LayerTransform,
   TextElement,
 } from '@ograf-editor/scene-model';
 import {
+  BLEND_MODES,
   findLayerKeyframeAtFrame,
   getLayerEffectsAtFrame,
   getPaintAtFrame,
@@ -105,6 +107,7 @@ export function InspectorPanel() {
   const setLayerClipChildren = useProjectStore((s) => s.setLayerClipChildren);
   const setLayerConstraints = useProjectStore((s) => s.setLayerConstraints);
   const setLayerSemantics = useProjectStore((s) => s.setLayerSemantics);
+  const setLayerBlendMode = useProjectStore((s) => s.setLayerBlendMode);
   const bindDesignToken = useProjectStore((s) => s.bindDesignToken);
   const unbindDesignToken = useProjectStore((s) => s.unbindDesignToken);
 
@@ -271,6 +274,22 @@ export function InspectorPanel() {
             checked={layer.clipChildren}
             onChange={(event) => setLayerClipChildren(layer.id, event.target.checked)}
           />
+        </label>
+
+        <h3 className="inspector-section">Compositing</h3>
+        <label className="inspector-row">
+          <span>Blend mode</span>
+          <select
+            value={layer.blendMode}
+            disabled={layer.isLocked}
+            onChange={(event) => setLayerBlendMode(layer.id, event.target.value as BlendMode)}
+          >
+            {BLEND_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {mode.replace('-', ' ')}
+              </option>
+            ))}
+          </select>
         </label>
 
         <h3 className="inspector-section">Layout relationships</h3>

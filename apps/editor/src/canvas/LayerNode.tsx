@@ -100,6 +100,7 @@ export function LayerNode({
     width: transform.width,
     height: transform.height,
     opacity: transform.opacity,
+    mixBlendMode: layer.blendMode,
     transform: `translate(${transform.x}px, ${transform.y}px) rotate(${transform.rotation}deg)`,
     transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
     filter: layerEffectsToCssFilter(

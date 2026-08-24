@@ -107,6 +107,11 @@ selectors see matching entities created earlier in the same atomic batch.
 `update_transform` and `update_effects` default to `scope: "authored"`, writing each lifecycle frame.
 Use `scope: "frame"` and a required `frame` for one-frame animation changes.
 
+`set_layer_flags.blendMode` accepts `normal`, `multiply`, `screen`, `overlay`, `darken`, `lighten`,
+`color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, or `exclusion`. The value is a
+static layer property. It composites only with lower layers inside the isolated OGraf composition,
+not with editor chrome, transparency checkerboards, or an external renderer/video background.
+
 `set_property_key` requires a layer selector, `property`, integer `frame`, and numeric `value`. Optional `easing` applies to the incoming segment. Optional `curve` is `{x1,y1,x2,y2}`; pass `curve: null` to remove a custom curve. Use the returned property-key ID for later move/easing/remove operations.
 
 `set_property_track` takes one layer/property and `keys: [{frame,value,easing?,curve?}]`.

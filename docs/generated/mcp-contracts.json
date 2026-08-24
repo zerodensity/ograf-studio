@@ -1187,7 +1187,24 @@
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
                     "isVisible": { "type": "boolean" },
-                    "isGuide": { "type": "boolean" }
+                    "isGuide": { "type": "boolean" },
+                    "blendMode": {
+                      "type": "string",
+                      "enum": [
+                        "normal",
+                        "multiply",
+                        "screen",
+                        "overlay",
+                        "darken",
+                        "lighten",
+                        "color-dodge",
+                        "color-burn",
+                        "hard-light",
+                        "soft-light",
+                        "difference",
+                        "exclusion"
+                      ]
+                    }
                   },
                   "required": ["type"]
                 },
@@ -3333,7 +3350,24 @@
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
                     "isVisible": { "type": "boolean" },
-                    "isGuide": { "type": "boolean" }
+                    "isGuide": { "type": "boolean" },
+                    "blendMode": {
+                      "type": "string",
+                      "enum": [
+                        "normal",
+                        "multiply",
+                        "screen",
+                        "overlay",
+                        "darken",
+                        "lighten",
+                        "color-dodge",
+                        "color-burn",
+                        "hard-light",
+                        "soft-light",
+                        "difference",
+                        "exclusion"
+                      ]
+                    }
                   },
                   "required": ["type"]
                 },
@@ -5685,7 +5719,24 @@
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
                     "isVisible": { "type": "boolean" },
-                    "isGuide": { "type": "boolean" }
+                    "isGuide": { "type": "boolean" },
+                    "blendMode": {
+                      "type": "string",
+                      "enum": [
+                        "normal",
+                        "multiply",
+                        "screen",
+                        "overlay",
+                        "darken",
+                        "lighten",
+                        "color-dodge",
+                        "color-burn",
+                        "hard-light",
+                        "soft-light",
+                        "difference",
+                        "exclusion"
+                      ]
+                    }
                   },
                   "required": ["type"]
                 },

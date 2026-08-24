@@ -32,6 +32,7 @@ function editableFixture() {
   const text = createLayerOfKind('text');
   if (text.element.type !== 'text') throw new Error('Expected text layer.');
   text.element.content = 'Breaking News';
+  text.blendMode = 'screen';
   const pose = defaultTransformFor('text');
   text.keyframes = [
     createLayerKeyframe(0, { ...pose, opacity: 0 }),
@@ -94,6 +95,7 @@ describe('best-effort OGraf import', () => {
     const result = imported.project.compositions[0]!;
     expect(result).toMatchObject({ width: 1280, height: 720, frameRate: 50 });
     expect(result.layers).toHaveLength(2);
+    expect(result.layers[0]!.blendMode).toBe('screen');
     expect(result.layers[0]?.keyframes.map((key) => key.frame)).toEqual([0, 12, 24]);
     expect(result.dataFields).toHaveLength(1);
     expect(result.layers[0]?.bindings[0]?.fieldId).toBe(result.dataFields[0]?.id);
