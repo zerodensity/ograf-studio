@@ -6,6 +6,9 @@ import {
   buildComponentDefinition,
   createCustomActionDefinition,
   createFieldDefinition,
+  defaultConstraintsForFieldType,
+  defaultOptionsForFieldType,
+  defaultValueForFieldType,
   createAsset,
   createId,
   createKeyframe,
@@ -1176,7 +1179,9 @@ export function applyAuthoringOperations(
           return false;
         });
         const fieldConsumers = composition.dataFields.filter(
-          (field) => field.type === 'image-url' && field.defaultValue === reference,
+          (field) =>
+            (field.type === 'image-url' || field.type === 'file-path') &&
+            field.defaultValue === reference,
         );
         if ((layerConsumers.length > 0 || fieldConsumers.length > 0) && !operation.force) {
           throw new Error(
@@ -1545,8 +1550,12 @@ export function applyAuthoringOperations(
         const field = createFieldDefinition(operation.fieldType, {
           key: operation.key,
           label: operation.label ?? operation.key,
+          description: operation.description ?? '',
           ...(operation.defaultValue !== undefined ? { defaultValue: operation.defaultValue } : {}),
           required: operation.required ?? false,
+          ...(operation.options ? { options: operation.options } : {}),
+          ...(operation.constraints ? { constraints: operation.constraints } : {}),
+          ...(operation.fileExtensions ? { fileExtensions: operation.fileExtensions } : {}),
         });
         if (operation.id !== undefined) {
           if (composition.dataFields.some((candidate) => candidate.id === operation.id)) {
@@ -1576,7 +1585,23 @@ export function applyAuthoringOperations(
           field.key = key;
         }
         if (operation.label !== undefined) field.label = operation.label;
-        if (operation.defaultValue !== undefined) field.defaultValue = operation.defaultValue;
+        if (operation.description !== undefined) field.description = operation.description;
+        if (operation.fieldType !== undefined) {
+          field.type = operation.fieldType;
+          field.options = operation.options ?? defaultOptionsForFieldType(operation.fieldType);
+          field.constraints =
+            operation.constraints ?? defaultConstraintsForFieldType(operation.fieldType);
+          field.fileExtensions = operation.fileExtensions ?? [];
+          field.defaultValue =
+            operation.defaultValue ?? defaultValueForFieldType(operation.fieldType, field.options);
+        } else {
+          if (operation.options !== undefined) field.options = operation.options;
+          if (operation.constraints !== undefined) field.constraints = operation.constraints;
+          if (operation.fileExtensions !== undefined) {
+            field.fileExtensions = operation.fileExtensions;
+          }
+          if (operation.defaultValue !== undefined) field.defaultValue = operation.defaultValue;
+        }
         if (operation.required !== undefined) field.required = operation.required;
         break;
       }

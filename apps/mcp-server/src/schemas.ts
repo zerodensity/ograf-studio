@@ -163,6 +163,39 @@ export const designTokenTargetPropertySchema = z.enum([
 ]);
 
 const paintSchema = z.union([z.string().min(1), gradientPaintSchema]);
+const fieldTypeSchema = z.enum([
+  'text',
+  'textarea',
+  'number',
+  'integer',
+  'duration-ms',
+  'percentage',
+  'boolean',
+  'color',
+  'gradient',
+  'image-url',
+  'file-path',
+  'select',
+  'select-multiple',
+]);
+export const fieldValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.array(z.string()),
+  gradientPaintSchema,
+]);
+const fieldOptionSchema = z.object({ value: z.string(), label: z.string() }).strict();
+const fieldConstraintsSchema = z
+  .object({
+    maxLength: z.number().int().nonnegative().optional(),
+    minLength: z.number().int().nonnegative().optional(),
+    minimum: z.number().finite().optional(),
+    maximum: z.number().finite().optional(),
+    pattern: z.string().optional(),
+    step: z.number().positive().finite().optional(),
+  })
+  .strict();
 
 export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({
@@ -470,12 +503,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
         z
           .object({
             label: z.string().min(1).optional(),
-            data: z
-              .record(
-                z.string(),
-                z.union([z.string(), z.number(), z.boolean(), gradientPaintSchema]),
-              )
-              .optional(),
+            data: z.record(z.string(), fieldValueSchema).optional(),
           })
           .strict(),
       )
@@ -679,21 +707,30 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('add_data_field'),
     compositionId,
-    fieldType: z.enum(['text', 'textarea', 'number', 'boolean', 'color', 'gradient', 'image-url']),
+    fieldType: fieldTypeSchema,
     key: z.string(),
     label: z.string().optional(),
-    defaultValue: z.union([z.string(), z.number(), z.boolean(), gradientPaintSchema]).optional(),
+    description: z.string().optional(),
+    defaultValue: fieldValueSchema.optional(),
     required: z.boolean().optional(),
+    options: z.array(fieldOptionSchema).optional(),
+    constraints: fieldConstraintsSchema.optional(),
+    fileExtensions: z.array(z.string()).optional(),
   }),
   z.object({
     type: z.literal('update_data_field'),
     compositionId,
     fieldId: z.string().optional(),
     fieldKey: z.string().optional(),
+    fieldType: fieldTypeSchema.optional(),
     key: z.string().optional(),
     label: z.string().optional(),
-    defaultValue: z.union([z.string(), z.number(), z.boolean(), gradientPaintSchema]).optional(),
+    description: z.string().optional(),
+    defaultValue: fieldValueSchema.optional(),
     required: z.boolean().optional(),
+    options: z.array(fieldOptionSchema).optional(),
+    constraints: fieldConstraintsSchema.optional(),
+    fileExtensions: z.array(z.string()).optional(),
   }),
   z.object({
     type: z.literal('remove_data_field'),

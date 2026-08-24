@@ -41,7 +41,11 @@ export function findAssetConsumers(composition: Composition, asset: Asset): Asse
     )
     .map((layer) => layer.id);
   const fieldIds = composition.dataFields
-    .filter((field) => field.type === 'image-url' && field.defaultValue === reference)
+    .filter(
+      (field) =>
+        (field.type === 'image-url' || field.type === 'file-path') &&
+        field.defaultValue === reference,
+    )
     .map((field) => field.id);
   const fontLayerIds =
     asset.kind === 'font' && asset.fontFamily

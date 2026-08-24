@@ -7,6 +7,7 @@ import {
   getTotalFrames,
   validatePaint,
   type Composition,
+  type FieldDefinition,
   type Project,
 } from '@ograf-editor/scene-model';
 
@@ -23,6 +24,108 @@ function duplicates(values: string[]): string[] {
   const duplicate = new Set<string>();
   for (const value of values) (seen.has(value) ? duplicate : seen).add(value);
   return [...duplicate];
+}
+
+function validateFieldDefinition(field: FieldDefinition, owner: string, errors: string[]): void {
+  const optionValues = field.options.map((option) => option.value);
+  for (const duplicate of duplicates(optionValues)) {
+    errors.push(`${owner}: repeats select option value "${duplicate}".`);
+  }
+  if ((field.type === 'select' || field.type === 'select-multiple') && field.options.length === 0) {
+    errors.push(`${owner}: select fields require at least one option.`);
+  }
+  if (field.options.some((option) => !option.value.trim() || !option.label.trim())) {
+    errors.push(`${owner}: select option values and labels cannot be empty.`);
+  }
+  if (field.type === 'select' && !optionValues.includes(String(field.defaultValue))) {
+    errors.push(`${owner}: select default must match one declared option.`);
+  }
+  if (
+    field.type === 'select-multiple' &&
+    (!Array.isArray(field.defaultValue) ||
+      field.defaultValue.some((value) => !optionValues.includes(value)))
+  ) {
+    errors.push(`${owner}: select-multiple defaults must be declared option values.`);
+  }
+  if (
+    (field.type === 'integer' || field.type === 'duration-ms') &&
+    (!Number.isInteger(field.defaultValue) ||
+      (Number(field.defaultValue) < 0 && field.type === 'duration-ms'))
+  ) {
+    errors.push(
+      `${owner}: ${field.type} default must be ${field.type === 'duration-ms' ? 'a non-negative ' : 'an '}integer.`,
+    );
+  }
+  if (
+    (field.type === 'number' || field.type === 'percentage') &&
+    (typeof field.defaultValue !== 'number' || !Number.isFinite(field.defaultValue))
+  ) {
+    errors.push(`${owner}: numeric default must be finite.`);
+  }
+  const constraints = field.constraints;
+  for (const key of ['minLength', 'maxLength'] as const) {
+    const value = constraints[key];
+    if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+      errors.push(`${owner}: ${key} must be a non-negative integer.`);
+    }
+  }
+  if (
+    constraints.minLength !== undefined &&
+    constraints.maxLength !== undefined &&
+    constraints.minLength > constraints.maxLength
+  ) {
+    errors.push(`${owner}: minLength cannot exceed maxLength.`);
+  }
+  if (
+    constraints.minimum !== undefined &&
+    constraints.maximum !== undefined &&
+    constraints.minimum > constraints.maximum
+  ) {
+    errors.push(`${owner}: minimum cannot exceed maximum.`);
+  }
+  if (
+    constraints.step !== undefined &&
+    (!Number.isFinite(constraints.step) || constraints.step <= 0)
+  ) {
+    errors.push(`${owner}: step must be a positive finite number.`);
+  }
+  if (constraints.pattern) {
+    try {
+      new RegExp(constraints.pattern);
+    } catch {
+      errors.push(`${owner}: pattern is not a valid regular expression.`);
+    }
+  }
+  if (typeof field.defaultValue === 'string') {
+    if (constraints.minLength !== undefined && field.defaultValue.length < constraints.minLength) {
+      errors.push(`${owner}: default is shorter than minLength.`);
+    }
+    if (constraints.maxLength !== undefined && field.defaultValue.length > constraints.maxLength) {
+      errors.push(`${owner}: default exceeds maxLength.`);
+    }
+    if (constraints.pattern) {
+      try {
+        if (!new RegExp(constraints.pattern).test(field.defaultValue)) {
+          errors.push(`${owner}: default does not match pattern.`);
+        }
+      } catch {
+        // The invalid pattern is reported above.
+      }
+    }
+  }
+  if (typeof field.defaultValue === 'number') {
+    if (constraints.minimum !== undefined && field.defaultValue < constraints.minimum) {
+      errors.push(`${owner}: default is below minimum.`);
+    }
+    if (constraints.maximum !== undefined && field.defaultValue > constraints.maximum) {
+      errors.push(`${owner}: default exceeds maximum.`);
+    }
+  }
+  for (const extension of field.fileExtensions) {
+    if (!/^[a-z0-9][a-z0-9._-]*$/i.test(extension)) {
+      errors.push(`${owner}: invalid file extension "${extension}".`);
+    }
+  }
 }
 
 function validateComposition(composition: Composition, errors: string[], warnings: string[]): void {
@@ -94,6 +197,13 @@ function validateComposition(composition: Composition, errors: string[], warning
     }
     for (const duplicate of duplicates(component.dataFields.map((field) => field.key))) {
       errors.push(`${prefix}: component "${component.name}" repeats field key "${duplicate}".`);
+    }
+    for (const field of component.dataFields) {
+      validateFieldDefinition(
+        field,
+        `${prefix}: component "${component.name}" field "${field.key}"`,
+        errors,
+      );
     }
     const componentFieldIds = new Set(component.dataFields.map((field) => field.id));
     for (const layer of component.layers) {
@@ -325,6 +435,9 @@ function validateComposition(composition: Composition, errors: string[], warning
   for (const key of duplicates(composition.dataFields.map((field) => field.key))) {
     errors.push(`${prefix}: duplicate data field key "${key}".`);
   }
+  for (const field of composition.dataFields) {
+    validateFieldDefinition(field, `${prefix}: data field "${field.key}"`, errors);
+  }
   for (const actionId of duplicates(composition.customActions.map((action) => action.actionId))) {
     errors.push(`${prefix}: duplicate custom action id "${actionId}".`);
   }
@@ -465,7 +578,10 @@ function validateComposition(composition: Composition, errors: string[], warning
     }
   }
   for (const field of composition.dataFields) {
-    if (field.type === 'image-url' && typeof field.defaultValue === 'string') {
+    if (
+      (field.type === 'image-url' || field.type === 'file-path') &&
+      typeof field.defaultValue === 'string'
+    ) {
       validateAssetReference(field.defaultValue, `data field "${field.key}"`);
     }
   }

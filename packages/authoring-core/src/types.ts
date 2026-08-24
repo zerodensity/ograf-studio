@@ -5,6 +5,8 @@ import type {
   EasingPreset,
   FieldType,
   FieldValue,
+  FieldConstraints,
+  FieldOption,
   LayerBinding,
   LayerEffects,
   LayerConstraints,
@@ -398,17 +400,26 @@ export type AuthoringOperation =
       fieldType: FieldType;
       key: string;
       label?: string;
+      description?: string;
       defaultValue?: FieldValue;
       required?: boolean;
+      options?: FieldOption[];
+      constraints?: FieldConstraints;
+      fileExtensions?: string[];
     }
   | {
       type: 'update_data_field';
       compositionId?: string;
       fieldId: string;
+      fieldType?: FieldType;
       key?: string;
       label?: string;
+      description?: string;
       defaultValue?: FieldValue;
       required?: boolean;
+      options?: FieldOption[];
+      constraints?: FieldConstraints;
+      fileExtensions?: string[];
     }
   | {
       type: 'remove_data_field';

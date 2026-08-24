@@ -2,7 +2,7 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import type { ExportArtifacts } from '@ograf-editor/codegen';
-import type { Project } from '@ograf-editor/scene-model';
+import type { FieldValue, Project } from '@ograf-editor/scene-model';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AuthoringWorkspace } from './workspace';
 
@@ -19,10 +19,7 @@ export interface BrowserCaptureRequest {
   frame: number;
   maxDimension: number;
   matte: string;
-  dataOverrides?: Record<
-    string,
-    string | number | boolean | import('@ograf-editor/scene-model').GradientPaint
-  >;
+  dataOverrides?: Record<string, FieldValue>;
 }
 
 export interface ResolvedFontResult {

@@ -1,5 +1,13 @@
-import { useState, type ChangeEvent } from 'react';
-import { defaultValueForFieldType, type FieldType } from '@ograf-editor/scene-model';
+import { Fragment, useState, type ChangeEvent } from 'react';
+import {
+  defaultConstraintsForFieldType,
+  defaultOptionsForFieldType,
+  defaultValueForFieldType,
+  type FieldConstraints,
+  type FieldDefinition,
+  type FieldOption,
+  type FieldType,
+} from '@ograf-editor/scene-model';
 import { compileCustomActions, compileDataSchema } from '@ograf-editor/codegen';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useTestDataStore, type TestValue } from '../state/testDataStore';
@@ -11,11 +19,50 @@ const FIELD_TYPE_OPTIONS: { value: FieldType; label: string }[] = [
   { value: 'text', label: 'Text' },
   { value: 'textarea', label: 'Text Area' },
   { value: 'number', label: 'Number' },
+  { value: 'integer', label: 'Integer' },
+  { value: 'duration-ms', label: 'Duration (ms)' },
+  { value: 'percentage', label: 'Percentage' },
   { value: 'boolean', label: 'Boolean' },
   { value: 'color', label: 'Color' },
   { value: 'gradient', label: 'Gradient' },
   { value: 'image-url', label: 'Image URL' },
+  { value: 'file-path', label: 'File Path' },
+  { value: 'select', label: 'Select' },
+  { value: 'select-multiple', label: 'Select Multiple' },
 ];
+
+function optionsText(options: FieldOption[]): string {
+  return options.map((option) => `${option.value}|${option.label}`).join('\n');
+}
+
+function parseOptions(value: string): FieldOption[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => {
+      const separator = line.indexOf('|');
+      const optionValue = (separator >= 0 ? line.slice(0, separator) : line).trim();
+      const label = (separator >= 0 ? line.slice(separator + 1) : optionValue).trim();
+      return { value: optionValue, label: label || optionValue };
+    })
+    .filter((option) => option.value.length > 0);
+}
+
+function constraintsWith(
+  field: FieldDefinition,
+  key: keyof FieldConstraints,
+  value: number | string | undefined,
+): FieldConstraints {
+  const constraints = { ...field.constraints };
+  if (value === undefined || value === '') delete constraints[key];
+  else (constraints as Record<string, number | string>)[key] = value;
+  return constraints;
+}
+
+function optionalNumber(value: string): number | undefined {
+  if (!value.trim()) return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
 
 export function DataPanel() {
   const composition = useActiveComposition();
@@ -76,63 +123,76 @@ export function DataPanel() {
               </thead>
               <tbody>
                 {composition.dataFields.map((field) => (
-                  <tr key={field.id}>
-                    <td>
-                      <input
-                        type="text"
-                        value={field.key}
-                        onChange={(e) => updateDataField(field.id, { key: e.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={field.label}
-                        onChange={(e) => updateDataField(field.id, { label: e.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <select
-                        value={field.type}
-                        onChange={(e) => {
-                          const type = e.target.value as FieldType;
-                          updateDataField(field.id, {
-                            type,
-                            defaultValue: defaultValueForFieldType(type),
-                          });
-                        }}
-                      >
-                        {FIELD_TYPE_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <DefaultValueInput
-                        type={field.type}
-                        value={field.defaultValue}
-                        onChange={(value) => updateDataField(field.id, { defaultValue: value })}
-                      />
-                    </td>
-                    <td className="data-table-checkbox-cell">
-                      <input
-                        type="checkbox"
-                        checked={field.required}
-                        onChange={(e) => updateDataField(field.id, { required: e.target.checked })}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="data-table-delete"
-                        onClick={() => removeDataField(field.id)}
-                      >
-                        {'✕'}
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={field.id}>
+                    <tr>
+                      <td>
+                        <input
+                          type="text"
+                          value={field.key}
+                          onChange={(e) => updateDataField(field.id, { key: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          value={field.label}
+                          onChange={(e) => updateDataField(field.id, { label: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <select
+                          value={field.type}
+                          onChange={(e) => {
+                            const type = e.target.value as FieldType;
+                            const options = defaultOptionsForFieldType(type);
+                            updateDataField(field.id, {
+                              type,
+                              options,
+                              constraints: defaultConstraintsForFieldType(type),
+                              fileExtensions: [],
+                              defaultValue: defaultValueForFieldType(type, options),
+                            });
+                          }}
+                        >
+                          {FIELD_TYPE_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <DefaultValueInput
+                          field={field}
+                          value={field.defaultValue}
+                          onChange={(value) => updateDataField(field.id, { defaultValue: value })}
+                        />
+                      </td>
+                      <td className="data-table-checkbox-cell">
+                        <input
+                          type="checkbox"
+                          checked={field.required}
+                          onChange={(e) =>
+                            updateDataField(field.id, { required: e.target.checked })
+                          }
+                        />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="data-table-delete"
+                          onClick={() => removeDataField(field.id)}
+                        >
+                          {'✕'}
+                        </button>
+                      </td>
+                    </tr>
+                    <tr className="data-field-details-row">
+                      <td colSpan={6}>
+                        <FieldDetails field={field} update={updateDataField} />
+                      </td>
+                    </tr>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -216,7 +276,7 @@ export function DataPanel() {
                 <label className="test-data-row" key={field.id}>
                   <span>{field.label || field.key}</span>
                   <DefaultValueInput
-                    type={field.type}
+                    field={field}
                     value={testValues[field.id] ?? field.defaultValue}
                     onChange={(value) => setTestValue(field.id, value)}
                   />
@@ -240,15 +300,146 @@ export function DataPanel() {
   );
 }
 
+function FieldDetails({
+  field,
+  update,
+}: {
+  field: FieldDefinition;
+  update: (
+    fieldId: string,
+    patch: Partial<
+      Pick<
+        FieldDefinition,
+        'description' | 'defaultValue' | 'options' | 'constraints' | 'fileExtensions'
+      >
+    >,
+  ) => void;
+}) {
+  const setConstraint = (key: keyof FieldConstraints, value: number | string | undefined) =>
+    update(field.id, { constraints: constraintsWith(field, key, value) });
+  return (
+    <div className="data-field-details">
+      <label>
+        <span>Description</span>
+        <input
+          type="text"
+          value={field.description}
+          placeholder="Operator-facing help text"
+          onChange={(event) => update(field.id, { description: event.target.value })}
+        />
+      </label>
+      {(field.type === 'select' || field.type === 'select-multiple') && (
+        <label className="data-field-options">
+          <span>Options · one value|label per line</span>
+          <textarea
+            rows={Math.max(2, field.options.length)}
+            value={optionsText(field.options)}
+            onChange={(event) => {
+              const options = parseOptions(event.target.value);
+              const values = new Set(options.map((option) => option.value));
+              const defaultValue =
+                field.type === 'select-multiple'
+                  ? Array.isArray(field.defaultValue)
+                    ? field.defaultValue.filter((value) => values.has(value))
+                    : []
+                  : typeof field.defaultValue === 'string' && values.has(field.defaultValue)
+                    ? field.defaultValue
+                    : (options[0]?.value ?? '');
+              update(field.id, { options, defaultValue });
+            }}
+          />
+        </label>
+      )}
+      {(field.type === 'file-path' || field.type === 'image-url') && (
+        <label>
+          <span>Allowed extensions</span>
+          <input
+            type="text"
+            value={field.fileExtensions.join(', ')}
+            placeholder="png, svg, jpg"
+            onChange={(event) =>
+              update(field.id, {
+                fileExtensions: [
+                  ...new Set(
+                    event.target.value
+                      .split(',')
+                      .map((extension) => extension.trim().replace(/^\./, '').toLowerCase())
+                      .filter(Boolean),
+                  ),
+                ],
+              })
+            }
+          />
+        </label>
+      )}
+      <div className="data-field-constraints">
+        <label>
+          <span>Min length</span>
+          <input
+            type="number"
+            min={0}
+            value={field.constraints.minLength ?? ''}
+            onChange={(event) => setConstraint('minLength', optionalNumber(event.target.value))}
+          />
+        </label>
+        <label>
+          <span>Max length</span>
+          <input
+            type="number"
+            min={0}
+            value={field.constraints.maxLength ?? ''}
+            onChange={(event) => setConstraint('maxLength', optionalNumber(event.target.value))}
+          />
+        </label>
+        <label>
+          <span>Minimum</span>
+          <input
+            type="number"
+            value={field.constraints.minimum ?? ''}
+            onChange={(event) => setConstraint('minimum', optionalNumber(event.target.value))}
+          />
+        </label>
+        <label>
+          <span>Maximum</span>
+          <input
+            type="number"
+            value={field.constraints.maximum ?? ''}
+            onChange={(event) => setConstraint('maximum', optionalNumber(event.target.value))}
+          />
+        </label>
+        <label>
+          <span>Step</span>
+          <input
+            type="number"
+            min={0}
+            value={field.constraints.step ?? ''}
+            onChange={(event) => setConstraint('step', optionalNumber(event.target.value))}
+          />
+        </label>
+        <label className="data-field-pattern">
+          <span>Pattern</span>
+          <input
+            type="text"
+            value={field.constraints.pattern ?? ''}
+            placeholder="JSON Schema regular expression"
+            onChange={(event) => setConstraint('pattern', event.target.value)}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function DefaultValueInput({
-  type,
+  field,
   value,
   onChange,
 }: {
-  type: FieldType;
+  field: FieldDefinition;
   value: TestValue;
   onChange: (value: TestValue) => void;
 }) {
+  const { type } = field;
   if (type === 'boolean') {
     return (
       <input
@@ -258,10 +449,13 @@ function DefaultValueInput({
       />
     );
   }
-  if (type === 'number') {
+  if (type === 'number' || type === 'integer' || type === 'duration-ms' || type === 'percentage') {
     return (
       <input
         type="number"
+        min={field.constraints.minimum}
+        max={field.constraints.maximum}
+        step={field.constraints.step ?? (type === 'number' || type === 'percentage' ? 'any' : 1)}
         value={Number(value)}
         onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(Number(e.target.value))}
       />
@@ -277,15 +471,57 @@ function DefaultValueInput({
     );
   }
   if (type === 'textarea') {
-    return <textarea rows={2} value={String(value)} onChange={(e) => onChange(e.target.value)} />;
+    return (
+      <textarea
+        rows={2}
+        value={String(value)}
+        minLength={field.constraints.minLength}
+        maxLength={field.constraints.maxLength}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
   }
   if (type === 'gradient') {
-    return typeof value === 'object' ? <PaintEditor value={value} onChange={onChange} /> : null;
+    return typeof value === 'object' && !Array.isArray(value) ? (
+      <PaintEditor value={value} onChange={onChange} />
+    ) : null;
+  }
+  if (type === 'select') {
+    return (
+      <select value={String(value)} onChange={(event) => onChange(event.target.value)}>
+        {field.options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (type === 'select-multiple') {
+    const selected = Array.isArray(value) ? value : [];
+    return (
+      <select
+        multiple
+        value={selected}
+        onChange={(event) =>
+          onChange([...event.target.selectedOptions].map((option) => option.value))
+        }
+      >
+        {field.options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    );
   }
   return (
     <input
       type="text"
-      placeholder={type === 'image-url' ? 'https://…' : undefined}
+      placeholder={type === 'image-url' ? 'asset:… or image path' : undefined}
+      minLength={field.constraints.minLength}
+      maxLength={field.constraints.maxLength}
+      pattern={field.constraints.pattern}
       value={String(value)}
       onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
     />

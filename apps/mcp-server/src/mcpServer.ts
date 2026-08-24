@@ -43,7 +43,7 @@ import type { EditorBridge } from './editorBridge';
 import {
   authoringOperationSchema,
   EASING_PRESETS,
-  gradientPaintSchema,
+  fieldValueSchema,
   propertySchema,
   semanticLayerRoleSchema,
 } from './schemas';
@@ -1182,7 +1182,22 @@ export function createOGrafMcpServer(
           operations: ['set_layer_bindings', 'set_layer_binding (legacy single-binding replace)'],
           semantics:
             'A layer may bind multiple independent element properties. Bindings are applied in order and a target property may appear only once.',
-          fieldTypes: ['text', 'textarea', 'number', 'boolean', 'color', 'gradient', 'image-url'],
+          fieldTypes: [
+            'text',
+            'textarea',
+            'number',
+            'integer',
+            'duration-ms',
+            'percentage',
+            'boolean',
+            'color',
+            'gradient',
+            'image-url',
+            'file-path',
+            'select',
+            'select-multiple',
+          ],
+          gdd: 'Every compiled field emits gddType plus operator description, select labels, file extensions, and JSON Schema constraints when authored.',
           gradient:
             'A gradient field binds the complete rectangle/ellipse fill object. Per-stop paths are not supported.',
           targetProperties: {
@@ -1685,9 +1700,7 @@ export function createOGrafMcpServer(
         compositionId: z.string().optional(),
         maxDimension: z.number().int().min(64).max(4096).default(900),
         matte: captureMatteSchema,
-        dataOverrides: z
-          .record(z.string(), z.union([z.string(), z.number(), z.boolean(), gradientPaintSchema]))
-          .optional(),
+        dataOverrides: z.record(z.string(), fieldValueSchema).optional(),
         enableBase64Response: z.boolean().default(false),
       },
       annotations: readOnly,
@@ -1844,9 +1857,7 @@ export function createOGrafMcpServer(
         maxDimension: z.number().int().min(64).max(4096).default(900),
         labelFrames: z.boolean().default(true),
         matte: captureMatteSchema,
-        dataOverrides: z
-          .record(z.string(), z.union([z.string(), z.number(), z.boolean(), gradientPaintSchema]))
-          .optional(),
+        dataOverrides: z.record(z.string(), fieldValueSchema).optional(),
         enableBase64Response: z.boolean().default(false),
       },
       annotations: readOnly,
@@ -2184,8 +2195,14 @@ export function createOGrafMcpServer(
               ? composition.dataFields.find((candidate) => candidate.id === contentBinding.fieldId)
               : undefined;
             const supplied = field ? testValues?.[field.key] : undefined;
+            const declaredMaximum = field?.constraints.maxLength;
+            const declaredMaximumStress =
+              declaredMaximum !== undefined && declaredMaximum > 0
+                ? 'W'.repeat(Math.min(declaredMaximum, 2000))
+                : undefined;
             const values = [
               field?.defaultValue ?? layer.element.content,
+              ...(declaredMaximumStress ? [declaredMaximumStress] : []),
               ...(Array.isArray(supplied) ? supplied : supplied !== undefined ? [supplied] : []),
             ];
             const uniqueValues = [...new Set(values.map((value) => String(value)))];

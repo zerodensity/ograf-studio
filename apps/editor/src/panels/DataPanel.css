@@ -100,6 +100,40 @@
   color: var(--text);
 }
 
+.data-field-details-row td {
+  padding: 0 4px 9px;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-field-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 7px;
+  background: color-mix(in srgb, var(--bg-canvas) 72%, transparent);
+  border-radius: 4px;
+}
+
+.data-field-details label,
+.data-field-constraints label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text-dim);
+}
+
+.data-field-details .data-field-options,
+.data-field-constraints,
+.data-field-pattern {
+  grid-column: 1 / -1;
+}
+
+.data-field-constraints {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(68px, 1fr));
+  gap: 6px;
+}
+
 .test-data-form {
   display: flex;
   flex-direction: column;
@@ -123,6 +157,7 @@
 }
 
 .test-data-row input,
+.test-data-row select,
 .test-data-row textarea {
   flex: 1;
   min-width: 0;
@@ -133,6 +168,10 @@
   padding: 3px 6px;
   font: inherit;
   font-size: 11px;
+}
+
+.test-data-row select[multiple] {
+  min-height: 58px;
 }
 
 .data-json-preview {

@@ -21,6 +21,47 @@ describe('canonical OGraf validation', () => {
     expect(validateManifest(manifest)).toEqual({ valid: true, errors: [] });
     expect(validateManifest({ ...manifest, thumbnails: [{ url: 'thumb.png' }] }).valid).toBe(false);
   });
+
+  it('accepts official enriched GDD scalar and select properties', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    composition.dataFields = [
+      createFieldDefinition('text', {
+        key: 'headline',
+        description: 'On-air headline',
+        constraints: { maxLength: 80 },
+      }),
+      createFieldDefinition('select', {
+        key: 'theme',
+        options: [
+          { value: 'news', label: 'News' },
+          { value: 'sport', label: 'Sport' },
+        ],
+        defaultValue: 'news',
+      }),
+      createFieldDefinition('select-multiple', {
+        key: 'regions',
+        options: [
+          { value: 'eu', label: 'Europe' },
+          { value: 'na', label: 'North America' },
+        ],
+        defaultValue: ['eu'],
+      }),
+      createFieldDefinition('duration-ms', {
+        key: 'duration',
+        defaultValue: 10000,
+        constraints: { minimum: 0, maximum: 60000, step: 1000 },
+      }),
+      createFieldDefinition('percentage', { key: 'progress', defaultValue: 50 }),
+      createFieldDefinition('file-path', {
+        key: 'document',
+        fileExtensions: ['pdf'],
+      }),
+    ];
+    const manifest = assembleManifest(project, composition, compileDescriptor(composition));
+    expect(validateProject(project).valid).toBe(true);
+    expect(validateManifest(manifest)).toEqual({ valid: true, errors: [] });
+  });
 });
 
 describe('project validation', () => {
@@ -98,5 +139,25 @@ describe('project validation', () => {
     expect(validateProject(project).errors.join(' ')).toMatch(
       /binds target property "content" more than once/,
     );
+  });
+
+  it('rejects invalid GDD options, defaults, constraints, and patterns', () => {
+    const project = createProject();
+    project.compositions[0]!.dataFields = [
+      createFieldDefinition('select', {
+        key: 'theme',
+        options: [
+          { value: 'news', label: 'News' },
+          { value: 'news', label: 'Duplicate' },
+        ],
+        defaultValue: 'missing',
+        constraints: { minLength: 10, maxLength: 2, pattern: '[' },
+      }),
+    ];
+    const errors = validateProject(project).errors.join(' ');
+    expect(errors).toMatch(/repeats select option value/);
+    expect(errors).toMatch(/select default must match/);
+    expect(errors).toMatch(/minLength cannot exceed maxLength/);
+    expect(errors).toMatch(/pattern is not a valid regular expression/);
   });
 });

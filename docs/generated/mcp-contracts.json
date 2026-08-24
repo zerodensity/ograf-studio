@@ -313,6 +313,7 @@
                 { "type": "string" },
                 { "type": "number" },
                 { "type": "boolean" },
+                { "type": "array", "items": { "type": "string" } },
                 {
                   "type": "object",
                   "properties": {
@@ -1040,6 +1041,7 @@
                                 { "type": "string" },
                                 { "type": "number" },
                                 { "type": "boolean" },
+                                { "type": "array", "items": { "type": "string" } },
                                 {
                                   "type": "object",
                                   "properties": {
@@ -1939,19 +1941,27 @@
                         "text",
                         "textarea",
                         "number",
+                        "integer",
+                        "duration-ms",
+                        "percentage",
                         "boolean",
                         "color",
                         "gradient",
-                        "image-url"
+                        "image-url",
+                        "file-path",
+                        "select",
+                        "select-multiple"
                       ]
                     },
                     "key": { "type": "string" },
                     "label": { "type": "string" },
+                    "description": { "type": "string" },
                     "defaultValue": {
                       "anyOf": [
                         { "type": "string" },
                         { "type": "number" },
                         { "type": "boolean" },
+                        { "type": "array", "items": { "type": "string" } },
                         {
                           "type": "object",
                           "properties": {
@@ -1977,7 +1987,40 @@
                         }
                       ]
                     },
-                    "required": { "type": "boolean" }
+                    "required": { "type": "boolean" },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": { "type": "string" },
+                          "label": { "type": "string" }
+                        },
+                        "required": ["value", "label"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "constraints": {
+                      "type": "object",
+                      "properties": {
+                        "maxLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minimum": { "type": "number" },
+                        "maximum": { "type": "number" },
+                        "pattern": { "type": "string" },
+                        "step": { "type": "number", "exclusiveMinimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fileExtensions": { "type": "array", "items": { "type": "string" } }
                   },
                   "required": ["type", "fieldType", "key"]
                 },
@@ -1988,13 +2031,33 @@
                     "compositionId": { "type": "string" },
                     "fieldId": { "type": "string" },
                     "fieldKey": { "type": "string" },
+                    "fieldType": {
+                      "type": "string",
+                      "enum": [
+                        "text",
+                        "textarea",
+                        "number",
+                        "integer",
+                        "duration-ms",
+                        "percentage",
+                        "boolean",
+                        "color",
+                        "gradient",
+                        "image-url",
+                        "file-path",
+                        "select",
+                        "select-multiple"
+                      ]
+                    },
                     "key": { "type": "string" },
                     "label": { "type": "string" },
+                    "description": { "type": "string" },
                     "defaultValue": {
                       "anyOf": [
                         { "type": "string" },
                         { "type": "number" },
                         { "type": "boolean" },
+                        { "type": "array", "items": { "type": "string" } },
                         {
                           "type": "object",
                           "properties": {
@@ -2020,7 +2083,40 @@
                         }
                       ]
                     },
-                    "required": { "type": "boolean" }
+                    "required": { "type": "boolean" },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": { "type": "string" },
+                          "label": { "type": "string" }
+                        },
+                        "required": ["value", "label"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "constraints": {
+                      "type": "object",
+                      "properties": {
+                        "maxLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minimum": { "type": "number" },
+                        "maximum": { "type": "number" },
+                        "pattern": { "type": "string" },
+                        "step": { "type": "number", "exclusiveMinimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fileExtensions": { "type": "array", "items": { "type": "string" } }
                   },
                   "required": ["type"]
                 },
@@ -2391,6 +2487,7 @@
                 { "type": "string" },
                 { "type": "number" },
                 { "type": "boolean" },
+                { "type": "array", "items": { "type": "string" } },
                 {
                   "type": "object",
                   "properties": {
@@ -3090,6 +3187,7 @@
                                 { "type": "string" },
                                 { "type": "number" },
                                 { "type": "boolean" },
+                                { "type": "array", "items": { "type": "string" } },
                                 {
                                   "type": "object",
                                   "properties": {
@@ -3989,19 +4087,27 @@
                         "text",
                         "textarea",
                         "number",
+                        "integer",
+                        "duration-ms",
+                        "percentage",
                         "boolean",
                         "color",
                         "gradient",
-                        "image-url"
+                        "image-url",
+                        "file-path",
+                        "select",
+                        "select-multiple"
                       ]
                     },
                     "key": { "type": "string" },
                     "label": { "type": "string" },
+                    "description": { "type": "string" },
                     "defaultValue": {
                       "anyOf": [
                         { "type": "string" },
                         { "type": "number" },
                         { "type": "boolean" },
+                        { "type": "array", "items": { "type": "string" } },
                         {
                           "type": "object",
                           "properties": {
@@ -4027,7 +4133,40 @@
                         }
                       ]
                     },
-                    "required": { "type": "boolean" }
+                    "required": { "type": "boolean" },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": { "type": "string" },
+                          "label": { "type": "string" }
+                        },
+                        "required": ["value", "label"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "constraints": {
+                      "type": "object",
+                      "properties": {
+                        "maxLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minimum": { "type": "number" },
+                        "maximum": { "type": "number" },
+                        "pattern": { "type": "string" },
+                        "step": { "type": "number", "exclusiveMinimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fileExtensions": { "type": "array", "items": { "type": "string" } }
                   },
                   "required": ["type", "fieldType", "key"]
                 },
@@ -4038,13 +4177,33 @@
                     "compositionId": { "type": "string" },
                     "fieldId": { "type": "string" },
                     "fieldKey": { "type": "string" },
+                    "fieldType": {
+                      "type": "string",
+                      "enum": [
+                        "text",
+                        "textarea",
+                        "number",
+                        "integer",
+                        "duration-ms",
+                        "percentage",
+                        "boolean",
+                        "color",
+                        "gradient",
+                        "image-url",
+                        "file-path",
+                        "select",
+                        "select-multiple"
+                      ]
+                    },
                     "key": { "type": "string" },
                     "label": { "type": "string" },
+                    "description": { "type": "string" },
                     "defaultValue": {
                       "anyOf": [
                         { "type": "string" },
                         { "type": "number" },
                         { "type": "boolean" },
+                        { "type": "array", "items": { "type": "string" } },
                         {
                           "type": "object",
                           "properties": {
@@ -4070,7 +4229,40 @@
                         }
                       ]
                     },
-                    "required": { "type": "boolean" }
+                    "required": { "type": "boolean" },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": { "type": "string" },
+                          "label": { "type": "string" }
+                        },
+                        "required": ["value", "label"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "constraints": {
+                      "type": "object",
+                      "properties": {
+                        "maxLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minimum": { "type": "number" },
+                        "maximum": { "type": "number" },
+                        "pattern": { "type": "string" },
+                        "step": { "type": "number", "exclusiveMinimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fileExtensions": { "type": "array", "items": { "type": "string" } }
                   },
                   "required": ["type"]
                 },
@@ -5347,6 +5539,7 @@
                                 { "type": "string" },
                                 { "type": "number" },
                                 { "type": "boolean" },
+                                { "type": "array", "items": { "type": "string" } },
                                 {
                                   "type": "object",
                                   "properties": {
@@ -6246,19 +6439,27 @@
                         "text",
                         "textarea",
                         "number",
+                        "integer",
+                        "duration-ms",
+                        "percentage",
                         "boolean",
                         "color",
                         "gradient",
-                        "image-url"
+                        "image-url",
+                        "file-path",
+                        "select",
+                        "select-multiple"
                       ]
                     },
                     "key": { "type": "string" },
                     "label": { "type": "string" },
+                    "description": { "type": "string" },
                     "defaultValue": {
                       "anyOf": [
                         { "type": "string" },
                         { "type": "number" },
                         { "type": "boolean" },
+                        { "type": "array", "items": { "type": "string" } },
                         {
                           "type": "object",
                           "properties": {
@@ -6284,7 +6485,40 @@
                         }
                       ]
                     },
-                    "required": { "type": "boolean" }
+                    "required": { "type": "boolean" },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": { "type": "string" },
+                          "label": { "type": "string" }
+                        },
+                        "required": ["value", "label"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "constraints": {
+                      "type": "object",
+                      "properties": {
+                        "maxLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minimum": { "type": "number" },
+                        "maximum": { "type": "number" },
+                        "pattern": { "type": "string" },
+                        "step": { "type": "number", "exclusiveMinimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fileExtensions": { "type": "array", "items": { "type": "string" } }
                   },
                   "required": ["type", "fieldType", "key"]
                 },
@@ -6295,13 +6529,33 @@
                     "compositionId": { "type": "string" },
                     "fieldId": { "type": "string" },
                     "fieldKey": { "type": "string" },
+                    "fieldType": {
+                      "type": "string",
+                      "enum": [
+                        "text",
+                        "textarea",
+                        "number",
+                        "integer",
+                        "duration-ms",
+                        "percentage",
+                        "boolean",
+                        "color",
+                        "gradient",
+                        "image-url",
+                        "file-path",
+                        "select",
+                        "select-multiple"
+                      ]
+                    },
                     "key": { "type": "string" },
                     "label": { "type": "string" },
+                    "description": { "type": "string" },
                     "defaultValue": {
                       "anyOf": [
                         { "type": "string" },
                         { "type": "number" },
                         { "type": "boolean" },
+                        { "type": "array", "items": { "type": "string" } },
                         {
                           "type": "object",
                           "properties": {
@@ -6327,7 +6581,40 @@
                         }
                       ]
                     },
-                    "required": { "type": "boolean" }
+                    "required": { "type": "boolean" },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": { "type": "string" },
+                          "label": { "type": "string" }
+                        },
+                        "required": ["value", "label"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "constraints": {
+                      "type": "object",
+                      "properties": {
+                        "maxLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "minimum": { "type": "number" },
+                        "maximum": { "type": "number" },
+                        "pattern": { "type": "string" },
+                        "step": { "type": "number", "exclusiveMinimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fileExtensions": { "type": "array", "items": { "type": "string" } }
                   },
                   "required": ["type"]
                 },

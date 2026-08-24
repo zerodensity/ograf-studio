@@ -122,6 +122,15 @@ describe('OGraf MCP authoring host', () => {
         activations: ['lifecycle', 'step'],
       },
       bindings: {
+        fieldTypes: expect.arrayContaining([
+          'integer',
+          'duration-ms',
+          'percentage',
+          'file-path',
+          'select',
+          'select-multiple',
+        ]),
+        gdd: expect.any(String),
         targetProperties: {
           text: ['content', 'color'],
           image: ['src'],
@@ -203,6 +212,63 @@ describe('OGraf MCP authoring host', () => {
         },
       ],
     });
+  });
+
+  it('authors enriched GDD field metadata through the typed MCP operation schema', async () => {
+    const sessionId = 'gdd-field-mcp-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const applied = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          {
+            type: 'add_data_field',
+            fieldType: 'select',
+            key: 'theme',
+            label: 'Theme',
+            description: 'Operator theme selection.',
+            options: [
+              { value: 'news', label: 'News' },
+              { value: 'sport', label: 'Sport' },
+            ],
+            defaultValue: 'news',
+            constraints: { maxLength: 12 },
+            required: true,
+          },
+          {
+            type: 'add_data_field',
+            fieldType: 'select-multiple',
+            key: 'regions',
+            options: [
+              { value: 'eu', label: 'Europe' },
+              { value: 'na', label: 'North America' },
+            ],
+            defaultValue: ['eu'],
+          },
+          {
+            type: 'add_data_field',
+            fieldType: 'file-path',
+            key: 'document',
+            fileExtensions: ['pdf'],
+          },
+        ],
+      },
+    });
+    expect(applied.isError).not.toBe(true);
+    expect(host.workspace.get(sessionId).snapshot().project.compositions[0]!.dataFields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'theme',
+          type: 'select',
+          description: 'Operator theme selection.',
+          constraints: { maxLength: 12 },
+        }),
+        expect.objectContaining({ key: 'regions', defaultValue: ['eu'] }),
+        expect.objectContaining({ key: 'document', fileExtensions: ['pdf'] }),
+      ]),
+    );
   });
 
   it('authors and inspects local multi-property loops through MCP', async () => {
