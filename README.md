@@ -6,32 +6,29 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.03
+## New in OGraf Studio 0.04
 
-- Added semantic layer roles, tags, and intent, plus materialized lower-third and repeater recipes
-  that remain ordinary editable OGraf layers.
-- Added compact semantic scene queries, visual operation dry runs, deterministic design/motion QA,
-  and an in-editor human review drawer for explicitly accepting or rejecting AI proposals.
-- Added Brand Kits with portable design-token materialization and reusable components with optional
-  linked instances that refresh only when requested.
-- Added MCP asset and Photoshop SVG-bundle import parity with workspace confinement and payload
-  limits.
-- Generated the complete MCP tool/schema reference from the registered server contracts; drift now
-  fails `npm run verify`.
-- Renamed the product to **OGraf Studio** across the application and current documentation.
-- Added state-aware exits that animate directly from the active Step to End.
-- Added multiple independent property bindings per layer.
-- Closed structural editor/MCP parity gaps for lifecycle markers, canvas groups, reusable
-  components, custom actions, and safe asset removal.
-- Added reusable component snapshots with independently editable inserted instances.
-- Added portable Photoshop SVG bundle import with companion CSS, images, and fonts.
-- Added disposable-realm OGraf certification and serialized browser rendering jobs.
-- Added a resource manager for images, fonts, and source attachments with metadata, usage guards,
-  deduplication, package paths, font descriptors, and license packaging.
-- Added named real-time, non-real-time, and dual-mode export profiles that never mutate source.
-- Added paired frame/millisecond timing controls with non-representable-duration warnings and
-  explicit down/nearest/up rounding.
-- Added broadcast typography controls, source-design overlays, and browser-rendered text stress QA.
+- Added Reality Hub-ready recursive GDD objects and arrays, nested required properties, item/length/
+  range constraints, structured defaults, and unambiguous segment-array binding paths.
+- Added deterministic runtime collections: one grouped object-item prototype expands from live array
+  data with explicit X/Y stride, capacity 1–100, operator-visible `maxItems`, and truncate overflow.
+- Kept collection updates deterministic across realtime playback and forward/backward non-realtime
+  `goToTime()` seeking, with collection-aware PNG diagnostics and exact OGraf re-import.
+- Added twelve composition-local blend modes with an isolated transparent root so authored blending
+  never changes according to an external video bed or editor checkerboard.
+- Replaced lockstep lower-third motion with compiled mask wipes and professional cubic-out entrances/
+  cubic-in exits; explicit stagger, directional slide, and no-motion styles remain available.
+- Expanded deterministic design QA with lockstep, easing-direction, missing-stagger, type-scale,
+  optical-alignment, padding-rhythm, and loop-seam findings.
+- Added richer Reality Hub scalar controls: descriptions, select labels, file hints, integer,
+  duration, percentage, file/select types, JSON Schema constraints, and `gddType`/`gddOptions` output.
+- Improved main preview replay and fixed source-overlay sizing/placement. Transparent collection PNG
+  capture now avoids first-snapshot foreignObject compositing races.
+- Raised editable projects through document v19 with migrations and regenerated the complete MCP
+  contracts and portable `ograf-authoring` skill.
+
+See [the complete 0.04 release notes](docs/releases/0.04.md) for validation evidence and current
+boundaries.
 
 ## Highlights
 

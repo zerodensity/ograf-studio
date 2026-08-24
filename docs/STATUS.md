@@ -2,7 +2,7 @@
 
 Last verified: 2026-08-24
 
-Current release: **OGraf Studio 0.03**
+Current release: **OGraf Studio 0.04**
 
 ## Current milestone
 
@@ -350,6 +350,8 @@ AI-first broadcast authoring and OGraf compliance hardening.
 
 ## Next milestone
 
+- Reduce the approximately 335 KB generated MCP contract by consolidating the repeated operation
+  surface, then add filtered capability sections and the combined apply/review workflow.
 - Overlapping-action/concurrency and browser E2E coverage; package/module/lifecycle smoke testing is
   now enforced in the product save path.
 - Packaged fonts, localization/RTL, and advanced broadcaster authoring tools.
