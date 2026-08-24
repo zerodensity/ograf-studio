@@ -33,8 +33,12 @@ replace the tools with raw file editing.
    reorder, transition-duration changes, and `duplicate_group` with cloned fields. Use the default
    `mode: "apply"` for the committed batch. Commit purely additive layer/field/key/asset batches
    directly unless their projected layout is genuinely uncertain.
-   Creation batches return first-class `results` with stable layer/field/guide/asset IDs; use them in
-   the next batch without paying for a project read solely as an ID lookup. A dry run returns
+   Set `includeReview: true` on `apply` or `dry-run` when the same turn should also return
+   deterministic design QA and, when the editor is responsive, a short-lived capture URL. Capture
+   failure never rolls back or invalidates the mutation/review; inspect `captureOmitted` when no URL
+   is returned. Creation batches return first-class `results` with stable
+   layer/field/guide/asset IDs; use them in the next batch without paying for a project read solely
+   as an ID lookup. A dry run returns
    projected IDs, validation, optional broadcast lint, and compact per-operation summaries, but its
    generated IDs are hypothetical and must not be reused after the real batch.
 4. Apply with the latest `expectedRevision`. If a revision conflict occurs, re-read the project and consciously rebase; never blindly retry stale operations.
