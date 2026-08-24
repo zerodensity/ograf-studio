@@ -2,9 +2,11 @@
 
 ## Discovery and inspection
 
-- `ograf_get_capabilities`: complete element schemas/defaults, easing presets, binding targets,
-  paint/easing/origin semantics, browser dependency map, bridge connection/responsiveness/latency,
-  certification readiness, asset references, and safety policy. Do not guess returned domains.
+- `ograf_get_capabilities`: request only the relevant `sections` from `elements`, `easing`,
+  `semantics`, `designSystem`, `loops`, `bindings`, and `editor`. Include `editor` for the bridge
+  connection/responsiveness/latency, certification readiness, browser dependency map, and safety
+  policy. Omit `sections` only for the complete backward-compatible payload. Do not guess domains
+  that were not requested.
 - `ograf_list_sessions`: session IDs, revisions, project names, validity.
 - `ograf_delete_session`: confirmed cleanup of a non-editor in-memory session; never targets the
   live `editor` session or saved files.

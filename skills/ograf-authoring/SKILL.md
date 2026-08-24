@@ -13,7 +13,10 @@ replace the tools with raw file editing.
 
 ## Required workflow
 
-1. Call `ograf_get_capabilities` and confirm whether the live editor is connected.
+1. Call `ograf_get_capabilities` with only the `sections` needed for the task. Include `editor` to
+   confirm whether the live editor is connected; add `elements`, `easing`, `semantics`,
+   `designSystem`, `loops`, or `bindings` only when that domain is relevant. Omit `sections` only
+   when the complete compatibility payload is genuinely required.
    Read `editor.connected`, `editor.responsive`, and `editor.latencyMs` separately. Do not call a
    browser-dependent tool while the socket is open but the editor is unresponsive; bring the editor
    tab to the foreground first. Require `editor.certificationReady` before certification or file
