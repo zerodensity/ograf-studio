@@ -23,6 +23,7 @@ import {
   computeKeyframeFrames,
   createId,
   createProject,
+  fieldDefinitionAtPath,
   getLayerPropertyValueAtFrame,
   getLoopPropertyValueAtElapsed,
   getLayerAnimatableProperties,
@@ -35,6 +36,7 @@ import {
   reviewCompositionDesign,
   transformBoundsPolygon,
   TRANSFORM_ANIMATION_PROPERTIES,
+  valueAtSourcePath,
   type Composition,
   type Project,
 } from '@ograf-editor/scene-model';
@@ -216,6 +218,10 @@ function inspectComposition(composition: Composition) {
       semantics: layer.semantics,
       designTokenBindings: layer.designTokenBindings,
       componentLink: layer.componentLink,
+      runtimeCollectionId:
+        composition.runtimeCollections.find((collection) =>
+          collection.prototypeLayerIds.includes(layer.id),
+        )?.id ?? null,
       bindings: layer.bindings,
       binding: layer.bindings[0] ?? null,
       animatedProperties: getLayerAnimatableProperties(layer).filter((property) =>
@@ -226,6 +232,11 @@ function inspectComposition(composition: Composition) {
     lifecycle: composition.keyframes.map((keyframe) => ({ ...keyframe })),
     transitions: composition.transitions.map((transition) => ({ ...transition })),
     dataFields: composition.dataFields.map((field) => ({ ...field })),
+    runtimeCollections: composition.runtimeCollections.map((collection) => ({
+      ...collection,
+      fieldKey:
+        composition.dataFields.find((field) => field.id === collection.fieldId)?.key ?? null,
+    })),
     components: composition.components.map((component) => ({
       id: component.id,
       name: component.name,
@@ -369,7 +380,10 @@ function projectSnapshotProjection(
           return projectedLayer;
         });
       }
-      if (sections.has('dataFields')) projectedComposition.dataFields = composition.dataFields;
+      if (sections.has('dataFields')) {
+        projectedComposition.dataFields = composition.dataFields;
+        projectedComposition.runtimeCollections = composition.runtimeCollections;
+      }
       if (sections.has('transitions')) {
         projectedComposition.keyframes = composition.keyframes;
         projectedComposition.transitions = composition.transitions;
@@ -437,6 +451,7 @@ function generatedOperationResults(
         'lifecycle-keyframe',
         'loop',
         'design-token',
+        'runtime-collection',
       ].includes(generated.kind)
     ) {
       return [];
@@ -518,6 +533,25 @@ function generatedOperationResults(
         },
       ];
     }
+    if (generated.kind === 'runtime-collection') {
+      const collection = project.compositions
+        .flatMap((composition) => composition.runtimeCollections)
+        .find((candidate) => candidate.id === generated.id);
+      return [
+        {
+          ...base,
+          ...(collection
+            ? {
+                name: collection.name,
+                fieldId: collection.fieldId,
+                prototypeLayerIds: collection.prototypeLayerIds,
+                capacity: collection.capacity,
+                overflow: collection.overflow,
+              }
+            : {}),
+        },
+      ];
+    }
     if (generated.kind === 'lifecycle-keyframe') {
       const keyframe = project.compositions
         .flatMap((composition) => composition.keyframes)
@@ -584,6 +618,8 @@ function normalizeOperationSelectors(
     if (operation.type === 'save_component') operation.id = createId('component');
     if (operation.type === 'add_custom_action') operation.id = createId('action');
     if (operation.type === 'set_layer_loop') operation.id = createId('layer-loop');
+    if (operation.type === 'create_runtime_collection')
+      operation.id = createId('runtime-collection');
     if (operation.type === 'upsert_design_token' && !operation.tokenId) {
       operation.id = createId('design-token');
     }
@@ -682,6 +718,70 @@ function normalizeOperationSelectors(
         operation.fieldId = matches[0]!.id;
       }
       delete operation.fieldKey;
+    }
+
+    if (
+      operation.type === 'create_runtime_collection' ||
+      operation.type === 'update_runtime_collection'
+    ) {
+      const fieldId = typeof operation.fieldId === 'string' ? operation.fieldId : undefined;
+      const fieldKey = typeof operation.fieldKey === 'string' ? operation.fieldKey : undefined;
+      if (fieldId && fieldKey) {
+        throw new Error(`Operation ${index}: pass fieldId or fieldKey, not both.`);
+      }
+      if (operation.type === 'create_runtime_collection' && !fieldId && !fieldKey) {
+        throw new Error(`Operation ${index}: fieldId or fieldKey is required.`);
+      }
+      if (fieldKey) {
+        const matches = composition.dataFields.filter((field) => field.key === fieldKey);
+        if (matches.length !== 1) {
+          throw new Error(
+            `Operation ${index}: fieldKey ${JSON.stringify(fieldKey)} is ${matches.length ? 'ambiguous' : 'unknown'}.`,
+          );
+        }
+        operation.fieldId = matches[0]!.id;
+      }
+      delete operation.fieldKey;
+
+      const layerIds = Array.isArray(operation.layerIds)
+        ? (operation.layerIds as string[])
+        : undefined;
+      const layerNames = Array.isArray(operation.layerNames)
+        ? (operation.layerNames as string[])
+        : undefined;
+      const groupId = typeof operation.groupId === 'string' ? operation.groupId : undefined;
+      const selectorCount =
+        Number(Boolean(layerIds)) + Number(Boolean(layerNames)) + Number(Boolean(groupId));
+      if (selectorCount > 1) {
+        throw new Error(
+          `Operation ${index}: pass layerIds, layerNames, or groupId, not more than one.`,
+        );
+      }
+      if (operation.type === 'create_runtime_collection' && selectorCount === 0) {
+        throw new Error(`Operation ${index}: layerIds, layerNames, or groupId is required.`);
+      }
+      if (groupId) {
+        const grouped = composition.layers.filter((layer) => layer.groupId === groupId);
+        if (grouped.length === 0) {
+          throw new Error(`Operation ${index}: canvas group not found or empty: ${groupId}`);
+        }
+        operation.prototypeLayerIds = grouped.map((layer) => layer.id);
+      } else if (layerNames) {
+        operation.prototypeLayerIds = layerNames.map((name) => {
+          const matches = composition.layers.filter((layer) => layer.name === name);
+          if (matches.length !== 1) {
+            throw new Error(
+              `Operation ${index}: layer name ${JSON.stringify(name)} is ${matches.length ? 'ambiguous' : 'unknown'}.`,
+            );
+          }
+          return matches[0]!.id;
+        });
+      } else if (layerIds) {
+        operation.prototypeLayerIds = layerIds;
+      }
+      delete operation.layerIds;
+      delete operation.layerNames;
+      delete operation.groupId;
     }
 
     if (operation.type === 'bind_design_token') {
@@ -1119,6 +1219,8 @@ export function createOGrafMcpServer(
             'set_layer_layout clipChildren=true makes that layer an animated, rotation-aware rectangular mask for direct children whose parentId points to it. Rectangle borderRadius rounds the transformed mask. Children keep their own world-space rotation; rotate the parent mask to create a diagonal wipe. Clipping is deterministic and compiled; ordinary parent translation remains baked.',
           layerBlending:
             'blendMode is static and composition-local. Editor, capture, SVG diagnostics, and runtime isolate the composition so layers blend only with earlier OGraf layers, never the external video bed or editor checkerboard.',
+          runtimeCollections:
+            'A runtime collection expands one contiguous grouped prototype from an object-item GDD array. Capacity is bounded to 1..100, overflow truncates, index offsets are explicit, updates replace snapshots atomically, and realtime/non-realtime sampling never depends on arrival order or item count.',
           localLoops:
             'A layer may own one local loop clip with independent numeric property tracks on a 0..durationFrames ruler. set_layer_loop configures lifecycle or Step activation; set_loop_property_track authors incoming-eased keys without creating composition keys or OGraf Steps. Null repeatCount means infinite. All loop phase is sampled from the shared OGraf timestamp/action schedule; loops never invoke lifecycle actions.',
           semanticAuthoring:
@@ -1185,7 +1287,7 @@ export function createOGrafMcpServer(
         bindings: {
           operations: ['set_layer_bindings', 'set_layer_binding (legacy single-binding replace)'],
           semantics:
-            'A layer may bind multiple independent element properties. Bindings are applied in order and a target property may appear only once.',
+            'A layer may bind multiple independent element properties. Bindings are applied in order and a target property may appear only once. sourcePath is a segment array for nested object leaves; array paths are item-relative inside a registered runtime collection prototype.',
           fieldTypes: [
             'text',
             'textarea',
@@ -1200,8 +1302,21 @@ export function createOGrafMcpServer(
             'file-path',
             'select',
             'select-multiple',
+            'object',
+            'array',
           ],
-          gdd: 'Every compiled field emits gddType plus operator description, select labels, file extensions, and JSON Schema constraints when authored.',
+          gdd: 'Every compiled field emits gddType plus operator description, select labels, file extensions, JSON Schema constraints, recursive object properties, and array item schemas when authored.',
+          runtimeCollections: {
+            operations: [
+              'create_runtime_collection',
+              'update_runtime_collection',
+              'remove_runtime_collection',
+            ],
+            itemType: 'array field with object items',
+            capacity: '1..100; default 12; emitted as maxItems',
+            overflow: ['truncate'],
+            identity: 'stable array index; no inferred keyed move animation',
+          },
           gradient:
             'A gradient field binds the complete rectangle/ellipse fill object. Per-stop paths are not supported.',
           targetProperties: {
@@ -1448,6 +1563,7 @@ export function createOGrafMcpServer(
               fieldLabel: field?.label ?? null,
               fieldType: field?.type ?? null,
               targetProperty: binding.targetProperty,
+              sourcePath: binding.sourcePath ?? [],
             };
           });
           const tags = layer.semantics.tags.map((tag) => tag.toLocaleLowerCase());
@@ -1505,6 +1621,10 @@ export function createOGrafMcpServer(
             animatedProperties,
             hasLoop: Boolean(layer.loop),
             componentLink: layer.componentLink,
+            runtimeCollectionId:
+              composition.runtimeCollections.find((collection) =>
+                collection.prototypeLayerIds.includes(layer.id),
+              )?.id ?? null,
           };
         })
         .filter((match): match is NonNullable<typeof match> => Boolean(match));
@@ -2199,15 +2319,32 @@ export function createOGrafMcpServer(
               ? composition.dataFields.find((candidate) => candidate.id === contentBinding.fieldId)
               : undefined;
             const supplied = field ? testValues?.[field.key] : undefined;
-            const declaredMaximum = field?.constraints.maxLength;
+            const leaf =
+              field && contentBinding
+                ? fieldDefinitionAtPath(field, contentBinding.sourcePath ?? [], {
+                    fromArrayItem: field.type === 'array',
+                  })
+                : field;
+            const declaredMaximum = leaf?.constraints.maxLength;
             const declaredMaximumStress =
               declaredMaximum !== undefined && declaredMaximum > 0
                 ? 'W'.repeat(Math.min(declaredMaximum, 2000))
                 : undefined;
+            const defaultRoot =
+              field?.type === 'array' && Array.isArray(field.defaultValue)
+                ? field.defaultValue[0]
+                : field?.defaultValue;
+            const defaultValue = valueAtSourcePath(defaultRoot, contentBinding?.sourcePath);
+            const suppliedValues =
+              field?.type === 'array' && Array.isArray(supplied)
+                ? supplied.map((item) => valueAtSourcePath(item, contentBinding?.sourcePath))
+                : supplied !== undefined
+                  ? [valueAtSourcePath(supplied, contentBinding?.sourcePath)]
+                  : [];
             const values = [
-              field?.defaultValue ?? layer.element.content,
+              defaultValue ?? layer.element.content,
               ...(declaredMaximumStress ? [declaredMaximumStress] : []),
-              ...(Array.isArray(supplied) ? supplied : supplied !== undefined ? [supplied] : []),
+              ...suppliedValues,
             ];
             const uniqueValues = [...new Set(values.map((value) => String(value)))];
             const pose = visibleLayerBounds(composition, layer, measurementFrame);
@@ -2653,7 +2790,7 @@ export function createOGrafMcpServer(
     {
       title: 'Apply atomic OGraf authoring operations',
       description:
-        'Atomically applies scene, timeline, semantic recipe, repeater, brand-token, loop, data, lifecycle, asset, duplication, component, and canvas-layout operations using expectedRevision. Creation returns stable IDs. create_lower_third materializes an ordinary grouped four-layer/two-field lower third; create_repeater materializes data items as grouped normal layers with independent fields. Design-token links and linked-component metadata are authoring-only, while values and refreshed instances remain standard portable OGraf content. update_component_from_layers replaces a saved snapshot and refresh_component_instances explicitly re-materializes linked instances with returned mappings. Lifecycle rename/move/remove uses the same retiming planner, duration bounds, and warnings as OGraf Studio. group_layers/ungroup_layers persist canvas object groups; custom-action CRUD edits controller-visible actions; remove_asset refuses live image references unless force=true. set_layer_loop creates/updates one layer-local deterministic clip; activation type lifecycle runs while the graphic is on-air, while type step requires a pausable stepKeyframeId. set_loop_property_track writes local 0..durationFrames numeric keys with independent incoming easing/curves; these keys never become composition keys or OGraf Steps, null repeatCount is infinite, and remove_layer_loop removes the complete clip. create_timeline_group organizes at least two independent layer rows for editor/MCP readability and returns a stable timeline-group ID. add_asset accepts base64 (without a data-URI prefix) and returns an asset ID usable as asset:<id>. Operations with one layer accept layerId or exact layerName (ambiguity is rejected); exact layerName, fieldKey, and tokenKey selectors resolve entities created earlier in the same batch. update_transform/update_effects default scope="authored" and write every lifecycle frame; scope="frame" requires frame for animation edits. duplicate_group creates independent grouped copies and complete layer/field mappings; frameOffset shifts only non-lifecycle authored keys. dryRun is revision-neutral and atomic. Higher indexes paint later/on top; property easing is incoming. Every authoring warning is returned verbatim in the primary text response with its operation index and affected layer.',
+        'Atomically applies scene, timeline, semantic recipe, finite repeater, runtime collection, brand-token, loop, recursive GDD data, lifecycle, asset, duplication, component, and canvas-layout operations using expectedRevision. Creation returns stable IDs. create_runtime_collection registers one contiguous grouped prototype against an object-item array, explicit per-item offset, bounded capacity, and truncate overflow; item bindings use sourcePath segments and remain deterministic under scheduled goToTime seeking. create_lower_third and create_repeater still materialize ordinary editable layers. Design-token links and linked-component metadata are authoring-only, while values and refreshed instances remain standard portable OGraf content. Lifecycle rename/move/remove uses the shared retiming planner. group_layers/ungroup_layers persist canvas groups; collection prototypes must be removed from their collection before destructive ungroup/delete operations. set_layer_loop writes deterministic local clips. create_timeline_group is editor-only organization. add_asset returns asset:<id>. Single-layer operations accept layerId or exact layerName; exact layerName, fieldKey, and tokenKey selectors can resolve entities created earlier in the same batch. update_transform/update_effects default scope="authored"; scope="frame" requires frame. duplicate_group creates independent grouped copies. dryRun is revision-neutral and atomic. Higher indexes paint later/on top; property easing is incoming. Every authoring warning is returned verbatim.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),

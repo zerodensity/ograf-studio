@@ -31,6 +31,8 @@ describe('compileDataSchema', () => {
         createFieldDefinition('file-path', { key: 'k' }),
         createFieldDefinition('select', { key: 'l' }),
         createFieldDefinition('select-multiple', { key: 'm' }),
+        createFieldDefinition('object', { key: 'n' }),
+        createFieldDefinition('array', { key: 'o' }),
       ],
     });
     const { properties } = compileDataSchema(composition);
@@ -48,9 +50,63 @@ describe('compileDataSchema', () => {
       k: 'string',
       l: 'string',
       m: 'array',
+      n: 'object',
+      o: 'array',
     });
     expect(properties.f!.properties?.stops?.minItems).toBe(2);
     expect(Object.values(properties).every((property) => Boolean(property.gddType))).toBe(true);
+  });
+
+  it('emits recursive object properties and array item schemas', () => {
+    const name = createFieldDefinition('text', {
+      key: 'name',
+      label: 'Name',
+      required: true,
+      constraints: { maxLength: 40 },
+    });
+    const score = createFieldDefinition('integer', { key: 'score', label: 'Score' });
+    const item = createFieldDefinition('object', {
+      key: 'item',
+      label: 'Leaderboard item',
+      properties: [name, score],
+      defaultValue: { name: '', score: 0 },
+    });
+    const leaderboard = createFieldDefinition('array', {
+      key: 'leaderboard',
+      label: 'Leaderboard',
+      items: item,
+      constraints: { minItems: 1, maxItems: 12 },
+      defaultValue: [{ name: 'Ada', score: 10 }],
+    });
+    const team = createFieldDefinition('object', {
+      key: 'team',
+      label: 'Team',
+      properties: [createFieldDefinition('text', { key: 'city', required: true })],
+      defaultValue: { city: 'Istanbul' },
+    });
+
+    const { properties } = compileDataSchema(
+      createComposition({ dataFields: [leaderboard, team] }),
+    );
+    expect(properties.leaderboard).toMatchObject({
+      type: 'array',
+      gddType: 'array',
+      minItems: 1,
+      maxItems: 12,
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', maxLength: 40 },
+          score: { type: 'integer' },
+        },
+        required: ['name'],
+      },
+    });
+    expect(properties.team).toMatchObject({
+      type: 'object',
+      properties: { city: { type: 'string' } },
+      required: ['city'],
+    });
   });
 
   it('emits official GDD hints, options, descriptions, and constraints', () => {

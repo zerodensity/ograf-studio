@@ -1,4 +1,5 @@
 import {
+  createFieldDefinition,
   createDefaultTransform,
   createKeyframe,
   createLayerKeyframe,
@@ -73,7 +74,7 @@ type LegacyLayer = Omit<
 
 type LegacyComposition = Omit<
   Composition,
-  'keyframes' | 'layers' | 'layout' | 'components' | 'designSystem'
+  'keyframes' | 'layers' | 'layout' | 'components' | 'designSystem' | 'runtimeCollections'
 > & {
   keyframes: LegacyKeyframe[];
   layers: LegacyLayer[];
@@ -81,13 +82,17 @@ type LegacyComposition = Omit<
   updateTransitionFrames?: number;
   components?: Composition['components'];
   designSystem?: Composition['designSystem'];
+  runtimeCollections?: Composition['runtimeCollections'];
 };
 
 type LegacyFieldDefinition = Omit<
   FieldDefinition,
-  'description' | 'options' | 'constraints' | 'fileExtensions'
+  'description' | 'options' | 'constraints' | 'fileExtensions' | 'properties' | 'items'
 > &
-  Partial<Pick<FieldDefinition, 'description' | 'options' | 'constraints' | 'fileExtensions'>>;
+  Partial<Pick<FieldDefinition, 'description' | 'options' | 'constraints' | 'fileExtensions'>> & {
+    properties?: LegacyFieldDefinition[];
+    items?: LegacyFieldDefinition | null;
+  };
 
 type LegacyProject = Omit<
   Project,
@@ -108,12 +113,23 @@ function hiddenClone(pose: LayerTransform | undefined): LayerTransform | undefin
 }
 
 function normalizeFieldDefinition(field: LegacyFieldDefinition): FieldDefinition {
+  const properties = (field.properties ?? []).map(normalizeFieldDefinition);
+  const items =
+    field.items === undefined
+      ? field.type === 'array'
+        ? createFieldDefinition('object', { key: 'item', label: 'Item', required: true })
+        : null
+      : field.items === null
+        ? null
+        : normalizeFieldDefinition(field.items);
   return {
     ...field,
     description: field.description ?? '',
     options: field.options ?? [],
     constraints: field.constraints ?? {},
     fileExtensions: field.fileExtensions ?? [],
+    properties,
+    items,
   };
 }
 
@@ -171,6 +187,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       legacyLayer.bindings ?? (legacyLayer.binding ? [legacyLayer.binding] : [])
     ).map((binding) => ({
       ...binding,
+      sourcePath: binding.sourcePath ?? [],
       ...(binding.valueMap ? { valueMap: { ...binding.valueMap } } : {}),
     }));
     const element =
@@ -326,6 +343,15 @@ function normalizeComposition(composition: LegacyComposition): Composition {
     dataFields: (composition.dataFields ?? []).map((field) =>
       normalizeFieldDefinition(field as LegacyFieldDefinition),
     ),
+    runtimeCollections: (composition.runtimeCollections ?? []).map((collection) => ({
+      ...collection,
+      capacity: Math.max(1, Math.min(100, Math.round(collection.capacity ?? 12))),
+      offsetPerItem: {
+        x: Number(collection.offsetPerItem?.x ?? 0),
+        y: Number(collection.offsetPerItem?.y ?? 0),
+      },
+      overflow: 'truncate',
+    })),
     components: (composition.components ?? []).map((component) => ({
       ...component,
       dataFields: component.dataFields.map((field) =>

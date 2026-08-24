@@ -1,4 +1,4 @@
-import type { Asset, Composition, Element } from './types';
+import type { Asset, Composition, Element, FieldDefinition, FieldValue } from './types';
 
 const ASSET_PREFIX = 'asset:';
 
@@ -40,12 +40,26 @@ export function findAssetConsumers(composition: Composition, asset: Asset): Asse
         (layer.element.type === 'image-sequence' && layer.element.frames.includes(reference)),
     )
     .map((layer) => layer.id);
+  const usesReference = (field: FieldDefinition, value: FieldValue): boolean => {
+    if ((field.type === 'image-url' || field.type === 'file-path') && value === reference) {
+      return true;
+    }
+    if (field.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, FieldValue>;
+      return field.properties.some(
+        (property) =>
+          record[property.key] !== undefined && usesReference(property, record[property.key]!),
+      );
+    }
+    return (
+      field.type === 'array' &&
+      Boolean(field.items) &&
+      Array.isArray(value) &&
+      value.some((item) => usesReference(field.items!, item))
+    );
+  };
   const fieldIds = composition.dataFields
-    .filter(
-      (field) =>
-        (field.type === 'image-url' || field.type === 'file-path') &&
-        field.defaultValue === reference,
-    )
+    .filter((field) => usesReference(field, field.defaultValue))
     .map((field) => field.id);
   const fontLayerIds =
     asset.kind === 'font' && asset.fontFamily
@@ -102,9 +116,23 @@ export function findMissingAssetReferences(composition: Composition): string[] {
     else if (layer.element.type === 'image-sequence') layer.element.frames.forEach(check);
   }
   for (const field of composition.dataFields) {
-    if (field.type === 'image-url' && typeof field.defaultValue === 'string') {
-      check(field.defaultValue);
-    }
+    const visit = (node: FieldDefinition, value: FieldValue) => {
+      if (node.type === 'image-url' && typeof value === 'string') check(value);
+      else if (
+        node.type === 'object' &&
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value)
+      ) {
+        const record = value as Record<string, FieldValue>;
+        for (const property of node.properties) {
+          if (record[property.key] !== undefined) visit(property, record[property.key]!);
+        }
+      } else if (node.type === 'array' && node.items && Array.isArray(value)) {
+        for (const item of value) visit(node.items, item);
+      }
+    };
+    visit(field, field.defaultValue);
   }
   return [...missing].sort();
 }

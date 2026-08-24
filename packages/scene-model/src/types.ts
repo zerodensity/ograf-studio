@@ -134,6 +134,8 @@ export type ElementType = Element['type'];
 export interface LayerBinding {
   fieldId: string;
   targetProperty: string;
+  /** Nested object path. Collection-prototype bindings resolve it relative to the current item. */
+  sourcePath?: string[];
   /** Optional data-value mapping applied before assigning the bound element property. */
   valueMap?: Record<string, string | number | boolean | GradientPaint>;
 }
@@ -406,8 +408,12 @@ export type FieldType =
   | 'image-url'
   | 'file-path'
   | 'select'
-  | 'select-multiple';
-export type FieldValue = string | number | boolean | string[] | GradientPaint;
+  | 'select-multiple'
+  | 'object'
+  | 'array';
+export type FieldObjectValue = { [key: string]: FieldValue };
+export type FieldValue =
+  string | number | boolean | null | FieldValue[] | FieldObjectValue | GradientPaint;
 
 export interface FieldOption {
   value: string;
@@ -421,6 +427,8 @@ export interface FieldConstraints {
   maximum?: number;
   pattern?: string;
   step?: number;
+  minItems?: number;
+  maxItems?: number;
 }
 
 /** One dynamic input the Composition accepts at runtime — compiles into the OGraf manifest's `schema`. */
@@ -440,6 +448,40 @@ export interface FieldDefinition {
   constraints: FieldConstraints;
   /** Optional extension allowlist for file-path and image-path controls. */
   fileExtensions: string[];
+  /** Ordered nested properties when type is object. */
+  properties: FieldDefinition[];
+  /** One recursive item schema when type is array. */
+  items: FieldDefinition | null;
+}
+
+/** ID-optional recursive input used by editor/MCP authoring operations. */
+export interface FieldSchemaInput {
+  id?: string;
+  key: string;
+  label?: string;
+  description?: string;
+  fieldType: FieldType;
+  defaultValue?: FieldValue;
+  required?: boolean;
+  options?: FieldOption[];
+  constraints?: FieldConstraints;
+  fileExtensions?: string[];
+  properties?: FieldSchemaInput[];
+  items?: FieldSchemaInput | null;
+}
+
+export interface RuntimeCollectionDefinition {
+  id: string;
+  name: string;
+  /** Array field whose object items populate the prototype. */
+  fieldId: string;
+  /** Contiguous paint-ordered layers authored as one grouped item prototype. */
+  prototypeLayerIds: string[];
+  /** Deterministic translation added for each subsequent item index. */
+  offsetPerItem: { x: number; y: number };
+  /** Hard authored/rendered item limit; W12b.1 supports 1..100. */
+  capacity: number;
+  overflow: 'truncate';
 }
 
 /** An author-defined `customAction` the Composition responds to — compiles into `manifest.customActions[]`. */
@@ -536,6 +578,8 @@ export interface Composition {
   keyframes: Keyframe[];
   transitions: Transition[];
   dataFields: FieldDefinition[];
+  /** Runtime-expanded GDD array prototypes. */
+  runtimeCollections: RuntimeCollectionDefinition[];
   customActions: CustomActionDefinition[];
   assets: Asset[];
   /** Brand kit and reusable style decisions; omitted from compiled OGraf output. */

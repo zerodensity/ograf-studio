@@ -1,6 +1,6 @@
 ---
 name: ograf-authoring
-description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, semantic scene authoring, Brand Kits, repeaters, reusable components, HTML5 broadcast templates, .ogeproj source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
+description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, .ogeproj source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
 ---
 
 # OGraf Authoring
@@ -101,6 +101,12 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 - Use `create_repeater` when a finite horizontal or vertical collection should be materialized from
   selected source layers. It creates ordinary grouped layers and cloned fields with semantic item
   tags; use runtime data fields normally afterward. It is not a live array-binding primitive.
+- Use `create_runtime_collection` when Reality Hub supplies a variable-length object-item array.
+  Author one contiguous persistent group as the item prototype, bind its properties to scalar item
+  leaves with `sourcePath: ["segment", ...]`, then register explicit `offsetPerItem`, capacity 1..100,
+  and `overflow: "truncate"`. Every instance shares the prototype lifecycle and absolute loop phase;
+  array updates replace by index and remain deterministic under scheduled `goToTime()` seeking.
+  Scalar arrays are schema-only, and scroll/pagination/keyed move animation are not supported.
 - Use property tracks independently. Changing `x` must not create or retime `opacity`, `rotation`, or another layer's keys.
 - Prefer `set_property_track` for a complete track and `stagger_property_track` for repeated
   multi-layer timing; both remain operations inside the same revision-checked atomic batch.
@@ -124,7 +130,10 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 - Treat the data schema as the operator contract. Author meaningful field `description`, select
   `options`, file extensions, and JSON Schema constraints through `add_data_field` or
   `update_data_field`; every compiled field emits `gddType`. Give bound on-air text a realistic
-  `maxLength` so Reality Hub/Form Builder can prevent unusable values before playout.
+  `maxLength` so Reality Hub/Form Builder can prevent unusable values before playout. Object
+  `properties` and array `items` use the same recursive field shape; keep property keys unique and
+  defaults valid. A runtime collection requires array `items.fieldType: "object"`, and its capacity
+  is emitted as `maxItems`.
 - Use `duplicate_group` for independent repeated cells. Animate the source before duplication if
   its animation must be copied. A positive `frameOffset` shifts non-lifecycle authored keys only;
   Start/Step/End compatibility keys remain anchored. Ensure headroom for the shifted authored keys;

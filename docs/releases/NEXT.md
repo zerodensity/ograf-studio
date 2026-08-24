@@ -51,5 +51,22 @@
   stack. Editor checkerboards remain outside that isolation boundary and external video cannot
   change the authored result.
 
+## Runtime GDD collections
+
+- Raised editable projects to document v19 and added recursive object/array field schemas, nested
+  required properties, item-count constraints, structured JSON defaults, and segment-array binding
+  paths across editor, compiler, validation, typed MCP operations, and OGraf import.
+- Added bounded object-item runtime collections. A contiguous grouped prototype expands item-major
+  with explicit X/Y stride, capacity 1..100, and truncate overflow; `maxItems` mirrors capacity for
+  Reality Hub operator validation.
+- Kept realtime and non-realtime behavior deterministic: array updates replace by index, use the
+  existing absolute update crossfade, share prototype lifecycle/loop timing, and reconstruct from
+  scheduled snapshots during forward or backward `goToTime()` seeking.
+- Added collection-aware PNG capture metadata, approximate SVG review, packaged resource rewriting,
+  exact descriptor round-trip, and distinct documentation from finite authoring-time repeaters.
+- Stabilized transparent PNG capture after runtime item-count changes by rebuilding the immutable
+  expanded DOM after html-to-image's first foreignObject cache warm-up. Normal blend mode now relies
+  on the CSS default rather than creating unnecessary transparent compositing groups.
+
 This file is the unreleased changelog. Add completed, verified changes here before assigning the
 next version and tag.

@@ -9,9 +9,22 @@ function resolveFieldValue(
   field: Composition['dataFields'][number],
   value: FieldValue,
 ): FieldValue {
-  return field.type === 'image-url' && typeof value === 'string'
-    ? resolveAssetValue(value, composition.assets)
-    : value;
+  if (field.type === 'image-url' && typeof value === 'string') {
+    return resolveAssetValue(value, composition.assets);
+  }
+  if (field.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, FieldValue>;
+    return Object.fromEntries(
+      Object.entries(record).map(([key, childValue]) => {
+        const child = field.properties.find((property) => property.key === key);
+        return [key, child ? resolveFieldValue(composition, child, childValue) : childValue];
+      }),
+    );
+  }
+  if (field.type === 'array' && field.items && Array.isArray(value)) {
+    return value.map((item) => resolveFieldValue(composition, field.items!, item));
+  }
+  return value;
 }
 
 /** Builds the data payload used by in-editor runtime previews. Test values win over declared field

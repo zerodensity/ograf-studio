@@ -7,8 +7,10 @@ import {
   paintToCss,
   clipPathSvgForParentBounds,
   resolveElementAssetReferences,
+  valueAtSourcePath,
   type Composition,
   type Element,
+  type FieldValue,
   type Layer,
   type Project,
 } from '@ograf-editor/scene-model';
@@ -89,11 +91,21 @@ function layerSvg(
   frame: number,
   compositionFrameRate: number,
   composition: Composition,
+  data: Record<string, FieldValue>,
+  options: {
+    itemValue?: FieldValue;
+    collectionFieldId?: string;
+    offsetX?: number;
+    offsetY?: number;
+    idSuffix?: string;
+  } = {},
 ): string {
   if (!layer.isVisible || layer.isGuide) return '';
-  const transform = getLayerTransformAtFrame(layer, frame);
+  const transform = { ...getLayerTransformAtFrame(layer, frame) };
+  transform.x += options.offsetX ?? 0;
+  transform.y += options.offsetY ?? 0;
   const effects = getLayerEffectsAtFrame(layer, frame);
-  const filterId = `filter-${escapeXml(layer.id)}`;
+  const filterId = `filter-${escapeXml(layer.id)}${escapeXml(options.idSuffix ?? '')}`;
   const filters = [
     effects.blur > 0 ? `<feGaussianBlur stdDeviation="${effects.blur}"/>` : '',
     effects.dropShadowEnabled
@@ -102,7 +114,22 @@ function layerSvg(
   ].join('');
   const originX = transform.transformOriginX * transform.width;
   const originY = transform.transformOriginY * transform.height;
-  const resolvedElement = resolveElementAssetReferences(layer.element, composition.assets);
+  const boundElement = layer.bindings.reduce<Element>((resolved, binding) => {
+    const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
+    if (!field) return resolved;
+    const root = options.collectionFieldId === field.id ? options.itemValue : data[field.key];
+    const value = valueAtSourcePath(root, binding.sourcePath);
+    if (value === undefined) return resolved;
+    const mapped = binding.valueMap?.[String(value)] ?? value;
+    return {
+      ...resolved,
+      [binding.targetProperty]:
+        binding.targetProperty === 'fill' && mapped && typeof mapped === 'object'
+          ? mapped
+          : String(mapped),
+    } as Element;
+  }, layer.element);
+  const resolvedElement = resolveElementAssetReferences(boundElement, composition.assets);
   const element =
     (resolvedElement.type === 'rectangle' || resolvedElement.type === 'ellipse') &&
     typeof resolvedElement.fill !== 'string'
@@ -120,8 +147,12 @@ function layerSvg(
         (candidate) => candidate.id === layer.parentId && candidate.clipChildren,
       )
     : undefined;
-  const clipId = `clip-${escapeXml(layer.id)}`;
-  const parentTransform = parent ? getLayerTransformAtFrame(parent, frame) : null;
+  const clipId = `clip-${escapeXml(layer.id)}${escapeXml(options.idSuffix ?? '')}`;
+  const parentTransform = parent ? { ...getLayerTransformAtFrame(parent, frame) } : null;
+  if (parentTransform) {
+    parentTransform.x += options.offsetX ?? 0;
+    parentTransform.y += options.offsetY ?? 0;
+  }
   const clip =
     parent && parentTransform
       ? `<clipPath id="${clipId}"><path d="${escapeXml(clipPathSvgForParentBounds(transform, parentTransform, parent.element.type === 'rectangle' ? parent.element.borderRadius : 0))}"/></clipPath>`
@@ -133,7 +164,7 @@ function layerSvg(
     frame,
     compositionFrameRate,
   );
-  return `<defs>${filters ? `<filter id="${filterId}" x="-100%" y="-100%" width="300%" height="300%">${filters}</filter>` : ''}${clip}</defs><g transform="translate(${transform.x} ${transform.y}) rotate(${transform.rotation} ${originX} ${originY})" opacity="${transform.opacity}" style="mix-blend-mode:${layer.blendMode}"${filters ? ` filter="url(#${filterId})"` : ''}>${clip ? `<g clip-path="url(#${clipId})">${content}</g>` : content}</g>`;
+  return `<defs>${filters ? `<filter id="${filterId}" x="-100%" y="-100%" width="300%" height="300%">${filters}</filter>` : ''}${clip}</defs><g transform="translate(${transform.x} ${transform.y}) rotate(${transform.rotation} ${originX} ${originY})" opacity="${transform.opacity}"${layer.blendMode === 'normal' ? '' : ` style="mix-blend-mode:${layer.blendMode}"`}${filters ? ` filter="url(#${filterId})"` : ''}>${clip ? `<g clip-path="url(#${clipId})">${content}</g>` : content}</g>`;
 }
 
 export function renderCompositionFrameSvg(
@@ -148,6 +179,46 @@ export function renderCompositionFrameSvg(
     composition.backgroundColor === 'transparent'
       ? ''
       : `<rect width="100%" height="100%" fill="${escapeXml(composition.backgroundColor)}"/>`;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${composition.width}" height="${composition.height}" viewBox="0 0 ${composition.width} ${composition.height}" style="isolation:isolate">${background}${composition.layers.map((layer) => layerSvg(layer, normalizedFrame, composition.frameRate, composition)).join('')}</svg>`;
+  const data = Object.fromEntries(
+    composition.dataFields.map((field) => [field.key, field.defaultValue]),
+  );
+  const collectionByLayerId = new Map(
+    composition.runtimeCollections.flatMap((collection) =>
+      collection.prototypeLayerIds.map((layerId) => [layerId, collection] as const),
+    ),
+  );
+  const emittedCollections = new Set<string>();
+  const content = composition.layers
+    .map((layer) => {
+      const collection = collectionByLayerId.get(layer.id);
+      if (!collection) {
+        return layerSvg(layer, normalizedFrame, composition.frameRate, composition, data);
+      }
+      if (emittedCollections.has(collection.id)) return '';
+      emittedCollections.add(collection.id);
+      const field = composition.dataFields.find((candidate) => candidate.id === collection.fieldId);
+      const items = field && Array.isArray(field.defaultValue) ? field.defaultValue : [];
+      return items
+        .slice(0, collection.capacity)
+        .map((itemValue, index) =>
+          collection.prototypeLayerIds
+            .map((layerId) => {
+              const prototype = composition.layers.find((candidate) => candidate.id === layerId);
+              return prototype
+                ? layerSvg(prototype, normalizedFrame, composition.frameRate, composition, data, {
+                    itemValue,
+                    collectionFieldId: collection.fieldId,
+                    offsetX: collection.offsetPerItem.x * index,
+                    offsetY: collection.offsetPerItem.y * index,
+                    idSuffix: `-${collection.id}-${index}`,
+                  })
+                : '';
+            })
+            .join(''),
+        )
+        .join('');
+    })
+    .join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${composition.width}" height="${composition.height}" viewBox="0 0 ${composition.width} ${composition.height}" style="isolation:isolate">${background}${content}</svg>`;
   return { svg, composition, frame: normalizedFrame };
 }

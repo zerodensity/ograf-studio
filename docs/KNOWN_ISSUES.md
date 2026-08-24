@@ -41,8 +41,11 @@
   permanent. Granular override tracking is not implemented.
 - Repeaters materialize a finite collection at authoring time. They do not expose a runtime array
   field or dynamically add/remove rows from controller data.
-- W12a covers enriched scalar fields and string select-multiple controls. General GDD array/object
-  fields and runtime item-prototype repetition remain unimplemented pending the W12b design.
+- W12b runtime collections are deliberately bounded and index-based. They accept object-item arrays,
+  explicit X/Y stride, capacity 1..100, and truncate overflow. Scalar arrays are schema-only;
+  scroll, pagination, grids, keyed reordering animation, independent item timing, and nested repeated
+  arrays remain unimplemented. Official-schema/devtool certification is covered, while one real
+  Reality Hub → Lino module smoke test remains required for target-stack proof.
 - Blend modes intentionally composite only against lower layers inside the isolated OGraf
   composition. They never sample a controller or graphics server's external video bed. Target
   renderer differences in CSS blend-mode precision still require the planned Lino/on-air smoke

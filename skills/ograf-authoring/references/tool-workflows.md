@@ -82,7 +82,8 @@ Supported operation discriminators:
   `move_property_key`, `remove_property_key`, `set_property_key_easing`, `set_transition`,
   `set_layer_loop`, `set_loop_property_track`, `remove_layer_loop`
 - Data: `add_data_field`, `update_data_field`, `remove_data_field`, `set_layer_bindings`,
-  `set_layer_binding` (legacy single-binding replace)
+  `set_layer_binding` (legacy single-binding replace), `create_runtime_collection`,
+  `update_runtime_collection`, `remove_runtime_collection`
 - Actions: `add_custom_action`, `update_custom_action`, `remove_custom_action`
 
 `add_layer.kind` supports `rectangle`, `ellipse`, `text`, `image`, `path`, and `image-sequence`. It returns the generated layer ID in `summary.generatedIds`.
@@ -98,6 +99,15 @@ transition is too short. Every style returns ordinary layer/field/group mappings
 `create_repeater` takes one or more source `layerIds`, at least two item records, direction, and gap.
 It materializes finite grouped copies and independently cloned fields, adds semantic item/index tags,
 and returns complete mappings. It is an authoring recipe, not a runtime collection component.
+
+`create_runtime_collection` is the variable-length counterpart. Supply an object-item array by
+`fieldId` or unique `fieldKey`; select one contiguous persistent-group prototype with `groupId`,
+ordered `layerIds`, or exact `layerNames`; and provide `offsetPerItem`, capacity 1..100, and truncate
+overflow. Bind prototype layers to the array field with item-relative `sourcePath` segment arrays.
+Capacity is mirrored to field `maxItems`. Updates are index-based snapshot replacement with the
+composition update crossfade; instances never infer identity, timing, scroll, or pagination. Remove
+the runtime collection before deleting or ungrouping prototype layers. `create_repeater` remains the
+right tool when the row count itself should be authored as ordinary editable layers and fields.
 
 Operations targeting one layer accept either `layerId` or exact `layerName`; never pass both. Name
 ambiguity is rejected with matching IDs. `stagger_property_track` accepts ordered `layerIds` or a
@@ -222,10 +232,11 @@ intentional legacy-compatible single-binding replacement should also discard any
 `update_data_field` accepts `fieldId` or unique `fieldKey` and can change key, label, default, and
 required state in place. It can also change `fieldType`, operator `description`, ordered
 `options: [{value,label}]`, `fileExtensions`, and `constraints` (`minLength`, `maxLength`, `minimum`,
-`maximum`, `pattern`, `step`). Supported enriched types are integer, duration-ms, percentage,
-file-path, select, and select-multiple alongside the original types. Compiled fields emit official
-GDD hints (`gddType`/`gddOptions`) plus JSON Schema constraints; select-multiple defaults are string
-arrays. Prefer `maxLength` on every operator-editable on-air text field.
+`maximum`, `pattern`, `step`, `minItems`, `maxItems`). `object` fields use recursive `properties`;
+`array` fields use one recursive `items` schema. Supported enriched scalar types include integer,
+duration-ms, percentage, file-path, select, and select-multiple. Compiled fields emit official GDD
+hints (`gddType`/`gddOptions`) plus recursive JSON Schema; select-multiple defaults are string arrays.
+Prefer `maxLength` on every operator-editable on-air text leaf.
 `remove_data_field` refuses to orphan bindings and names their layers; `force: true` clears those
 bindings atomically and reports them in `summary.clearedBindings`.
 

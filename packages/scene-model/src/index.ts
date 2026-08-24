@@ -21,4 +21,5 @@ export * from './repeaterRecipes';
 export * from './designQa';
 export * from './motionPresets';
 export * from './blendModes';
+export * from './fieldSchema';
 export { createId } from './id';

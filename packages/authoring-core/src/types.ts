@@ -8,6 +8,7 @@ import type {
   FieldValue,
   FieldConstraints,
   FieldOption,
+  FieldSchemaInput,
   LayerBinding,
   LayerEffects,
   LayerConstraints,
@@ -408,6 +409,8 @@ export type AuthoringOperation =
       options?: FieldOption[];
       constraints?: FieldConstraints;
       fileExtensions?: string[];
+      properties?: FieldSchemaInput[];
+      items?: FieldSchemaInput | null;
     }
   | {
       type: 'update_data_field';
@@ -422,6 +425,8 @@ export type AuthoringOperation =
       options?: FieldOption[];
       constraints?: FieldConstraints;
       fileExtensions?: string[];
+      properties?: FieldSchemaInput[];
+      items?: FieldSchemaInput | null;
     }
   | {
       type: 'remove_data_field';
@@ -440,6 +445,33 @@ export type AuthoringOperation =
       compositionId?: string;
       layerId: string;
       bindings: LayerBinding[];
+    }
+  | {
+      type: 'create_runtime_collection';
+      compositionId?: string;
+      id?: string;
+      name?: string;
+      fieldId: string;
+      prototypeLayerIds: string[];
+      offsetPerItem: { x: number; y: number };
+      capacity?: number;
+      overflow?: 'truncate';
+    }
+  | {
+      type: 'update_runtime_collection';
+      compositionId?: string;
+      collectionId: string;
+      name?: string;
+      fieldId?: string;
+      prototypeLayerIds?: string[];
+      offsetPerItem?: { x: number; y: number };
+      capacity?: number;
+      overflow?: 'truncate';
+    }
+  | {
+      type: 'remove_runtime_collection';
+      compositionId?: string;
+      collectionId: string;
     }
   | {
       type: 'add_custom_action';
@@ -486,7 +518,8 @@ export interface AuthoringChangeSummary {
       | 'custom-action'
       | 'component'
       | 'loop'
-      | 'design-token';
+      | 'design-token'
+      | 'runtime-collection';
     id: string;
   }>;
   clearedBindings: Array<{ layerId: string; layerName: string; fieldId: string }>;

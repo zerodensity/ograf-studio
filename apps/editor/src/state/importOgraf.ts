@@ -266,6 +266,8 @@ function inferFieldType(key: string, schema: UnknownRecord): FieldType {
     const properties = schema.properties;
     if (isRecord(properties) && 'stops' in properties && 'angle' in properties) return 'gradient';
   }
+  if (declared === 'object') return 'object';
+  if (declared === 'array') return 'array';
   if (
     schema.format === 'uri' ||
     schema.format === 'uri-reference' ||
@@ -303,6 +305,8 @@ function coerceFieldDefault(
   )
     return value;
   if (type === 'gradient' && isGradient(value)) return clone(value);
+  if (type === 'object' && isRecord(value)) return clone(value) as FieldValue;
+  if (type === 'array' && Array.isArray(value)) return clone(value) as FieldValue;
   if (
     (type === 'text' ||
       type === 'textarea' ||
@@ -334,64 +338,81 @@ function fieldsFromManifest(manifest: OGrafManifest, warnings: string[]): FieldD
       ? manifest.schema.required.filter((item): item is string => typeof item === 'string')
       : [],
   );
+  const fieldFromSchema = (
+    key: string,
+    value: UnknownRecord,
+    required: boolean,
+  ): FieldDefinition => {
+    const type = inferFieldType(key, value);
+    const nestedRequired = new Set(
+      Array.isArray(value.required)
+        ? value.required.filter((item): item is string => typeof item === 'string')
+        : [],
+    );
+    const properties =
+      type === 'object' && isRecord(value.properties)
+        ? Object.entries(value.properties).flatMap(([propertyKey, property]) =>
+            isRecord(property)
+              ? [fieldFromSchema(propertyKey, property, nestedRequired.has(propertyKey))]
+              : [],
+          )
+        : [];
+    const items =
+      type === 'array' && isRecord(value.items)
+        ? fieldFromSchema('item', value.items, true)
+        : undefined;
+    return createFieldDefinition(type, {
+      key,
+      label: typeof value.title === 'string' ? value.title : key,
+      description: typeof value.description === 'string' ? value.description : '',
+      defaultValue: coerceFieldDefault(type, value.default, key, warnings),
+      required,
+      options: (() => {
+        const enumerated =
+          type === 'select-multiple' && isRecord(value.items) && Array.isArray(value.items.enum)
+            ? value.items.enum
+            : Array.isArray(value.enum)
+              ? value.enum
+              : [];
+        const labels =
+          isRecord(value.gddOptions) && isRecord(value.gddOptions.labels)
+            ? value.gddOptions.labels
+            : {};
+        return enumerated
+          .filter((item): item is string => typeof item === 'string')
+          .map((option) => ({
+            value: option,
+            label: typeof labels[option] === 'string' ? labels[option] : option,
+          }));
+      })(),
+      constraints: {
+        ...(Number.isInteger(value.minLength) ? { minLength: Number(value.minLength) } : {}),
+        ...(Number.isInteger(value.maxLength) ? { maxLength: Number(value.maxLength) } : {}),
+        ...(typeof value.minimum === 'number' ? { minimum: value.minimum } : {}),
+        ...(typeof value.maximum === 'number' ? { maximum: value.maximum } : {}),
+        ...(typeof value.pattern === 'string' ? { pattern: value.pattern } : {}),
+        ...(typeof value.multipleOf === 'number' ? { step: value.multipleOf } : {}),
+        ...(Number.isInteger(value.minItems) ? { minItems: Number(value.minItems) } : {}),
+        ...(Number.isInteger(value.maxItems) ? { maxItems: Number(value.maxItems) } : {}),
+      },
+      fileExtensions:
+        isRecord(value.gddOptions) && Array.isArray(value.gddOptions.extensions)
+          ? value.gddOptions.extensions.filter(
+              (extension): extension is string => typeof extension === 'string',
+            )
+          : [],
+      properties,
+      ...(items ? { items } : {}),
+    });
+  };
+
   const fields: FieldDefinition[] = [];
   for (const [key, value] of Object.entries(manifest.schema.properties)) {
     if (!isRecord(value)) {
       warnings.push(`Data schema property "${key}" was not an object and was skipped.`);
       continue;
     }
-    let type = inferFieldType(key, value);
-    const declared = Array.isArray(value.type) ? value.type.join('|') : value.type;
-    if (
-      (declared === 'object' && type !== 'gradient') ||
-      (declared === 'array' && type !== 'select-multiple')
-    ) {
-      type = 'textarea';
-      warnings.push(
-        `Data field "${key}" uses ${String(declared)} data; its default was preserved as JSON text.`,
-      );
-    }
-    fields.push(
-      createFieldDefinition(type, {
-        key,
-        label: typeof value.title === 'string' ? value.title : key,
-        description: typeof value.description === 'string' ? value.description : '',
-        defaultValue: coerceFieldDefault(type, value.default, key, warnings),
-        required: required.has(key),
-        options: (() => {
-          const enumerated =
-            type === 'select-multiple' && isRecord(value.items) && Array.isArray(value.items.enum)
-              ? value.items.enum
-              : Array.isArray(value.enum)
-                ? value.enum
-                : [];
-          const labels =
-            isRecord(value.gddOptions) && isRecord(value.gddOptions.labels)
-              ? value.gddOptions.labels
-              : {};
-          return enumerated
-            .filter((item): item is string => typeof item === 'string')
-            .map((option) => ({
-              value: option,
-              label: typeof labels[option] === 'string' ? labels[option] : option,
-            }));
-        })(),
-        constraints: {
-          ...(Number.isInteger(value.minLength) ? { minLength: Number(value.minLength) } : {}),
-          ...(Number.isInteger(value.maxLength) ? { maxLength: Number(value.maxLength) } : {}),
-          ...(typeof value.minimum === 'number' ? { minimum: value.minimum } : {}),
-          ...(typeof value.maximum === 'number' ? { maximum: value.maximum } : {}),
-          ...(typeof value.pattern === 'string' ? { pattern: value.pattern } : {}),
-          ...(typeof value.multipleOf === 'number' ? { step: value.multipleOf } : {}),
-        },
-        fileExtensions:
-          isRecord(value.gddOptions) && Array.isArray(value.gddOptions.extensions)
-            ? value.gddOptions.extensions.filter(
-                (extension): extension is string => typeof extension === 'string',
-              )
-            : [],
-      }),
-    );
+    fields.push(fieldFromSchema(key, value, required.has(key)));
   }
   return fields;
 }
@@ -529,10 +550,26 @@ function projectFromManifest(
   const assets: ReturnType<typeof createAsset>[] = [];
   const resolveAsset = makeAssetResolver(entries, assets, warnings);
   const manifestDirectory = dirname(manifestPath);
-  for (const field of dataFields) {
-    if (field.type === 'image-url' && typeof field.defaultValue === 'string') {
-      field.defaultValue = resolveAsset(field.defaultValue, manifestDirectory);
+  const resolveFieldDefaultAssets = (field: FieldDefinition, value: FieldValue): FieldValue => {
+    if (field.type === 'image-url' && typeof value === 'string') {
+      return resolveAsset(value, manifestDirectory);
     }
+    if (field.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, FieldValue>;
+      return Object.fromEntries(
+        Object.entries(record).map(([key, childValue]) => {
+          const child = field.properties.find((property) => property.key === key);
+          return [key, child ? resolveFieldDefaultAssets(child, childValue) : childValue];
+        }),
+      );
+    }
+    if (field.type === 'array' && field.items && Array.isArray(value)) {
+      return value.map((item) => resolveFieldDefaultAssets(field.items!, item));
+    }
+    return value;
+  };
+  for (const field of dataFields) {
+    field.defaultValue = resolveFieldDefaultAssets(field, field.defaultValue);
   }
   for (const thumbnail of manifest.thumbnails ?? [])
     resolveAsset(thumbnail.file, manifestDirectory);
@@ -658,8 +695,41 @@ function projectFromDescriptor(
   const layers: Layer[] = [];
   const mainDirectory = dirname(mainPath);
   const manifestDirectory = dirname(manifestPath);
+  const ordinaryById = new Map(descriptor.layers.map((layer) => [layer.id, layer]));
+  const collectionsById = new Map(
+    (descriptor.collections ?? []).map((collection) => [collection.id, collection]),
+  );
+  const compiledEntries: Array<{
+    compiled: CompiledGraphicDescriptor['layers'][number];
+    collectionId?: string;
+    prototypeGroupId?: string | null;
+  }> = [];
+  const paintOrder = descriptor.paintOrder ?? [
+    ...descriptor.layers.map((layer) => ({ type: 'layer' as const, id: layer.id })),
+    ...(descriptor.collections ?? []).map((collection) => ({
+      type: 'collection' as const,
+      id: collection.id,
+    })),
+  ];
+  for (const entry of paintOrder) {
+    if (entry.type === 'layer') {
+      const compiled = ordinaryById.get(entry.id);
+      if (compiled) compiledEntries.push({ compiled });
+      continue;
+    }
+    const collection = collectionsById.get(entry.id);
+    if (!collection) continue;
+    compiledEntries.push(
+      ...collection.prototypeLayers.map((compiled) => ({
+        compiled,
+        collectionId: collection.id,
+        prototypeGroupId: collection.prototypeGroupId,
+      })),
+    );
+  }
 
-  for (const [index, compiled] of descriptor.layers.entries()) {
+  for (const [index, entry] of compiledEntries.entries()) {
+    const { compiled } = entry;
     const raw = compiled as unknown as UnknownRecord;
     if (!isSupportedElement(compiled.element)) {
       warnings.push(
@@ -678,6 +748,9 @@ function projectFromDescriptor(
     layer.name = nameForLayer(raw, element, index);
     layer.isVisible = compiled.isVisible;
     layer.blendMode = compiled.blendMode ?? 'normal';
+    if (entry.collectionId) {
+      layer.groupId = entry.prototypeGroupId ?? `${entry.collectionId}-prototype`;
+    }
     layer.element = element;
     layer.effects = { ...layer.effects, ...clone(compiled.effects) };
     layer.keyframes = clone(compiled.keyframes);
@@ -702,6 +775,7 @@ function projectFromDescriptor(
       layer.bindings.push({
         fieldId: field.id,
         targetProperty: binding.targetProperty,
+        ...(binding.sourcePath?.length ? { sourcePath: [...binding.sourcePath] } : {}),
         ...(binding.valueMap ? { valueMap: clone(binding.valueMap) } : {}),
       });
     }
@@ -729,6 +803,28 @@ function projectFromDescriptor(
   for (const thumbnail of manifest.thumbnails ?? [])
     resolveAsset(thumbnail.file, manifestDirectory);
 
+  const runtimeCollections = (descriptor.collections ?? []).flatMap((collection) => {
+    const field = fieldByKey.get(collection.dataKey);
+    if (!field || field.type !== 'array' || field.items?.type !== 'object') {
+      warnings.push(
+        `Runtime collection "${collection.name}" could not be restored because its object-item array field is missing.`,
+      );
+      return [];
+    }
+    field.constraints = { ...field.constraints, maxItems: collection.capacity };
+    return [
+      {
+        id: collection.id,
+        name: collection.name,
+        fieldId: field.id,
+        prototypeLayerIds: collection.prototypeLayers.map((layer) => layer.id),
+        offsetPerItem: { ...collection.offsetPerItem },
+        capacity: collection.capacity,
+        overflow: collection.overflow,
+      },
+    ];
+  });
+
   const composition = createComposition({
     name: manifest.name,
     width: descriptor.width,
@@ -739,6 +835,7 @@ function projectFromDescriptor(
     keyframes: lifecycle.keyframes,
     transitions: lifecycle.transitions,
     dataFields,
+    runtimeCollections,
     customActions: importCustomActions(manifest),
     assets,
   });

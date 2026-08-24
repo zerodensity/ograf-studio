@@ -98,7 +98,10 @@
   overrides, automatic live syncing, and cross-composition component libraries remain queued.
 - Finite repeaters are implemented as an authoring recipe that materializes horizontal or vertical
   collections into ordinary grouped layers and independent cloned fields with semantic item tags.
-  Runtime array bindings, virtualization, and late-bound collection length remain queued.
+  Runtime object-item array collections are also implemented separately: one grouped prototype is
+  expanded at playout from nested GDD data with explicit stride, capacity, truncation, and
+  deterministic index-based updates. Keyed move animation, grids, scroll/pagination, and nested
+  repeated arrays remain queued.
 - Deterministic clip-to-parent masking is implemented for animated rotation-aware parent bounds and
   rounded rectangle corners, including diagonal wipes. Composition-local blend modes are also
   implemented with an isolated transparent composition root across editor, capture, approximate
@@ -113,9 +116,10 @@
   data binding and independent animatable stop offsets. Per-stop data binding remains queued.
 - CSS blur and configurable drop shadow, including per-property animation of numeric effect values,
   are implemented.
-- Structured custom actions are implemented. Scalar GDD controls are implemented with descriptions,
-  select labels, file extensions, integer/duration/percentage/file/select types, and JSON Schema
-  constraints; runtime array/object collections remain gated on the separate W12b design.
+- Structured custom actions are implemented. Full recursive GDD authoring now covers enriched scalar
+  controls, nested objects, arrays, required properties, item/length/range constraints, and bounded
+  object-item runtime collections. Scalar arrays remain schema-only; collection rendering requires
+  object items and uses the accepted W12b deterministic profile.
 - Built-in real-time, non-real-time, and dual-mode export profiles derive manifest identity and
   capability flags without mutating the editable project. Custom user-defined profile persistence,
   canonical thumbnails, release metadata, and compatibility targets remain queued.

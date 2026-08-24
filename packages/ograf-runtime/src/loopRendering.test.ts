@@ -122,4 +122,25 @@ describe('compiled loop sampling', () => {
       }),
     ).toMatchObject({ content: 'Multiple bindings', color: '#ff3366' });
   });
+
+  it('resolves nested object and indexed collection binding paths', () => {
+    const compiled = layer();
+    compiled.element = createTextElement({ content: 'Default' });
+    compiled.bindings = [
+      {
+        dataKey: 'leaderboard',
+        targetProperty: 'content',
+        sourcePath: ['team', 'name'],
+        itemIndex: 1,
+      },
+    ];
+    expect(
+      resolveBoundElement(compiled, {
+        leaderboard: [{ team: { name: 'First' } }, { team: { name: 'Second' } }],
+      }),
+    ).toMatchObject({ content: 'Second' });
+    expect(resolveBoundElement(compiled, { leaderboard: [] })).toMatchObject({
+      content: 'Default',
+    });
+  });
 });

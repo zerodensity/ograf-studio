@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeKeyframeFrames,
+  createFieldDefinition,
+  createLayerOfKind,
   createProject,
   getLayerTransformAtFrame,
 } from '@ograf-editor/scene-model';
@@ -511,6 +513,53 @@ describe('AuthoringSession', () => {
       operations: [{ type: 'set_layer_flags', layerId, blendMode: 'screen' }],
     });
     expect(blended.project.compositions[0]!.layers[0]!.blendMode).toBe('screen');
+  });
+
+  it('creates and updates a bounded runtime collection atomically', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const field = createFieldDefinition('array', {
+      key: 'leaderboard',
+      items: createFieldDefinition('object', {
+        key: 'item',
+        properties: [createFieldDefinition('text', { key: 'name' })],
+        defaultValue: { name: '' },
+      }),
+    });
+    const layer = createLayerOfKind('text');
+    layer.groupId = 'prototype';
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'content', sourcePath: ['name'] }];
+    composition.dataFields = [field];
+    composition.layers = [layer];
+    const session = new AuthoringSession(project, 'runtime-collection-session');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [
+        {
+          type: 'create_runtime_collection',
+          fieldId: field.id,
+          prototypeLayerIds: [layer.id],
+          offsetPerItem: { x: 0, y: 60 },
+          capacity: 5,
+        },
+      ],
+    });
+    const collectionId = created.summary.generatedIds.find(
+      (generated) => generated.kind === 'runtime-collection',
+    )!.id;
+    expect(created.project.compositions[0]!.runtimeCollections[0]).toMatchObject({
+      id: collectionId,
+      capacity: 5,
+      offsetPerItem: { x: 0, y: 60 },
+    });
+    expect(created.project.compositions[0]!.dataFields[0]!.constraints.maxItems).toBe(5);
+
+    const updated = session.apply({
+      expectedRevision: 1,
+      operations: [{ type: 'update_runtime_collection', collectionId, capacity: 8 }],
+    });
+    expect(updated.project.compositions[0]!.runtimeCollections[0]!.capacity).toBe(8);
+    expect(updated.project.compositions[0]!.dataFields[0]!.constraints.maxItems).toBe(8);
   });
 
   it('registers assets once and duplicates independent grouped layers with cloned fields', () => {

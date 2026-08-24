@@ -123,7 +123,7 @@ describe('migrateProject', () => {
     });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(18);
+    expect(migrated.documentVersion).toBe(19);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -159,9 +159,9 @@ describe('migrateProject', () => {
     const migrated = migrateProject(project);
 
     expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
-      { fieldId: 'headline-field', targetProperty: 'content' },
+      { fieldId: 'headline-field', targetProperty: 'content', sourcePath: [] },
     ]);
-    expect(migrated.documentVersion).toBe(18);
+    expect(migrated.documentVersion).toBe(19);
   });
 
   it('backfills document-v13 typography without changing the authored font size', () => {
@@ -198,7 +198,7 @@ describe('migrateProject', () => {
       minFontSize: 20,
       overflowPolicy: 'visible',
     });
-    expect(migrated.documentVersion).toBe(18);
+    expect(migrated.documentVersion).toBe(19);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {
@@ -238,7 +238,7 @@ describe('migrateProject', () => {
     project.documentVersion = 16;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(18);
+    expect(migrated.documentVersion).toBe(19);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       key: 'headline',
       defaultValue: 'News',
@@ -257,7 +257,30 @@ describe('migrateProject', () => {
     project.documentVersion = 17;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(18);
+    expect(migrated.documentVersion).toBe(19);
     expect(migrated.compositions[0]!.layers[0]!.blendMode).toBe('normal');
+  });
+
+  it('backfills document-v19 recursive field nodes, binding paths, and collections', () => {
+    const project = createProject();
+    const field = createFieldDefinition('text', { key: 'headline' });
+    const layer = createLayerOfKind('text');
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'content' }];
+    delete (field as Partial<typeof field>).properties;
+    delete (field as Partial<typeof field>).items;
+    delete (project.compositions[0] as Partial<(typeof project.compositions)[0]>)
+      .runtimeCollections;
+    project.compositions[0]!.layers = [layer];
+    project.compositions[0]!.dataFields = [field];
+    project.documentVersion = 18;
+
+    const migrated = migrateProject(project);
+    expect(migrated.documentVersion).toBe(19);
+    expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
+      properties: [],
+      items: null,
+    });
+    expect(migrated.compositions[0]!.layers[0]!.bindings[0]!.sourcePath).toEqual([]);
+    expect(migrated.compositions[0]!.runtimeCollections).toEqual([]);
   });
 });

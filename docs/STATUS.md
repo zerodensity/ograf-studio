@@ -72,6 +72,13 @@ AI-first broadcast authoring and OGraf compliance hardening.
   typed MCP discovery. The composition root is explicitly isolated: multiply, screen, overlay,
   darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, and exclusion blend
   only with lower OGraf layers, never with editor checkerboards or an external video bed.
+- Document v19 adds recursive GDD object/array schemas and deterministic runtime collections. One
+  contiguous grouped prototype can bind scalar leaves through segment-array source paths and expand
+  item-major from an object-item array with explicit X/Y stride, capacity 1..100, and truncate
+  overflow. The same bounded expansion drives compiled runtime playback, browser capture, SVG
+  diagnostics, package resource rewriting, and OGraf re-import. Scheduled array updates replace by
+  index, share the prototype lifecycle/loop clock, and remain reproducible under backward
+  `goToTime()` seeking.
 - Semantic layer metadata supports meaningful roles, normalized tags, and intent descriptions. It
   drives compact MCP queries, deterministic QA, and authoring recipes while remaining excluded from
   compiled output. The lower-third recipe creates four grouped layers/two editable fields with a
@@ -346,7 +353,7 @@ AI-first broadcast authoring and OGraf compliance hardening.
 - Overlapping-action/concurrency and browser E2E coverage; package/module/lifecycle smoke testing is
   now enforced in the product save path.
 - Packaged fonts, localization/RTL, and advanced broadcaster authoring tools.
-- Evaluate granular linked-component overrides, runtime collection binding, cross-project Brand Kit
+- Evaluate granular linked-component overrides, advanced collection overflow/identity, cross-project Brand Kit
   libraries, and broader semantic recipes from real production use. Do not start headless
   render/certify until the user explicitly resumes area 10.
 - The complete capability inventory remains tracked in `docs/ROADMAP.md`.
@@ -358,9 +365,9 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-08-24, including generated MCP contract drift, format, lint, all
-  workspace typechecks, 255 tests across 53 files, the runtime bundle, and the editor production
+  workspace typechecks, 266 tests across 54 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 255-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- The 266-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,
@@ -378,6 +385,13 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
   semantics; a browser PNG showed a multiply layer retaining its source blue on transparency while
   darkening only its overlap with a gold OGraf layer; the same disposable v18 project passed all
   five exact dual-mode certification gates and was then deleted.
+- W12b live verification: an MCP-authored Reality Hub-style leaderboard rendered zero, three, exact
+  capacity, and over-capacity arrays; six received rows produced four rendered rows with explicit
+  `truncated: true`. Transparent capture was stabilized against a first-snapshot foreignObject
+  compositing race. The recursive schema passed official GDD validation, and the exact package passed
+  project, manifest, layout, module/API, plus strengthened realtime/non-realtime lifecycle gates;
+  non-realtime certification now rewinds and repeats `goToTime()` after an array-count update and
+  compares collection visibility.
 - Agent-first live verification: labelled strip exposed an intentionally missing hold; later-index
   paint order and incoming quadratic easing were confirmed from browser PNGs; fallback-font text
   measurement and Turkish overflow stress passed; whole-track/stagger dry runs remained atomic;

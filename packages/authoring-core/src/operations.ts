@@ -6,6 +6,7 @@ import {
   buildComponentDefinition,
   createCustomActionDefinition,
   createFieldDefinition,
+  createFieldDefinitionFromInput,
   defaultConstraintsForFieldType,
   defaultOptionsForFieldType,
   defaultValueForFieldType,
@@ -64,6 +65,44 @@ function layerFor(composition: Composition, layerId: string): Layer {
 
 function assertUnlocked(layer: Layer): void {
   if (layer.isLocked) throw new Error(`Layer is locked: ${layer.id}`);
+}
+
+function assertCollectionCapacity(capacity: number): number {
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100) {
+    throw new Error('Runtime collection capacity must be an integer from 1 to 100.');
+  }
+  return capacity;
+}
+
+function assertRuntimeCollectionPrototype(
+  composition: Composition,
+  layerIds: string[],
+  collectionId?: string,
+): void {
+  if (layerIds.length === 0 || new Set(layerIds).size !== layerIds.length) {
+    throw new Error('Runtime collection prototype layers must be non-empty and unique.');
+  }
+  const layers = layerIds.map((layerId) => layerFor(composition, layerId));
+  if (layers.some((layer) => layer.isGuide)) {
+    throw new Error('Runtime collection prototypes cannot contain guide layers.');
+  }
+  const groups = new Set(layers.map((layer) => layer.groupId));
+  if (groups.size !== 1 || groups.has(null)) {
+    throw new Error('Runtime collection prototype layers must share one persistent group.');
+  }
+  const indexes = layers
+    .map((layer) => composition.layers.findIndex((candidate) => candidate.id === layer.id))
+    .sort((left, right) => left - right);
+  if (indexes.some((index, position) => position > 0 && index !== indexes[position - 1]! + 1)) {
+    throw new Error('Runtime collection prototype layers must be contiguous in paint order.');
+  }
+  const conflict = composition.runtimeCollections.find(
+    (collection) =>
+      collection.id !== collectionId &&
+      collection.prototypeLayerIds.some((layerId) => layerIds.includes(layerId)),
+  );
+  if (conflict)
+    throw new Error(`Prototype layer already belongs to runtime collection: ${conflict.name}`);
 }
 
 function descendantsFor(composition: Composition, parentId: string): Layer[] {
@@ -957,6 +996,19 @@ export function applyAuthoringOperations(
         const members = [...new Set(operation.layerIds)];
         if (members.length < 2) throw new Error('group_layers requires at least two layer IDs.');
         for (const layerId of members) layerFor(composition, layerId);
+        for (const collection of composition.runtimeCollections) {
+          const overlaps = collection.prototypeLayerIds.some((layerId) =>
+            members.includes(layerId),
+          );
+          if (
+            overlaps &&
+            !collection.prototypeLayerIds.every((layerId) => members.includes(layerId))
+          ) {
+            throw new Error(
+              'Regroup the complete runtime collection prototype or remove the collection first.',
+            );
+          }
+        }
         const id = operation.id ?? createId('group');
         if (composition.layers.some((layer) => layer.groupId === id)) {
           throw new Error(`Canvas group id already exists: ${id}`);
@@ -979,6 +1031,16 @@ export function applyAuthoringOperations(
           if (groupId) groupIds.add(groupId);
         }
         if (groupIds.size === 0) throw new Error('ungroup_layers matched no canvas groups.');
+        if (
+          composition.runtimeCollections.some((collection) =>
+            collection.prototypeLayerIds.some((layerId) => {
+              const layer = composition.layers.find((candidate) => candidate.id === layerId);
+              return Boolean(layer?.groupId && groupIds.has(layer.groupId));
+            }),
+          )
+        ) {
+          throw new Error('Remove the runtime collection before ungrouping its prototype.');
+        }
         for (const layer of composition.layers) {
           if (layer.groupId && groupIds.has(layer.groupId)) {
             layer.groupId = null;
@@ -1277,6 +1339,15 @@ export function applyAuthoringOperations(
         duplicateGroup(composition, operation, operationIndex, summary);
         break;
       case 'remove_layer':
+        if (
+          composition.runtimeCollections.some((collection) =>
+            collection.prototypeLayerIds.includes(operation.layerId),
+          )
+        ) {
+          throw new Error(
+            'Remove the runtime collection before deleting one of its prototype layers.',
+          );
+        }
         assertUnlocked(layerFor(composition, operation.layerId));
         composition.layers = composition.layers.filter((layer) => layer.id !== operation.layerId);
         for (const layer of composition.layers) {
@@ -1557,6 +1628,15 @@ export function applyAuthoringOperations(
           ...(operation.options ? { options: operation.options } : {}),
           ...(operation.constraints ? { constraints: operation.constraints } : {}),
           ...(operation.fileExtensions ? { fileExtensions: operation.fileExtensions } : {}),
+          ...(operation.properties
+            ? { properties: operation.properties.map(createFieldDefinitionFromInput) }
+            : {}),
+          ...(operation.items !== undefined
+            ? {
+                items:
+                  operation.items === null ? null : createFieldDefinitionFromInput(operation.items),
+              }
+            : {}),
         });
         if (operation.id !== undefined) {
           if (composition.dataFields.some((candidate) => candidate.id === operation.id)) {
@@ -1573,6 +1653,9 @@ export function applyAuthoringOperations(
           (candidate) => candidate.id === operation.fieldId,
         );
         if (!field) throw new Error(`Data field not found: ${operation.fieldId}`);
+        const runtimeCollection = composition.runtimeCollections.find(
+          (collection) => collection.fieldId === field.id,
+        );
         if (operation.key !== undefined) {
           const key = operation.key.trim();
           if (!key) throw new Error('Data field key cannot be empty.');
@@ -1588,6 +1671,7 @@ export function applyAuthoringOperations(
         if (operation.label !== undefined) field.label = operation.label;
         if (operation.description !== undefined) field.description = operation.description;
         if (operation.fieldType !== undefined) {
+          const defaults = createFieldDefinition(operation.fieldType);
           field.type = operation.fieldType;
           field.options = operation.options ?? defaultOptionsForFieldType(operation.fieldType);
           field.constraints =
@@ -1595,6 +1679,14 @@ export function applyAuthoringOperations(
           field.fileExtensions = operation.fileExtensions ?? [];
           field.defaultValue =
             operation.defaultValue ?? defaultValueForFieldType(operation.fieldType, field.options);
+          field.properties =
+            operation.properties?.map(createFieldDefinitionFromInput) ?? defaults.properties;
+          field.items =
+            operation.items === undefined
+              ? defaults.items
+              : operation.items === null
+                ? null
+                : createFieldDefinitionFromInput(operation.items);
         } else {
           if (operation.options !== undefined) field.options = operation.options;
           if (operation.constraints !== undefined) field.constraints = operation.constraints;
@@ -1602,8 +1694,27 @@ export function applyAuthoringOperations(
             field.fileExtensions = operation.fileExtensions;
           }
           if (operation.defaultValue !== undefined) field.defaultValue = operation.defaultValue;
+          if (operation.properties !== undefined) {
+            field.properties = operation.properties.map(createFieldDefinitionFromInput);
+          }
+          if (operation.items !== undefined) {
+            field.items =
+              operation.items === null ? null : createFieldDefinitionFromInput(operation.items);
+          }
         }
         if (operation.required !== undefined) field.required = operation.required;
+        if (runtimeCollection) {
+          if (field.type !== 'array' || field.items?.type !== 'object') {
+            throw new Error(
+              'Remove the runtime collection before changing its field away from object-item array data.',
+            );
+          }
+          if (field.constraints.maxItems !== undefined) {
+            runtimeCollection.capacity = assertCollectionCapacity(field.constraints.maxItems);
+          } else {
+            field.constraints = { ...field.constraints, maxItems: runtimeCollection.capacity };
+          }
+        }
         break;
       }
       case 'remove_data_field': {
@@ -1614,9 +1725,21 @@ export function applyAuthoringOperations(
         const consumers = composition.layers.filter((layer) =>
           layer.bindings.some((binding) => binding.fieldId === operation.fieldId),
         );
-        if (consumers.length > 0 && !operation.force) {
+        const collectionConsumers = composition.runtimeCollections.filter(
+          (collection) => collection.fieldId === operation.fieldId,
+        );
+        if ((consumers.length > 0 || collectionConsumers.length > 0) && !operation.force) {
           throw new Error(
-            `Cannot remove data field "${field.key}" while bound by layer${consumers.length === 1 ? '' : 's'}: ${consumers.map((layer) => `"${layer.name}" (${layer.id})`).join(', ')}. Pass force=true to clear these bindings atomically.`,
+            `Cannot remove data field "${field.key}" while it is used by ${[
+              consumers.length
+                ? `layer${consumers.length === 1 ? '' : 's'} ${consumers.map((layer) => `"${layer.name}" (${layer.id})`).join(', ')}`
+                : '',
+              collectionConsumers.length
+                ? `runtime collection${collectionConsumers.length === 1 ? '' : 's'} ${collectionConsumers.map((collection) => `"${collection.name}" (${collection.id})`).join(', ')}`
+                : '',
+            ]
+              .filter(Boolean)
+              .join(' and ')}. Pass force=true to clear those uses atomically.`,
           );
         }
         for (const layer of consumers) {
@@ -1638,6 +1761,11 @@ export function applyAuthoringOperations(
         composition.dataFields = composition.dataFields.filter(
           (candidate) => candidate.id !== field.id,
         );
+        if (collectionConsumers.length > 0) {
+          composition.runtimeCollections = composition.runtimeCollections.filter(
+            (collection) => collection.fieldId !== field.id,
+          );
+        }
         break;
       }
       case 'set_layer_binding': {
@@ -1665,6 +1793,116 @@ export function applyAuthoringOperations(
           throw new Error('A layer cannot bind the same target property more than once.');
         }
         layer.bindings = clone(operation.bindings);
+        break;
+      }
+      case 'create_runtime_collection': {
+        const field = composition.dataFields.find(
+          (candidate) => candidate.id === operation.fieldId,
+        );
+        if (!field) throw new Error(`Data field not found: ${operation.fieldId}`);
+        if (field.type !== 'array' || field.items?.type !== 'object') {
+          throw new Error('Runtime collections require an array field with object items.');
+        }
+        if (
+          composition.runtimeCollections.some(
+            (collection) => collection.fieldId === operation.fieldId,
+          )
+        ) {
+          throw new Error(`Array field already drives a runtime collection: ${field.key}`);
+        }
+        const layerIds = [...new Set(operation.prototypeLayerIds)];
+        if (layerIds.length !== operation.prototypeLayerIds.length) {
+          throw new Error('Runtime collection prototype layers must be unique.');
+        }
+        assertRuntimeCollectionPrototype(composition, layerIds);
+        if (
+          !Number.isFinite(operation.offsetPerItem.x) ||
+          !Number.isFinite(operation.offsetPerItem.y)
+        ) {
+          throw new Error('Runtime collection item offsets must be finite.');
+        }
+        const capacity = assertCollectionCapacity(operation.capacity ?? 12);
+        const id = operation.id ?? createId('runtime-collection');
+        if (composition.runtimeCollections.some((collection) => collection.id === id)) {
+          throw new Error(`Runtime collection id already exists: ${id}`);
+        }
+        field.constraints = { ...field.constraints, maxItems: capacity };
+        composition.runtimeCollections.push({
+          id,
+          name: operation.name?.trim() || field.label || field.key,
+          fieldId: field.id,
+          prototypeLayerIds: layerIds,
+          offsetPerItem: { ...operation.offsetPerItem },
+          capacity,
+          overflow: operation.overflow ?? 'truncate',
+        });
+        summary.affectedLayerIds.push(...layerIds);
+        summary.generatedIds.push({ operationIndex, kind: 'runtime-collection', id });
+        break;
+      }
+      case 'update_runtime_collection': {
+        const collection = composition.runtimeCollections.find(
+          (candidate) => candidate.id === operation.collectionId,
+        );
+        if (!collection) throw new Error(`Runtime collection not found: ${operation.collectionId}`);
+        if (operation.fieldId !== undefined) {
+          const field = composition.dataFields.find(
+            (candidate) => candidate.id === operation.fieldId,
+          );
+          if (!field) throw new Error(`Data field not found: ${operation.fieldId}`);
+          if (field.type !== 'array' || field.items?.type !== 'object') {
+            throw new Error('Runtime collections require an array field with object items.');
+          }
+          if (
+            composition.runtimeCollections.some(
+              (candidate) =>
+                candidate.id !== collection.id && candidate.fieldId === operation.fieldId,
+            )
+          ) {
+            throw new Error(`Array field already drives another runtime collection: ${field.key}`);
+          }
+          collection.fieldId = field.id;
+        }
+        if (operation.name !== undefined) collection.name = operation.name.trim();
+        if (operation.prototypeLayerIds !== undefined) {
+          const layerIds = [...new Set(operation.prototypeLayerIds)];
+          if (layerIds.length !== operation.prototypeLayerIds.length) {
+            throw new Error('Runtime collection prototype layers must be unique.');
+          }
+          assertRuntimeCollectionPrototype(composition, layerIds, collection.id);
+          collection.prototypeLayerIds = layerIds;
+          summary.affectedLayerIds.push(...layerIds);
+        }
+        if (operation.offsetPerItem !== undefined) {
+          if (
+            !Number.isFinite(operation.offsetPerItem.x) ||
+            !Number.isFinite(operation.offsetPerItem.y)
+          ) {
+            throw new Error('Runtime collection item offsets must be finite.');
+          }
+          collection.offsetPerItem = { ...operation.offsetPerItem };
+        }
+        if (operation.capacity !== undefined) {
+          collection.capacity = assertCollectionCapacity(operation.capacity);
+        }
+        if (operation.overflow !== undefined) collection.overflow = operation.overflow;
+        const field = composition.dataFields.find(
+          (candidate) => candidate.id === collection.fieldId,
+        );
+        if (field) field.constraints = { ...field.constraints, maxItems: collection.capacity };
+        break;
+      }
+      case 'remove_runtime_collection': {
+        if (
+          !composition.runtimeCollections.some(
+            (collection) => collection.id === operation.collectionId,
+          )
+        ) {
+          throw new Error(`Runtime collection not found: ${operation.collectionId}`);
+        }
+        composition.runtimeCollections = composition.runtimeCollections.filter(
+          (collection) => collection.id !== operation.collectionId,
+        );
         break;
       }
       case 'add_custom_action': {

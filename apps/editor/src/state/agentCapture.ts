@@ -1,22 +1,25 @@
 import { toCanvas } from 'html-to-image';
+import { compileDescriptor } from '@ograf-editor/codegen';
 import {
   applyAnimatedPaint,
+  applyCompiledClipPaths,
   disposeElementContent,
+  expandRuntimeCollections,
+  isRuntimeCollectionLayerActive,
   renderAnimatedElementAtTime,
   renderElementContent,
+  resolveBoundElement,
+  sampleCompiledLayerVisualState,
 } from '@ograf-editor/ograf-runtime';
 import {
-  getLayerEffectsAtFrame,
   getLayerTransformAtFrame,
   getTotalFrames,
-  clipPathForParentBounds,
   isTransformClippedBy,
+  valueAtSourcePath,
   layerEffectsToCssFilter,
-  resolveElementAssetReferences,
   type Composition,
   type Element,
   type FieldValue,
-  type Layer,
   type Project,
   type TextElement,
 } from '@ograf-editor/scene-model';
@@ -44,6 +47,14 @@ export interface AgentCaptureResult {
     requestedFamily: string;
     resolvedFamily: string;
     resolution: 'inferred';
+  }>;
+  runtimeCollections?: Array<{
+    id: string;
+    name: string;
+    receivedCount: number;
+    renderedCount: number;
+    capacity: number;
+    truncated: boolean;
   }>;
 }
 
@@ -271,24 +282,6 @@ async function rasterize(
   return { ...output, data: encoded.slice(separator + 1) };
 }
 
-function effectiveElement(
-  layer: Layer,
-  composition: Composition,
-  data: Record<string, FieldValue>,
-): Element {
-  const element = layer.bindings.reduce<Element>((resolved, binding) => {
-    const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
-    if (!field || data[field.key] === undefined) return resolved;
-    const value = binding.valueMap?.[String(data[field.key])] ?? data[field.key];
-    return {
-      ...resolved,
-      [binding.targetProperty]:
-        binding.targetProperty === 'fill' && typeof value === 'object' ? value : String(value),
-    } as Element;
-  }, layer.element);
-  return resolveElementAssetReferences(element, composition.assets);
-}
-
 function sequenceFrame(element: Element, frame: number, frameRate: number): number {
   if (element.type !== 'image-sequence' || element.frames.length === 0) return 0;
   const raw = Math.max(0, Math.floor((frame / frameRate) * Math.max(1, element.fps)));
@@ -328,13 +321,15 @@ function buildCompositionDom(
   });
   root.appendChild(compositionRoot);
 
-  const rendered = new Map<
-    string,
-    { root: HTMLDivElement; transform: ReturnType<typeof getLayerTransformAtFrame> }
-  >();
-  for (const layer of composition.layers) {
-    if (!layer.isVisible || layer.isGuide) continue;
-    const transform = getLayerTransformAtFrame(layer, frame);
+  const descriptor = expandRuntimeCollections(compileDescriptor(composition));
+  const rendered = new Map<string, HTMLElement>();
+  const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
+  for (const layer of descriptor.layers) {
+    if (!layer.isVisible || !isRuntimeCollectionLayerActive(layer, data)) {
+      continue;
+    }
+    const state = sampleCompiledLayerVisualState(layer, frame);
+    const transform = state.transform;
     const layerRoot = document.createElement('div');
     layerRoot.dataset.agentCaptureLayer = 'true';
     Object.assign(layerRoot.style, {
@@ -345,34 +340,20 @@ function buildCompositionDom(
       width: `${transform.width}px`,
       height: `${transform.height}px`,
       opacity: String(transform.opacity),
-      mixBlendMode: layer.blendMode,
+      mixBlendMode: layer.blendMode === 'normal' ? '' : layer.blendMode,
       transform: `translate(${transform.x}px, ${transform.y}px) rotate(${transform.rotation}deg)`,
       transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
-      filter: layerEffectsToCssFilter(getLayerEffectsAtFrame(layer, frame)),
+      filter: layerEffectsToCssFilter(state.effects),
     });
-    const element = effectiveElement(layer, composition, data);
+    const element = resolveBoundElement(layer, data);
     renderElementContent(layerRoot, element, sequenceFrame(element, frame, composition.frameRate));
     renderAnimatedElementAtTime(layerRoot, element, (frame / composition.frameRate) * 1000);
-    applyAnimatedPaint(layerRoot, layer.animationTracks, frame);
+    applyAnimatedPaint(layerRoot, state.paintTracks, state.paintFrame);
     compositionRoot.appendChild(layerRoot);
-    rendered.set(layer.id, { root: layerRoot, transform });
+    rendered.set(layer.id, layerRoot);
+    states.set(layer.id, state);
   }
-  for (const layer of composition.layers) {
-    if (!layer.parentId) continue;
-    const parent = composition.layers.find((candidate) => candidate.id === layer.parentId);
-    const childRendered = rendered.get(layer.id);
-    const parentRendered = rendered.get(layer.parentId);
-    if (!parent?.clipChildren || !childRendered) continue;
-    if (!parentRendered) {
-      childRendered.root.style.clipPath = 'inset(50%)';
-      continue;
-    }
-    childRendered.root.style.clipPath = clipPathForParentBounds(
-      childRendered.transform,
-      parentRendered.transform,
-      parent.element.type === 'rectangle' ? parent.element.borderRadius : 0,
-    );
-  }
+  applyCompiledClipPaths(descriptor, rendered, states);
   return root;
 }
 
@@ -385,7 +366,7 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
     );
   }
 
-  const wrapper = buildCompositionDom(
+  let wrapper = buildCompositionDom(
     composition,
     request.frame,
     request.matte,
@@ -395,19 +376,58 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
 
   try {
     await waitForRenderableDom(wrapper);
-    const raster = await rasterize(
+    let raster = await rasterize(
       wrapper,
       composition.width,
       composition.height,
       request.maxDimension,
       { zIndex: 'auto' },
     );
+    // html-to-image can populate its internal transparent foreignObject/style caches during the
+    // first snapshot after an expanded collection's item count changes. Rebuild the immutable DOM
+    // once after that warm-up so the returned PNG never contains a partially flattened first pass.
+    if (composition.runtimeCollections.length > 0 && request.matte === 'transparent') {
+      for (const layer of wrapper.querySelectorAll<HTMLElement>('[data-agent-capture-layer]')) {
+        disposeElementContent(layer);
+      }
+      wrapper.remove();
+      wrapper = buildCompositionDom(
+        composition,
+        request.frame,
+        request.matte,
+        request.dataOverrides,
+      );
+      document.body.appendChild(wrapper);
+      await waitForRenderableDom(wrapper);
+      raster = await rasterize(
+        wrapper,
+        composition.width,
+        composition.height,
+        request.maxDimension,
+        { zIndex: 'auto' },
+      );
+    }
     return {
       mimeType: 'image/png',
       ...raster,
       originalWidth: composition.width,
       originalHeight: composition.height,
       resolvedFonts: await resolvedFonts(composition),
+      runtimeCollections: composition.runtimeCollections.map((collection) => {
+        const field = composition.dataFields.find(
+          (candidate) => candidate.id === collection.fieldId,
+        );
+        const value = field ? (request.dataOverrides?.[field.key] ?? field.defaultValue) : [];
+        const receivedCount = Array.isArray(value) ? value.length : 0;
+        return {
+          id: collection.id,
+          name: collection.name,
+          receivedCount,
+          renderedCount: Math.min(receivedCount, collection.capacity),
+          capacity: collection.capacity,
+          truncated: receivedCount > collection.capacity,
+        };
+      }),
     };
   } finally {
     for (const layer of wrapper.querySelectorAll<HTMLElement>('[data-agent-capture-layer]')) {
@@ -517,6 +537,7 @@ export async function renderAgentStripPng(request: AgentStripRequest): Promise<A
     originalWidth: width,
     originalHeight: height,
     resolvedFonts: tiles[0]!.resolvedFonts,
+    runtimeCollections: tiles[0]!.runtimeCollections,
     frames,
     columns,
     rows,
@@ -539,9 +560,14 @@ export async function measureAgentText(
   const frame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(request.frame)));
   const transform = getLayerTransformAtFrame(layer, frame);
   const contentBinding = layer.bindings.find((binding) => binding.targetProperty === 'content');
-  const defaultValue = contentBinding
-    ? composition.dataFields.find((field) => field.id === contentBinding.fieldId)?.defaultValue
+  const boundField = contentBinding
+    ? composition.dataFields.find((field) => field.id === contentBinding.fieldId)
     : undefined;
+  const rootDefault =
+    boundField?.type === 'array' && Array.isArray(boundField.defaultValue)
+      ? boundField.defaultValue[0]
+      : boundField?.defaultValue;
+  const defaultValue = valueAtSourcePath(rootDefault, contentBinding?.sourcePath);
   const text = request.text ?? String(defaultValue ?? layer.element.content);
   const element: TextElement = { ...layer.element, content: text };
   const host = document.createElement('div');

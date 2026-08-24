@@ -52,6 +52,13 @@ records, direction, and gap. It materializes grouped ordinary layers and indepen
 semantic item/index tags. Use the lower-level `duplicate_group` workflow above when each copy needs
 custom frame offsets, rewrite rules, or explicit binding share/clone/clear control.
 
+For a variable leaderboard supplied by Reality Hub, add an `array` field whose `items` is an
+`object` with scalar properties such as `name` and `score`. Group one row prototype, bind its text
+layers to the array field with `sourcePath: ["name"]` and `["score"]`, then call
+`create_runtime_collection` with that group, `{x:0,y:72}`, capacity 12, and truncate overflow. Use
+`ograf_capture` with array `dataOverrides` to verify 0, 1, capacity, and over-capacity cases before
+certification.
+
 # Example: Brand Kit and linked component review
 
 1. Create Brand Kit tokens such as `brand.primary`, `type.headline.family`, and

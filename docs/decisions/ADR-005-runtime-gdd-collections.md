@@ -1,6 +1,6 @@
 # ADR-005: Deterministic GDD objects and runtime collections
 
-- Status: **Proposed — approval required before W12b runtime code**
+- Status: **Accepted by the user — implemented and verified**
 - Date: 2026-08-24
 - Scope: W12b of the AI-first quality programme
 - Target: EBU OGraf v1 packages rendered by Zero Density Lino and controlled through Reality Hub
@@ -203,7 +203,7 @@ proves they are needed.
 
 ## Approval choices
 
-Implementation can begin when these recommended W12b.1 choices are accepted:
+The user accepted these W12b.1 choices on 2026-08-24:
 
 1. object-item arrays drive runtime collections; scalar arrays are schema-only;
 2. explicit per-item X/Y offset and capacity, default 12 and maximum 100;

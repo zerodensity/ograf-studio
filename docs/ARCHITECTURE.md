@@ -134,6 +134,19 @@ offset may own an independent numeric `fill.stops[N].offset` track; the runtime 
 tracks after resolving the current authored/data-bound paint. Per-stop data binding remains outside
 document v8.
 
+Recursive GDD fields preserve the official JSON Schema shape directly: object nodes own keyed
+properties, array nodes own one item schema, and layer bindings address scalar leaves with segment
+arrays rather than an executable expression language. A runtime collection is the one deliberate
+runtime authoring primitive: the compiler removes one contiguous grouped prototype from ordinary
+layers and emits it beside an explicit paint-order entry, array data key, per-item X/Y offset,
+capacity, and truncate policy. The packaged runtime expands bounded slots item-major, remaps internal
+clip-parent IDs, offsets every lifecycle/loop X/Y track, and binds each slot by array index. Hidden
+slots remain part of the deterministic timeline but do not paint. Update actions replace array
+snapshots at the existing crossfade midpoint; scheduled non-realtime replay derives the same item set
+from the complete data prefix, so backward `goToTime()` never depends on DOM or arrival history.
+Collection instances remain inside the composition's W13 isolation boundary and do not create a
+second blend stacking context.
+
 `Composition.layout` stores ruler/safe-area visibility, horizontal/vertical guides, snap targets,
 grid/threshold settings, authoring bounds, and editor overflow preview. These fields plus
 `isLocked`, `groupId`, general `parentId`, and `constraints` are intentionally absent from
@@ -323,3 +336,8 @@ empty definition list; compiled OGraf output remains ordinary independent layers
 Document version 13 adds structured text layout and legibility fields: line height, tracking, case
 transform, vertical alignment, baseline shift, minimum shrink size, and overflow policy. Migration
 derives neutral values and preserves the previous 50% shrink floor.
+
+Document version 19 adds recursive object/array field nodes, binding source paths, and explicit
+runtime-collection definitions. Migration supplies empty scalar paths/properties, array item schemas,
+and an empty collection list; compiled output retains standard OGraf GDD data while the self-contained
+runtime performs bounded deterministic item expansion.

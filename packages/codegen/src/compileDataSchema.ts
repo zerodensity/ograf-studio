@@ -18,6 +18,7 @@ export interface JSONSchemaProperty {
   items?: Omit<JSONSchemaProperty, 'title'> & { title?: string };
   required?: string[];
   minItems?: number;
+  maxItems?: number;
   minLength?: number;
   maxLength?: number;
   minimum?: number;
@@ -46,7 +47,10 @@ function schemaTypeFor(type: FieldType): JSONSchemaProperty['type'] {
     case 'gradient':
       return 'object';
     case 'select-multiple':
+    case 'array':
       return 'array';
+    case 'object':
+      return 'object';
     case 'text':
     case 'textarea':
     case 'color':
@@ -85,6 +89,10 @@ function gddTypeFor(type: FieldType): string {
       return 'boolean';
     case 'gradient':
       return 'gradient';
+    case 'object':
+      return 'object';
+    case 'array':
+      return 'array';
   }
 }
 
@@ -103,6 +111,8 @@ function propertyFor(field: FieldDefinition): JSONSchemaProperty {
   if (constraints.maximum !== undefined) property.maximum = constraints.maximum;
   if (constraints.pattern) property.pattern = constraints.pattern;
   if (constraints.step !== undefined) property.multipleOf = constraints.step;
+  if (constraints.minItems !== undefined) property.minItems = constraints.minItems;
+  if (constraints.maxItems !== undefined) property.maxItems = constraints.maxItems;
   if (field.type === 'color') property.pattern = '^#[0-9a-f]{6}$';
   if (field.type === 'file-path' || field.type === 'image-url') {
     property.gddOptions = field.fileExtensions.length ? { extensions: field.fileExtensions } : {};
@@ -133,6 +143,17 @@ function propertyFor(field: FieldDefinition): JSONSchemaProperty {
       },
     };
     property.required = ['type', 'angle', 'stops'];
+  }
+  if (field.type === 'object') {
+    property.properties = Object.fromEntries(
+      field.properties.map((child) => [child.key, propertyFor(child)]),
+    );
+    property.required = field.properties
+      .filter((child) => child.required)
+      .map((child) => child.key);
+  }
+  if (field.type === 'array' && field.items) {
+    property.items = propertyFor(field.items);
   }
   return property;
 }

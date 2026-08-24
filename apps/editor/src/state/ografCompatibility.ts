@@ -205,6 +205,12 @@ async function validateModuleAndLifecycle(
     if (moduleErrors.length > 0) return { moduleErrors, lifecycleErrors };
 
     const initialData = defaultsFromManifest(artifacts.manifest);
+    const reducedArrayData = Object.fromEntries(
+      Object.entries(initialData).map(([key, value]) => [
+        key,
+        Array.isArray(value) && value.length > 1 ? value.slice(0, 1) : value,
+      ]),
+    );
     const renderTypes = [
       ...(artifacts.manifest.supportsRealTime ? (['realtime'] as const) : []),
       ...(artifacts.manifest.supportsNonRealTime ? (['non-realtime'] as const) : []),
@@ -227,11 +233,42 @@ async function validateModuleAndLifecycle(
             schedule: [
               { timestamp: 0, action: { type: 'updateAction', params: { data: initialData } } },
               { timestamp: 1000, action: { type: 'playAction', params: {} } },
+              {
+                timestamp: 3000,
+                action: { type: 'updateAction', params: { data: reducedArrayData } },
+              },
               { timestamp: 7000, action: { type: 'stopAction', params: {} } },
             ],
           })),
           ...(await callGraphicMethod(graphic, 'goToTime', { timestamp: 5000 })),
         );
+        const collectionSnapshot = [
+          ...(graphic.shadowRoot?.querySelectorAll<HTMLElement>('[data-ograf-collection-id]') ??
+            []),
+        ]
+          .filter((element) => element.style.display !== 'none')
+          .map(
+            (element) =>
+              `${element.dataset.ografCollectionId}:${element.dataset.ografCollectionIndex}`,
+          );
+        lifecycleErrors.push(
+          ...(await callGraphicMethod(graphic, 'goToTime', { timestamp: 2000 })),
+          ...(await callGraphicMethod(graphic, 'goToTime', { timestamp: 5000 })),
+        );
+        const replayedCollectionSnapshot = [
+          ...(graphic.shadowRoot?.querySelectorAll<HTMLElement>('[data-ograf-collection-id]') ??
+            []),
+        ]
+          .filter((element) => element.style.display !== 'none')
+          .map(
+            (element) =>
+              `${element.dataset.ografCollectionId}:${element.dataset.ografCollectionIndex}`,
+          );
+        if (JSON.stringify(collectionSnapshot) !== JSON.stringify(replayedCollectionSnapshot)) {
+          lifecycleErrors.push(
+            'Non-realtime collection visibility changed after backward and repeated goToTime seeking.',
+          );
+        }
       }
       lifecycleErrors.push(...(await callGraphicMethod(graphic, 'dispose', { renderType })));
       graphic.remove();
