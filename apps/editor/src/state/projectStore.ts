@@ -41,6 +41,7 @@ import {
   EFFECT_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
   type Asset,
+  type BlendMode,
   type DesignToken,
   type DesignTokenTargetProperty,
   type DesignTokenType,
@@ -203,6 +204,7 @@ interface ProjectActions {
   renameLayer: (layerId: string, name: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
   toggleLayerGuide: (layerId: string) => void;
+  setLayerBlendMode: (layerId: string, blendMode: BlendMode) => void;
   toggleLayerLock: (layerId: string) => void;
   groupLayers: (layerIds: string[]) => string | null;
   ungroupLayers: (layerIds: string[]) => void;
@@ -1232,6 +1234,13 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((l) => l.id === layerId);
           if (layer) layer.isGuide = !layer.isGuide;
+        }),
+
+      setLayerBlendMode: (layerId, blendMode) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (layer && !layer.isLocked) layer.blendMode = blendMode;
         }),
 
       toggleLayerLock: (layerId) =>

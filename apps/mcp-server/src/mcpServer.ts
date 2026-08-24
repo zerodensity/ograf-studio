@@ -18,6 +18,7 @@ import {
 } from '@ograf-editor/codegen';
 import {
   ANIMATABLE_LAYER_PROPERTIES,
+  BLEND_MODES,
   buildSvgBundle,
   computeKeyframeFrames,
   createId,
@@ -1102,6 +1103,7 @@ export function createOGrafMcpServer(
             'Normalized 0..1 position of gradient stop N (zero-based) on rectangle/ellipse layers. Each stop owns an independent numeric track with incoming easing.',
         },
         easingPresets: [...EASING_PRESETS],
+        blendModes: [...BLEND_MODES],
         semantics: {
           layerPaintOrder: 'ascending-index-paints-later',
           layerPaintOrderDetail:
@@ -1115,6 +1117,8 @@ export function createOGrafMcpServer(
             'Rotation origin uses normalized transformOriginX/transformOriginY within top-left-positioned layer bounds.',
           childClipping:
             'set_layer_layout clipChildren=true makes that layer an animated, rotation-aware rectangular mask for direct children whose parentId points to it. Rectangle borderRadius rounds the transformed mask. Children keep their own world-space rotation; rotate the parent mask to create a diagonal wipe. Clipping is deterministic and compiled; ordinary parent translation remains baked.',
+          layerBlending:
+            'blendMode is static and composition-local. Editor, capture, SVG diagnostics, and runtime isolate the composition so layers blend only with earlier OGraf layers, never the external video bed or editor checkerboard.',
           localLoops:
             'A layer may own one local loop clip with independent numeric property tracks on a 0..durationFrames ruler. set_layer_loop configures lifecycle or Step activation; set_loop_property_track authors incoming-eased keys without creating composition keys or OGraf Steps. Null repeatCount means infinite. All loop phase is sampled from the shared OGraf timestamp/action schedule; loops never invoke lifecycle actions.',
           semanticAuthoring:

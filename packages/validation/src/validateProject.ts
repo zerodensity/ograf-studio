@@ -1,5 +1,6 @@
 import {
   applyDesignTokenBinding,
+  BLEND_MODES,
   inspectLottieAnimationData,
   getLayerAnimatableProperties,
   gradientStopIndexForProperty,
@@ -278,6 +279,11 @@ function validateComposition(composition: Composition, errors: string[], warning
     }
   }
   for (const layer of composition.layers) {
+    if (!BLEND_MODES.includes(layer.blendMode)) {
+      errors.push(
+        `${prefix}: layer "${layer.name}" has unsupported blend mode "${layer.blendMode}".`,
+      );
+    }
     if (layer.element.type === 'rectangle' || layer.element.type === 'ellipse') {
       for (const problem of validatePaint(layer.element.fill)) {
         errors.push(`${prefix}: layer "${layer.name}" ${problem}.`);

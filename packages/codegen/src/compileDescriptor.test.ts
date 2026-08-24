@@ -91,6 +91,7 @@ describe('compileDescriptor', () => {
     const child = createLayerOfKind('rectangle');
     parent.clipChildren = true;
     child.parentId = parent.id;
+    child.blendMode = 'multiply';
     if (child.element.type !== 'rectangle') throw new Error('Expected rectangle.');
     child.element.fill = {
       type: 'linear',
@@ -105,6 +106,7 @@ describe('compileDescriptor', () => {
 
     expect(descriptor.layers[0]!.clipParentId).toBeNull();
     expect(descriptor.layers[1]!.clipParentId).toBe(parent.id);
+    expect(descriptor.layers[1]!.blendMode).toBe('multiply');
     expect(descriptor.layers[1]!.element).toMatchObject({ fill: child.element.fill });
   });
 

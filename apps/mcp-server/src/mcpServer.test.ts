@@ -103,6 +103,7 @@ describe('OGraf MCP authoring host', () => {
         rectOrigin: 'top-left',
         localLoops: expect.any(String),
         semanticAuthoring: expect.any(String),
+        layerBlending: expect.any(String),
       },
       semanticAuthoring: {
         operations: ['set_layer_semantics', 'create_lower_third', 'create_repeater'],
@@ -146,6 +147,7 @@ describe('OGraf MCP authoring host', () => {
     expect((result.structuredContent as { easingPresets: string[] }).easingPresets).toContain(
       'elastic-in-out',
     );
+    expect((result.structuredContent as { blendModes: string[] }).blendModes).toContain('multiply');
   });
 
   it('creates a semantic lower third and exposes its intent through inspection', async () => {
@@ -269,6 +271,26 @@ describe('OGraf MCP authoring host', () => {
         expect.objectContaining({ key: 'document', fileExtensions: ['pdf'] }),
       ]),
     );
+  });
+
+  it('authors and inspects static composition-local blend modes', async () => {
+    const sessionId = 'blend-mode-mcp-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const applied = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'add_layer', kind: 'rectangle', name: 'Blend plate' },
+          { type: 'set_layer_flags', layerName: 'Blend plate', blendMode: 'multiply' },
+        ],
+      },
+    });
+    expect(applied.isError).not.toBe(true);
+    expect(
+      host.workspace.get(sessionId).snapshot().project.compositions[0]!.layers[0]!.blendMode,
+    ).toBe('multiply');
   });
 
   it('authors and inspects local multi-property loops through MCP', async () => {

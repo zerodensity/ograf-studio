@@ -14,6 +14,7 @@ import type {
   Element,
   KeyframeRole,
   LayerEffects,
+  BlendMode,
   LayerTransform,
   LayerLoopClip,
   GradientPaint,
@@ -36,6 +37,7 @@ export interface CompiledFontResource {
 export interface CompiledLayer {
   id: string;
   isVisible: boolean;
+  blendMode?: BlendMode;
   element: Element;
   effects: LayerEffects;
   /** Independently timed transform keys on the shared composition frame ruler. */

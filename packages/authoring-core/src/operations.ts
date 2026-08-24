@@ -1290,6 +1290,7 @@ export function applyAuthoringOperations(
         const layer = layerFor(composition, operation.layerId);
         if (operation.isVisible !== undefined) layer.isVisible = operation.isVisible;
         if (operation.isGuide !== undefined) layer.isGuide = operation.isGuide;
+        if (operation.blendMode !== undefined) layer.blendMode = operation.blendMode;
         break;
       }
       case 'set_layer_layout': {

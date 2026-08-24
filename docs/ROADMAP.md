@@ -100,8 +100,10 @@
   collections into ordinary grouped layers and independent cloned fields with semantic item tags.
   Runtime array bindings, virtualization, and late-bound collection length remain queued.
 - Deterministic clip-to-parent masking is implemented for animated rotation-aware parent bounds and
-  rounded rectangle corners, including diagonal wipes. Arbitrary alpha/luma/path masks remain
-  queued alongside blend modes, video, and nested compositions.
+  rounded rectangle corners, including diagonal wipes. Composition-local blend modes are also
+  implemented with an isolated transparent composition root across editor, capture, approximate
+  SVG review, and compiled runtime output. Arbitrary alpha/luma/path masks, video, and nested
+  compositions remain queued.
 - Basic Lottie support is implemented as a first-class self-contained layer: JSON import/re-import,
   bundled light canvas player, absolute-time loop sampling, editor scrubbing, realtime playback,
   deterministic non-realtime seeking, validation, export, and MCP schema support. Segments,

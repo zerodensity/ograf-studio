@@ -20,4 +20,5 @@ export * from './designSystem';
 export * from './repeaterRecipes';
 export * from './designQa';
 export * from './motionPresets';
+export * from './blendModes';
 export { createId } from './id';

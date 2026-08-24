@@ -67,6 +67,7 @@ describe('renderCompositionFrameSvg', () => {
     const child = createLayerOfKind('rectangle');
     parent.clipChildren = true;
     child.parentId = parent.id;
+    child.blendMode = 'multiply';
     if (parent.element.type !== 'rectangle' || child.element.type !== 'rectangle') {
       throw new Error('Expected rectangle layers.');
     }
@@ -116,5 +117,7 @@ describe('renderCompositionFrameSvg', () => {
     expect(svg).toContain('<clipPath');
     expect(svg).toContain('<path d="M');
     expect(svg).toContain(' Q ');
+    expect(svg).toContain('style="isolation:isolate"');
+    expect(svg).toContain('style="mix-blend-mode:multiply"');
   });
 });

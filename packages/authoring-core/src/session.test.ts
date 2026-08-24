@@ -499,6 +499,20 @@ describe('AuthoringSession', () => {
     });
   });
 
+  it('sets a static layer blend mode through the shared flags operation', () => {
+    const session = new AuthoringSession(createProject(), 'blend-mode-session');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Blend plate' }],
+    });
+    const layerId = created.summary.generatedIds[0]!.id;
+    const blended = session.apply({
+      expectedRevision: 1,
+      operations: [{ type: 'set_layer_flags', layerId, blendMode: 'screen' }],
+    });
+    expect(blended.project.compositions[0]!.layers[0]!.blendMode).toBe('screen');
+  });
+
   it('registers assets once and duplicates independent grouped layers with cloned fields', () => {
     const session = new AuthoringSession(createProject(), 'duplicate-session');
     const created = session.apply({

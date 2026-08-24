@@ -67,6 +67,11 @@ AI-first broadcast authoring and OGraf compliance hardening.
   typed MCP operations preserve it, and official-schema validation/certification remain mandatory.
   A disposable schema exercising text limits, select/select-multiple, duration, percentage, and
   file-path controls passed all five exact dual-mode certification gates.
+- Document v18 adds static layer blend modes across the Inspector, migration, validation,
+  compiler/runtime, OGraf import, browser capture, approximate SVG review, authoring operations, and
+  typed MCP discovery. The composition root is explicitly isolated: multiply, screen, overlay,
+  darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, and exclusion blend
+  only with lower OGraf layers, never with editor checkerboards or an external video bed.
 - Semantic layer metadata supports meaningful roles, normalized tags, and intent descriptions. It
   drives compact MCP queries, deterministic QA, and authoring recipes while remaining excluded from
   compiled output. The lower-third recipe creates four grouped layers/two editable fields with a
@@ -353,9 +358,9 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-08-24, including generated MCP contract drift, format, lint, all
-  workspace typechecks, 251 tests across 53 files, the runtime bundle, and the editor production
+  workspace typechecks, 255 tests across 53 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 251-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- The 255-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,
@@ -369,6 +374,10 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
   presets, clipping-aware design visibility, schema discovery, and compiled lower-third clip
   relations. A generated default wipe scored 100 with zero design findings and passed all five
   exact dual-mode certification gates.
+- W13 live verification: capability discovery returned all twelve modes and the isolated-composition
+  semantics; a browser PNG showed a multiply layer retaining its source blue on transparency while
+  darkening only its overlap with a gold OGraf layer; the same disposable v18 project passed all
+  five exact dual-mode certification gates and was then deleted.
 - Agent-first live verification: labelled strip exposed an intentionally missing hold; later-index
   paint order and incoming quadratic easing were confirmed from browser PNGs; fallback-font text
   measurement and Turkish overflow stress passed; whole-track/stagger dry runs remained atomic;

@@ -42,5 +42,14 @@
 - Verified the enriched schema through the live Data panel, typed MCP authoring, package re-import,
   official GDD schema validation, and all five exact dual-mode certification gates.
 
+## Composition and blending
+
+- Raised editable projects to document v18 and added twelve portable layer blend modes to the
+  Inspector, project migration, validation, compiler/runtime, OGraf import, approximate SVG review,
+  browser capture, typed MCP operations, and capability discovery.
+- Isolated the transparent composition root so a layer blends only with lower layers in the OGraf
+  stack. Editor checkerboards remain outside that isolation boundary and external video cannot
+  change the authored result.
+
 This file is the unreleased changelog. Add completed, verified changes here before assigning the
 next version and tag.

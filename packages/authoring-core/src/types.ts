@@ -1,5 +1,6 @@
 import type {
   AnimatableLayerProperty,
+  BlendMode,
   CubicBezierCurve,
   CompositionLayout,
   EasingPreset,
@@ -266,6 +267,7 @@ export type AuthoringOperation =
       layerId: string;
       isVisible?: boolean;
       isGuide?: boolean;
+      blendMode?: BlendMode;
     }
   | {
       type: 'set_layer_layout';

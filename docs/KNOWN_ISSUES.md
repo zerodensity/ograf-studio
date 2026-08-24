@@ -43,6 +43,10 @@
   field or dynamically add/remove rows from controller data.
 - W12a covers enriched scalar fields and string select-multiple controls. General GDD array/object
   fields and runtime item-prototype repetition remain unimplemented pending the W12b design.
+- Blend modes intentionally composite only against lower layers inside the isolated OGraf
+  composition. They never sample a controller or graphics server's external video bed. Target
+  renderer differences in CSS blend-mode precision still require the planned Lino/on-air smoke
+  matrix before this feature is described as renderer-certified.
 - Brand-token links are composition-local authoring metadata. Values are portable because they are
   materialized into standard layer properties, but there is no cross-project token library or
   playout-time theme token API.

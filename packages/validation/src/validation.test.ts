@@ -160,4 +160,12 @@ describe('project validation', () => {
     expect(errors).toMatch(/minLength cannot exceed maxLength/);
     expect(errors).toMatch(/pattern is not a valid regular expression/);
   });
+
+  it('rejects an unsupported layer blend mode from untrusted project JSON', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('rectangle');
+    layer.blendMode = 'plus-lighter' as typeof layer.blendMode;
+    project.compositions[0]!.layers = [layer];
+    expect(validateProject(project).errors.join(' ')).toMatch(/unsupported blend mode/);
+  });
 });

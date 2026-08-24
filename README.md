@@ -41,6 +41,9 @@ packages, and an optional local MCP authoring server for AI-assisted workflows.
   movable OGraf lifecycle Steps.
 - Data fields with multiple independent property bindings per layer for text, images, colors, and
   structured gradients.
+- Composition-local layer blend modes with an isolated transparent root, so blending is portable
+  between the editor, browser capture, realtime playback, and deterministic offline rendering
+  without accidentally blending against a controller's external video bed.
 - Reality Hub-ready GDD field metadata with descriptions, select labels, file hints, scalar
   constraints, integer/duration/percentage controls, and select-multiple values.
 - Reusable authoring components that snapshot selected layers and bound fields, then insert fresh

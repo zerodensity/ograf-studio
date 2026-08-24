@@ -56,6 +56,7 @@ export function compileDescriptor(
       return {
         id: layer.id,
         isVisible: layer.isVisible,
+        blendMode: layer.blendMode,
         element: resolveElementAssetReferences(layer.element, composition.assets),
         effects: layer.effects,
         keyframes: layer.keyframes.map((keyframe) => ({
