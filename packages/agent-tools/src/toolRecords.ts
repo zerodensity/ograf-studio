@@ -26,11 +26,13 @@ import {
   getLayerPropertyValueAtFrame,
   getLoopPropertyValueAtElapsed,
   getLayerAnimatableProperties,
+  getStylePack,
   getLayerTransformAtFrame,
   getResolvedLayerAnimationTracks,
   getTotalFrames,
   intersectConvexPolygons,
   MOTION_PRESET_NAMES,
+  STYLE_PACKS,
   polygonBounds,
   reviewCompositionDesign,
   transformBoundsPolygon,
@@ -716,6 +718,7 @@ function generatedOperationResults(
       return [];
     }
     const operation = operations[generated.operationIndex];
+    if (generated.kind === 'design-token' && operation?.type === 'apply_style_pack') return [];
     const base = {
       index: generated.operationIndex,
       type: operation?.type ?? generated.kind,
@@ -881,6 +884,16 @@ function normalizeOperationSelectors(
       operation.id = createId('runtime-collection');
     if (operation.type === 'upsert_design_token' && !operation.tokenId) {
       operation.id = createId('design-token');
+    }
+    if (operation.type === 'apply_style_pack') {
+      const pack = getStylePack(operation.stylePack as Parameters<typeof getStylePack>[0]);
+      operation.tokenIds = Object.fromEntries(
+        pack.tokens.map((definition) => [
+          definition.key,
+          composition.designSystem.tokens.find((token) => token.key === definition.key)?.id ??
+            createId('design-token'),
+        ]),
+      );
     }
 
     if ('layerName' in operation || 'layerId' in operation) {
@@ -1518,17 +1531,33 @@ export function createOGrafToolRecords(
             'score',
             'custom',
           ],
-          operations: ['set_layer_semantics', 'create_lower_third', 'create_repeater'],
+          operations: [
+            'set_layer_semantics',
+            'create_lower_third',
+            'create_bug',
+            'create_ticker',
+            'create_scoreboard',
+            'create_clock',
+            'create_repeater',
+          ],
           recipes: {
             lowerThird:
               'Creates a grouped four-layer/two-field lower third with semantic roles. The default wipe uses a deterministic clipChildren mask, cubic-out entrance, and cubic-in exit; stagger, slide, and none remain explicit alternatives. The result remains ordinary editable OGraf layers.',
             repeater:
               'Materializes a horizontal or vertical data collection as grouped ordinary layers with independent field mappings and semantic item/index tags.',
+            bug: 'Creates a compact grouped bug/DOG with one editable label and style-pack-aware motion.',
+            ticker:
+              'Creates a clipped ticker window, editable label/crawl fields, and a deterministic layer-local crawl loop rather than a lifecycle-long translation.',
+            scoreboard:
+              'Creates a grouped two-team/four-field scoreboard with outlined score values and portable semantic layers.',
+            clock:
+              'Creates a grouped two-field 24-hour clock with static punctuation and validated hour/minute controls.',
           },
           motionPresets: [...MOTION_PRESET_NAMES],
         },
         designSystem: {
           operations: [
+            'apply_style_pack',
             'set_design_system_name',
             'upsert_design_token',
             'remove_design_token',
@@ -1547,6 +1576,21 @@ export function createOGrafToolRecords(
           ],
           portability:
             'Token links are authoring metadata; current values are materialized into normal element properties for standard OGraf output.',
+          stylePacks: STYLE_PACKS.map((pack) => ({
+            id: pack.id,
+            name: pack.name,
+            description: pack.description,
+            tokens: pack.tokens.map((token) => ({
+              key: token.key,
+              name: token.name,
+              type: token.type,
+              valueAt1080: token.value,
+              scaleWithComposition: token.scaleWithComposition ?? false,
+            })),
+            motion: pack.motion,
+          })),
+          stylePackSemantics:
+            'Catalog definitions are immutable. apply_style_pack copies editable tokens into the composition and materializes compatible semantic layer properties; recipes may consume the same editable motion/type/palette vocabulary. Nothing proprietary enters runtime output.',
         },
         loopAnimation: {
           operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
@@ -3064,7 +3108,7 @@ export function createOGrafToolRecords(
     {
       title: 'Apply atomic OGraf authoring operations',
       description:
-        'Atomically applies scene, timeline, semantic recipe, finite repeater, runtime collection, brand-token, loop, recursive GDD data, lifecycle, asset, duplication, component, and canvas-layout operations using expectedRevision. Creation returns stable IDs. create_runtime_collection registers one contiguous grouped prototype against an object-item array, explicit per-item offset, bounded capacity, and truncate overflow; item bindings use sourcePath segments and remain deterministic under scheduled goToTime seeking. create_lower_third and create_repeater still materialize ordinary editable layers. Design-token links and linked-component metadata are authoring-only, while values and refreshed instances remain standard portable OGraf content. Lifecycle rename/move/remove uses the shared retiming planner. group_layers/ungroup_layers persist canvas groups; collection prototypes must be removed from their collection before destructive ungroup/delete operations. set_layer_loop writes deterministic local clips. create_timeline_group is editor-only organization. add_asset returns asset:<id>. Single-layer operations accept layerId or exact layerName; exact layerName, fieldKey, and tokenKey selectors can resolve entities created earlier in the same batch. update_transform/update_effects default scope="authored"; scope="frame" requires frame. duplicate_group creates independent grouped copies. dryRun is revision-neutral and atomic. Higher indexes paint later/on top; property easing is incoming. Every authoring warning is returned verbatim.',
+        'Atomically applies scene, timeline, semantic recipe, style-pack, finite repeater, runtime collection, brand-token, loop, recursive GDD data, lifecycle, asset, duplication, component, and canvas-layout operations using expectedRevision. Creation returns stable IDs. apply_style_pack copies editable News/Sports/Entertainment/Documentary tokens and materializes compatible semantic layers. create_lower_third/create_bug/create_ticker/create_scoreboard/create_clock/create_repeater create ordinary editable grouped output; ticker crawl motion is a clipped local loop. create_runtime_collection registers one contiguous grouped prototype against an object-item array, explicit per-item offset, bounded capacity, and truncate overflow; item bindings use sourcePath segments and remain deterministic under scheduled goToTime seeking. Design-token links and linked-component metadata are authoring-only, while values and refreshed instances remain standard portable OGraf content. Lifecycle rename/move/remove uses the shared retiming planner. group_layers/ungroup_layers persist canvas groups; collection prototypes must be removed from their collection before destructive ungroup/delete operations. set_layer_loop writes deterministic local clips. create_timeline_group is editor-only organization. add_asset returns asset:<id>. Single-layer operations accept layerId or exact layerName; exact layerName, fieldKey, and tokenKey selectors can resolve entities created earlier in the same batch. update_transform/update_effects default scope="authored"; scope="frame" requires frame. duplicate_group creates independent grouped copies. dryRun is revision-neutral and atomic. Higher indexes paint later/on top; property easing is incoming. Every authoring warning is returned verbatim.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3125,11 +3169,32 @@ export function createOGrafToolRecords(
           gap: repeater.gap,
           items: repeater.items,
         }));
+        const recipeResults = result.summary.semanticBlocks.map((block) => ({
+          index: block.operationIndex,
+          type: typedOperations[block.operationIndex]?.type ?? `create_${block.recipe}`,
+          recipe: block.recipe,
+          name: block.name,
+          groupId: block.groupId,
+          timelineGroupId: block.timelineGroupId,
+          layers: block.layers,
+          fields: block.fields,
+          ...(block.stylePack ? { stylePack: block.stylePack } : {}),
+        }));
+        const stylePackResults = result.summary.stylePacks.map((pack) => ({
+          index: pack.operationIndex,
+          type: 'apply_style_pack',
+          stylePack: pack.packId,
+          name: pack.name,
+          tokenIds: pack.tokenIds,
+          affectedLayerIds: pack.affectedLayerIds,
+        }));
         const results = [
           ...generatedResults,
           ...duplicateResults,
           ...componentResults,
           ...repeaterResults,
+          ...recipeResults,
+          ...stylePackResults,
         ];
         const runLint = dryRun && (broadcastLint || interlacedOutput);
         const lintWarnings = runLint ? broadcastLintWarnings(result.project, interlacedOutput) : [];

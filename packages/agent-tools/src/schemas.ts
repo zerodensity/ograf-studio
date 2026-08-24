@@ -1,6 +1,7 @@
 import * as z from 'zod/v4';
 import {
   BLEND_MODES,
+  STYLE_PACK_IDS,
   type AnimatableLayerProperty,
   type FieldValue,
 } from '@ograf-editor/scene-model';
@@ -178,6 +179,27 @@ export const designTokenTargetPropertySchema = z.enum([
 ]);
 
 const paintSchema = z.union([z.string().min(1), gradientPaintSchema]);
+const stylePackSchema = z.enum(STYLE_PACK_IDS);
+const recipePlacementSchema = z
+  .object({
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.number().positive().optional(),
+    height: z.number().positive().optional(),
+  })
+  .strict();
+const recipeMotionSchema = z
+  .object({
+    style: z.enum(['wipe', 'stagger', 'slide', 'none']).optional(),
+    entrance: z.enum(['left', 'right', 'up', 'down', 'none']).optional(),
+    exit: z.enum(['left', 'right', 'up', 'down', 'none']).optional(),
+    staggerFrames: z.number().int().nonnegative().max(120).optional(),
+    entranceDurationFrames: z.number().int().min(2).max(600).optional(),
+    exitDurationFrames: z.number().int().min(2).max(600).optional(),
+    entranceEasing: easingSchema.optional(),
+    exitEasing: easingSchema.optional(),
+  })
+  .strict();
 const fieldTypeSchema = z.enum([
   'text',
   'textarea',
@@ -495,18 +517,17 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
       .strict(),
   }),
   z.object({
+    type: z.literal('apply_style_pack'),
+    compositionId,
+    stylePack: stylePackSchema,
+    bindLayers: z.boolean().default(true),
+  }),
+  z.object({
     type: z.literal('create_lower_third'),
     compositionId,
+    stylePack: stylePackSchema.optional(),
     name: z.string().min(1).optional(),
-    placement: z
-      .object({
-        x: z.number().optional(),
-        y: z.number().optional(),
-        width: z.number().positive().optional(),
-        height: z.number().positive().optional(),
-      })
-      .strict()
-      .optional(),
+    placement: recipePlacementSchema.optional(),
     content: z
       .object({ headline: z.string().optional(), subheadline: z.string().optional() })
       .strict()
@@ -524,15 +545,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
       })
       .strict()
       .optional(),
-    motion: z
-      .object({
-        style: z.enum(['wipe', 'stagger', 'slide', 'none']).optional(),
-        entrance: z.enum(['left', 'right', 'up', 'down', 'none']).optional(),
-        exit: z.enum(['left', 'right', 'up', 'down', 'none']).optional(),
-        staggerFrames: z.number().int().nonnegative().max(120).optional(),
-      })
-      .strict()
-      .optional(),
+    motion: recipeMotionSchema.optional(),
   }),
   z.object({
     type: z.literal('create_repeater'),
@@ -552,6 +565,42 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
       .max(100),
     direction: z.enum(['horizontal', 'vertical']).default('horizontal'),
     gap: z.number().nonnegative().default(24),
+  }),
+  z.object({
+    type: z.enum(['create_bug', 'create_ticker', 'create_scoreboard', 'create_clock']),
+    compositionId,
+    stylePack: stylePackSchema.optional(),
+    name: z.string().min(1).optional(),
+    placement: recipePlacementSchema.optional(),
+    content: z
+      .object({
+        label: z.string().optional(),
+        text: z.string().optional(),
+        homeName: z.string().optional(),
+        homeScore: z.number().int().nonnegative().optional(),
+        awayScore: z.number().int().nonnegative().optional(),
+        awayName: z.string().optional(),
+        hours: z.string().optional(),
+        minutes: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    fieldKey: z.string().min(1).optional(),
+    fieldKeys: z
+      .object({
+        label: z.string().min(1).optional(),
+        text: z.string().min(1).optional(),
+        homeName: z.string().min(1).optional(),
+        homeScore: z.string().min(1).optional(),
+        awayScore: z.string().min(1).optional(),
+        awayName: z.string().min(1).optional(),
+        hours: z.string().min(1).optional(),
+        minutes: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    speedPixelsPerSecond: z.number().positive().max(4000).optional(),
+    motion: recipeMotionSchema.optional(),
   }),
   z.object({
     type: z.literal('duplicate_group'),

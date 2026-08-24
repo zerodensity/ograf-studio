@@ -60,3 +60,11 @@
 .add-element-toolbar button:hover {
   border-color: var(--accent);
 }
+
+.add-element-toolbar .recipe-select {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: var(--bg-panel-raised);
+  color: var(--text);
+}

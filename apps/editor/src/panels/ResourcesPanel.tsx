@@ -3,8 +3,11 @@ import {
   findAssetConsumers,
   findMissingAssetReferences,
   isSafePackagePath,
+  STYLE_PACKS,
+  stylePackIdForComposition,
   type Asset,
   type DesignTokenType,
+  type StylePackId,
 } from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
@@ -30,12 +33,16 @@ export function ResourcesPanel() {
   const renameComponent = useProjectStore((s) => s.renameComponent);
   const removeComponent = useProjectStore((s) => s.removeComponent);
   const setDesignSystemName = useProjectStore((s) => s.setDesignSystemName);
+  const applyStylePack = useProjectStore((s) => s.applyStylePack);
   const addDesignToken = useProjectStore((s) => s.addDesignToken);
   const updateDesignToken = useProjectStore((s) => s.updateDesignToken);
   const removeDesignToken = useProjectStore((s) => s.removeDesignToken);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const selectMany = useSelectionStore((s) => s.selectMany);
   const [svgImportStatus, setSvgImportStatus] = useState<string | null>(null);
+  const [selectedStylePack, setSelectedStylePack] = useState<StylePackId>(
+    stylePackIdForComposition(composition) ?? 'news',
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const sourceInputRef = useRef<HTMLInputElement>(null);
@@ -64,6 +71,11 @@ export function ResourcesPanel() {
       for (const face of loaded) document.fonts.delete(face);
     };
   }, [composition.assets]);
+
+  useEffect(() => {
+    const current = stylePackIdForComposition(composition);
+    if (current) setSelectedStylePack(current);
+  }, [composition]);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const files = [...(e.target.files ?? [])];
@@ -118,6 +130,26 @@ export function ResourcesPanel() {
     <Panel title="Resources">
       <div className="resources-panel">
         <section className="data-panel-section">
+          <div className="resources-style-pack-row">
+            <select
+              aria-label="Broadcast style pack"
+              value={selectedStylePack}
+              onChange={(event) => setSelectedStylePack(event.target.value as StylePackId)}
+            >
+              {STYLE_PACKS.map((pack) => (
+                <option key={pack.id} value={pack.id}>
+                  {pack.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => applyStylePack(selectedStylePack)}
+              title="Copy editable pack tokens and apply them to compatible semantic layers"
+            >
+              Apply Pack
+            </button>
+          </div>
           <div className="data-panel-section-header">
             <input
               className="resources-component-name"

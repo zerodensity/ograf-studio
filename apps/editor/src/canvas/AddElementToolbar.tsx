@@ -17,6 +17,10 @@ const KINDS: { kind: NewLayerKind; label: string }[] = [
 export function AddElementToolbar({ onEnterOgrafPreview }: { onEnterOgrafPreview?: () => void }) {
   const addLayer = useProjectStore((s) => s.addLayer);
   const addLowerThird = useProjectStore((s) => s.addLowerThird);
+  const addBug = useProjectStore((s) => s.addBug);
+  const addTicker = useProjectStore((s) => s.addTicker);
+  const addScoreboard = useProjectStore((s) => s.addScoreboard);
+  const addClock = useProjectStore((s) => s.addClock);
   const addRepeater = useProjectStore((s) => s.addRepeater);
   const alignLayers = useProjectStore((s) => s.alignLayers);
   const distributeLayers = useProjectStore((s) => s.distributeLayers);
@@ -45,6 +49,24 @@ export function AddElementToolbar({ onEnterOgrafPreview }: { onEnterOgrafPreview
     }
   };
 
+  const addRecipe = (event: ChangeEvent<HTMLSelectElement>) => {
+    const recipe = event.target.value;
+    event.target.value = '';
+    const result =
+      recipe === 'lower-third'
+        ? addLowerThird()
+        : recipe === 'bug'
+          ? addBug()
+          : recipe === 'ticker'
+            ? addTicker()
+            : recipe === 'scoreboard'
+              ? addScoreboard()
+              : recipe === 'clock'
+                ? addClock()
+                : null;
+    if (result) selectMany(Object.values(result.layers));
+  };
+
   return (
     <div className="add-element-toolbar">
       <div className="stage-mode-switch" role="group" aria-label="Canvas mode">
@@ -56,13 +78,21 @@ export function AddElementToolbar({ onEnterOgrafPreview }: { onEnterOgrafPreview
         </button>
       </div>
       <span className="toolbar-divider" aria-hidden="true" />
-      <button
-        type="button"
-        title="Create an editable semantic lower third"
-        onClick={() => selectMany(Object.values(addLowerThird().layers))}
+      <select
+        className="recipe-select"
+        aria-label="Add broadcast recipe"
+        defaultValue=""
+        onChange={addRecipe}
       >
-        + Lower Third
-      </button>
+        <option value="" disabled>
+          + Recipe…
+        </option>
+        <option value="lower-third">Lower Third</option>
+        <option value="bug">Bug / DOG</option>
+        <option value="ticker">Ticker / Crawl</option>
+        <option value="scoreboard">Scoreboard</option>
+        <option value="clock">Clock</option>
+      </select>
       {selectedLayerIds.length > 0 && (
         <button
           type="button"

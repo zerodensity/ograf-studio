@@ -71,8 +71,8 @@ deterministic design assessment belong in the same model turn.
 Supported operation discriminators:
 
 - Project/composition: `set_project_metadata`, `set_composition`, `set_composition_layout`,
-  `set_design_system_name`, `upsert_design_token`, `remove_design_token`, `bind_design_token`,
-  `unbind_design_token`,
+  `apply_style_pack`, `set_design_system_name`, `upsert_design_token`, `remove_design_token`,
+  `bind_design_token`, `unbind_design_token`,
   `add_lifecycle_step`, `rename_lifecycle_keyframe`, `move_lifecycle_keyframe`,
   `remove_lifecycle_step`, `add_canvas_guide`, `update_canvas_guide`, `remove_canvas_guide`,
   `create_timeline_group`, `rename_timeline_group`, `set_timeline_group_color`,
@@ -80,8 +80,9 @@ Supported operation discriminators:
 - Assets: `add_asset`, `update_asset`, `remove_asset`; use the separate `ograf_import_asset` and
   `ograf_import_svg_bundle` tools when payloads already exist under the configured workspace
 - Layers: `add_layer`, `duplicate_group`, `remove_layer`, `rename_layer`, `set_layer_flags`,
-  `set_layer_layout`, `set_layer_semantics`, `create_lower_third`, `create_repeater`, `group_layers`,
-  `ungroup_layers`, `reorder_layers`
+  `set_layer_layout`, `set_layer_semantics`, `create_lower_third`, `create_bug`, `create_ticker`,
+  `create_scoreboard`, `create_clock`, `create_repeater`, `group_layers`, `ungroup_layers`,
+  `reorder_layers`
 - Components: `save_component`, `instantiate_component`, `update_component_from_layers`,
   `refresh_component_instances`, `rename_component`, `remove_component`
 - Content/style: `update_element`, `update_transform`, `update_effects`
@@ -102,6 +103,13 @@ exit directions accept left/right/up/down/none. The default wipe makes the panel
 parent and reveals its three children with a cubic-out entrance, then uses a cubic-in directional
 exit. `staggerFrames` controls the four-layer cascade and rejects atomically when the entrance
 transition is too short. Every style returns ordinary layer/field/group mappings for later edits.
+
+`create_bug`, `create_ticker`, `create_scoreboard`, and `create_clock` materialize compact grouped
+broadcast graphics with semantic tags, constrained editable fields, complete layer/field mappings,
+and one Timeline Group. Each accepts an optional `stylePack`, placement, content/field-key values,
+and shared motion overrides. The scoreboard defaults to the Sports pack and uses W8 text outlines
+for score values. The ticker owns a `clipChildren` window and one lifecycle-activated local X loop;
+its finite lifecycle X track remains static. Use `speedPixelsPerSecond` to control crawl duration.
 
 `create_repeater` takes one or more source `layerIds`, at least two item records, direction, and gap.
 It materializes finite grouped copies and independently cloned fields, adds semantic item/index tags,
@@ -176,11 +184,13 @@ with returned replacement mappings. Refresh preserves authored placement but rep
 content, so use independent instances when local overrides must survive. Removing a definition never
 removes inserted layers; it only clears their links.
 
-Brand Kit operations manage typed color, font-family, font-weight, font-size, stroke-width, and
-radius-style values. Text accepts both `strokeColor` and `strokeWidth` token targets. Create a token
-with `upsert_design_token`, update it later by `tokenId`, and bind it by stable ID or unique
-`tokenKey` to a compatible target property. Updating a token rematerializes every consumer's
-ordinary element value. Removing a used token requires `force: true` to clear links while
+`apply_style_pack` accepts `news`, `sports`, `entertainment`, or `documentary`. Catalog definitions
+are immutable; application copies or refreshes canonical editable tokens, optionally binds them to
+compatible semantic layers, and returns complete token/affected-layer mappings. The pack includes
+palette, modular type scale, weights, font stack, radius, text outline, entrance/exit/update/stagger
+frames, and easing conventions. Brand Kit operations can then edit those copied tokens normally.
+Text accepts both `strokeColor` and `strokeWidth` targets. Updating a token rematerializes every
+consumer's ordinary element value. Removing a used token requires `force: true` to clear links while
 preserving the last materialized values.
 
 Custom actions are declarative OGraf manifest entries. Use `add_custom_action`,

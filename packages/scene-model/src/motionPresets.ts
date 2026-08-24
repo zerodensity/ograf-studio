@@ -1,6 +1,6 @@
 import { createLayerKeyframe } from './factory';
 import { computeKeyframeFrames } from './keyframeTiming';
-import type { Composition, LayerKeyframe, LayerTransform } from './types';
+import type { Composition, EasingPreset, LayerKeyframe, LayerTransform } from './types';
 
 export const MOTION_PRESET_NAMES = ['wipe-reveal', 'stagger-cascade', 'directional-slide'] as const;
 
@@ -18,11 +18,16 @@ export interface LayerMotionRequest {
   cascadeIndex?: number;
   cascadeCount?: number;
   staggerFrames?: number;
+  entranceDurationFrames?: number;
+  exitDurationFrames?: number;
+  entranceEasing?: EasingPreset;
+  exitEasing?: EasingPreset;
 }
 
 interface LifecycleFrames {
   start: number;
   firstStep: number;
+  lastStep: number;
   end: number;
   byId: Map<string, number>;
 }
@@ -32,13 +37,17 @@ function lifecycleFrames(composition: Composition): LifecycleFrames {
   const byId = new Map(frames.map((entry) => [entry.keyframeId, entry.frame]));
   const startId = composition.keyframes.find((keyframe) => keyframe.role === 'start')?.id;
   const firstStepId = composition.keyframes.find((keyframe) => keyframe.role === 'step')?.id;
+  const lastStepId = [...composition.keyframes]
+    .reverse()
+    .find((keyframe) => keyframe.role === 'step')?.id;
   const endId = composition.keyframes.find((keyframe) => keyframe.role === 'end')?.id;
-  if (!startId || !firstStepId || !endId) {
+  if (!startId || !firstStepId || !lastStepId || !endId) {
     throw new Error('Motion presets require explicit Start, at least one Step, and End.');
   }
   return {
     start: byId.get(startId) ?? 0,
     firstStep: byId.get(firstStepId) ?? 0,
+    lastStep: byId.get(lastStepId) ?? 0,
     end: byId.get(endId) ?? frames.at(-1)?.frame ?? 0,
     byId,
   };
@@ -100,12 +109,17 @@ export function assertStaggerFits(
   composition: Composition,
   cascadeCount: number,
   staggerFrames: number,
+  entranceDurationFrames?: number,
 ): void {
   if (!Number.isInteger(staggerFrames) || staggerFrames < 0) {
     throw new Error('staggerFrames must be a non-negative integer.');
   }
   const frames = lifecycleFrames(composition);
-  const entranceFrames = frames.firstStep - frames.start;
+  const availableFrames = frames.firstStep - frames.start;
+  const entranceFrames = Math.min(
+    availableFrames,
+    Math.max(2, Math.round(entranceDurationFrames ?? availableFrames)),
+  );
   const cascadeDelay = Math.max(0, cascadeCount - 1) * staggerFrames;
   if (entranceFrames - cascadeDelay < 2) {
     throw new Error(
@@ -129,10 +143,14 @@ export function buildLayerMotionKeyframes(request: LayerMotionRequest): LayerKey
     cascadeIndex = 0,
     cascadeCount = 1,
     staggerFrames = 0,
+    entranceDurationFrames,
+    exitDurationFrames,
+    entranceEasing = 'cubic-out',
+    exitEasing = 'cubic-in',
   } = request;
   const frames = lifecycleFrames(composition);
   if (style === 'stagger' && entrance !== 'none') {
-    assertStaggerFits(composition, cascadeCount, staggerFrames);
+    assertStaggerFits(composition, cascadeCount, staggerFrames, entranceDurationFrames);
   }
 
   const noMotion = style === 'none';
@@ -152,25 +170,44 @@ export function buildLayerMotionKeyframes(request: LayerMotionRequest): LayerKey
     transform: LayerTransform,
     easing: LayerKeyframe['easing'] = 'linear',
   ) => byFrame.set(frame, createLayerKeyframe(frame, transform, { easing }));
+  const entranceAvailable = frames.firstStep - frames.start;
+  const entranceDuration = Math.min(
+    entranceAvailable,
+    Math.max(2, Math.round(entranceDurationFrames ?? entranceAvailable)),
+  );
+  const entranceStart = frames.firstStep - entranceDuration;
+  const exitAvailable = frames.end - frames.lastStep;
+  const exitDuration = Math.min(
+    exitAvailable,
+    Math.max(2, Math.round(exitDurationFrames ?? exitAvailable)),
+  );
+  const exitStart = frames.end - exitDuration;
 
   for (const lifecycle of composition.keyframes) {
     const frame = frames.byId.get(lifecycle.id) ?? 0;
     if (lifecycle.role === 'start') put(frame, entranceTransform);
     else if (lifecycle.role === 'end') {
-      put(frame, exitTransform, noMotion || exit === 'none' ? 'linear' : 'cubic-in');
+      put(frame, exitTransform, noMotion || exit === 'none' ? 'linear' : exitEasing);
     } else {
       put(
         frame,
         onAir,
-        frame === frames.firstStep && !noMotion && entrance !== 'none' ? 'cubic-out' : 'linear',
+        frame === frames.firstStep && !noMotion && entrance !== 'none' ? entranceEasing : 'linear',
       );
     }
+  }
+
+  if (!noMotion && entrance !== 'none' && entranceStart > frames.start) {
+    put(entranceStart, entranceTransform);
+  }
+  if (!noMotion && exit !== 'none' && exitStart > frames.lastStep) {
+    put(exitStart, onAir);
   }
 
   if (style === 'stagger' && entrance !== 'none') {
     const delay = cascadeIndex * staggerFrames;
     const remaining = Math.max(0, cascadeCount - 1 - cascadeIndex) * staggerFrames;
-    const motionStart = frames.start + delay;
+    const motionStart = entranceStart + delay;
     const arrival = frames.firstStep - remaining;
     if (motionStart > frames.start) put(motionStart, entranceTransform);
     if (arrival < frames.firstStep) put(arrival, onAir, 'cubic-out');

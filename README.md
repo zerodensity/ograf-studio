@@ -47,12 +47,14 @@ boundaries.
 - Reusable authoring components that snapshot selected layers and bound fields, then insert fresh
   independent or explicitly refreshable linked instances without adding a proprietary runtime
   dependency.
-- Brand Kits with typed color, typography, and geometry tokens; token values are materialized into
-  standard element properties so exported graphics never require OGraf Studio at playout time.
+- Brand Kits with typed color, typography, and geometry tokens plus News, Sports, Entertainment,
+  and Documentary style packs; copied token values remain editable and materialize into standard
+  properties so exported graphics never require OGraf Studio at playout time.
 - Broadcast text outlines with editable stroke colour and independently animated width, rendered
   behind the glyph fill consistently in the editor, browser capture, SVG diagnostics, and export.
-- Semantic lower-third and repeater recipes for fast AI/human authoring while keeping every result
-  editable through normal layers, fields, groups, and tracks.
+- Semantic lower-third, bug/DOG, clipped ticker, scoreboard, clock, and repeater recipes for fast
+  AI/human authoring while keeping every result editable through normal layers, fields, groups, and
+  tracks.
 - Self-contained Lottie JSON layers with deterministic loop playback in editor preview, OGraf
   realtime playback, and non-realtime `goToTime()` seeking.
 - Start, pausable Step, and End lifecycle preview using the same compiled timeline as export.

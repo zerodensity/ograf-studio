@@ -2,6 +2,7 @@ import {
   EFFECT_ANIMATION_PROPERTIES,
   TRANSFORM_ANIMATION_PROPERTIES,
   applyDesignTokenBinding,
+  applyStylePack,
   computeKeyframeFrames,
   buildComponentDefinition,
   createCustomActionDefinition,
@@ -29,7 +30,11 @@ import {
   normalizeAuthoredTransformPatch,
   normalizeLayerEffects,
   instantiateComponentDefinition,
+  materializeBug,
+  materializeClock,
   materializeLowerThird,
+  materializeScoreboard,
+  materializeTicker,
   materializeRepeater,
   normalizeDesignTokenValue,
   planLifecycleRetime,
@@ -42,6 +47,8 @@ import {
   type Composition,
   type EasingPreset,
   type Layer,
+  type MaterializedBroadcastRecipe,
+  type MaterializedLowerThird,
   type LayerPropertyKeyframe,
   type LayerTransform,
   type Project,
@@ -620,6 +627,25 @@ function recordOperation(summary: AuthoringChangeSummary, operation: AuthoringOp
   }
 }
 
+function recordSemanticBlock(
+  summary: AuthoringChangeSummary,
+  operationIndex: number,
+  block: MaterializedLowerThird | MaterializedBroadcastRecipe,
+): void {
+  const layerIds = Object.values(block.layers);
+  const fieldIds = Object.values(block.fields);
+  summary.affectedLayerIds.push(...layerIds);
+  for (const id of layerIds) summary.generatedIds.push({ operationIndex, kind: 'layer', id });
+  for (const id of fieldIds) summary.generatedIds.push({ operationIndex, kind: 'field', id });
+  summary.generatedIds.push({ operationIndex, kind: 'canvas-group', id: block.groupId });
+  summary.generatedIds.push({
+    operationIndex,
+    kind: 'timeline-group',
+    id: block.timelineGroupId,
+  });
+  summary.semanticBlocks.push({ operationIndex, ...block });
+}
+
 export function applyAuthoringOperations(
   source: Project,
   operations: AuthoringOperation[],
@@ -638,6 +664,7 @@ export function applyAuthoringOperations(
     duplicateGroups: [],
     componentInstances: [],
     semanticBlocks: [],
+    stylePacks: [],
     repeaters: [],
   };
 
@@ -1310,22 +1337,42 @@ export function applyAuthoringOperations(
         }
         break;
       }
-      case 'create_lower_third': {
-        const block = materializeLowerThird(composition, operation);
-        const layerIds = Object.values(block.layers);
-        const fieldIds = Object.values(block.fields);
-        summary.affectedLayerIds.push(...layerIds);
-        for (const id of layerIds) summary.generatedIds.push({ operationIndex, kind: 'layer', id });
-        for (const id of fieldIds) summary.generatedIds.push({ operationIndex, kind: 'field', id });
-        summary.generatedIds.push({ operationIndex, kind: 'canvas-group', id: block.groupId });
-        summary.generatedIds.push({
-          operationIndex,
-          kind: 'timeline-group',
-          id: block.timelineGroupId,
+      case 'apply_style_pack': {
+        const applied = applyStylePack(composition, operation.stylePack, {
+          refreshTokens: true,
+          ...(operation.bindLayers === false ? { bindLayerIds: [] } : {}),
+          ...(operation.tokenIds ? { tokenIds: operation.tokenIds } : {}),
         });
-        summary.semanticBlocks.push({ operationIndex, ...block });
+        for (const id of applied.createdTokenIds) {
+          summary.generatedIds.push({ operationIndex, kind: 'design-token', id });
+        }
+        summary.affectedLayerIds.push(...applied.affectedLayerIds);
+        summary.stylePacks.push({
+          operationIndex,
+          packId: applied.packId,
+          name: applied.name,
+          tokenIds: applied.tokenIds,
+          affectedLayerIds: applied.affectedLayerIds,
+        });
         break;
       }
+      case 'create_lower_third': {
+        const block = materializeLowerThird(composition, operation);
+        recordSemanticBlock(summary, operationIndex, block);
+        break;
+      }
+      case 'create_bug':
+        recordSemanticBlock(summary, operationIndex, materializeBug(composition, operation));
+        break;
+      case 'create_ticker':
+        recordSemanticBlock(summary, operationIndex, materializeTicker(composition, operation));
+        break;
+      case 'create_scoreboard':
+        recordSemanticBlock(summary, operationIndex, materializeScoreboard(composition, operation));
+        break;
+      case 'create_clock':
+        recordSemanticBlock(summary, operationIndex, materializeClock(composition, operation));
+        break;
       case 'create_repeater': {
         const repeater = materializeRepeater(composition, operation);
         for (const item of repeater.items) {
