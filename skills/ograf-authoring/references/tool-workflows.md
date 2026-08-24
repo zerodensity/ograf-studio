@@ -29,13 +29,12 @@
   frames. Omit `frames` to sample lifecycle frames and transition midpoints. Use explicit frames to
   diagnose staggers, holds, easing, and premature exits. It is read-only and returns the same
   five-minute URL plus optional inline `image/png` convention as `ograf_capture`.
-- `ograf_preview_operations`: revision-checked visual dry run of an exact operation batch. It
-  renders the projected frame or strip without changing project state, revision, or undo history.
-  Generated IDs are hypothetical until the real batch is committed.
-- `ograf_propose_operations`: presents a rendered projected batch in the visible editor for
-  explicit Accept or Reject. Use only with `sessionId: "editor"`. Acceptance applies the exact
-  operations atomically only when the base revision is still current; rejection, expiry, or a
-  conflict leaves the project unchanged.
+- `ograf_apply_operations` is the single operation entry point. `mode: "apply"` commits;
+  `mode: "dry-run"` performs browser-free validation/lint; `mode: "preview"` renders the projected
+  frame or strip without changing project state, revision, or undo history; and `mode: "propose"`
+  presents that projection for explicit Accept or Reject in `sessionId: "editor"`. Generated dry-run
+  IDs are hypothetical. Proposal acceptance applies the exact batch only when the base revision is
+  still current; rejection, expiry, or conflict leaves the project unchanged.
 - `ograf_review_design`: deterministic semantic, layout, typography, palette, spacing, and motion QA
   with stable finding/layer IDs and recommended preview frames. `includeStrip: true` adds an
   authoritative browser contact sheet. Craft findings cover lockstep translation, easing direction,

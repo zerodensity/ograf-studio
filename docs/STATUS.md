@@ -17,6 +17,11 @@ AI-first broadcast authoring and OGraf compliance hardening.
   contracts, workspace-confined asset/SVG bundle imports, Brand Kits/design tokens, linked
   component refresh, deterministic design/motion QA, and an in-editor proposal Accept/Reject flow.
   Headless render/certify (area 10) is deliberately deferred.
+- The agent composition layer is extracted into transport-neutral `packages/agent-tools` records
+  behind injected workspace/bridge ports. The MCP server is now only a renderer over those records.
+  W2 consolidates apply, browser-free dry-run, rendered preview, and human-review proposal behavior
+  into one mode-based `ograf_apply_operations` schema. Registered tools dropped from 28 to 26 and
+  the generated contract from 334,854 to 133,868 bytes without changing operation semantics.
 - Browser certification is isolated in a disposable iframe/custom-element registry. Certification,
   PNG capture, contact sheets, and text measurement run through one serialized browser-work queue;
   packaged-font waits remain bounded and bridge health continues to expose responsiveness/latency.
@@ -350,8 +355,8 @@ AI-first broadcast authoring and OGraf compliance hardening.
 
 ## Next milestone
 
-- Reduce the approximately 335 KB generated MCP contract by consolidating the repeated operation
-  surface, then add filtered capability sections and the combined apply/review workflow.
+- Add W10 filtered capability sections, then W9 combined apply/review output on the consolidated
+  operation entry point.
 - Overlapping-action/concurrency and browser E2E coverage; package/module/lifecycle smoke testing is
   now enforced in the product save path.
 - Packaged fonts, localization/RTL, and advanced broadcaster authoring tools.

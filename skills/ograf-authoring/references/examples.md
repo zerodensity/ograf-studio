@@ -8,9 +8,9 @@
    tags needed for later queries.
 3. Read the timeline and confirm the default panel width wipe arrives with `cubic-out` and the End
    key uses `cubic-in`. Refine independent keys only when the brief needs motion beyond the recipe.
-4. Use `ograf_preview_operations` for uncommitted visual refinements. If the change substantially
-   affects layout/theme/motion, use `ograf_propose_operations` so the human can Accept or Reject it
-   in OGraf Studio.
+4. Use `ograf_apply_operations` with `mode: "preview"` for uncommitted visual refinements. If the
+   change substantially affects layout/theme/motion, use `mode: "propose"` so the human can Accept
+   or Reject it in OGraf Studio.
 5. Run `ograf_review_design`, then render entrance start, mid-motion, settled frame, and exit.
    Inspect property tracks to confirm stagger and independent easing.
 6. Validate and certify. Save `.ogeproj` only if requested; export `.ograf.zip` only if requested.
@@ -66,8 +66,8 @@ certification.
 2. Save the reviewed layer selection as a component. Insert independent instances for graphics
    that will diverge, or linked instances when later explicit refresh is desired.
 3. To revise the source, update the component snapshot from selected layers, preview a
-   `refresh_component_instances` operation, and present it through `ograf_propose_operations` when
-   replacement could remove local instance changes.
+   `refresh_component_instances` operation, and present it through `ograf_apply_operations` with
+   `mode: "propose"` when replacement could remove local instance changes.
 4. Accept only after the editor preview is correct; then query semantic roles/tags and rerun design
    QA to confirm every refreshed instance remains legible and on-air safe.
 

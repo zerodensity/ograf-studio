@@ -34,6 +34,11 @@
 - Visual operation previews, proposal images, browser text measurement, and exact certification
   still require one connected, responsive editor tab. Headless render/certify is intentionally not
   part of this implementation and remains deferred.
+- W2 reduced the generated MCP contract from 334,854 to 133,868 bytes by removing two duplicated
+  operation-tool schemas. It is now guarded by a 150,000-byte drift budget. Further prompt/context
+  reduction depends on W10 capability projections and the reduced in-app tool filter; the removed
+  `ograf_preview_operations` and `ograf_propose_operations` names are a deliberate public MCP break
+  in favor of `ograf_apply_operations` modes.
 - Semantic roles/tags and deterministic design/motion QA improve selection and review but are
   advisory authoring metadata, not an automatic guarantee of good editorial design.
 - Linked component refresh is explicit and replacement-based. It preserves instance placement but

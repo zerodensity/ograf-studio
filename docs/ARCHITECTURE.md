@@ -19,7 +19,10 @@ runtime                       validation
           editor   authoring-core
                       |
                       v
-                  MCP server
+                  agent-tools
+                   /       \
+                  v         v
+            MCP server   in-app agent
 ```
 
 The scene model is editor-domain state. The compiled descriptor is the stable boundary consumed by preview and export. OGraf contracts and canonical schemas must not depend on editor packages.
@@ -30,6 +33,13 @@ The scene model is editor-domain state. The compiled descriptor is the stable bo
 discriminated scene, timeline, data, and lifecycle operations as revision-checked atomic batches.
 It owns agent-session undo/redo, dry-run evaluation, validation results, change summaries, and a
 deterministic SVG frame renderer. It has no React, browser, transport, or file-system dependency.
+
+`packages/agent-tools` is the transport-neutral composition layer above that mutation engine. It
+owns canonical Zod schemas and plain tool records, and depends only on injected workspace and editor-
+bridge ports. The MCP server renders those records through the MCP SDK; the planned in-app BYOK loop
+will filter and render the same records through provider adapters. Neither front door owns handlers.
+The consolidated `ograf_apply_operations` record exposes apply, browser-free dry-run, rendered
+preview, and human proposal modes while carrying the large recursive operation union only once.
 
 `apps/mcp-server` exposes that boundary through localhost-only Streamable HTTP MCP. The `editor`
 session is synchronized to the browser over a local WebSocket bridge. Browser edits increment the

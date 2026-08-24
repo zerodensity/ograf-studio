@@ -81,6 +81,123 @@ interface ToolRegistrar {
   ): void;
 }
 
+const consolidatedOperationInputSchema = {
+  mode: z.enum(['apply', 'dry-run', 'preview', 'propose']).default('apply'),
+  sessionId: z.string().default('editor'),
+  expectedRevision: z.number().int().nonnegative(),
+  operations: z.array(authoringOperationSchema).min(1),
+  reason: z.string().optional(),
+  broadcastLint: z.boolean().default(false),
+  interlacedOutput: z.boolean().default(false),
+  render: z.enum(['frame', 'strip']).optional(),
+  compositionId: z.string().optional(),
+  frame: z.number().int().nonnegative().optional(),
+  frames: z.array(z.number().int().nonnegative()).min(1).max(12).optional(),
+  columns: z.number().int().min(1).max(12).default(3),
+  maxDimension: z.number().int().min(64).max(4096).optional(),
+  labelFrames: z.boolean().default(true),
+  matte: z
+    .string()
+    .refine(
+      (value) => value === 'transparent' || value === 'checker' || /^#[0-9a-f]{6}$/i.test(value),
+      'matte must be "transparent", "checker", or a #RRGGBB colour.',
+    )
+    .default('checker'),
+  dataOverrides: z.record(z.string(), fieldValueSchema).optional(),
+  enableBase64Response: z.boolean().default(false),
+  title: z.string().min(1).max(120).optional(),
+  description: z.string().max(1000).default(''),
+} satisfies z.ZodRawShape;
+
+type ConsolidatedOperationInput = z.output<z.ZodObject<typeof consolidatedOperationInputSchema>>;
+
+function consolidateOperationTools(records: AgentToolRecord[]): AgentToolRecord[] {
+  const names = [
+    'ograf_apply_operations',
+    'ograf_preview_operations',
+    'ograf_propose_operations',
+  ] as const;
+  const indexed = names.map((name) => ({
+    name,
+    index: records.findIndex((record) => record.name === name),
+    record: records.find((record) => record.name === name),
+  }));
+  if (indexed.some((entry) => entry.index < 0 || !entry.record)) {
+    throw new Error('Cannot consolidate OGraf operation tools because a source record is missing.');
+  }
+  const apply = indexed[0]!.record!;
+  const preview = indexed[1]!.record!;
+  const propose = indexed[2]!.record!;
+  const consolidated: AgentToolRecord = {
+    name: 'ograf_apply_operations',
+    config: {
+      title: 'Apply, preview, or propose OGraf operations',
+      description:
+        'One revision-checked operation entry point. mode=apply commits one atomic batch. mode=dry-run performs browser-free validation/lint without changing revision. mode=preview renders a revision-neutral projected frame or strip in the connected editor. mode=propose presents that projection for explicit human Accept/Reject and requires sessionId=editor plus title. The operation schema appears once regardless of mode.',
+      inputSchema: consolidatedOperationInputSchema,
+      annotations: mutation,
+    },
+    async handler(raw) {
+      const input = raw as unknown as ConsolidatedOperationInput;
+      const common = {
+        sessionId: input.sessionId,
+        expectedRevision: input.expectedRevision,
+        operations: input.operations,
+      };
+      if (input.mode === 'apply' || input.mode === 'dry-run') {
+        return apply.handler({
+          ...common,
+          dryRun: input.mode === 'dry-run',
+          broadcastLint: input.broadcastLint,
+          interlacedOutput: input.interlacedOutput,
+          ...(input.reason ? { reason: input.reason } : {}),
+        });
+      }
+      if (input.mode === 'preview') {
+        return preview.handler({
+          ...common,
+          render: input.render ?? 'frame',
+          ...(input.compositionId ? { compositionId: input.compositionId } : {}),
+          ...(input.frame !== undefined ? { frame: input.frame } : {}),
+          ...(input.frames ? { frames: input.frames } : {}),
+          columns: input.columns,
+          maxDimension: input.maxDimension ?? 900,
+          labelFrames: input.labelFrames,
+          matte: input.matte,
+          ...(input.dataOverrides ? { dataOverrides: input.dataOverrides } : {}),
+          enableBase64Response: input.enableBase64Response,
+        });
+      }
+      if (input.sessionId !== 'editor') {
+        throw new Error('mode=propose is available only for sessionId=editor.');
+      }
+      if (!input.title) throw new Error('mode=propose requires a non-empty title.');
+      if (input.dataOverrides) {
+        throw new Error('dataOverrides is not supported for mode=propose.');
+      }
+      return propose.handler({
+        ...common,
+        title: input.title,
+        description: input.description,
+        render: input.render ?? 'strip',
+        ...(input.compositionId ? { compositionId: input.compositionId } : {}),
+        ...(input.frame !== undefined ? { frame: input.frame } : {}),
+        ...(input.frames ? { frames: input.frames } : {}),
+        columns: input.columns,
+        maxDimension: Math.min(input.maxDimension ?? 320, 1024),
+        matte: input.matte,
+        enableBase64Response: input.enableBase64Response,
+      });
+    },
+  };
+  const insertAt = Math.min(...indexed.map((entry) => entry.index));
+  const filtered = records.filter(
+    (record) => !names.includes(record.name as (typeof names)[number]),
+  );
+  filtered.splice(insertAt, 0, consolidated);
+  return filtered;
+}
+
 const readOnly = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -1113,8 +1230,7 @@ export function createOGrafToolRecords(
         requiresBrowser: [
           'ograf_capture',
           'ograf_render_strip',
-          'ograf_preview_operations',
-          'ograf_propose_operations',
+          'ograf_apply_operations when mode=preview or mode=propose',
           'ograf_measure_text',
           'ograf_certify_project',
           'ograf_save_project',
@@ -1413,9 +1529,9 @@ export function createOGrafToolRecords(
         safety: {
           optimisticConcurrency: 'Mutations require expectedRevision.',
           atomicBatches: true,
-          dryRun: true,
-          visualDryRun: 'ograf_preview_operations',
-          humanReview: 'ograf_propose_operations',
+          dryRun: 'ograf_apply_operations mode=dry-run',
+          visualDryRun: 'ograf_apply_operations mode=preview',
+          humanReview: 'ograf_apply_operations mode=propose',
           outputGate: 'Save/export requires exact-artifact browser OGraf certification.',
           fileScope: workspace.root,
         },
@@ -1440,9 +1556,9 @@ export function createOGrafToolRecords(
         },
         aiReview: {
           query: 'ograf_query_scene',
-          visualDryRun: 'ograf_preview_operations',
+          visualDryRun: 'ograf_apply_operations mode=preview',
           deterministicQa: 'ograf_review_design',
-          humanProposal: 'ograf_propose_operations',
+          humanProposal: 'ograf_apply_operations mode=propose',
           semantics:
             'Use semantic query for compact selection, visual dry-run for model inspection, and proposals when a human should approve visually consequential edits.',
         },
@@ -3047,5 +3163,5 @@ export function createOGrafToolRecords(
     },
   );
 
-  return records;
+  return consolidateOperationTools(records);
 }

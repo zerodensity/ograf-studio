@@ -23,12 +23,12 @@ replace the tools with raw file editing.
    identify the intended layers compactly. Preserve returned stable IDs and `revision`. For routine
    project reads, prefer explicit `include` sections with
    `tracks: "animated-only"`; omit filters when a complete compatibility snapshot is required.
-3. Build one coherent `ograf_apply_operations` batch. Use `ograf_preview_operations` when geometry,
-   paint, hierarchy, or motion needs a rendered projected frame/strip. Use
-   `ograf_propose_operations` when a human should explicitly Accept or Reject a visually
-   consequential batch in the editor. Use `dryRun: true` before destructive or
-   hard-to-reverse operations: layer/field removal, layer reorder, transition-duration changes, and
-   `duplicate_group` with cloned fields. Commit purely additive layer/field/key/asset batches
+3. Build one coherent `ograf_apply_operations` batch. Use `mode: "preview"` when geometry, paint,
+   hierarchy, or motion needs a rendered projected frame/strip. Use `mode: "propose"` when a human
+   should explicitly Accept or Reject a visually consequential batch in the editor. Use
+   `mode: "dry-run"` before destructive or hard-to-reverse operations: layer/field removal, layer
+   reorder, transition-duration changes, and `duplicate_group` with cloned fields. Use the default
+   `mode: "apply"` for the committed batch. Commit purely additive layer/field/key/asset batches
    directly unless their projected layout is genuinely uncertain.
    Creation batches return first-class `results` with stable layer/field/guide/asset IDs; use them in
    the next batch without paying for a project read solely as an ID lookup. A dry run returns
