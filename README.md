@@ -62,6 +62,8 @@ boundaries.
   and loss report.
 - Optional localhost MCP server with revisioned scene/timeline operations, validation, visual
   capture, certification, save, and export tools.
+- One consolidated `ograf_apply_operations` entry point for committed apply, browser-free dry-run,
+  rendered preview, and human Accept/Reject proposal modes.
 
 ## File types
 
@@ -274,6 +276,8 @@ bundle so tests work in a fresh clone.
 
 - `apps/editor` — React/Vite visual editor.
 - `apps/mcp-server` — localhost Streamable HTTP MCP server and editor bridge.
+- `packages/agent-tools` — transport-neutral canonical tool records, schemas, and bridge/workspace
+  ports shared by MCP and the planned in-app agent.
 - `packages/scene-model` — canonical editable project model and migrations.
 - `packages/authoring-core` — framework-neutral revisioned authoring operations.
 - `packages/codegen` — manifest, descriptor, and export artifact compiler.

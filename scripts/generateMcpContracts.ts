@@ -7,6 +7,7 @@ import { createOGrafAuthoringHost } from '../apps/mcp-server/src/index';
 import { createOGrafMcpServer } from '../apps/mcp-server/src/mcpServer';
 
 const CONTRACT_VERSION = 1;
+const MAX_CONTRACT_BYTES = 150_000;
 
 function markdownFor(tools: Awaited<ReturnType<Client['listTools']>>['tools']): string {
   const rows = tools.map((tool) => {
@@ -42,6 +43,15 @@ async function generatedFiles() {
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
     const listed = await client.listTools();
+    const toolNames = new Set(listed.tools.map((tool) => tool.name));
+    for (const removed of ['ograf_preview_operations', 'ograf_propose_operations']) {
+      if (toolNames.has(removed)) {
+        throw new Error(`${removed} must remain consolidated into ograf_apply_operations modes.`);
+      }
+    }
+    if (!toolNames.has('ograf_apply_operations')) {
+      throw new Error('The consolidated ograf_apply_operations tool is missing.');
+    }
     const contract = {
       contractVersion: CONTRACT_VERSION,
       server: { name: 'ograf-editor', version: '0.1.0' },
@@ -54,6 +64,12 @@ async function generatedFiles() {
       format(JSON.stringify(contract), { ...prettierConfig, filepath: jsonPath }),
       format(markdownFor(listed.tools), { ...prettierConfig, filepath: markdownPath }),
     ]);
+    const contractBytes = new TextEncoder().encode(json).byteLength;
+    if (contractBytes > MAX_CONTRACT_BYTES) {
+      throw new Error(
+        `Generated MCP contract is ${contractBytes} bytes; W2 budget is ${MAX_CONTRACT_BYTES}.`,
+      );
+    }
     return {
       json,
       markdown,

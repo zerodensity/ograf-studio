@@ -43,8 +43,6 @@ describe('OGraf MCP authoring host', () => {
         'ograf_render_frame',
         'ograf_capture',
         'ograf_render_strip',
-        'ograf_preview_operations',
-        'ograf_propose_operations',
         'ograf_query_scene',
         'ograf_review_design',
         'ograf_import_asset',
@@ -59,6 +57,8 @@ describe('OGraf MCP authoring host', () => {
         'ograf_export_package',
       ]),
     );
+    expect(tools.tools.map((tool) => tool.name)).not.toContain('ograf_preview_operations');
+    expect(tools.tools.map((tool) => tool.name)).not.toContain('ograf_propose_operations');
   });
 
   it('explicitly deletes temporary sessions without allowing live-editor deletion', async () => {
@@ -115,8 +115,8 @@ describe('OGraf MCP authoring host', () => {
       },
       aiReview: {
         query: 'ograf_query_scene',
-        visualDryRun: 'ograf_preview_operations',
-        humanProposal: 'ograf_propose_operations',
+        visualDryRun: 'ograf_apply_operations mode=preview',
+        humanProposal: 'ograf_apply_operations mode=propose',
       },
       loopAnimation: {
         operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
@@ -1040,7 +1040,7 @@ describe('OGraf MCP authoring host', () => {
         arguments: {
           sessionId,
           expectedRevision: 0,
-          dryRun,
+          mode: dryRun ? 'dry-run' : 'apply',
           operations: [
             {
               type: 'add_layer',
@@ -1482,7 +1482,7 @@ describe('OGraf MCP authoring host', () => {
       arguments: {
         sessionId,
         expectedRevision: 0,
-        dryRun: true,
+        mode: 'dry-run',
         broadcastLint: true,
         interlacedOutput: true,
         operations: [
@@ -1937,8 +1937,9 @@ describe('OGraf MCP authoring host', () => {
     expect(host.workspace.get('editor').revision).toBe(before);
 
     const projected = await client.callTool({
-      name: 'ograf_preview_operations',
+      name: 'ograf_apply_operations',
       arguments: {
+        mode: 'preview',
         sessionId: 'editor',
         expectedRevision: before,
         render: 'frame',
@@ -2001,8 +2002,9 @@ describe('OGraf MCP authoring host', () => {
     expect(host.workspace.get('editor').revision).toBe(before);
 
     const proposed = await client.callTool({
-      name: 'ograf_propose_operations',
+      name: 'ograf_apply_operations',
       arguments: {
+        mode: 'propose',
         sessionId: 'editor',
         expectedRevision: before,
         title: 'Add reviewed panel',
