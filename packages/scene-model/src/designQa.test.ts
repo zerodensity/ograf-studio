@@ -216,6 +216,23 @@ describe('design and motion QA', () => {
     ).toBe(false);
   });
 
+  it('includes a text outline colour when its width is visible at the on-air Step', () => {
+    const composition = createComposition();
+    const pose = staticTransform({ x: 100, y: 100, width: 500, height: 80 });
+    const layer = authoredLayer('text', 'Outlined score', [pose, pose, pose]);
+    if (layer.element.type !== 'text') throw new Error('Expected text layer.');
+    layer.element.strokeColor = '#123456';
+    layer.element.strokeWidth = 0;
+    layer.animationTracks.strokeWidth = [
+      createLayerPropertyKeyframe(0, 0, { easing: 'linear' }),
+      createLayerPropertyKeyframe(12, 6, { easing: 'linear' }),
+      createLayerPropertyKeyframe(24, 0, { easing: 'linear' }),
+    ];
+    composition.layers = [layer];
+
+    expect(reviewCompositionDesign(composition).metrics.solidColours).toContain('#123456');
+  });
+
   it('allows an intentional off-canvas layer when its semantic intent is explicit', () => {
     const composition = createComposition();
     const pose = staticTransform({ x: -100, y: 100, width: 200, height: 50 });

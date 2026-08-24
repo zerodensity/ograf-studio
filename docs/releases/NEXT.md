@@ -11,5 +11,14 @@
 - Added a 150,000-byte generated-contract budget and a drift guard that rejects reintroduction of the
   removed preview/proposal tool names.
 
+## Text outlines
+
+- Added document-v20 broadcast text outlines with editable stroke colour and independently animated
+  non-negative stroke width across the Inspector, Brand Kits, MCP authoring, lifecycle/local-loop
+  sampling, SVG diagnostics, browser capture, and certified runtime output.
+- Text outlines use `paint-order: stroke fill`, keeping the outline behind the glyph face. Existing
+  documents migrate to transparent/zero stroke without visual changes, including reusable-component
+  snapshots and older imported editor descriptors.
+
 This file is the unreleased changelog. Add completed, verified changes here before assigning the
 next version and tag.

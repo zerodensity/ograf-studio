@@ -6,6 +6,7 @@ import {
   createFieldDefinition,
   createLayerKeyframe,
   createLayerOfKind,
+  createLayerPropertyKeyframe,
   createProject,
   createTransition,
   defaultTransformForRole,
@@ -195,6 +196,46 @@ describe('project validation', () => {
     layer.blendMode = 'plus-lighter' as typeof layer.blendMode;
     project.compositions[0]!.layers = [layer];
     expect(validateProject(project).errors.join(' ')).toMatch(/unsupported blend mode/);
+  });
+
+  it('rejects negative text stroke widths and unsupported stroke tracks', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const text = createLayerOfKind('text');
+    const image = createLayerOfKind('image');
+    for (const layer of [text, image]) {
+      layer.keyframes = composition.keyframes.map((keyframe, index) =>
+        createLayerKeyframe(
+          computeKeyframeFrames(composition)[index]!.frame,
+          defaultTransformForRole(layer.element.type, keyframe.role),
+        ),
+      );
+    }
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.strokeWidth = -1;
+    text.animationTracks.strokeWidth = [createLayerPropertyKeyframe(0, -2)];
+    image.animationTracks.strokeWidth = [createLayerPropertyKeyframe(0, 2)];
+    composition.layers = [text, image];
+
+    const errors = validateProject(project).errors.join(' ');
+    expect(errors).toMatch(/text layer "Text" stroke width must be finite and non-negative/);
+    expect(errors).toMatch(/property "strokeWidth" values must be non-negative/);
+    expect(errors).toMatch(/cannot animate text stroke width on a image element/);
+  });
+
+  it('rejects invalid text stroke values inside reusable component snapshots', () => {
+    const project = createProject();
+    const text = createLayerOfKind('text');
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.strokeWidth = -2;
+    text.animationTracks.strokeWidth = [createLayerPropertyKeyframe(0, -2)];
+    project.compositions[0]!.components = [
+      { id: 'invalid-component', name: 'Invalid outline', layers: [text], dataFields: [] },
+    ];
+
+    const errors = validateProject(project).errors.join(' ');
+    expect(errors).toMatch(/component "Invalid outline" layer "Text" text stroke width/);
+    expect(errors).toMatch(/stroke-width track values must be finite and non-negative/);
   });
 
   it('validates deterministic runtime collection ownership, paths, and capacity', () => {

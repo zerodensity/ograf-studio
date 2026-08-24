@@ -84,6 +84,11 @@ AI-first broadcast authoring and OGraf compliance hardening.
   diagnostics, package resource rewriting, and OGraf re-import. Scheduled array updates replace by
   index, share the prototype lifecycle/loop clock, and remain reproducible under backward
   `goToTime()` seeking.
+- Document v20 adds broadcast text outlines end to end. Text carries editable `strokeColor` and a
+  non-negative independently animatable `strokeWidth`; migration backfills transparent/zero values
+  on normal layers and reusable-component snapshots. Inspector, Brand Kits, MCP operations,
+  deterministic lifecycle/local-loop sampling, SVG diagnostics, browser capture, and exported
+  runtime all share the same outline painted behind the glyph fill.
 - Semantic layer metadata supports meaningful roles, normalized tags, and intent descriptions. It
   drives compact MCP queries, deterministic QA, and authoring recipes while remaining excluded from
   compiled output. The lower-third recipe creates four grouped layers/two editable fields with a
@@ -239,6 +244,9 @@ AI-first broadcast authoring and OGraf compliance hardening.
   the exact previewed operation batch only after explicit acceptance; rejection, expiry, or revision
   drift leaves the project unchanged. The editor displays proposal imagery, validation, warnings,
   and operations in a floating review drawer.
+- Capability discovery accepts domain `sections` for compact reads, and apply/dry-run accepts
+  `includeReview: true` to return deterministic design QA plus a best-effort browser capture URL in
+  one response. Capture failure never rolls back or invalidates the mutation/review.
 - Deterministic design QA now evaluates craft as well as structure: grouped lockstep translation,
   entrance/exit easing direction, missing cascade timing, headline/subheadline scale ratio,
   near-miss text alignment, sibling-container padding rhythm, and continuous loop seams. Stable
@@ -355,8 +363,8 @@ AI-first broadcast authoring and OGraf compliance hardening.
 
 ## Next milestone
 
-- Add W10 filtered capability sections, then W9 combined apply/review output on the consolidated
-  operation entry point.
+- W6 reusable broadcast style packs and W7 materialized bug/ticker/scoreboard/clock recipes remain
+  queued. W8 text stroke is implemented; headless render/certify remains explicitly gated.
 - Overlapping-action/concurrency and browser E2E coverage; package/module/lifecycle smoke testing is
   now enforced in the product save path.
 - Packaged fonts, localization/RTL, and advanced broadcaster authoring tools.
@@ -372,9 +380,9 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-08-24, including generated MCP contract drift, format, lint, all
-  workspace typechecks, 266 tests across 54 files, the runtime bundle, and the editor production
+  workspace typechecks, 285 tests across 56 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 266-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- The 285-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,
@@ -388,6 +396,12 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
   presets, clipping-aware design visibility, schema discovery, and compiled lower-third clip
   relations. A generated default wipe scored 100 with zero design findings and passed all five
   exact dual-mode certification gates.
+- W8 live verification: one document-v20 text layer rendered a labelled browser contact sheet at
+  2 px and 8 px sampled outline widths; the fill remained intact while the outline expanded behind
+  it. The browser-free SVG reported the same 8 px sample and `paint-order="stroke fill"`, MCP
+  capability discovery exposed the text stroke schema/track, and all five exact dual-mode
+  certification gates passed. Frame-specific browser text measurement increased by exactly 8 px
+  in both dimensions at the 8 px key before the disposable sessions were deleted.
 - W13 live verification: capability discovery returned all twelve modes and the isolated-composition
   semantics; a browser PNG showed a multiply layer retaining its source blue on transparency while
   darkening only its overlap with a gold OGraf layer; the same disposable v18 project passed all

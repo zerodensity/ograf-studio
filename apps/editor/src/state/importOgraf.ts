@@ -9,6 +9,7 @@ import {
   createProject,
   createTransition,
   defaultValueForFieldType,
+  getResolvedLayerAnimationTracks,
   type Element,
   type FieldDefinition,
   type FieldType,
@@ -751,10 +752,14 @@ function projectFromDescriptor(
     if (entry.collectionId) {
       layer.groupId = entry.prototypeGroupId ?? `${entry.collectionId}-prototype`;
     }
-    layer.element = element;
+    layer.element = { ...layer.element, ...element } as Element;
     layer.effects = { ...layer.effects, ...clone(compiled.effects) };
     layer.keyframes = clone(compiled.keyframes);
     layer.animationTracks = clone(compiled.animationTracks);
+    if (layer.element.type === 'text' && !layer.animationTracks.strokeWidth?.length) {
+      layer.animationTracks.strokeWidth =
+        getResolvedLayerAnimationTracks(layer).strokeWidth?.map((key) => ({ ...key })) ?? [];
+    }
     layer.loop = compiled.loop ? clone(compiled.loop) : null;
     const compiledBindings = compiled.bindings ?? (compiled.binding ? [compiled.binding] : []);
     for (const binding of compiledBindings) {

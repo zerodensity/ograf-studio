@@ -1398,6 +1398,8 @@ export function createOGrafToolRecords(
           text: {
             content: { type: 'string', default: 'Text' },
             color: { type: 'color', default: '#ffffff' },
+            strokeColor: { type: 'color', default: 'transparent' },
+            strokeWidth: { type: 'number', default: 0, minimum: 0, animatable: true },
             fontFamily: { type: 'string', default: 'system-ui, sans-serif' },
             fontSize: { type: 'number', default: 48, exclusiveMinimum: 0 },
             fontWeight: { type: 'number', default: 600 },
@@ -1494,6 +1496,8 @@ export function createOGrafToolRecords(
             'A layer may own one local loop clip with independent numeric property tracks on a 0..durationFrames ruler. set_layer_loop configures lifecycle or Step activation; set_loop_property_track authors incoming-eased keys without creating composition keys or OGraf Steps. Null repeatCount means infinite. All loop phase is sampled from the shared OGraf timestamp/action schedule; loops never invoke lifecycle actions.',
           semanticAuthoring:
             'Layer roles, tags, and descriptions are authoring-only intent used by recipes, queries, QA, and review. They never enter the compiled OGraf runtime.',
+          textStroke:
+            'Text strokeColor is static and strokeWidth is an independent numeric track. Browser/runtime rendering and SVG diagnostics paint the outline behind the glyph fill.',
         },
         semanticAuthoring: {
           roles: [

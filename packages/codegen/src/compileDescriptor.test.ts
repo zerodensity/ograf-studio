@@ -162,6 +162,28 @@ describe('compileDescriptor', () => {
     ]);
   });
 
+  it('preserves portable text stroke fields and its independent width track', () => {
+    const text = createLayerOfKind('text');
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.strokeColor = '#001122';
+    text.element.strokeWidth = 2;
+    text.animationTracks.strokeWidth = [
+      createLayerPropertyKeyframe(0, 0, { easing: 'linear' }),
+      createLayerPropertyKeyframe(10, 6, { easing: 'linear' }),
+    ];
+
+    const descriptor = compileDescriptor(compositionWith([text]));
+
+    expect(descriptor.layers[0]!.element).toMatchObject({
+      type: 'text',
+      strokeColor: '#001122',
+      strokeWidth: 2,
+    });
+    expect(descriptor.layers[0]!.animationTracks.strokeWidth?.map((key) => key.value)).toEqual([
+      0, 6,
+    ]);
+  });
+
   it('preserves each layer independent animation key timing', () => {
     const layer = createLayerOfKind('rectangle');
     layer.keyframes = [

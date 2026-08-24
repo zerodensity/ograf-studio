@@ -200,6 +200,11 @@ interface ProjectActions {
   ) => void;
   removeLayerLoop: (layerId: string) => void;
   updateLayerElement: (layerId: string, patch: Partial<ElementFields>) => void;
+  updateLayerTextStroke: (
+    layerId: string,
+    frame: number,
+    patch: Partial<Pick<TextElement, 'strokeColor' | 'strokeWidth'>>,
+  ) => void;
   updateLayerPaint: (layerId: string, frame: number, paint: Paint) => void;
   updateLayerEffects: (layerId: string, frame: number, patch: Partial<LayerEffects>) => void;
   renameLayer: (layerId: string, name: string) => void;
@@ -1167,6 +1172,24 @@ export const useProjectStore = create<ProjectStore>()(
             Object.assign(layer.element, patch);
             pruneInvalidGradientStopTracks(layer);
           }
+        }),
+
+      updateLayerTextStroke: (layerId, frame, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked || layer.element.type !== 'text') return;
+          if (patch.strokeColor !== undefined) layer.element.strokeColor = patch.strokeColor;
+          if (patch.strokeWidth === undefined) return;
+          const numeric = Number(patch.strokeWidth);
+          const strokeWidth = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+          layer.element.strokeWidth = strokeWidth;
+          const roundedFrame = Math.max(
+            0,
+            Math.min(getTotalFrames(composition), Math.round(frame)),
+          );
+          const keyframe = upsertPropertyKeyframe(layer, 'strokeWidth', roundedFrame, strokeWidth);
+          syncAggregateKeyframe(layer, roundedFrame, keyframe.easing);
         }),
 
       updateLayerPaint: (layerId, frame, paint) =>

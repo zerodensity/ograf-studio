@@ -1,6 +1,7 @@
 import gsap from 'gsap';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
+import { createTextElement } from '@ograf-editor/scene-model';
 import { buildRuntimeTimeline } from './buildRuntimeTimeline';
 
 function descriptor(): CompiledGraphicDescriptor {
@@ -134,6 +135,36 @@ describe('runtime timeline boundary seeking', () => {
     timeline.seek(5 / 25, true);
 
     expect(content.style).toMatchObject({ background: expect.stringContaining('50%') });
+    timeline.kill();
+  });
+
+  it('renders animated text stroke width on deterministic forward and reverse seeks', () => {
+    const compiled = descriptor();
+    compiled.layers[0]!.element = createTextElement({
+      content: 'Score',
+      strokeColor: '#101820',
+      strokeWidth: 0,
+    });
+    compiled.layers[0]!.animationTracks.strokeWidth = [
+      { id: 'stroke-0', frame: 0, value: 0, easing: 'linear' },
+      { id: 'stroke-10', frame: 10, value: 8, easing: 'linear' },
+    ];
+    const content = { style: {} };
+    const contentHost = {
+      dataset: {},
+      firstElementChild: content,
+      classList: { contains: (name: string) => name === 'layer-content-host' },
+    };
+    const element = {
+      style: {},
+      firstElementChild: contentHost,
+    } as unknown as HTMLElement;
+
+    const timeline = buildRuntimeTimeline(compiled, new Map([['layer', element]]));
+    timeline.seek(5 / 25, true);
+    expect(content.style).toMatchObject({ webkitTextStrokeWidth: '4px' });
+    timeline.seek(0, true);
+    expect(content.style).toMatchObject({ webkitTextStrokeWidth: '0px' });
     timeline.kill();
   });
 });

@@ -177,10 +177,11 @@ content, so use independent instances when local overrides must survive. Removin
 removes inserted layers; it only clears their links.
 
 Brand Kit operations manage typed color, font-family, font-weight, font-size, stroke-width, and
-radius-style values. Create a token with `upsert_design_token`, update it later by `tokenId`, and
-bind it by stable ID or unique `tokenKey` to a compatible target property. Updating a token
-rematerializes every consumer's ordinary element value. Removing a used token requires `force: true`
-to clear links while preserving the last materialized values.
+radius-style values. Text accepts both `strokeColor` and `strokeWidth` token targets. Create a token
+with `upsert_design_token`, update it later by `tokenId`, and bind it by stable ID or unique
+`tokenKey` to a compatible target property. Updating a token rematerializes every consumer's
+ordinary element value. Removing a used token requires `force: true` to clear links while
+preserving the last materialized values.
 
 Custom actions are declarative OGraf manifest entries. Use `add_custom_action`,
 `update_custom_action`, and `remove_custom_action` with unique public `actionId` values; they do not
@@ -201,7 +202,8 @@ structured content. Dry-run IDs describe only the projected transaction and are 
 
 Fixed animatable properties are `x`, `y`, `width`, `height`, `rotation`, `opacity`,
 `transformOriginX`, `transformOriginY`, `blur`, `dropShadowOpacity`, `dropShadowOffsetX`,
-`dropShadowOffsetY`, and `dropShadowBlur`. Gradient layers additionally expose
+`dropShadowOffsetY`, and `dropShadowBlur`. Text layers additionally expose non-negative
+`strokeWidth`; `strokeColor` is static. Gradient layers additionally expose
 `fill.stops[N].offset` for every zero-based stop index. Offset keys must remain in 0..1 and use the
 same independent incoming-easing semantics as other numeric property tracks.
 

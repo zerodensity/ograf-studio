@@ -66,6 +66,9 @@
 - System/packaged-font selection with live preview, weight, line height, tracking, baseline shift,
   vertical alignment, case transforms, minimum shrink size, and visible/clip/ellipsis overflow is
   implemented. Full localization and authored RTL direction remain queued.
+- W8 text outlines are implemented as document v20: editable stroke colour, independently animated
+  non-negative stroke width, Brand Kit targets, and shared editor/runtime/SVG rendering with the
+  outline painted behind the glyph fill.
 - Multiple independent data bindings per layer are implemented across the Inspector, source
   migration, capture, compiler/runtime, OGraf import, validation, duplication, and MCP operations.
 - SVG image import now accepts a Photoshop-style bundle selection and embeds companion CSS, local

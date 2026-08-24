@@ -106,8 +106,9 @@ Logo                 ◆ --- ◆
 ```
 
 Position X/Y, width, height, rotation, alpha, transform origin, blur, and numeric drop-shadow values
-can each be keyed at different frames. Editing an object at an unkeyed playhead position creates a
-key only on the changed property track. Adding, moving, removing, or retiming a property key never
+can each be keyed at different frames. Text layers additionally expose a non-negative stroke-width
+track; stroke colour stays static. Editing an object at an unkeyed playhead position creates a key
+only on the changed property track. Adding, moving, removing, or retiming a property key never
 changes another property, layer, or global lifecycle marker. All tracks still share one clock so
 preview, export, `goToTime()`, and scheduled playout remain frame deterministic.
 
@@ -249,6 +250,9 @@ Text layout is structured document data: line-height multiplier, pixel tracking,
 vertical alignment, baseline shift, minimum shrink size, and overflow policy all pass unchanged to
 the shared DOM renderer. Advisory broadcast QA samples on-air Step frames and uses that same browser
 renderer for replacement-text stress values; it never changes OGraf certification validity.
+Text outline colour and sampled width use the same shared renderer. CSS/SVG `paint-order: stroke
+fill` keeps the outline behind the glyph face, while document migration supplies transparent/zero
+defaults so older templates retain their exact appearance.
 
 Timeline Groups are editor-only authoring organization. For backward-compatible source persistence,
 `Composition.layout.timelineFolders` still stores group identity, name, color, and member layer IDs,
@@ -351,3 +355,7 @@ Document version 19 adds recursive object/array field nodes, binding source path
 runtime-collection definitions. Migration supplies empty scalar paths/properties, array item schemas,
 and an empty collection list; compiled output retains standard OGraf GDD data while the self-contained
 runtime performs bounded deterministic item expansion.
+
+Document version 20 adds text `strokeColor` and independently animatable `strokeWidth`. Migration
+backfills transparent/zero values and a static width key on text layers and reusable-component
+snapshots without changing legacy pixels.

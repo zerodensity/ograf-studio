@@ -32,9 +32,10 @@ export const EFFECT_ANIMATION_PROPERTIES = [
   'dropShadowBlur',
 ] as const satisfies readonly (keyof LayerEffects)[];
 
-/** Fixed properties shared by every layer. Gradient-stop tracks are discovered from the paint. */
+/** Fixed property vocabulary; layer-specific applicability is filtered below. */
 export const ANIMATABLE_LAYER_PROPERTIES: readonly AnimatableLayerProperty[] = [
   ...TRANSFORM_ANIMATION_PROPERTIES,
+  'strokeWidth',
   ...EFFECT_ANIMATION_PROPERTIES,
 ];
 
@@ -45,6 +46,7 @@ export const ANIMATABLE_PROPERTY_LABELS: Record<string, string> = {
   height: 'Height',
   rotation: 'Rotation',
   opacity: 'Alpha',
+  strokeWidth: 'Text Stroke Width',
   transformOriginX: 'Origin X',
   transformOriginY: 'Origin Y',
   blur: 'Blur',
@@ -81,6 +83,13 @@ export function isAnimatableLayerProperty(property: string): property is Animata
   );
 }
 
+export function isAnimatableLayerPropertyApplicable(
+  layer: Layer,
+  property: AnimatableLayerProperty,
+): boolean {
+  return property !== 'strokeWidth' || layer.element.type === 'text';
+}
+
 export function animatablePropertyLabel(property: AnimatableLayerProperty): string {
   const stopIndex = gradientStopIndexForProperty(property);
   return stopIndex === null
@@ -89,7 +98,11 @@ export function animatablePropertyLabel(property: AnimatableLayerProperty): stri
 }
 
 export function getLayerAnimatableProperties(layer: Layer): AnimatableLayerProperty[] {
-  const properties = new Set<AnimatableLayerProperty>(ANIMATABLE_LAYER_PROPERTIES);
+  const properties = new Set<AnimatableLayerProperty>(
+    ANIMATABLE_LAYER_PROPERTIES.filter(
+      (property) => property !== 'strokeWidth' || layer.element.type === 'text',
+    ),
+  );
   const fill =
     layer.element.type === 'rectangle' || layer.element.type === 'ellipse'
       ? layer.element.fill
@@ -98,10 +111,20 @@ export function getLayerAnimatableProperties(layer: Layer): AnimatableLayerPrope
     fill.stops.forEach((_, index) => properties.add(gradientStopOffsetProperty(index)));
   }
   for (const property of Object.keys(layer.animationTracks ?? {})) {
-    if (isAnimatableLayerProperty(property)) properties.add(property);
+    if (
+      isAnimatableLayerProperty(property) &&
+      isAnimatableLayerPropertyApplicable(layer, property)
+    ) {
+      properties.add(property);
+    }
   }
   for (const property of Object.keys(layer.loop?.tracks ?? {})) {
-    if (isAnimatableLayerProperty(property)) properties.add(property);
+    if (
+      isAnimatableLayerProperty(property) &&
+      isAnimatableLayerPropertyApplicable(layer, property)
+    ) {
+      properties.add(property);
+    }
   }
   return [...properties];
 }
@@ -283,6 +306,12 @@ function staticPropertyValue(layer: Layer, property: AnimatableLayerProperty): n
       throw new Error(`Layer "${layer.name}" has no gradient stop ${stopIndex}.`);
     }
     return fill.stops[stopIndex].offset;
+  }
+  if (property === 'strokeWidth') {
+    if (layer.element.type !== 'text') {
+      throw new Error(`Layer "${layer.name}" does not support animated text stroke width.`);
+    }
+    return layer.element.strokeWidth;
   }
   return layer.effects[
     property as keyof Pick<
