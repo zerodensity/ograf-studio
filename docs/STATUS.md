@@ -2,7 +2,7 @@
 
 Last verified: 2026-08-24
 
-Current release: **OGraf Studio 0.04**
+Current release: **OGraf Studio 0.05**
 
 ## Current milestone
 

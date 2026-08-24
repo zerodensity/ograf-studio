@@ -6,28 +6,26 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.04
+## New in OGraf Studio 0.05
 
-- Added Reality Hub-ready recursive GDD objects and arrays, nested required properties, item/length/
-  range constraints, structured defaults, and unambiguous segment-array binding paths.
-- Added deterministic runtime collections: one grouped object-item prototype expands from live array
-  data with explicit X/Y stride, capacity 1–100, operator-visible `maxItems`, and truncate overflow.
-- Kept collection updates deterministic across realtime playback and forward/backward non-realtime
-  `goToTime()` seeking, with collection-aware PNG diagnostics and exact OGraf re-import.
-- Added twelve composition-local blend modes with an isolated transparent root so authored blending
-  never changes according to an external video bed or editor checkerboard.
-- Replaced lockstep lower-third motion with compiled mask wipes and professional cubic-out entrances/
-  cubic-in exits; explicit stagger, directional slide, and no-motion styles remain available.
-- Expanded deterministic design QA with lockstep, easing-direction, missing-stagger, type-scale,
-  optical-alignment, padding-rhythm, and loop-seam findings.
-- Added richer Reality Hub scalar controls: descriptions, select labels, file hints, integer,
-  duration, percentage, file/select types, JSON Schema constraints, and `gddType`/`gddOptions` output.
-- Improved main preview replay and fixed source-overlay sizing/placement. Transparent collection PNG
-  capture now avoids first-snapshot foreignObject compositing races.
-- Raised editable projects through document v19 with migrations and regenerated the complete MCP
-  contracts and portable `ograf-authoring` skill.
+- Added document-v20 broadcast text outlines with editable stroke colour and independently animated
+  non-negative stroke width across the Inspector, Brand Kits, timeline/local-loop authoring, SVG
+  diagnostics, browser capture, and certified runtime output.
+- Paints outlines behind the glyph face with `paint-order: stroke fill`; legacy projects and reusable
+  component snapshots migrate to transparent/zero stroke without changing their appearance.
+- Extracted canonical AI tool schemas/handlers into transport-neutral `packages/agent-tools`, then
+  consolidated apply, dry-run, rendered preview, and human proposal behavior into one operation
+  contract. The server now advertises 26 tools instead of 28.
+- Added filtered capability sections and `includeReview: true` apply/dry-run responses, reducing
+  model context and combining mutation, deterministic design QA, and optional browser capture in one
+  round trip.
+- Refreshed the bundled News and Atlas templates with semantic intent, operator-safe field limits,
+  blend modes, cubic motion, and explicit QA exceptions; both score 99/100 and pass dual-profile
+  certification.
+- Regenerated the MCP contracts, updated and validated the portable `ograf-authoring` skill, and
+  raised the verified baseline to 285 tests across 56 files.
 
-See [the complete 0.04 release notes](docs/releases/0.04.md) for validation evidence and current
+See [the complete 0.05 release notes](docs/releases/0.05.md) for validation evidence and current
 boundaries.
 
 ## Highlights
@@ -51,6 +49,8 @@ boundaries.
   dependency.
 - Brand Kits with typed color, typography, and geometry tokens; token values are materialized into
   standard element properties so exported graphics never require OGraf Studio at playout time.
+- Broadcast text outlines with editable stroke colour and independently animated width, rendered
+  behind the glyph fill consistently in the editor, browser capture, SVG diagnostics, and export.
 - Semantic lower-third and repeater recipes for fast AI/human authoring while keeping every result
   editable through normal layers, fields, groups, and tracks.
 - Self-contained Lottie JSON layers with deterministic loop playback in editor preview, OGraf
@@ -64,6 +64,8 @@ boundaries.
   capture, certification, save, and export tools.
 - One consolidated `ograf_apply_operations` entry point for committed apply, browser-free dry-run,
   rendered preview, and human Accept/Reject proposal modes.
+- Compact capability-section discovery and apply/dry-run `includeReview` output for fewer AI model
+  round trips without weakening revision checks or certification.
 
 ## File types
 
