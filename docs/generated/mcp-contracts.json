@@ -5,10 +5,27 @@
     {
       "name": "ograf_get_capabilities",
       "title": "Get OGraf authoring capabilities",
-      "description": "Returns complete element schemas/defaults, binding targets, animation/easing semantics, safe authoring rules, the browser-dependent tool list, and live editor connection/responsiveness/latency. Important semantics: higher layer indexes paint later/on top, and a property key easing/curve governs the segment ending at that key (incoming). liveEditorConnected is a deprecated combined alias; use editor.connected and editor.responsive.",
+      "description": "Returns element schemas/defaults, binding targets, animation/easing semantics, safe authoring rules, the browser-dependent tool list, and live editor connection/responsiveness/latency. Omit sections for the complete backward-compatible payload; otherwise request only elements, easing, semantics, designSystem, loops, bindings, and/or editor to reduce context. Important semantics: higher layer indexes paint later/on top, and a property key easing/curve governs the segment ending at that key (incoming). liveEditorConnected is a deprecated combined alias; use editor.connected and editor.responsive.",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "sections": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "elements",
+                "easing",
+                "semantics",
+                "designSystem",
+                "loops",
+                "bindings",
+                "editor"
+              ]
+            }
+          }
+        },
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {

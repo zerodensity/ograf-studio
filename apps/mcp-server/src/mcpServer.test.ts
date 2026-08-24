@@ -150,6 +150,28 @@ describe('OGraf MCP authoring host', () => {
     expect((result.structuredContent as { blendModes: string[] }).blendModes).toContain('multiply');
   });
 
+  it('projects only requested capability sections while retaining compact protocol metadata', async () => {
+    const result = await client.callTool({
+      name: 'ograf_get_capabilities',
+      arguments: { sections: ['easing', 'bindings'] },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(Object.keys(result.structuredContent as Record<string, unknown>)).toEqual([
+      'protocolVersion',
+      'defaultSessionId',
+      'easingPresets',
+      'bindings',
+    ]);
+    expect(result.structuredContent).toMatchObject({
+      protocolVersion: 1,
+      defaultSessionId: 'editor',
+      easingPresets: expect.arrayContaining(['linear', 'cubic-in', 'cubic-out']),
+      bindings: { fieldTypes: expect.arrayContaining(['text', 'object', 'array']) },
+    });
+    expect(result.structuredContent).not.toHaveProperty('elementSchemas');
+    expect(result.structuredContent).not.toHaveProperty('editor');
+  });
+
   it('creates a semantic lower third and exposes its intent through inspection', async () => {
     const sessionId = 'semantic-lower-third-test';
     await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });

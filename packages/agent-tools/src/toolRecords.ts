@@ -81,6 +81,55 @@ interface ToolRegistrar {
   ): void;
 }
 
+const CAPABILITY_SECTIONS = [
+  'elements',
+  'easing',
+  'semantics',
+  'designSystem',
+  'loops',
+  'bindings',
+  'editor',
+] as const;
+
+type CapabilitySection = (typeof CAPABILITY_SECTIONS)[number];
+
+const CAPABILITY_SECTION_KEYS: Record<CapabilitySection, readonly string[]> = {
+  elements: [
+    'elementTypes',
+    'elementSchemas',
+    'animatableProperties',
+    'animatablePropertyPatterns',
+    'blendModes',
+  ],
+  easing: ['easingPresets'],
+  semantics: ['semantics', 'semanticAuthoring'],
+  designSystem: ['designSystem', 'assets', 'reusableComponents'],
+  loops: ['loopAnimation'],
+  bindings: ['bindings'],
+  editor: [
+    'editor',
+    'liveEditorConnected',
+    'liveEditorConnectedDeprecated',
+    'requiresBrowser',
+    'editorParity',
+    'canvasLayout',
+    'safety',
+    'aiReview',
+  ],
+};
+
+function projectCapabilities(
+  capabilities: Record<string, unknown>,
+  sections: CapabilitySection[] | undefined,
+): Record<string, unknown> {
+  if (!sections) return capabilities;
+  const included = new Set<string>(['protocolVersion', 'defaultSessionId']);
+  for (const section of sections) {
+    for (const key of CAPABILITY_SECTION_KEYS[section]) included.add(key);
+  }
+  return Object.fromEntries(Object.entries(capabilities).filter(([key]) => included.has(key)));
+}
+
 const consolidatedOperationInputSchema = {
   mode: z.enum(['apply', 'dry-run', 'preview', 'propose']).default('apply'),
   sessionId: z.string().default('editor'),
@@ -1214,13 +1263,15 @@ export function createOGrafToolRecords(
     {
       title: 'Get OGraf authoring capabilities',
       description:
-        'Returns complete element schemas/defaults, binding targets, animation/easing semantics, safe authoring rules, the browser-dependent tool list, and live editor connection/responsiveness/latency. Important semantics: higher layer indexes paint later/on top, and a property key easing/curve governs the segment ending at that key (incoming). liveEditorConnected is a deprecated combined alias; use editor.connected and editor.responsive.',
-      inputSchema: {},
+        'Returns element schemas/defaults, binding targets, animation/easing semantics, safe authoring rules, the browser-dependent tool list, and live editor connection/responsiveness/latency. Omit sections for the complete backward-compatible payload; otherwise request only elements, easing, semantics, designSystem, loops, bindings, and/or editor to reduce context. Important semantics: higher layer indexes paint later/on top, and a property key easing/curve governs the segment ending at that key (incoming). liveEditorConnected is a deprecated combined alias; use editor.connected and editor.responsive.',
+      inputSchema: {
+        sections: z.array(z.enum(CAPABILITY_SECTIONS)).min(1).optional(),
+      },
       annotations: readOnly,
     },
-    async () => {
+    async ({ sections }) => {
       const editor = bridge.health;
-      return textResult({
+      const capabilities: Record<string, unknown> = {
         protocolVersion: 1,
         defaultSessionId: 'editor',
         editor,
@@ -1562,7 +1613,8 @@ export function createOGrafToolRecords(
           semantics:
             'Use semantic query for compact selection, visual dry-run for model inspection, and proposals when a human should approve visually consequential edits.',
         },
-      });
+      };
+      return textResult(projectCapabilities(capabilities, sections));
     },
   );
 
