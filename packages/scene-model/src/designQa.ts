@@ -208,10 +208,11 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
   for (const layer of visibleLayers) {
     const pose = getLayerTransformAtFrame(layer, onAirFrame);
     if (
-      pose.x < 0 ||
-      pose.y < 0 ||
-      pose.x + pose.width > composition.width ||
-      pose.y + pose.height > composition.height
+      !layer.semantics.tags.includes('qa:allow-offcanvas') &&
+      (pose.x < 0 ||
+        pose.y < 0 ||
+        pose.x + pose.width > composition.width ||
+        pose.y + pose.height > composition.height)
     ) {
       add(
         `layout.outside.${layer.id}`,
@@ -244,7 +245,7 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
           [onAirFrame],
         );
       }
-      if (layer.bindings.length === 0) {
+      if (layer.bindings.length === 0 && !layer.semantics.tags.includes('qa:static-text')) {
         add(
           `data.unbound-text.${layer.id}`,
           'info',
@@ -527,6 +528,7 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
 
   for (const layer of composition.layers) {
     if (!layer.loop) continue;
+    if (layer.semantics.tags.includes('qa:allow-loop-seam')) continue;
     for (const [property, keys] of Object.entries(layer.loop.tracks)) {
       if (!keys || keys.length < 2) continue;
       if (approximately(keys[0]!.value, keys.at(-1)!.value)) continue;

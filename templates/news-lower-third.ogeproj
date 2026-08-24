@@ -1,9 +1,9 @@
 {
-  "documentVersion": 12,
+  "documentVersion": 19,
   "id": "project-eff35a63-f6a0-47b6-a4d9-a67fc194fd78",
   "name": "News Lower Third",
-  "description": "News lower third with mask-driven reveals: clipped headline bar, circular photo crop, diagonal slanted kicker, clipped ticker window, and an animated gradient glint sweep.",
-  "version": "1.0.0",
+  "description": "News lower third with semantic roles, operator-safe GDD fields, professional mask-driven cubic motion, circular photo crop, diagonal kicker, clipped ticker, and screen-blended gradient glint.",
+  "version": "1.1.0",
   "author": {
     "name": "Savas"
   },
@@ -103,7 +103,7 @@
               "transform": {
                 "x": 150,
                 "y": 972,
-                "width": 0,
+                "width": 1,
                 "height": 46,
                 "rotation": 0,
                 "opacity": 1,
@@ -118,7 +118,7 @@
               "transform": {
                 "x": 150,
                 "y": 972,
-                "width": 0,
+                "width": 1,
                 "height": 46,
                 "rotation": 0,
                 "opacity": 1,
@@ -178,7 +178,7 @@
               "transform": {
                 "x": 150,
                 "y": 972,
-                "width": 0,
+                "width": 1,
                 "height": 46,
                 "rotation": 0,
                 "opacity": 1,
@@ -193,7 +193,7 @@
               "transform": {
                 "x": 150,
                 "y": 972,
-                "width": 0,
+                "width": 1,
                 "height": 46,
                 "rotation": 0,
                 "opacity": 1,
@@ -272,7 +272,7 @@
                 "id": "property-keyframe-c89e4f9e-8e51-4d1c-a1db-a89b7be47852",
                 "frame": 46,
                 "value": 0,
-                "easing": "quad-in"
+                "easing": "cubic-in"
               }
             ],
             "height": [
@@ -426,6 +426,18 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "mask",
+            "description": "Animated clipping window for the ticker crawl.",
+            "tags": [
+              "ticker",
+              "clip-window"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": []
         },
         {
@@ -707,7 +719,14 @@
             "fontSize": 24,
             "fontWeight": 600,
             "textAlign": "left",
-            "autoFit": "fixed"
+            "autoFit": "fixed",
+            "lineHeight": 1.2,
+            "letterSpacing": 0,
+            "textTransform": "none",
+            "verticalAlign": "top",
+            "baselineShift": 0,
+            "minFontSize": 12,
+            "overflowPolicy": "visible"
           },
           "effects": {
             "blur": 0,
@@ -718,10 +737,24 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "ticker",
+            "description": "Operator-editable market and information crawl.",
+            "tags": [
+              "ticker",
+              "crawl",
+              "qa:allow-offcanvas"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": [
             {
               "targetProperty": "content",
-              "fieldId": "field-89628fbf-5dd1-4bd5-9271-2c56e4c7227e"
+              "fieldId": "field-89628fbf-5dd1-4bd5-9271-2c56e4c7227e",
+              "sourcePath": []
             }
           ]
         },
@@ -746,7 +779,7 @@
               "transform": {
                 "x": 346,
                 "y": 912,
-                "width": 0,
+                "width": 1,
                 "height": 52,
                 "rotation": 0,
                 "opacity": 1,
@@ -761,7 +794,7 @@
               "transform": {
                 "x": 346,
                 "y": 912,
-                "width": 0,
+                "width": 1,
                 "height": 52,
                 "rotation": 0,
                 "opacity": 1,
@@ -791,7 +824,7 @@
               "transform": {
                 "x": 346,
                 "y": 912,
-                "width": 1237.578125,
+                "width": 1238,
                 "height": 52,
                 "rotation": 0,
                 "opacity": 1,
@@ -851,7 +884,7 @@
               "transform": {
                 "x": 346,
                 "y": 912,
-                "width": 0,
+                "width": 1,
                 "height": 52,
                 "rotation": 0,
                 "opacity": 1,
@@ -866,7 +899,7 @@
               "transform": {
                 "x": 346,
                 "y": 912,
-                "width": 0,
+                "width": 1,
                 "height": 52,
                 "rotation": 0,
                 "opacity": 1,
@@ -945,7 +978,7 @@
                 "id": "property-keyframe-ba3369de-01d0-4aa9-9ed5-34875f274ab2",
                 "frame": 48,
                 "value": 0,
-                "easing": "quad-in"
+                "easing": "cubic-in"
               }
             ],
             "height": [
@@ -1130,6 +1163,18 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "container",
+            "description": "Mask-driven reporter and location container.",
+            "tags": [
+              "lower-third",
+              "secondary-bar"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": []
         },
         {
@@ -1396,7 +1441,14 @@
             "fontSize": 25,
             "fontWeight": 700,
             "textAlign": "left",
-            "autoFit": "shrink-to-fit"
+            "autoFit": "shrink-to-fit",
+            "lineHeight": 1.2,
+            "letterSpacing": 0,
+            "textTransform": "none",
+            "verticalAlign": "top",
+            "baselineShift": 0,
+            "minFontSize": 12.5,
+            "overflowPolicy": "visible"
           },
           "effects": {
             "blur": 0,
@@ -1407,10 +1459,23 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "subheadline",
+            "description": "Reporter name within the secondary bar.",
+            "tags": [
+              "reporter",
+              "identity"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": [
             {
               "targetProperty": "content",
-              "fieldId": "field-2db400ef-6ddc-4642-a4c8-2c19d729854d"
+              "fieldId": "field-2db400ef-6ddc-4642-a4c8-2c19d729854d",
+              "sourcePath": []
             }
           ]
         },
@@ -1678,7 +1743,14 @@
             "fontSize": 25,
             "fontWeight": 500,
             "textAlign": "right",
-            "autoFit": "shrink-to-fit"
+            "autoFit": "shrink-to-fit",
+            "lineHeight": 1.2,
+            "letterSpacing": 0,
+            "textTransform": "none",
+            "verticalAlign": "top",
+            "baselineShift": 0,
+            "minFontSize": 12.5,
+            "overflowPolicy": "visible"
           },
           "effects": {
             "blur": 0,
@@ -1689,10 +1761,23 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "label",
+            "description": "Location and status label within the secondary bar.",
+            "tags": [
+              "location",
+              "status"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": [
             {
               "targetProperty": "content",
-              "fieldId": "field-6a72f2d4-f9a3-4ee4-8ca2-bebf8454171f"
+              "fieldId": "field-6a72f2d4-f9a3-4ee4-8ca2-bebf8454171f",
+              "sourcePath": []
             }
           ]
         },
@@ -1717,7 +1802,7 @@
               "transform": {
                 "x": 346,
                 "y": 800,
-                "width": 0,
+                "width": 1,
                 "height": 112,
                 "rotation": 0,
                 "opacity": 1,
@@ -1732,7 +1817,7 @@
               "transform": {
                 "x": 346,
                 "y": 800,
-                "width": 0,
+                "width": 1,
                 "height": 112,
                 "rotation": 0,
                 "opacity": 1,
@@ -1747,7 +1832,7 @@
               "transform": {
                 "x": 346,
                 "y": 800,
-                "width": 1238.2990397805213,
+                "width": 1238,
                 "height": 112,
                 "rotation": 0,
                 "opacity": 1,
@@ -1807,7 +1892,7 @@
               "transform": {
                 "x": 346,
                 "y": 800,
-                "width": 0,
+                "width": 1,
                 "height": 112,
                 "rotation": 0,
                 "opacity": 1,
@@ -1886,7 +1971,7 @@
                 "id": "property-keyframe-a9eac103-f856-4821-a544-749741f75002",
                 "frame": 50,
                 "value": 0,
-                "easing": "quad-in"
+                "easing": "cubic-in"
               }
             ],
             "height": [
@@ -2071,10 +2156,23 @@
             "dropShadowOffsetY": 10,
             "dropShadowBlur": 26
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "container",
+            "description": "Primary mask-driven headline container.",
+            "tags": [
+              "lower-third",
+              "headline-bar"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": [
             {
               "targetProperty": "fill",
-              "fieldId": "field-3a5b044b-bf66-4e43-a51f-82d183dde814"
+              "fieldId": "field-3a5b044b-bf66-4e43-a51f-82d183dde814",
+              "sourcePath": []
             }
           ]
         },
@@ -2342,7 +2440,14 @@
             "fontSize": 46,
             "fontWeight": 700,
             "textAlign": "left",
-            "autoFit": "shrink-to-fit"
+            "autoFit": "shrink-to-fit",
+            "lineHeight": 1.2,
+            "letterSpacing": 0,
+            "textTransform": "none",
+            "verticalAlign": "top",
+            "baselineShift": 0,
+            "minFontSize": 23,
+            "overflowPolicy": "visible"
           },
           "effects": {
             "blur": 0,
@@ -2353,10 +2458,23 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "headline",
+            "description": "Primary editorial headline.",
+            "tags": [
+              "headline",
+              "editable"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": [
             {
               "targetProperty": "content",
-              "fieldId": "field-b268f894-fb0f-4d20-bc10-360bf4a29d3a"
+              "fieldId": "field-b268f894-fb0f-4d20-bc10-360bf4a29d3a",
+              "sourcePath": []
             }
           ]
         },
@@ -2709,6 +2827,18 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "screen",
+          "semantics": {
+            "role": "decorative",
+            "description": "Screen-blended animated highlight across the headline bar.",
+            "tags": [
+              "glint",
+              "highlight"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": []
         },
         {
@@ -2732,8 +2862,8 @@
               "transform": {
                 "x": 248,
                 "y": 856,
-                "width": 0,
-                "height": 0,
+                "width": 1,
+                "height": 1,
                 "rotation": 0,
                 "opacity": 1,
                 "transformOriginX": 0.5,
@@ -2747,8 +2877,8 @@
               "transform": {
                 "x": 248,
                 "y": 856,
-                "width": 0,
-                "height": 0,
+                "width": 1,
+                "height": 1,
                 "rotation": 0,
                 "opacity": 1,
                 "transformOriginX": 0.5,
@@ -2760,10 +2890,10 @@
               "frame": 20,
               "easing": "expo-out",
               "transform": {
-                "x": 150.1344307270233,
-                "y": 758.1344307270233,
-                "width": 195.73113854595337,
-                "height": 195.73113854595337,
+                "x": 150,
+                "y": 758,
+                "width": 196,
+                "height": 196,
                 "rotation": 0,
                 "opacity": 1,
                 "transformOriginX": 0.5,
@@ -2822,8 +2952,8 @@
               "transform": {
                 "x": 248,
                 "y": 856,
-                "width": 0,
-                "height": 0,
+                "width": 1,
+                "height": 1,
                 "rotation": 0,
                 "opacity": 1,
                 "transformOriginX": 0.5,
@@ -2861,7 +2991,7 @@
                 "id": "property-keyframe-149eb374-94fc-4676-a2e6-f7f53be10245",
                 "frame": 50,
                 "value": 248,
-                "easing": "quad-in"
+                "easing": "cubic-in"
               }
             ],
             "y": [
@@ -2925,7 +3055,7 @@
                 "id": "property-keyframe-d2e59e5c-1b65-4681-947d-290e453fde5e",
                 "frame": 50,
                 "value": 0,
-                "easing": "quad-in"
+                "easing": "cubic-in"
               }
             ],
             "height": [
@@ -3091,6 +3221,18 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 24
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "mask",
+            "description": "Circular clipping frame for the reporter portrait.",
+            "tags": [
+              "portrait",
+              "crop"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": []
         },
         {
@@ -3117,7 +3259,7 @@
                 "width": 260,
                 "height": 260,
                 "rotation": 0,
-                "opacity": 1,
+                "opacity": 0,
                 "transformOriginX": 0.5,
                 "transformOriginY": 0.5
               }
@@ -3147,7 +3289,7 @@
                 "width": 260,
                 "height": 260,
                 "rotation": 0,
-                "opacity": 1,
+                "opacity": 0,
                 "transformOriginX": 0.5,
                 "transformOriginY": 0.5
               }
@@ -3256,16 +3398,22 @@
             ],
             "opacity": [
               {
-                "id": "property-keyframe-2e2285a1-e0b2-4e21-9584-c17a0b20fc64",
+                "id": "property-keyframe-2db2ae6c-64aa-4e67-9c7e-dc1ffada3b11",
                 "frame": 0,
-                "value": 1,
+                "value": 0,
                 "easing": "linear"
               },
               {
-                "id": "property-keyframe-133576b5-24b7-4d5e-a5da-bed2a20b37f7",
-                "frame": 50,
+                "id": "property-keyframe-03535962-59ea-40d4-af23-d9807f3b5f13",
+                "frame": 30,
                 "value": 1,
-                "easing": "linear"
+                "easing": "cubic-out"
+              },
+              {
+                "id": "property-keyframe-bc1072a8-e3fa-4ae9-9ba0-2f3c30b0da04",
+                "frame": 50,
+                "value": 0,
+                "easing": "cubic-in"
               }
             ],
             "transformOriginX": [
@@ -3362,10 +3510,23 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "image",
+            "description": "Operator-editable reporter portrait.",
+            "tags": [
+              "portrait",
+              "editable"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": [
             {
               "targetProperty": "src",
-              "fieldId": "field-920c7604-acbb-4172-9ec9-88ab455031b7"
+              "fieldId": "field-920c7604-acbb-4172-9ec9-88ab455031b7",
+              "sourcePath": []
             }
           ]
         },
@@ -3390,10 +3551,10 @@
               "transform": {
                 "x": 372,
                 "y": 734,
-                "width": 0,
+                "width": 1,
                 "height": 68,
                 "rotation": -4,
-                "opacity": 1,
+                "opacity": 0,
                 "transformOriginX": 0,
                 "transformOriginY": 0.5
               }
@@ -3405,10 +3566,10 @@
               "transform": {
                 "x": 372,
                 "y": 734,
-                "width": 359.296875,
+                "width": 359,
                 "height": 68,
                 "rotation": -4,
-                "opacity": 1,
+                "opacity": 0.8482962962962963,
                 "transformOriginX": 0,
                 "transformOriginY": 0.5
               }
@@ -3423,7 +3584,7 @@
                 "width": 360,
                 "height": 68,
                 "rotation": -4,
-                "opacity": 1,
+                "opacity": 0.8983703703703704,
                 "transformOriginX": 0,
                 "transformOriginY": 0.5
               }
@@ -3453,7 +3614,7 @@
                 "width": 360,
                 "height": 68,
                 "rotation": -4,
-                "opacity": 1,
+                "opacity": 0.657,
                 "transformOriginX": 0,
                 "transformOriginY": 0.5
               }
@@ -3465,10 +3626,10 @@
               "transform": {
                 "x": 372,
                 "y": 734,
-                "width": 0,
+                "width": 1,
                 "height": 68,
                 "rotation": -4,
-                "opacity": 1,
+                "opacity": 0,
                 "transformOriginX": 0,
                 "transformOriginY": 0.5
               }
@@ -3538,7 +3699,7 @@
                 "id": "property-keyframe-3e184fdf-5fa6-41c2-88a8-aa1080c2b6cb",
                 "frame": 50,
                 "value": 0,
-                "easing": "quad-in"
+                "easing": "cubic-in"
               }
             ],
             "height": [
@@ -3583,16 +3744,22 @@
             ],
             "opacity": [
               {
-                "id": "property-keyframe-bfe2edc1-5835-48cb-a23e-b9236c56f874",
+                "id": "property-keyframe-7920517a-d183-42c2-822e-7edf146213a6",
                 "frame": 0,
-                "value": 1,
+                "value": 0,
                 "easing": "linear"
               },
               {
-                "id": "property-keyframe-b5726dd3-28e4-4f78-ac68-96d50dd6c8bc",
-                "frame": 50,
+                "id": "property-keyframe-a045dc97-ce1f-495a-a8b4-ae8f3801f02a",
+                "frame": 30,
                 "value": 1,
-                "easing": "linear"
+                "easing": "cubic-out"
+              },
+              {
+                "id": "property-keyframe-da6945b6-b7f4-4ae5-a5de-caacb86cbb34",
+                "frame": 50,
+                "value": 0,
+                "easing": "cubic-in"
               }
             ],
             "transformOriginX": [
@@ -3723,10 +3890,23 @@
             "dropShadowOffsetY": 6,
             "dropShadowBlur": 16
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "accent",
+            "description": "Mask-driven diagonal kicker tab.",
+            "tags": [
+              "kicker",
+              "slanted-tab"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": [
             {
               "targetProperty": "fill",
-              "fieldId": "field-35588cc0-8f40-48f0-8df6-f6bce4f2fc94"
+              "fieldId": "field-35588cc0-8f40-48f0-8df6-f6bce4f2fc94",
+              "sourcePath": []
             }
           ]
         },
@@ -3994,7 +4174,14 @@
             "fontSize": 26,
             "fontWeight": 800,
             "textAlign": "center",
-            "autoFit": "shrink-to-fit"
+            "autoFit": "shrink-to-fit",
+            "lineHeight": 1.2,
+            "letterSpacing": 0,
+            "textTransform": "none",
+            "verticalAlign": "top",
+            "baselineShift": 0,
+            "minFontSize": 13,
+            "overflowPolicy": "visible"
           },
           "effects": {
             "blur": 0,
@@ -4005,10 +4192,23 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "label",
+            "description": "Editorial kicker label.",
+            "tags": [
+              "kicker",
+              "editable"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": [
             {
               "targetProperty": "content",
-              "fieldId": "field-e4f5c4b2-f91d-44a2-be91-ea5beac1567c"
+              "fieldId": "field-e4f5c4b2-f91d-44a2-be91-ea5beac1567c",
+              "sourcePath": []
             }
           ]
         },
@@ -4033,7 +4233,7 @@
               "transform": {
                 "x": 1440,
                 "y": 734,
-                "width": 0,
+                "width": 1,
                 "height": 68,
                 "rotation": 0,
                 "opacity": 1,
@@ -4048,7 +4248,7 @@
               "transform": {
                 "x": 1440,
                 "y": 734,
-                "width": 0,
+                "width": 1,
                 "height": 68,
                 "rotation": 0,
                 "opacity": 1,
@@ -4078,7 +4278,7 @@
               "transform": {
                 "x": 1440,
                 "y": 734,
-                "width": 145.57434402332362,
+                "width": 146,
                 "height": 68,
                 "rotation": 0,
                 "opacity": 1,
@@ -4138,7 +4338,7 @@
               "transform": {
                 "x": 1440,
                 "y": 734,
-                "width": 0,
+                "width": 1,
                 "height": 68,
                 "rotation": 0,
                 "opacity": 1,
@@ -4153,7 +4353,7 @@
               "transform": {
                 "x": 1440,
                 "y": 734,
-                "width": 0,
+                "width": 1,
                 "height": 68,
                 "rotation": 0,
                 "opacity": 1,
@@ -4232,7 +4432,7 @@
                 "id": "property-keyframe-54cb64f7-317d-4e29-bacd-6e24df71d915",
                 "frame": 48,
                 "value": 0,
-                "easing": "quad-in"
+                "easing": "cubic-in"
               }
             ],
             "height": [
@@ -4386,6 +4586,18 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "accent",
+            "description": "Mask-driven live/status badge.",
+            "tags": [
+              "live",
+              "badge"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": []
         },
         {
@@ -4652,7 +4864,14 @@
             "fontSize": 26,
             "fontWeight": 800,
             "textAlign": "center",
-            "autoFit": "shrink-to-fit"
+            "autoFit": "shrink-to-fit",
+            "lineHeight": 1.2,
+            "letterSpacing": 0,
+            "textTransform": "none",
+            "verticalAlign": "top",
+            "baselineShift": 0,
+            "minFontSize": 13,
+            "overflowPolicy": "visible"
           },
           "effects": {
             "blur": 0,
@@ -4663,10 +4882,23 @@
             "dropShadowOffsetY": 8,
             "dropShadowBlur": 12
           },
+          "blendMode": "normal",
+          "semantics": {
+            "role": "label",
+            "description": "Operator-editable live/status label.",
+            "tags": [
+              "live",
+              "editable"
+            ]
+          },
+          "designTokenBindings": [],
+          "componentLink": null,
+          "loop": null,
           "bindings": [
             {
               "targetProperty": "content",
-              "fieldId": "field-23c914a8-8d2d-4ce6-a381-7deaade95f50"
+              "fieldId": "field-23c914a8-8d2d-4ce6-a381-7deaade95f50",
+              "sourcePath": []
             }
           ]
         }
@@ -4678,7 +4910,15 @@
           "label": "Kicker",
           "type": "text",
           "defaultValue": "BREAKING NEWS",
-          "required": true
+          "required": true,
+          "description": "Short editorial category or alert label.",
+          "options": [],
+          "constraints": {
+            "maxLength": 24
+          },
+          "fileExtensions": [],
+          "properties": [],
+          "items": null
         },
         {
           "id": "field-b268f894-fb0f-4d20-bc10-360bf4a29d3a",
@@ -4686,7 +4926,15 @@
           "label": "Headline",
           "type": "text",
           "defaultValue": "Aegean wildfire contained after four days",
-          "required": true
+          "required": true,
+          "description": "Primary on-air headline.",
+          "options": [],
+          "constraints": {
+            "maxLength": 64
+          },
+          "fileExtensions": [],
+          "properties": [],
+          "items": null
         },
         {
           "id": "field-2db400ef-6ddc-4642-a4c8-2c19d729854d",
@@ -4694,7 +4942,15 @@
           "label": "Reporter Name",
           "type": "text",
           "defaultValue": "MELIS ARSLAN",
-          "required": true
+          "required": true,
+          "description": "Reporter or correspondent name.",
+          "options": [],
+          "constraints": {
+            "maxLength": 32
+          },
+          "fileExtensions": [],
+          "properties": [],
+          "items": null
         },
         {
           "id": "field-6a72f2d4-f9a3-4ee4-8ca2-bebf8454171f",
@@ -4702,7 +4958,15 @@
           "label": "Location / Status",
           "type": "text",
           "defaultValue": "IZMIR - LIVE",
-          "required": false
+          "required": false,
+          "description": "Location and optional live/status qualifier.",
+          "options": [],
+          "constraints": {
+            "maxLength": 32
+          },
+          "fileExtensions": [],
+          "properties": [],
+          "items": null
         },
         {
           "id": "field-89628fbf-5dd1-4bd5-9271-2c56e4c7227e",
@@ -4710,7 +4974,15 @@
           "label": "Ticker Line",
           "type": "textarea",
           "defaultValue": "MARKETS: BIST 100 +1.4%   EUR/TRY 47.20   GOLD 4,180 USD/OZ   AEGEAN COAST 33C   IZMIR RING ROAD CLEAR",
-          "required": false
+          "required": false,
+          "description": "Single ticker line; keep separators concise for the clipped crawl window.",
+          "options": [],
+          "constraints": {
+            "maxLength": 180
+          },
+          "fileExtensions": [],
+          "properties": [],
+          "items": null
         },
         {
           "id": "field-23c914a8-8d2d-4ce6-a381-7deaade95f50",
@@ -4718,7 +4990,15 @@
           "label": "Live Badge",
           "type": "text",
           "defaultValue": "LIVE",
-          "required": false
+          "required": false,
+          "description": "Short live/status badge label.",
+          "options": [],
+          "constraints": {
+            "maxLength": 12
+          },
+          "fileExtensions": [],
+          "properties": [],
+          "items": null
         },
         {
           "id": "field-920c7604-acbb-4172-9ec9-88ab455031b7",
@@ -4726,7 +5006,18 @@
           "label": "Reporter Portrait",
           "type": "image-url",
           "defaultValue": "asset:asset-1bdcb675-47ab-4ad1-a9bb-47a1ab20ec7d",
-          "required": false
+          "required": false,
+          "description": "Reporter portrait image.",
+          "options": [],
+          "constraints": {},
+          "fileExtensions": [
+            "png",
+            "jpg",
+            "jpeg",
+            "webp"
+          ],
+          "properties": [],
+          "items": null
         },
         {
           "id": "field-3a5b044b-bf66-4e43-a51f-82d183dde814",
@@ -4749,7 +5040,13 @@
               }
             ]
           },
-          "required": false
+          "required": false,
+          "description": "Headline bar gradient paint.",
+          "options": [],
+          "constraints": {},
+          "fileExtensions": [],
+          "properties": [],
+          "items": null
         },
         {
           "id": "field-35588cc0-8f40-48f0-8df6-f6bce4f2fc94",
@@ -4772,7 +5069,13 @@
               }
             ]
           },
-          "required": false
+          "required": false,
+          "description": "Kicker-tab gradient paint.",
+          "options": [],
+          "constraints": {},
+          "fileExtensions": [],
+          "properties": [],
+          "items": null
         }
       ],
       "customActions": [],
@@ -4818,7 +5121,15 @@
           "durationFrames": 20,
           "easing": "ease-in"
         }
-      ]
+      ],
+      "updateTransitionFrames": 0,
+      "runtimeCollections": [],
+      "designSystem": {
+        "name": "Brand Kit",
+        "tokens": []
+      }
     }
-  ]
+  ],
+  "supportsRealTime": true,
+  "supportsNonRealTime": true
 }
