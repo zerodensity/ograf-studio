@@ -121,6 +121,10 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 - Use `set_layer_bindings` when one layer exposes more than one data-driven property. Each binding
   accepts a stable `fieldId` or unique `fieldKey`, and each target property may appear only once.
   `set_layer_binding` remains a legacy single-binding replacement and clears any additional rows.
+- Treat the data schema as the operator contract. Author meaningful field `description`, select
+  `options`, file extensions, and JSON Schema constraints through `add_data_field` or
+  `update_data_field`; every compiled field emits `gddType`. Give bound on-air text a realistic
+  `maxLength` so Reality Hub/Form Builder can prevent unusable values before playout.
 - Use `duplicate_group` for independent repeated cells. Animate the source before duplication if
   its animation must be copied. A positive `frameOffset` shifts non-lifecycle authored keys only;
   Start/Step/End compatibility keys remain anchored. Ensure headroom for the shifted authored keys;

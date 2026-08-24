@@ -242,7 +242,20 @@ interface ProjectActions {
   removeDataField: (fieldId: string) => void;
   updateDataField: (
     fieldId: string,
-    patch: Partial<Pick<FieldDefinition, 'key' | 'label' | 'type' | 'defaultValue' | 'required'>>,
+    patch: Partial<
+      Pick<
+        FieldDefinition,
+        | 'key'
+        | 'label'
+        | 'description'
+        | 'type'
+        | 'defaultValue'
+        | 'required'
+        | 'options'
+        | 'constraints'
+        | 'fileExtensions'
+      >
+    >,
   ) => void;
   setLayerBindings: (layerId: string, bindings: LayerBinding[]) => void;
 

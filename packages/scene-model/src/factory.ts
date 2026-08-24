@@ -7,6 +7,7 @@ import type {
   Element,
   EllipseElement,
   FieldDefinition,
+  FieldOption,
   FieldType,
   ImageElement,
   ImageSequenceElement,
@@ -310,13 +311,32 @@ export function createTransition(
 }
 
 /** The starting value for a freshly created field of this type. */
-export function defaultValueForFieldType(type: FieldType): FieldDefinition['defaultValue'] {
+export function defaultOptionsForFieldType(type: FieldType): FieldOption[] {
+  return type === 'select' || type === 'select-multiple'
+    ? [{ value: 'option', label: 'Option' }]
+    : [];
+}
+
+export function defaultConstraintsForFieldType(type: FieldType): FieldDefinition['constraints'] {
+  if (type === 'percentage') return { minimum: 0, maximum: 100, step: 1 };
+  if (type === 'integer' || type === 'duration-ms') return { step: 1 };
+  return {};
+}
+
+export function defaultValueForFieldType(
+  type: FieldType,
+  options = defaultOptionsForFieldType(type),
+): FieldDefinition['defaultValue'] {
   switch (type) {
     case 'text':
     case 'textarea':
     case 'image-url':
+    case 'file-path':
       return '';
     case 'number':
+    case 'integer':
+    case 'duration-ms':
+    case 'percentage':
       return 0;
     case 'boolean':
       return false;
@@ -324,6 +344,10 @@ export function defaultValueForFieldType(type: FieldType): FieldDefinition['defa
       return '#ffffff';
     case 'gradient':
       return createDefaultGradient();
+    case 'select':
+      return options[0]?.value ?? '';
+    case 'select-multiple':
+      return [];
   }
 }
 
@@ -331,13 +355,18 @@ export function createFieldDefinition(
   type: FieldType,
   overrides: Partial<FieldDefinition> = {},
 ): FieldDefinition {
+  const options = overrides.options ?? defaultOptionsForFieldType(type);
   return {
     id: createId('field'),
     key: 'field',
     label: 'Field',
+    description: '',
     type,
-    defaultValue: defaultValueForFieldType(type),
+    defaultValue: defaultValueForFieldType(type, options),
     required: false,
+    options,
+    constraints: defaultConstraintsForFieldType(type),
+    fileExtensions: [],
     ...overrides,
   };
 }
@@ -412,7 +441,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 16;
+export const PROJECT_DOCUMENT_VERSION = 17;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

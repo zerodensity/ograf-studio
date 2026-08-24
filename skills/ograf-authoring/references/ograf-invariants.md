@@ -55,3 +55,9 @@ Save/export must certify the same artifact bytes that are written. If certificat
 ## Data
 
 Field keys must be unique. Bindings resolve to stable field IDs and a valid element target property. Asset IDs are unique and `asset:<id>` references must resolve inside the same composition. Keep authored defaults useful because they become schema defaults and are exercised during lifecycle certification.
+
+Every field compiles an operator-facing `gddType`. Select defaults must reference declared options;
+select-multiple defaults must contain only declared string values. Descriptions, option labels, file
+extensions, and constraints belong in the manifest schema and must survive OGraf import/export.
+Arrays/objects beyond select-multiple remain outside the scalar W12a profile until the W12b runtime
+collection design is approved.

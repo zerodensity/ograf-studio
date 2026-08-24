@@ -60,6 +60,13 @@ AI-first broadcast authoring and OGraf compliance hardening.
   typography, stroke, and radius values are materialized into compatible standard element
   properties whenever a token or binding changes, so certified output has no proprietary token
   runtime.
+- Document v17 enriches the operator data contract. Fields support descriptions, select labels,
+  file-extension hints, and JSON Schema length/range/pattern/step constraints plus integer,
+  duration-ms, percentage, file-path, select, and select-multiple types. The compiler emits
+  `gddType`/`gddOptions` for every field, OGraf import restores the metadata, the Data panel edits it,
+  typed MCP operations preserve it, and official-schema validation/certification remain mandatory.
+  A disposable schema exercising text limits, select/select-multiple, duration, percentage, and
+  file-path controls passed all five exact dual-mode certification gates.
 - Semantic layer metadata supports meaningful roles, normalized tags, and intent descriptions. It
   drives compact MCP queries, deterministic QA, and authoring recipes while remaining excluded from
   compiled output. The lower-third recipe creates four grouped layers/two editable fields with a
@@ -220,6 +227,9 @@ AI-first broadcast authoring and OGraf compliance hardening.
   near-miss text alignment, sibling-container padding rhythm, and continuous loop seams. Stable
   finding IDs and explicit exception tags keep it useful to agents without turning advisory taste
   rules into an export gate.
+- Design QA reports bound on-air text without a declared `maxLength`; browser overflow validation
+  also measures a declared-maximum stress string so operator limits and visual capacity can be
+  reviewed together.
 - MCP contracts are generated from the registered SDK/Zod tool definitions into
   `docs/generated/mcp-contracts.{md,json}`. `npm run contracts:check` is the first verification gate,
   preventing documentation/schema drift. The current generated surface contains 28 tools.
@@ -343,9 +353,9 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-08-24, including generated MCP contract drift, format, lint, all
-  workspace typechecks, 245 tests across 53 files, the runtime bundle, and the editor production
+  workspace typechecks, 251 tests across 53 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 245-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- The 251-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,

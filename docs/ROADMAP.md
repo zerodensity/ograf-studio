@@ -111,7 +111,9 @@
   data binding and independent animatable stop offsets. Per-stop data binding remains queued.
 - CSS blur and configurable drop shadow, including per-property animation of numeric effect values,
   are implemented.
-- Structured custom actions and full GDD controls.
+- Structured custom actions are implemented. Scalar GDD controls are implemented with descriptions,
+  select labels, file extensions, integer/duration/percentage/file/select types, and JSON Schema
+  constraints; runtime array/object collections remain gated on the separate W12b design.
 - Built-in real-time, non-real-time, and dual-mode export profiles derive manifest identity and
   capability flags without mutating the editable project. Custom user-defined profile persistence,
   canonical thumbnails, release metadata, and compatibility targets remain queued.

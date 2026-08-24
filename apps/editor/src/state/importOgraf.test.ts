@@ -127,6 +127,24 @@ describe('best-effort OGraf import', () => {
           title: { type: 'string', title: 'Title', default: 'Hello' },
           logo: { type: 'string', title: 'Logo URL', format: 'uri' },
           count: { type: 'integer', title: 'Count', default: 3 },
+          theme: {
+            type: 'string',
+            title: 'Theme',
+            description: 'Operator theme.',
+            gddType: 'select',
+            enum: ['news', 'sport'],
+            gddOptions: { labels: { news: 'News', sport: 'Sport' } },
+            default: 'news',
+            maxLength: 12,
+          },
+          regions: {
+            type: 'array',
+            title: 'Regions',
+            gddType: 'select-multiple',
+            items: { type: 'string', enum: ['eu', 'na'] },
+            gddOptions: { labels: { eu: 'Europe', na: 'North America' } },
+            default: ['eu'],
+          },
         },
       },
     };
@@ -151,8 +169,18 @@ describe('best-effort OGraf import', () => {
     expect(composition.dataFields.map((field) => [field.key, field.type, field.required])).toEqual([
       ['title', 'text', true],
       ['logo', 'image-url', false],
-      ['count', 'number', false],
+      ['count', 'integer', false],
+      ['theme', 'select', false],
+      ['regions', 'select-multiple', false],
     ]);
+    expect(composition.dataFields.find((field) => field.key === 'theme')).toMatchObject({
+      description: 'Operator theme.',
+      options: [
+        { value: 'news', label: 'News' },
+        { value: 'sport', label: 'Sport' },
+      ],
+      constraints: { maxLength: 12 },
+    });
     expect(imported.warnings.join(' ')).toMatch(/opaque JavaScript visual layers/i);
   });
 

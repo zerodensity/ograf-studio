@@ -377,8 +377,34 @@ export interface Transition {
 }
 
 export type FieldType =
-  'text' | 'textarea' | 'number' | 'boolean' | 'color' | 'gradient' | 'image-url';
-export type FieldValue = string | number | boolean | GradientPaint;
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'integer'
+  | 'duration-ms'
+  | 'percentage'
+  | 'boolean'
+  | 'color'
+  | 'gradient'
+  | 'image-url'
+  | 'file-path'
+  | 'select'
+  | 'select-multiple';
+export type FieldValue = string | number | boolean | string[] | GradientPaint;
+
+export interface FieldOption {
+  value: string;
+  label: string;
+}
+
+export interface FieldConstraints {
+  maxLength?: number;
+  minLength?: number;
+  minimum?: number;
+  maximum?: number;
+  pattern?: string;
+  step?: number;
+}
 
 /** One dynamic input the Composition accepts at runtime — compiles into the OGraf manifest's `schema`. */
 export interface FieldDefinition {
@@ -386,9 +412,17 @@ export interface FieldDefinition {
   /** Unique property name — used as the JSON Schema key and the runtime data payload key. */
   key: string;
   label: string;
+  /** Operator-facing help text emitted as JSON Schema description. */
+  description: string;
   type: FieldType;
   defaultValue: FieldValue;
   required: boolean;
+  /** Ordered values/labels for select and select-multiple controls. */
+  options: FieldOption[];
+  /** JSON Schema validation communicated to playout/operator form builders. */
+  constraints: FieldConstraints;
+  /** Optional extension allowlist for file-path and image-path controls. */
+  fileExtensions: string[];
 }
 
 /** An author-defined `customAction` the Composition responds to — compiles into `manifest.customActions[]`. */

@@ -30,5 +30,17 @@
   working agreement, status, architecture, newest handover, and MCP authoring Skill, while retaining
   the durable npm-workspace and runtime-rebuild requirements.
 
+## Reality Hub / GDD operator contract
+
+- Raised editable projects to document v17 and added field descriptions, select option labels,
+  file-extension hints, and JSON Schema length/range/pattern/step constraints.
+- Added integer, duration-ms, percentage, file-path, select, and select-multiple field types across
+  the Data panel, atomic authoring core, typed MCP schemas, preview/test values, validation, and
+  OGraf package import.
+- Compiled every field with `gddType` and applicable `gddOptions`, and added declared-maxLength text
+  QA/stress measurement for safer Reality Hub operator forms.
+- Verified the enriched schema through the live Data panel, typed MCP authoring, package re-import,
+  official GDD schema validation, and all five exact dual-mode certification gates.
+
 This file is the unreleased changelog. Add completed, verified changes here before assigning the
 next version and tag.

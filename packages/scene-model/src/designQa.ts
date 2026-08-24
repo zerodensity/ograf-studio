@@ -252,6 +252,27 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
           [layer.id],
           [onAirFrame],
         );
+      } else {
+        const contentBinding = layer.bindings.find(
+          (binding) => binding.targetProperty === 'content',
+        );
+        const field = contentBinding
+          ? composition.dataFields.find((candidate) => candidate.id === contentBinding.fieldId)
+          : undefined;
+        if (
+          field &&
+          (field.type === 'text' || field.type === 'textarea') &&
+          field.constraints.maxLength === undefined
+        ) {
+          add(
+            `data.missing-max-length.${layer.id}.${field.id}`,
+            'info',
+            'data',
+            `“${field.label || field.key}” has no maxLength for operator-side text validation.`,
+            [layer.id],
+            [onAirFrame],
+          );
+        }
       }
     }
 

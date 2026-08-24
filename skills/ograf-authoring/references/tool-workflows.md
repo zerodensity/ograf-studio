@@ -215,7 +215,12 @@ array. Each entry accepts `{fieldId,targetProperty}` or `{fieldKey,targetPropert
 target-property names, and do not repeat one target property. Use `set_layer_binding` only when an
 intentional legacy-compatible single-binding replacement should also discard any additional rows.
 `update_data_field` accepts `fieldId` or unique `fieldKey` and can change key, label, default, and
-required state in place.
+required state in place. It can also change `fieldType`, operator `description`, ordered
+`options: [{value,label}]`, `fileExtensions`, and `constraints` (`minLength`, `maxLength`, `minimum`,
+`maximum`, `pattern`, `step`). Supported enriched types are integer, duration-ms, percentage,
+file-path, select, and select-multiple alongside the original types. Compiled fields emit official
+GDD hints (`gddType`/`gddOptions`) plus JSON Schema constraints; select-multiple defaults are string
+arrays. Prefer `maxLength` on every operator-editable on-air text field.
 `remove_data_field` refuses to orphan bindings and names their layers; `force: true` clears those
 bindings atomically and reports them in `summary.clearedBindings`.
 

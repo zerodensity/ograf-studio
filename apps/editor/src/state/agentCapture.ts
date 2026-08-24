@@ -15,6 +15,7 @@ import {
   resolveElementAssetReferences,
   type Composition,
   type Element,
+  type FieldValue,
   type Layer,
   type Project,
   type TextElement,
@@ -27,10 +28,7 @@ export interface AgentCaptureRequest {
   frame: number;
   maxDimension: number;
   matte: string;
-  dataOverrides?: Record<
-    string,
-    string | number | boolean | import('@ograf-editor/scene-model').GradientPaint
-  >;
+  dataOverrides?: Record<string, FieldValue>;
 }
 
 export interface AgentCaptureResult {
@@ -276,10 +274,7 @@ async function rasterize(
 function effectiveElement(
   layer: Layer,
   composition: Composition,
-  data: Record<
-    string,
-    string | number | boolean | import('@ograf-editor/scene-model').GradientPaint
-  >,
+  data: Record<string, FieldValue>,
 ): Element {
   const element = layer.bindings.reduce<Element>((resolved, binding) => {
     const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
@@ -304,10 +299,7 @@ function buildCompositionDom(
   composition: Composition,
   frame: number,
   matte: string,
-  dataOverrides?: Record<
-    string,
-    string | number | boolean | import('@ograf-editor/scene-model').GradientPaint
-  >,
+  dataOverrides?: Record<string, FieldValue>,
 ): HTMLDivElement {
   const data = {
     ...Object.fromEntries(composition.dataFields.map((field) => [field.key, field.defaultValue])),

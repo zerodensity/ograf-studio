@@ -145,6 +145,26 @@ describe('design and motion QA', () => {
     ).toBe(false);
   });
 
+  it('reports operator-editable on-air text without maxLength and accepts a declared limit', () => {
+    const composition = createComposition();
+    const result = materializeLowerThird(composition);
+    const field = composition.dataFields.find(
+      (candidate) => candidate.id === result.fields.headline,
+    )!;
+    delete field.constraints.maxLength;
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('data.missing-max-length'),
+      ),
+    ).toBe(true);
+    field.constraints.maxLength = 80;
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('data.missing-max-length'),
+      ),
+    ).toBe(false);
+  });
+
   it('detects discontinuous loop seams and accepts matching endpoints', () => {
     const composition = createComposition();
     const pose = staticTransform({ x: 100, y: 100 });

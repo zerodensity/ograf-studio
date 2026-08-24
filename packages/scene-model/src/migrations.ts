@@ -18,6 +18,7 @@ import { normalizeAuthoredTransform } from './authoredTransform';
 import { normalizeLayerEffects } from './layerEffects';
 import type {
   Composition,
+  FieldDefinition,
   Keyframe,
   KeyframeRole,
   Layer,
@@ -80,6 +81,12 @@ type LegacyComposition = Omit<
   designSystem?: Composition['designSystem'];
 };
 
+type LegacyFieldDefinition = Omit<
+  FieldDefinition,
+  'description' | 'options' | 'constraints' | 'fileExtensions'
+> &
+  Partial<Pick<FieldDefinition, 'description' | 'options' | 'constraints' | 'fileExtensions'>>;
+
 type LegacyProject = Omit<
   Project,
   'documentVersion' | 'compositions' | 'supportsRealTime' | 'supportsNonRealTime'
@@ -96,6 +103,16 @@ function cloneProject(project: LegacyProject): LegacyProject {
 
 function hiddenClone(pose: LayerTransform | undefined): LayerTransform | undefined {
   return pose ? { ...pose, opacity: 0 } : undefined;
+}
+
+function normalizeFieldDefinition(field: LegacyFieldDefinition): FieldDefinition {
+  return {
+    ...field,
+    description: field.description ?? '',
+    options: field.options ?? [],
+    constraints: field.constraints ?? {},
+    fileExtensions: field.fileExtensions ?? [],
+  };
 }
 
 function normalizeRoles(keyframes: LegacyKeyframe[]): Keyframe[] {
@@ -302,9 +319,14 @@ function normalizeComposition(composition: LegacyComposition): Composition {
     layers,
     assets: composition.assets ?? [],
     customActions: composition.customActions ?? [],
-    dataFields: composition.dataFields ?? [],
+    dataFields: (composition.dataFields ?? []).map((field) =>
+      normalizeFieldDefinition(field as LegacyFieldDefinition),
+    ),
     components: (composition.components ?? []).map((component) => ({
       ...component,
+      dataFields: component.dataFields.map((field) =>
+        normalizeFieldDefinition(field as LegacyFieldDefinition),
+      ),
       layers: component.layers.map((layer) => ({
         ...layer,
         semantics: createLayerSemantics(layer.semantics),

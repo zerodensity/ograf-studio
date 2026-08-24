@@ -248,9 +248,20 @@ function inferFieldType(key: string, schema: UnknownRecord): FieldType {
     ? schema.type.find((item): item is string => typeof item === 'string' && item !== 'null')
     : schema.type;
   const defaultValue = schema.default;
+  const gddType = typeof schema.gddType === 'string' ? schema.gddType : '';
   const hint = `${key} ${typeof schema.title === 'string' ? schema.title : ''}`.toLowerCase();
+  if (gddType === 'select') return 'select';
+  if (gddType === 'select-multiple') return 'select-multiple';
+  if (gddType === 'duration-ms') return 'duration-ms';
+  if (gddType === 'percentage') return 'percentage';
+  if (gddType === 'file-path') return 'file-path';
+  if (gddType === 'file-path/image-path') return 'image-url';
+  if (gddType === 'single-line') return 'text';
+  if (gddType === 'multi-line') return 'textarea';
+  if (gddType === 'color-rrggbb' || gddType === 'color-rrggbbaa') return 'color';
   if (declared === 'boolean') return 'boolean';
-  if (declared === 'number' || declared === 'integer') return 'number';
+  if (declared === 'integer') return 'integer';
+  if (declared === 'number') return 'number';
   if (declared === 'object' && (isGradient(defaultValue) || isRecord(schema.properties))) {
     const properties = schema.properties;
     if (isRecord(properties) && 'stops' in properties && 'angle' in properties) return 'gradient';
@@ -285,13 +296,30 @@ function coerceFieldDefault(
 ): FieldValue {
   if (value === undefined) return defaultValueForFieldType(type);
   if (type === 'boolean' && typeof value === 'boolean') return value;
-  if (type === 'number' && typeof value === 'number' && Number.isFinite(value)) return value;
+  if (
+    ['number', 'integer', 'duration-ms', 'percentage'].includes(type) &&
+    typeof value === 'number' &&
+    Number.isFinite(value)
+  )
+    return value;
   if (type === 'gradient' && isGradient(value)) return clone(value);
   if (
-    (type === 'text' || type === 'textarea' || type === 'color' || type === 'image-url') &&
+    (type === 'text' ||
+      type === 'textarea' ||
+      type === 'color' ||
+      type === 'image-url' ||
+      type === 'file-path' ||
+      type === 'select') &&
     typeof value === 'string'
   ) {
     return value;
+  }
+  if (
+    type === 'select-multiple' &&
+    Array.isArray(value) &&
+    value.every((item) => typeof item === 'string')
+  ) {
+    return [...value];
   }
   warnings.push(
     `Data field "${key}" had a default the editor cannot represent exactly; it was converted to text.`,
@@ -314,7 +342,10 @@ function fieldsFromManifest(manifest: OGrafManifest, warnings: string[]): FieldD
     }
     let type = inferFieldType(key, value);
     const declared = Array.isArray(value.type) ? value.type.join('|') : value.type;
-    if ((declared === 'object' && type !== 'gradient') || declared === 'array') {
+    if (
+      (declared === 'object' && type !== 'gradient') ||
+      (declared === 'array' && type !== 'select-multiple')
+    ) {
       type = 'textarea';
       warnings.push(
         `Data field "${key}" uses ${String(declared)} data; its default was preserved as JSON text.`,
@@ -324,8 +355,41 @@ function fieldsFromManifest(manifest: OGrafManifest, warnings: string[]): FieldD
       createFieldDefinition(type, {
         key,
         label: typeof value.title === 'string' ? value.title : key,
+        description: typeof value.description === 'string' ? value.description : '',
         defaultValue: coerceFieldDefault(type, value.default, key, warnings),
         required: required.has(key),
+        options: (() => {
+          const enumerated =
+            type === 'select-multiple' && isRecord(value.items) && Array.isArray(value.items.enum)
+              ? value.items.enum
+              : Array.isArray(value.enum)
+                ? value.enum
+                : [];
+          const labels =
+            isRecord(value.gddOptions) && isRecord(value.gddOptions.labels)
+              ? value.gddOptions.labels
+              : {};
+          return enumerated
+            .filter((item): item is string => typeof item === 'string')
+            .map((option) => ({
+              value: option,
+              label: typeof labels[option] === 'string' ? labels[option] : option,
+            }));
+        })(),
+        constraints: {
+          ...(Number.isInteger(value.minLength) ? { minLength: Number(value.minLength) } : {}),
+          ...(Number.isInteger(value.maxLength) ? { maxLength: Number(value.maxLength) } : {}),
+          ...(typeof value.minimum === 'number' ? { minimum: value.minimum } : {}),
+          ...(typeof value.maximum === 'number' ? { maximum: value.maximum } : {}),
+          ...(typeof value.pattern === 'string' ? { pattern: value.pattern } : {}),
+          ...(typeof value.multipleOf === 'number' ? { step: value.multipleOf } : {}),
+        },
+        fileExtensions:
+          isRecord(value.gddOptions) && Array.isArray(value.gddOptions.extensions)
+            ? value.gddOptions.extensions.filter(
+                (extension): extension is string => typeof extension === 'string',
+              )
+            : [],
       }),
     );
   }
@@ -427,6 +491,7 @@ function currentBoundValue(targetProperty: string, element: Element, type: Field
     typeof value === 'string' ||
     typeof value === 'number' ||
     typeof value === 'boolean' ||
+    (Array.isArray(value) && value.every((item) => typeof item === 'string')) ||
     isGradient(value)
   ) {
     return clone(value);

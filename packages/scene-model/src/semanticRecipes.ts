@@ -242,6 +242,8 @@ export function materializeLowerThird(
     key: uniqueFieldKey(composition, options.fieldKeys?.headline ?? 'headline', 'headline'),
     label: `${name} Headline`,
     defaultValue: headline.element.type === 'text' ? headline.element.content : 'Headline',
+    description: 'Primary on-air headline.',
+    constraints: { maxLength: 80 },
   });
   const reservedFieldKeys = new Set([
     ...composition.dataFields.map((field) => field.key),
@@ -263,6 +265,8 @@ export function materializeLowerThird(
     label: `${name} Subheadline`,
     defaultValue:
       subheadline.element.type === 'text' ? subheadline.element.content : 'Secondary line',
+    description: 'Secondary on-air context line.',
+    constraints: { maxLength: 120 },
   });
   headline.bindings = [{ fieldId: headlineField.id, targetProperty: 'content' }];
   subheadline.bindings = [{ fieldId: subheadlineField.id, targetProperty: 'content' }];

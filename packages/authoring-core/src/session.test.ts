@@ -443,6 +443,62 @@ describe('AuthoringSession', () => {
     expect(removed.project.compositions[0]!.layers[0]!.bindings).toEqual([]);
   });
 
+  it('creates and retargets enriched GDD scalar fields atomically', () => {
+    const session = new AuthoringSession(createProject(), 'gdd-field-session');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [
+        {
+          type: 'add_data_field',
+          fieldType: 'select',
+          key: 'theme',
+          label: 'Theme',
+          description: 'Choose the on-air theme.',
+          options: [
+            { value: 'news', label: 'News' },
+            { value: 'sport', label: 'Sport' },
+          ],
+          constraints: { maxLength: 12 },
+          defaultValue: 'news',
+          required: true,
+        },
+      ],
+    });
+    const field = created.project.compositions[0]!.dataFields[0]!;
+    expect(field).toMatchObject({
+      type: 'select',
+      description: 'Choose the on-air theme.',
+      options: [
+        { value: 'news', label: 'News' },
+        { value: 'sport', label: 'Sport' },
+      ],
+      constraints: { maxLength: 12 },
+      defaultValue: 'news',
+      required: true,
+    });
+
+    const updated = session.apply({
+      expectedRevision: 1,
+      operations: [
+        {
+          type: 'update_data_field',
+          fieldId: field.id,
+          fieldType: 'duration-ms',
+          description: 'Countdown duration.',
+          constraints: { minimum: 0, maximum: 60000, step: 1000 },
+          defaultValue: 10000,
+        },
+      ],
+    });
+    expect(updated.project.compositions[0]!.dataFields[0]).toMatchObject({
+      type: 'duration-ms',
+      description: 'Countdown duration.',
+      options: [],
+      constraints: { minimum: 0, maximum: 60000, step: 1000 },
+      defaultValue: 10000,
+    });
+  });
+
   it('registers assets once and duplicates independent grouped layers with cloned fields', () => {
     const session = new AuthoringSession(createProject(), 'duplicate-session');
     const created = session.apply({

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createComposition,
+  createFieldDefinition,
   createKeyframe,
   createLayerKeyframe,
   createLayerOfKind,
@@ -122,7 +123,7 @@ describe('migrateProject', () => {
     });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(16);
+    expect(migrated.documentVersion).toBe(17);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -160,7 +161,7 @@ describe('migrateProject', () => {
     expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
       { fieldId: 'headline-field', targetProperty: 'content' },
     ]);
-    expect(migrated.documentVersion).toBe(16);
+    expect(migrated.documentVersion).toBe(17);
   });
 
   it('backfills document-v13 typography without changing the authored font size', () => {
@@ -197,7 +198,7 @@ describe('migrateProject', () => {
       minFontSize: 20,
       overflowPolicy: 'visible',
     });
-    expect(migrated.documentVersion).toBe(16);
+    expect(migrated.documentVersion).toBe(17);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {
@@ -219,5 +220,32 @@ describe('migrateProject', () => {
     expect(migrateProject(project).compositions[0]!.layout.timelineFolders[0]!.layerIds).toEqual([
       layer.id,
     ]);
+  });
+
+  it('backfills document-v17 GDD field metadata without changing existing values', () => {
+    const project = createProject();
+    const field = createFieldDefinition('text', {
+      key: 'headline',
+      label: 'Headline',
+      defaultValue: 'News',
+    });
+    const legacy = field as unknown as Record<string, unknown>;
+    delete legacy.description;
+    delete legacy.options;
+    delete legacy.constraints;
+    delete legacy.fileExtensions;
+    project.compositions[0]!.dataFields = [field];
+    project.documentVersion = 16;
+
+    const migrated = migrateProject(project);
+    expect(migrated.documentVersion).toBe(17);
+    expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
+      key: 'headline',
+      defaultValue: 'News',
+      description: '',
+      options: [],
+      constraints: {},
+      fileExtensions: [],
+    });
   });
 });
