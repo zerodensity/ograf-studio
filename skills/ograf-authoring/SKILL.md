@@ -41,6 +41,9 @@ replace the tools with raw file editing.
    lockstep, wrong-direction easing, missing stagger/reveal, weak type hierarchy, near-miss
    alignment, inconsistent padding, and loop seams; do not treat the score as a substitute for
    editorial judgement or certification.
+   Use `qa:allow-loop-seam` only for deliberate masked/offscreen wraps or rotational cycles,
+   `qa:allow-offcanvas` only for deliberately clipped or wrapped layers, and `qa:static-text` only
+   for punctuation or fixed glyphs that should not become operator fields.
    Use `target: "composition"` with a checker matte for design checks and `target: "viewport"`
    when editor chrome or canvas state may be involved. Use `ograf_render_strip` for animation work;
    omit `frames` to sample lifecycle frames and transition midpoints, or provide up to 12 diagnostic

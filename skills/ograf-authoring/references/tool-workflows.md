@@ -40,8 +40,10 @@
   authoritative browser contact sheet. Craft findings cover lockstep translation, easing direction,
   missing stagger, headline/subheadline scale, near-miss text edges, sibling-container padding, and
   loop seams. Tag an intentional text offset `optical-offset`; use `qa:allow-lockstep` or
-  `qa:allow-no-stagger` only for deliberate exceptions. Findings remain advisory and do not replace
-  certification.
+  `qa:allow-no-stagger` only for deliberate exceptions. Use `qa:allow-loop-seam` for an intentional
+  masked/offscreen wrap or rotational cycle, `qa:allow-offcanvas` for deliberately clipped or
+  wrapped layers, and `qa:static-text` for fixed punctuation that should not be operator-editable.
+  Findings remain advisory and do not replace certification.
 - `ograf_render_frame`: legacy approximate SVG snapshot; use only when the live browser required by
   `ograf_capture` is unavailable and do not use it to judge final typography.
 - `ograf_measure_text`: browser/runtime measurement of a text layer, optional replacement string,

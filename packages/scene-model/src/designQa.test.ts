@@ -182,10 +182,54 @@ describe('design and motion QA', () => {
       ),
     ).toBe(true);
 
+    layer.semantics.tags.push('qa:allow-loop-seam');
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('loop.seam'),
+      ),
+    ).toBe(false);
+    layer.semantics.tags = [];
+
     layer.loop.tracks.opacity![1]!.value = 0.2;
     expect(
       reviewCompositionDesign(composition).findings.some((finding) =>
         finding.id.startsWith('loop.seam'),
+      ),
+    ).toBe(false);
+  });
+
+  it('allows explicitly static text to stay outside the operator data model', () => {
+    const composition = createComposition();
+    const pose = staticTransform({ x: 100, y: 100, width: 100, height: 50 });
+    const layer = authoredLayer('text', 'Static punctuation', [pose, pose, pose]);
+    composition.layers = [layer];
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('data.unbound-text'),
+      ),
+    ).toBe(true);
+    layer.semantics.tags.push('qa:static-text');
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('data.unbound-text'),
+      ),
+    ).toBe(false);
+  });
+
+  it('allows an intentional off-canvas layer when its semantic intent is explicit', () => {
+    const composition = createComposition();
+    const pose = staticTransform({ x: -100, y: 100, width: 200, height: 50 });
+    const layer = authoredLayer('rectangle', 'Masked crawl segment', [pose, pose, pose]);
+    composition.layers = [layer];
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('layout.outside'),
+      ),
+    ).toBe(true);
+    layer.semantics.tags.push('qa:allow-offcanvas');
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('layout.outside'),
       ),
     ).toBe(false);
   });
