@@ -108,13 +108,31 @@ describe('OGraf MCP authoring host', () => {
         layerBlending: expect.any(String),
       },
       semanticAuthoring: {
-        operations: ['set_layer_semantics', 'create_lower_third', 'create_repeater'],
+        operations: expect.arrayContaining([
+          'set_layer_semantics',
+          'create_lower_third',
+          'create_bug',
+          'create_ticker',
+          'create_scoreboard',
+          'create_clock',
+          'create_repeater',
+        ]),
         roles: expect.arrayContaining(['headline', 'container', 'logo']),
         motionPresets: ['wipe-reveal', 'stagger-cascade', 'directional-slide'],
       },
       designSystem: {
-        operations: expect.arrayContaining(['upsert_design_token', 'bind_design_token']),
+        operations: expect.arrayContaining([
+          'apply_style_pack',
+          'upsert_design_token',
+          'bind_design_token',
+        ]),
         targetProperties: expect.arrayContaining(['strokeColor', 'strokeWidth']),
+        stylePacks: expect.arrayContaining([
+          expect.objectContaining({ id: 'news', name: 'News' }),
+          expect.objectContaining({ id: 'sports', name: 'Sports' }),
+          expect.objectContaining({ id: 'entertainment', name: 'Entertainment' }),
+          expect.objectContaining({ id: 'documentary', name: 'Documentary' }),
+        ]),
       },
       aiReview: {
         query: 'ograf_query_scene',
@@ -154,6 +172,56 @@ describe('OGraf MCP authoring host', () => {
     expect(
       (result.structuredContent as { animatableProperties: string[] }).animatableProperties,
     ).toContain('strokeWidth');
+  });
+
+  it('applies style packs and returns complete semantic recipe mappings', async () => {
+    const sessionId = 'style-pack-recipe-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'apply_style_pack', stylePack: 'sports', bindLayers: false },
+          {
+            type: 'create_scoreboard',
+            name: 'Match Score',
+            content: { homeName: 'ANK', homeScore: 2, awayScore: 1, awayName: 'IZM' },
+          },
+          { type: 'create_ticker', name: 'Match Ticker', speedPixelsPerSecond: 240 },
+        ],
+      },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({ revision: 1, validation: { valid: true } });
+    const results = (result.structuredContent as { results: Array<Record<string, unknown>> })
+      .results;
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'apply_style_pack',
+          stylePack: 'sports',
+          tokenIds: expect.any(Object),
+        }),
+        expect.objectContaining({
+          type: 'create_scoreboard',
+          recipe: 'scoreboard',
+          layers: expect.objectContaining({ homeScore: expect.any(String) }),
+          fields: expect.objectContaining({ homeScore: expect.any(String) }),
+        }),
+        expect.objectContaining({
+          type: 'create_ticker',
+          recipe: 'ticker',
+          layers: expect.objectContaining({ crawl: expect.any(String) }),
+        }),
+      ]),
+    );
+    const ticker = host.workspace
+      .get(sessionId)
+      .snapshot()
+      .project.compositions[0]!.layers.find((layer) => layer.semantics.role === 'ticker');
+    expect(ticker?.loop?.tracks.x).toHaveLength(2);
   });
 
   it('projects only requested capability sections while retaining compact protocol metadata', async () => {

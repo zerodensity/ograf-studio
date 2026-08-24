@@ -18,7 +18,13 @@ import type {
   DesignTokenValue,
   LayerTransform,
   LowerThirdRecipeOptions,
+  BugRecipeOptions,
+  TickerRecipeOptions,
+  ScoreboardRecipeOptions,
+  ClockRecipeOptions,
   RepeaterRecipeOptions,
+  StylePackId,
+  StyleTokenKey,
   NewLayerKind,
   LayerLoopActivation,
   Project,
@@ -237,6 +243,14 @@ export type AuthoringOperation =
       layerId: string;
       patch: Partial<LayerSemantics>;
     }
+  | {
+      type: 'apply_style_pack';
+      compositionId?: string;
+      stylePack: StylePackId;
+      bindLayers?: boolean;
+      /** Preallocated transport IDs for deterministic create-then-target batches. */
+      tokenIds?: Partial<Record<StyleTokenKey, string>>;
+    }
   | ({
       type: 'create_lower_third';
       compositionId?: string;
@@ -245,6 +259,22 @@ export type AuthoringOperation =
       type: 'create_repeater';
       compositionId?: string;
     } & RepeaterRecipeOptions)
+  | ({
+      type: 'create_bug';
+      compositionId?: string;
+    } & BugRecipeOptions)
+  | ({
+      type: 'create_ticker';
+      compositionId?: string;
+    } & TickerRecipeOptions)
+  | ({
+      type: 'create_scoreboard';
+      compositionId?: string;
+    } & ScoreboardRecipeOptions)
+  | ({
+      type: 'create_clock';
+      compositionId?: string;
+    } & ClockRecipeOptions)
   | {
       type: 'duplicate_group';
       compositionId?: string;
@@ -544,12 +574,20 @@ export interface AuthoringChangeSummary {
   }>;
   semanticBlocks: Array<{
     operationIndex: number;
-    recipe: 'lower-third';
+    recipe: 'lower-third' | 'bug' | 'ticker' | 'scoreboard' | 'clock';
     name: string;
     groupId: string;
     timelineGroupId: string;
     layers: Record<string, string>;
     fields: Record<string, string>;
+    stylePack?: StylePackId;
+  }>;
+  stylePacks: Array<{
+    operationIndex: number;
+    packId: StylePackId;
+    name: string;
+    tokenIds: Record<string, string>;
+    affectedLayerIds: string[];
   }>;
   repeaters: Array<{
     operationIndex: number;

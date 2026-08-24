@@ -70,6 +70,65 @@ describe('AuthoringSession', () => {
     ).toMatchObject({ tags: ['primary', 'election'], description: 'Main result label' });
   });
 
+  it('applies one immutable style-pack definition as editable portable tokens', () => {
+    const session = new AuthoringSession(createProject(), 'style-pack-session');
+    session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'create_lower_third', name: 'Styled Lower Third' }],
+    });
+    const styled = session.apply({
+      expectedRevision: 1,
+      operations: [{ type: 'apply_style_pack', stylePack: 'sports' }],
+    });
+    const composition = styled.project.compositions[0]!;
+
+    expect(styled.summary.stylePacks[0]).toMatchObject({
+      packId: 'sports',
+      name: 'Sports',
+      affectedLayerIds: expect.arrayContaining(composition.layers.map((layer) => layer.id)),
+    });
+    expect(composition.designSystem.name).toBe('Sports Brand Kit');
+    expect(composition.designSystem.tokens.length).toBeGreaterThan(20);
+    expect(
+      styled.summary.generatedIds.filter((entry) => entry.kind === 'design-token'),
+    ).toHaveLength(composition.designSystem.tokens.length);
+    expect(
+      composition.layers.find((layer) => layer.semantics.role === 'headline')?.element,
+    ).toMatchObject({ type: 'text', fontSize: 68, fontWeight: 800 });
+    expect(styled.validation.valid).toBe(true);
+  });
+
+  it('materializes bug, ticker, scoreboard, and clock recipes with complete mappings', () => {
+    const session = new AuthoringSession(createProject(), 'broadcast-recipe-session');
+    const result = session.apply({
+      expectedRevision: 0,
+      operations: [
+        { type: 'create_bug', name: 'Live Bug', stylePack: 'news' },
+        { type: 'create_ticker', name: 'Headlines', speedPixelsPerSecond: 240 },
+        { type: 'create_scoreboard', name: 'Match', stylePack: 'sports' },
+        { type: 'create_clock', name: 'Local Time' },
+      ],
+    });
+
+    expect(result.summary.semanticBlocks.map((block) => block.recipe)).toEqual([
+      'bug',
+      'ticker',
+      'scoreboard',
+      'clock',
+    ]);
+    expect(
+      result.summary.semanticBlocks.every(
+        (block) => Object.keys(block.layers).length > 0 && Object.keys(block.fields).length > 0,
+      ),
+    ).toBe(true);
+    const ticker = result.summary.semanticBlocks.find((block) => block.recipe === 'ticker')!;
+    const crawl = result.project.compositions[0]!.layers.find(
+      (layer) => layer.id === ticker.layers.crawl,
+    )!;
+    expect(crawl.loop?.tracks.x).toHaveLength(2);
+    expect(result.validation.valid).toBe(true);
+  });
+
   it('rejects stale agent writes', () => {
     const session = new AuthoringSession(createProject(), 'test-session');
     session.apply({

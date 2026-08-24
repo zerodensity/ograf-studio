@@ -938,8 +938,25 @@
                 {
                   "type": "object",
                   "properties": {
+                    "type": { "type": "string", "const": "apply_style_pack" },
+                    "compositionId": { "type": "string" },
+                    "stylePack": {
+                      "type": "string",
+                      "enum": ["news", "sports", "entertainment", "documentary"]
+                    },
+                    "bindLayers": { "default": true, "type": "boolean" }
+                  },
+                  "required": ["type", "stylePack"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
                     "type": { "type": "string", "const": "create_lower_third" },
                     "compositionId": { "type": "string" },
+                    "stylePack": {
+                      "type": "string",
+                      "enum": ["news", "sports", "entertainment", "documentary"]
+                    },
                     "name": { "type": "string", "minLength": 1 },
                     "placement": {
                       "type": "object",
@@ -1043,7 +1060,91 @@
                           "type": "string",
                           "enum": ["left", "right", "up", "down", "none"]
                         },
-                        "staggerFrames": { "type": "integer", "minimum": 0, "maximum": 120 }
+                        "staggerFrames": { "type": "integer", "minimum": 0, "maximum": 120 },
+                        "entranceDurationFrames": {
+                          "type": "integer",
+                          "minimum": 2,
+                          "maximum": 600
+                        },
+                        "exitDurationFrames": { "type": "integer", "minimum": 2, "maximum": 600 },
+                        "entranceEasing": {
+                          "type": "string",
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "quad-in",
+                            "quad-out",
+                            "quad-in-out",
+                            "cubic-in",
+                            "cubic-out",
+                            "cubic-in-out",
+                            "quart-in",
+                            "quart-out",
+                            "quart-in-out",
+                            "quint-in",
+                            "quint-out",
+                            "quint-in-out",
+                            "sine-in",
+                            "sine-out",
+                            "sine-in-out",
+                            "expo-in",
+                            "expo-out",
+                            "expo-in-out",
+                            "circ-in",
+                            "circ-out",
+                            "circ-in-out",
+                            "back-in",
+                            "back-out",
+                            "back-in-out",
+                            "bounce-in",
+                            "bounce-out",
+                            "bounce-in-out",
+                            "elastic-in",
+                            "elastic-out",
+                            "elastic-in-out"
+                          ]
+                        },
+                        "exitEasing": {
+                          "type": "string",
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "quad-in",
+                            "quad-out",
+                            "quad-in-out",
+                            "cubic-in",
+                            "cubic-out",
+                            "cubic-in-out",
+                            "quart-in",
+                            "quart-out",
+                            "quart-in-out",
+                            "quint-in",
+                            "quint-out",
+                            "quint-in-out",
+                            "sine-in",
+                            "sine-out",
+                            "sine-in-out",
+                            "expo-in",
+                            "expo-out",
+                            "expo-in-out",
+                            "circ-in",
+                            "circ-out",
+                            "circ-in-out",
+                            "back-in",
+                            "back-out",
+                            "back-in-out",
+                            "bounce-in",
+                            "bounce-out",
+                            "bounce-in-out",
+                            "elastic-in",
+                            "elastic-out",
+                            "elastic-in-out"
+                          ]
+                        }
                       },
                       "additionalProperties": false
                     }
@@ -1082,6 +1183,174 @@
                     "gap": { "default": 24, "type": "number", "minimum": 0 }
                   },
                   "required": ["type", "layerIds", "items"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["create_bug", "create_ticker", "create_scoreboard", "create_clock"]
+                    },
+                    "compositionId": { "type": "string" },
+                    "stylePack": {
+                      "type": "string",
+                      "enum": ["news", "sports", "entertainment", "documentary"]
+                    },
+                    "name": { "type": "string", "minLength": 1 },
+                    "placement": {
+                      "type": "object",
+                      "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" },
+                        "width": { "type": "number", "exclusiveMinimum": 0 },
+                        "height": { "type": "number", "exclusiveMinimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "content": {
+                      "type": "object",
+                      "properties": {
+                        "label": { "type": "string" },
+                        "text": { "type": "string" },
+                        "homeName": { "type": "string" },
+                        "homeScore": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "awayScore": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "awayName": { "type": "string" },
+                        "hours": { "type": "string" },
+                        "minutes": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fieldKey": { "type": "string", "minLength": 1 },
+                    "fieldKeys": {
+                      "type": "object",
+                      "properties": {
+                        "label": { "type": "string", "minLength": 1 },
+                        "text": { "type": "string", "minLength": 1 },
+                        "homeName": { "type": "string", "minLength": 1 },
+                        "homeScore": { "type": "string", "minLength": 1 },
+                        "awayScore": { "type": "string", "minLength": 1 },
+                        "awayName": { "type": "string", "minLength": 1 },
+                        "hours": { "type": "string", "minLength": 1 },
+                        "minutes": { "type": "string", "minLength": 1 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "speedPixelsPerSecond": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 4000
+                    },
+                    "motion": {
+                      "type": "object",
+                      "properties": {
+                        "style": { "type": "string", "enum": ["wipe", "stagger", "slide", "none"] },
+                        "entrance": {
+                          "type": "string",
+                          "enum": ["left", "right", "up", "down", "none"]
+                        },
+                        "exit": {
+                          "type": "string",
+                          "enum": ["left", "right", "up", "down", "none"]
+                        },
+                        "staggerFrames": { "type": "integer", "minimum": 0, "maximum": 120 },
+                        "entranceDurationFrames": {
+                          "type": "integer",
+                          "minimum": 2,
+                          "maximum": 600
+                        },
+                        "exitDurationFrames": { "type": "integer", "minimum": 2, "maximum": 600 },
+                        "entranceEasing": {
+                          "type": "string",
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "quad-in",
+                            "quad-out",
+                            "quad-in-out",
+                            "cubic-in",
+                            "cubic-out",
+                            "cubic-in-out",
+                            "quart-in",
+                            "quart-out",
+                            "quart-in-out",
+                            "quint-in",
+                            "quint-out",
+                            "quint-in-out",
+                            "sine-in",
+                            "sine-out",
+                            "sine-in-out",
+                            "expo-in",
+                            "expo-out",
+                            "expo-in-out",
+                            "circ-in",
+                            "circ-out",
+                            "circ-in-out",
+                            "back-in",
+                            "back-out",
+                            "back-in-out",
+                            "bounce-in",
+                            "bounce-out",
+                            "bounce-in-out",
+                            "elastic-in",
+                            "elastic-out",
+                            "elastic-in-out"
+                          ]
+                        },
+                        "exitEasing": {
+                          "type": "string",
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "quad-in",
+                            "quad-out",
+                            "quad-in-out",
+                            "cubic-in",
+                            "cubic-out",
+                            "cubic-in-out",
+                            "quart-in",
+                            "quart-out",
+                            "quart-in-out",
+                            "quint-in",
+                            "quint-out",
+                            "quint-in-out",
+                            "sine-in",
+                            "sine-out",
+                            "sine-in-out",
+                            "expo-in",
+                            "expo-out",
+                            "expo-in-out",
+                            "circ-in",
+                            "circ-out",
+                            "circ-in-out",
+                            "back-in",
+                            "back-out",
+                            "back-in-out",
+                            "bounce-in",
+                            "bounce-out",
+                            "bounce-in-out",
+                            "elastic-in",
+                            "elastic-out",
+                            "elastic-in-out"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["type"]
                 },
                 {
                   "type": "object",

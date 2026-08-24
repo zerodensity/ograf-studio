@@ -203,6 +203,17 @@ parent ID; it applies a placement offset and assigns one fresh persistent canvas
 is a set of normal independent layers. Component definitions are not compiled, so exported OGraf
 packages have no studio-specific component runtime or vendor dependency.
 
+Broadcast style packs are immutable scene-model catalog definitions, not compiled resources.
+Applying one copies canonical palette/type/radius/outline/motion values into the composition's normal
+editable design tokens and materializes compatible semantic layer bindings. Recipes consume those
+copied values and author ordinary properties/tracks; neither pack identity nor recipe machinery
+crosses the compiled descriptor boundary.
+
+Bug, ticker, scoreboard, and clock recipes follow the same materialization boundary as lower thirds:
+they create normal layers, fields, groups, semantics, and lifecycle tracks and return their complete
+ID mappings. The ticker's crawl is the deliberate local-loop case: a clipped text child owns one
+absolute-time X loop while its finite lifecycle X track remains static.
+
 The main canvas has mutually exclusive authoring and OGraf-runtime surfaces. Entering OGraf Preview
 compiles the current composition through `compileDescriptor` and mounts a freshly registered
 `GraphicElement` in the same pasteboard viewport. Template edits rebuild, dispose, and automatically

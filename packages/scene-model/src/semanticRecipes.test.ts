@@ -77,6 +77,24 @@ describe('semantic authoring recipes', () => {
     expect(composition.layers.every((layer) => layer.parentId === null)).toBe(true);
   });
 
+  it('consumes editable style-pack palette, type, and motion conventions', () => {
+    const composition = createProject().compositions[0]!;
+    const result = materializeLowerThird(composition, { stylePack: 'sports' });
+    const panel = composition.layers.find((layer) => layer.id === result.layers.panel)!;
+    const headline = composition.layers.find((layer) => layer.id === result.layers.headline)!;
+
+    expect(result.stylePack).toBe('sports');
+    expect(composition.designSystem.name).toBe('Sports Brand Kit');
+    expect(headline.element).toMatchObject({
+      type: 'text',
+      fontSize: 68,
+      fontWeight: 800,
+      color: '#FFFFFF',
+    });
+    expect(panel.animationTracks.width?.find((key) => key.frame === 4)?.value).toBe(1);
+    expect(panel.animationTracks.width?.find((key) => key.frame === 12)?.easing).toBe('expo-out');
+  });
+
   it('authors a four-layer stagger cascade entirely before the first Step', () => {
     const composition = createProject().compositions[0]!;
     materializeLowerThird(composition, {

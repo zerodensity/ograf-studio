@@ -3,6 +3,7 @@ import { immer } from 'zustand/middleware/immer';
 import {
   createAsset,
   applyDesignTokenBinding,
+  applyStylePack,
   dataUriByteSize,
   findAssetConsumers,
   buildComponentDefinition,
@@ -28,6 +29,10 @@ import {
   getTotalFrames,
   migrateProject,
   materializeLowerThird,
+  materializeBug,
+  materializeClock,
+  materializeScoreboard,
+  materializeTicker,
   materializeRepeater,
   instantiateComponentDefinition,
   refreshComponentInstances,
@@ -68,7 +73,10 @@ import {
   type LayerConstraints,
   type NewLayerKind,
   type MaterializedLowerThird,
+  type MaterializedBroadcastRecipe,
   type MaterializedRepeater,
+  type AppliedStylePack,
+  type StylePackId,
   type PathElement,
   type Paint,
   type Project,
@@ -129,6 +137,10 @@ interface ProjectActions {
 
   addLayer: (kind: NewLayerKind) => string;
   addLowerThird: () => MaterializedLowerThird;
+  addBug: () => MaterializedBroadcastRecipe;
+  addTicker: () => MaterializedBroadcastRecipe;
+  addScoreboard: () => MaterializedBroadcastRecipe;
+  addClock: () => MaterializedBroadcastRecipe;
   addRepeater: (
     layerIds: string[],
     count?: number,
@@ -219,6 +231,7 @@ interface ProjectActions {
   setLayerConstraints: (layerId: string, constraints: Partial<LayerConstraints>) => void;
   setLayerSemantics: (layerId: string, patch: Partial<LayerSemantics>) => void;
   setDesignSystemName: (name: string) => void;
+  applyStylePack: (stylePack: StylePackId) => AppliedStylePack;
   addDesignToken: (type?: DesignTokenType) => string;
   updateDesignToken: (tokenId: string, patch: Partial<Omit<DesignToken, 'id'>>) => void;
   removeDesignToken: (tokenId: string) => void;
@@ -607,6 +620,42 @@ export const useProjectStore = create<ProjectStore>()(
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           result = materializeLowerThird(composition);
+        });
+        return result;
+      },
+
+      addBug: () => {
+        let result!: MaterializedBroadcastRecipe;
+        set((state) => {
+          result = materializeBug(getActiveComposition(state.project, state.activeCompositionId));
+        });
+        return result;
+      },
+
+      addTicker: () => {
+        let result!: MaterializedBroadcastRecipe;
+        set((state) => {
+          result = materializeTicker(
+            getActiveComposition(state.project, state.activeCompositionId),
+          );
+        });
+        return result;
+      },
+
+      addScoreboard: () => {
+        let result!: MaterializedBroadcastRecipe;
+        set((state) => {
+          result = materializeScoreboard(
+            getActiveComposition(state.project, state.activeCompositionId),
+          );
+        });
+        return result;
+      },
+
+      addClock: () => {
+        let result!: MaterializedBroadcastRecipe;
+        set((state) => {
+          result = materializeClock(getActiveComposition(state.project, state.activeCompositionId));
         });
         return result;
       },
@@ -1530,6 +1579,17 @@ export const useProjectStore = create<ProjectStore>()(
               trimmed;
           }
         }),
+
+      applyStylePack: (stylePack) => {
+        let result!: AppliedStylePack;
+        set((state) => {
+          result = applyStylePack(
+            getActiveComposition(state.project, state.activeCompositionId),
+            stylePack,
+          );
+        });
+        return result;
+      },
 
       addDesignToken: (type = 'color') => {
         const tokenId = createId('design-token');

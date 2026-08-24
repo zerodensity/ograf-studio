@@ -140,6 +140,7 @@ export class AuthoringSession {
         duplicateGroups: [],
         componentInstances: [],
         semanticBlocks: [],
+        stylePacks: [],
         repeaters: [],
       },
     });
@@ -173,6 +174,7 @@ export class AuthoringSession {
       duplicateGroups: [],
       componentInstances: [],
       semanticBlocks: [],
+      stylePacks: [],
       repeaters: [],
     };
     const undoToken = createId('undo');

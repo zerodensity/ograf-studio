@@ -96,6 +96,14 @@ AI-first broadcast authoring and OGraf compliance hardening.
   Explicit stagger, slide, and no-motion styles share the same portable ordinary-layer model;
   finite repeaters clone selected source layers and fields into horizontal or vertical materialized
   collections.
+- Four immutable broadcast style-pack definitions now provide News, Sports, Entertainment, and
+  Documentary palettes, modular type scales, font/weight/radius/outline tokens, and editable motion
+  conventions. Applying a pack copies normal composition-local Brand Kit tokens and materializes
+  compatible semantic layer properties; no pack metadata or runtime dependency enters OGraf output.
+- Materialized semantic recipes now cover bug/DOG, clipped ticker/crawl, two-team scoreboard, and
+  24-hour clock in addition to lower thirds and repeaters. Every recipe returns complete layer/field
+  mappings and ordinary editable grouped output. Ticker motion is a deterministic local loop inside
+  a `clipChildren` window, never a lifecycle-long translate track.
 - Explicit Start → Step(s) → End authoring model with legacy project migration.
 - Correct first-play, boundary-crossing, stop, and zero-step lifecycle resolution.
 - State-aware exits now interpolate directly from the active rendered Step to End using the
@@ -257,7 +265,8 @@ AI-first broadcast authoring and OGraf compliance hardening.
   reviewed together.
 - MCP contracts are generated from the registered SDK/Zod tool definitions into
   `docs/generated/mcp-contracts.{md,json}`. `npm run contracts:check` is the first verification gate,
-  preventing documentation/schema drift. The current generated surface contains 28 tools.
+  preventing documentation/schema drift. The current generated surface contains 26 tools and stays
+  below the enforced 150,000-byte context budget.
 - Agent visual verification now uses authoritative browser-rendered PNG rather than the approximate
   SVG path: composition or viewport targets, transparent/checker/solid mattes, temporary data-field
   overrides, max-dimension scaling, inferred resolved-font reporting, five-minute localhost URLs,
@@ -363,8 +372,9 @@ AI-first broadcast authoring and OGraf compliance hardening.
 
 ## Next milestone
 
-- W6 reusable broadcast style packs and W7 materialized bug/ticker/scoreboard/clock recipes remain
-  queued. W8 text stroke is implemented; headless render/certify remains explicitly gated.
+- W4's certified golden template corpus and read-only template MCP tools remain the next major
+  quality-content item and require explicit design direction/reference examples. Headless
+  render/certify remains explicitly gated.
 - Overlapping-action/concurrency and browser E2E coverage; package/module/lifecycle smoke testing is
   now enforced in the product save path.
 - Packaged fonts, localization/RTL, and advanced broadcaster authoring tools.
@@ -380,9 +390,9 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-08-24, including generated MCP contract drift, format, lint, all
-  workspace typechecks, 285 tests across 56 files, the runtime bundle, and the editor production
+  workspace typechecks, 300 tests across 58 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 285-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- The 300-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,
@@ -396,6 +406,12 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
   presets, clipping-aware design visibility, schema discovery, and compiled lower-third clip
   relations. A generated default wipe scored 100 with zero design findings and passed all five
   exact dual-mode certification gates.
+- W6/W7 live verification: one Sports pack transaction created scoreboard, clock, bug, and ticker
+  recipes with complete mappings and scored 99/100. Browser PNG showed one coherent package; ticker
+  sampling moved the crawl from X=1800 to X=-468 at half of its 472-frame local loop while its
+  finite X track remained static. All five exact dual-profile certification gates passed and the
+  temporary session was deleted. The authoring-only catalog is fully tree-shaken: the runtime bundle
+  remains exactly 614.78 kB (133.45 kB gzip), matching the W8 baseline.
 - W8 live verification: one document-v20 text layer rendered a labelled browser contact sheet at
   2 px and 8 px sampled outline widths; the fill remained intact while the outline expanded behind
   it. The browser-free SVG reported the same 8 px sample and `paint-order="stroke fill"`, MCP

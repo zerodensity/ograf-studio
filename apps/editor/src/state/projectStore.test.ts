@@ -24,4 +24,18 @@ describe('project store text stroke authoring', () => {
     expect(getLayerPropertyValueAtFrame(layer, 'strokeWidth', 6)).toBe(5);
     expect(layer.animationTracks.strokeWidth?.some((key) => key.frame === 6)).toBe(true);
   });
+
+  it('applies style packs and adds portable broadcast recipes from the editor store', () => {
+    const applied = useProjectStore.getState().applyStylePack('documentary');
+    const ticker = useProjectStore.getState().addTicker();
+    const state = useProjectStore.getState();
+    const composition = getActiveComposition(state.project, state.activeCompositionId);
+
+    expect(applied.packId).toBe('documentary');
+    expect(composition.designSystem.name).toBe('Documentary Brand Kit');
+    expect(ticker.recipe).toBe('ticker');
+    expect(
+      composition.layers.find((layer) => layer.id === ticker.layers.crawl)?.loop,
+    ).not.toBeNull();
+  });
 });

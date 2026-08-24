@@ -96,14 +96,17 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 
 - Prefer `sessionId: "editor"` when collaborating in the visible application.
 - Assign meaningful `set_layer_semantics` roles, tags, and descriptions to authored layers. Use
-  `create_lower_third` for the standard grouped semantic recipe and `ograf_query_scene` for compact
-  later selection. Its default `wipe` style uses the panel as a compiled clipping mask with a
-  decelerating entrance and accelerating exit; choose `stagger`, `slide`, or `none` only when the
-  brief calls for them. Semantic metadata guides authoring and QA but never enters compiled playout.
-- Use Brand Kit operations to create typed design tokens and `bind_design_token` to apply them to
-  compatible layer properties. Token links are authoring metadata; OGraf Studio materializes their
-  current values into standard element properties so the exported template has no token-runtime
-  dependency.
+  `create_lower_third`, `create_bug`, `create_ticker`, `create_scoreboard`, or `create_clock` when
+  the brief matches a standard grouped semantic recipe, then use `ograf_query_scene` for compact
+  later selection. The ticker recipe deliberately uses a clipped local loop for its crawl rather
+  than a lifecycle-long translation. Recipe output is ordinary editable OGraf layers, fields,
+  groups, and tracks; semantic metadata guides authoring and QA but never enters compiled playout.
+- Prefer `apply_style_pack` before broad styling. `news`, `sports`, `entertainment`, and
+  `documentary` copy an immutable catalog definition into normal editable Brand Kit tokens, then
+  materialize compatible semantic layer properties. Palette, modular type scale, radius/outline,
+  and motion-convention tokens remain editable starting points. Token links are authoring metadata;
+  exported graphics have no style-pack runtime dependency. A recipe `stylePack` option applies the
+  same vocabulary while explicit recipe theme/motion values remain deliberate overrides.
 - Text outlines use static `strokeColor` plus an independent, non-negative numeric `strokeWidth`
   track. Use them for legibility over unpredictable video, especially sports and score graphics.
   Keep `paint-order: stroke fill` semantics by authoring through Studio rather than simulating an

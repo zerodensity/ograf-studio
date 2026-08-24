@@ -113,7 +113,13 @@ export function applyDesignTokenBinding(
   } else if (property === 'fontFamily' && layer.element.type === 'text') {
     layer.element.fontFamily = String(value);
   } else if (property === 'fontSize' && layer.element.type === 'text') {
+    const previousSize = Math.max(1, layer.element.fontSize);
+    const floorRatio = layer.element.minFontSize / previousSize;
     layer.element.fontSize = Math.max(1, Number(value));
+    layer.element.minFontSize = Math.min(
+      layer.element.fontSize,
+      Math.max(1, layer.element.fontSize * floorRatio),
+    );
   } else if (property === 'fontWeight' && layer.element.type === 'text') {
     layer.element.fontWeight = Math.max(1, Math.round(Number(value)));
   }

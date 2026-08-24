@@ -7,10 +7,18 @@ import {
   type MotionDirection,
   type MotionStyle,
 } from './motionPresets';
-import type { Composition, Layer, LayerTransform, Paint } from './types';
+import {
+  applyStylePack,
+  resolveStylePackMotion,
+  STYLE_TOKEN_KEYS,
+  styleTokenValue,
+  type StylePackId,
+} from './stylePacks';
+import type { Composition, EasingPreset, Layer, LayerTransform, Paint } from './types';
 
 export interface LowerThirdRecipeOptions {
   name?: string;
+  stylePack?: StylePackId;
   placement?: Partial<Pick<LayerTransform, 'x' | 'y' | 'width' | 'height'>>;
   content?: { headline?: string; subheadline?: string };
   fieldKeys?: { headline?: string; subheadline?: string };
@@ -25,12 +33,19 @@ export interface LowerThirdRecipeOptions {
     entrance?: MotionDirection;
     exit?: MotionDirection;
     staggerFrames?: number;
+    entranceDurationFrames?: number;
+    exitDurationFrames?: number;
+    entranceEasing?: EasingPreset;
+    exitEasing?: EasingPreset;
   };
 }
+
+type ResolvedLowerThirdMotion = Required<NonNullable<LowerThirdRecipeOptions['motion']>>;
 
 export interface MaterializedLowerThird {
   recipe: 'lower-third';
   name: string;
+  stylePack?: StylePackId;
   groupId: string;
   timelineGroupId: string;
   layers: {
@@ -58,7 +73,7 @@ function recipeLayer(
   role: Layer['semantics']['role'],
   tags: string[],
   onAir: LayerTransform,
-  motion: Required<NonNullable<LowerThirdRecipeOptions['motion']>>,
+  motion: ResolvedLowerThirdMotion,
   cascadeIndex: number,
   isRevealMask = false,
 ): Layer {
@@ -81,6 +96,10 @@ function recipeLayer(
     cascadeIndex,
     cascadeCount: 4,
     isRevealMask,
+    entranceDurationFrames: motion.entranceDurationFrames,
+    exitDurationFrames: motion.exitDurationFrames,
+    entranceEasing: motion.entranceEasing,
+    exitEasing: motion.exitEasing,
   });
   layer.animationTracks = createAnimationTracksFromLegacyLayer(layer);
   return layer;
@@ -99,6 +118,13 @@ export function materializeLowerThird(
   }
 
   const name = options.name?.trim() || 'Lower Third';
+  const stylePack = options.stylePack;
+  if (stylePack) {
+    applyStylePack(composition, stylePack, { refreshTokens: true });
+  }
+  const packMotion = stylePack ? resolveStylePackMotion(composition, stylePack) : null;
+  const packValue = (key: Parameters<typeof styleTokenValue>[1], fallback: string | number) =>
+    stylePack ? styleTokenValue(composition, key, fallback) : fallback;
   const x = Math.round(options.placement?.x ?? composition.width * 0.08);
   const y = Math.round(options.placement?.y ?? composition.height * 0.74);
   const width = Math.max(320, Math.round(options.placement?.width ?? composition.width * 0.62));
@@ -111,10 +137,18 @@ export function materializeLowerThird(
     style: options.motion?.style ?? 'wipe',
     entrance: options.motion?.entrance ?? 'left',
     exit: options.motion?.exit ?? 'down',
-    staggerFrames: Math.round(options.motion?.staggerFrames ?? 3),
-  } satisfies Required<NonNullable<LowerThirdRecipeOptions['motion']>>;
+    staggerFrames: Math.round(options.motion?.staggerFrames ?? packMotion?.staggerFrames ?? 3),
+    entranceDurationFrames: Math.round(
+      options.motion?.entranceDurationFrames ?? packMotion?.entranceFrames ?? 12,
+    ),
+    exitDurationFrames: Math.round(
+      options.motion?.exitDurationFrames ?? packMotion?.exitFrames ?? 12,
+    ),
+    entranceEasing: options.motion?.entranceEasing ?? packMotion?.entranceEasing ?? 'cubic-out',
+    exitEasing: options.motion?.exitEasing ?? packMotion?.exitEasing ?? 'cubic-in',
+  } satisfies ResolvedLowerThirdMotion;
   if (motion.style === 'stagger' && motion.entrance !== 'none') {
-    assertStaggerFits(composition, 4, motion.staggerFrames);
+    assertStaggerFits(composition, 4, motion.staggerFrames, motion.entranceDurationFrames);
   }
 
   const panel = recipeLayer(
@@ -140,7 +174,8 @@ export function materializeLowerThird(
   );
   panel.clipChildren = motion.style === 'wipe';
   if (panel.element.type === 'rectangle') {
-    panel.element.fill = options.theme?.background ?? '#152235';
+    panel.element.fill =
+      options.theme?.background ?? String(packValue(STYLE_TOKEN_KEYS.surface, '#152235'));
     panel.element.borderRadius = Math.round(height * 0.08);
   }
 
@@ -165,7 +200,8 @@ export function materializeLowerThird(
     1,
   );
   if (accent.element.type === 'rectangle') {
-    accent.element.fill = options.theme?.accent ?? '#31b7d4';
+    accent.element.fill =
+      options.theme?.accent ?? String(packValue(STYLE_TOKEN_KEYS.accent, '#31b7d4'));
     accent.element.borderRadius =
       panel.element.type === 'rectangle' ? panel.element.borderRadius : 0;
   }
@@ -194,7 +230,8 @@ export function materializeLowerThird(
   );
   if (headline.element.type === 'text') {
     headline.element.content = options.content?.headline ?? 'Headline';
-    headline.element.color = options.theme?.primaryText ?? '#ffffff';
+    headline.element.color =
+      options.theme?.primaryText ?? String(packValue(STYLE_TOKEN_KEYS.primaryText, '#ffffff'));
     headline.element.fontSize = Math.max(28, Math.round(height * 0.27));
     headline.element.fontWeight = 700;
     headline.element.autoFit = 'shrink-to-fit';
@@ -224,7 +261,8 @@ export function materializeLowerThird(
   );
   if (subheadline.element.type === 'text') {
     subheadline.element.content = options.content?.subheadline ?? 'Secondary line';
-    subheadline.element.color = options.theme?.secondaryText ?? '#cbd7e5';
+    subheadline.element.color =
+      options.theme?.secondaryText ?? String(packValue(STYLE_TOKEN_KEYS.secondaryText, '#cbd7e5'));
     subheadline.element.fontSize = Math.max(20, Math.round(height * 0.17));
     subheadline.element.fontWeight = 500;
     subheadline.element.autoFit = 'shrink-to-fit';
@@ -282,10 +320,38 @@ export function materializeLowerThird(
         : '#31b7d4',
     layerIds: [panel.id, accent.id, headline.id, subheadline.id],
   });
+  if (stylePack) {
+    applyStylePack(composition, stylePack, {
+      bindLayerIds: [panel.id, accent.id, headline.id, subheadline.id],
+      refreshTokens: false,
+    });
+    const clearBinding = (layer: Layer, property: string) => {
+      layer.designTokenBindings = layer.designTokenBindings.filter(
+        (binding) => binding.targetProperty !== property,
+      );
+    };
+    if (options.theme?.background !== undefined && panel.element.type === 'rectangle') {
+      panel.element.fill = options.theme.background;
+      clearBinding(panel, 'fill');
+    }
+    if (options.theme?.accent !== undefined && accent.element.type === 'rectangle') {
+      accent.element.fill = options.theme.accent;
+      clearBinding(accent, 'fill');
+    }
+    if (options.theme?.primaryText !== undefined && headline.element.type === 'text') {
+      headline.element.color = options.theme.primaryText;
+      clearBinding(headline, 'color');
+    }
+    if (options.theme?.secondaryText !== undefined && subheadline.element.type === 'text') {
+      subheadline.element.color = options.theme.secondaryText;
+      clearBinding(subheadline, 'color');
+    }
+  }
 
   return {
     recipe: 'lower-third',
     name,
+    ...(stylePack ? { stylePack } : {}),
     groupId,
     timelineGroupId,
     layers: {
