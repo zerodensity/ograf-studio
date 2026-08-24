@@ -1,5 +1,9 @@
 import * as z from 'zod/v4';
-import { BLEND_MODES, type AnimatableLayerProperty } from '@ograf-editor/scene-model';
+import {
+  BLEND_MODES,
+  type AnimatableLayerProperty,
+  type FieldValue,
+} from '@ograf-editor/scene-model';
 
 export const EASING_PRESETS = [
   'linear',
@@ -98,8 +102,18 @@ const valueMapSchema = z
   .record(z.string(), z.union([z.string(), z.number(), z.boolean(), gradientPaintSchema]))
   .optional();
 const layerBindingSchema = z.union([
-  z.object({ fieldId: z.string(), targetProperty: z.string(), valueMap: valueMapSchema }),
-  z.object({ fieldKey: z.string(), targetProperty: z.string(), valueMap: valueMapSchema }),
+  z.object({
+    fieldId: z.string(),
+    targetProperty: z.string(),
+    sourcePath: z.array(z.string().min(1)).optional(),
+    valueMap: valueMapSchema,
+  }),
+  z.object({
+    fieldKey: z.string(),
+    targetProperty: z.string(),
+    sourcePath: z.array(z.string().min(1)).optional(),
+    valueMap: valueMapSchema,
+  }),
 ]);
 const transform = z
   .object({
@@ -177,14 +191,20 @@ const fieldTypeSchema = z.enum([
   'file-path',
   'select',
   'select-multiple',
+  'object',
+  'array',
 ]);
-export const fieldValueSchema = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.array(z.string()),
-  gradientPaintSchema,
-]);
+export const fieldValueSchema: z.ZodType<FieldValue> = z.lazy(() =>
+  z.union([
+    gradientPaintSchema,
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(fieldValueSchema),
+    z.record(z.string(), fieldValueSchema),
+  ]),
+);
 const fieldOptionSchema = z.object({ value: z.string(), label: z.string() }).strict();
 const fieldConstraintsSchema = z
   .object({
@@ -194,8 +214,28 @@ const fieldConstraintsSchema = z
     maximum: z.number().finite().optional(),
     pattern: z.string().optional(),
     step: z.number().positive().finite().optional(),
+    minItems: z.number().int().nonnegative().optional(),
+    maxItems: z.number().int().nonnegative().max(100).optional(),
   })
   .strict();
+const fieldSchemaInputSchema: z.ZodType = z.lazy(() =>
+  z
+    .object({
+      id: z.string().min(1).optional(),
+      key: z.string().min(1),
+      label: z.string().optional(),
+      description: z.string().optional(),
+      fieldType: fieldTypeSchema,
+      defaultValue: fieldValueSchema.optional(),
+      required: z.boolean().optional(),
+      options: z.array(fieldOptionSchema).optional(),
+      constraints: fieldConstraintsSchema.optional(),
+      fileExtensions: z.array(z.string()).optional(),
+      properties: z.array(fieldSchemaInputSchema).optional(),
+      items: fieldSchemaInputSchema.nullable().optional(),
+    })
+    .strict(),
+);
 
 export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({
@@ -717,6 +757,8 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     options: z.array(fieldOptionSchema).optional(),
     constraints: fieldConstraintsSchema.optional(),
     fileExtensions: z.array(z.string()).optional(),
+    properties: z.array(fieldSchemaInputSchema).optional(),
+    items: fieldSchemaInputSchema.nullable().optional(),
   }),
   z.object({
     type: z.literal('update_data_field'),
@@ -732,6 +774,8 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     options: z.array(fieldOptionSchema).optional(),
     constraints: fieldConstraintsSchema.optional(),
     fileExtensions: z.array(z.string()).optional(),
+    properties: z.array(fieldSchemaInputSchema).optional(),
+    items: fieldSchemaInputSchema.nullable().optional(),
   }),
   z.object({
     type: z.literal('remove_data_field'),
@@ -752,6 +796,38 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     layerId,
     layerName,
     bindings: z.array(layerBindingSchema),
+  }),
+  z.object({
+    type: z.literal('create_runtime_collection'),
+    compositionId,
+    name: z.string().min(1).optional(),
+    fieldId: z.string().optional(),
+    fieldKey: z.string().optional(),
+    layerIds: z.array(z.string()).min(1).optional(),
+    layerNames: z.array(z.string().min(1)).min(1).optional(),
+    groupId: z.string().min(1).optional(),
+    offsetPerItem: z.object({ x: z.number(), y: z.number() }).strict(),
+    capacity: z.number().int().min(1).max(100).default(12),
+    overflow: z.literal('truncate').default('truncate'),
+  }),
+  z.object({
+    type: z.literal('update_runtime_collection'),
+    compositionId,
+    collectionId: z.string().min(1),
+    name: z.string().min(1).optional(),
+    fieldId: z.string().optional(),
+    fieldKey: z.string().optional(),
+    layerIds: z.array(z.string()).min(1).optional(),
+    layerNames: z.array(z.string().min(1)).min(1).optional(),
+    groupId: z.string().min(1).optional(),
+    offsetPerItem: z.object({ x: z.number(), y: z.number() }).strict().optional(),
+    capacity: z.number().int().min(1).max(100).optional(),
+    overflow: z.literal('truncate').optional(),
+  }),
+  z.object({
+    type: z.literal('remove_runtime_collection'),
+    compositionId,
+    collectionId: z.string().min(1),
   }),
   z.object({
     type: z.literal('add_custom_action'),

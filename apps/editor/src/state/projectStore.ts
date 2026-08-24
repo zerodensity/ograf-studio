@@ -73,6 +73,7 @@ import {
   type Paint,
   type Project,
   type RectangleElement,
+  type RuntimeCollectionDefinition,
   type TextElement,
 } from '@ograf-editor/scene-model';
 import {
@@ -256,10 +257,28 @@ interface ProjectActions {
         | 'options'
         | 'constraints'
         | 'fileExtensions'
+        | 'properties'
+        | 'items'
       >
     >,
   ) => void;
   setLayerBindings: (layerId: string, bindings: LayerBinding[]) => void;
+  addRuntimeCollection: (
+    fieldId: string,
+    prototypeLayerIds: string[],
+    offsetPerItem: { x: number; y: number },
+    capacity: number,
+  ) => string;
+  updateRuntimeCollection: (
+    collectionId: string,
+    patch: Partial<
+      Pick<
+        RuntimeCollectionDefinition,
+        'name' | 'fieldId' | 'prototypeLayerIds' | 'offsetPerItem' | 'capacity'
+      >
+    >,
+  ) => void;
+  removeRuntimeCollection: (collectionId: string) => void;
 
   addCustomAction: () => string;
   removeCustomAction: (actionDefId: string) => void;
@@ -693,6 +712,13 @@ export const useProjectStore = create<ProjectStore>()(
       removeLayer: (layerId) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
+          if (
+            composition.runtimeCollections.some((collection) =>
+              collection.prototypeLayerIds.includes(layerId),
+            )
+          ) {
+            return;
+          }
           if (composition.layers.find((layer) => layer.id === layerId)?.isLocked) return;
           composition.layers = composition.layers.filter((l) => l.id !== layerId);
           for (const layer of composition.layers) {
@@ -1266,6 +1292,13 @@ export const useProjectStore = create<ProjectStore>()(
       ungroupLayers: (layerIds) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
+          if (
+            composition.runtimeCollections.some((collection) =>
+              collection.prototypeLayerIds.some((layerId) => layerIds.includes(layerId)),
+            )
+          ) {
+            return;
+          }
           const groupIds = new Set(
             composition.layers
               .filter((layer) => layerIds.includes(layer.id))
@@ -1736,6 +1769,9 @@ export const useProjectStore = create<ProjectStore>()(
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           composition.dataFields = composition.dataFields.filter((f) => f.id !== fieldId);
+          composition.runtimeCollections = composition.runtimeCollections.filter(
+            (collection) => collection.fieldId !== fieldId,
+          );
           for (const layer of composition.layers) {
             layer.bindings = layer.bindings.filter((binding) => binding.fieldId !== fieldId);
           }
@@ -1756,6 +1792,24 @@ export const useProjectStore = create<ProjectStore>()(
             else nextPatch.key = trimmed;
           }
           Object.assign(field, nextPatch);
+          if (nextPatch.type !== undefined && nextPatch.type !== 'array') {
+            composition.runtimeCollections = composition.runtimeCollections.filter(
+              (collection) => collection.fieldId !== field.id,
+            );
+          }
+          const collection = composition.runtimeCollections.find(
+            (candidate) => candidate.fieldId === field.id,
+          );
+          const maxItems = nextPatch.constraints?.maxItems;
+          if (
+            collection &&
+            maxItems !== undefined &&
+            Number.isInteger(maxItems) &&
+            maxItems >= 1 &&
+            maxItems <= 100
+          ) {
+            collection.capacity = maxItems;
+          }
         }),
 
       setLayerBindings: (layerId, bindings) =>
@@ -1763,6 +1817,55 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((l) => l.id === layerId);
           if (layer && !layer.isLocked) layer.bindings = bindings;
+        }),
+
+      addRuntimeCollection: (fieldId, prototypeLayerIds, offsetPerItem, capacity) => {
+        let id = '';
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const field = composition.dataFields.find((candidate) => candidate.id === fieldId);
+          if (!field || field.type !== 'array' || field.items?.type !== 'object') return;
+          if (composition.runtimeCollections.some((collection) => collection.fieldId === fieldId)) {
+            return;
+          }
+          const normalizedCapacity = Math.max(1, Math.min(100, Math.round(capacity)));
+          id = createId('runtime-collection');
+          field.constraints = { ...field.constraints, maxItems: normalizedCapacity };
+          composition.runtimeCollections.push({
+            id,
+            name: field.label || field.key,
+            fieldId,
+            prototypeLayerIds: [...new Set(prototypeLayerIds)],
+            offsetPerItem: { ...offsetPerItem },
+            capacity: normalizedCapacity,
+            overflow: 'truncate',
+          });
+        });
+        return id;
+      },
+
+      updateRuntimeCollection: (collectionId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const collection = composition.runtimeCollections.find(
+            (candidate) => candidate.id === collectionId,
+          );
+          if (!collection) return;
+          Object.assign(collection, patch);
+          collection.capacity = Math.max(1, Math.min(100, Math.round(collection.capacity)));
+          collection.prototypeLayerIds = [...new Set(collection.prototypeLayerIds)];
+          const field = composition.dataFields.find(
+            (candidate) => candidate.id === collection.fieldId,
+          );
+          if (field) field.constraints = { ...field.constraints, maxItems: collection.capacity };
+        }),
+
+      removeRuntimeCollection: (collectionId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          composition.runtimeCollections = composition.runtimeCollections.filter(
+            (collection) => collection.id !== collectionId,
+          );
         }),
 
       addCustomAction: () => {

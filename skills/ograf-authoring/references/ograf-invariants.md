@@ -57,10 +57,17 @@ Save/export must certify the same artifact bytes that are written. If certificat
 
 ## Data
 
-Field keys must be unique. Bindings resolve to stable field IDs and a valid element target property. Asset IDs are unique and `asset:<id>` references must resolve inside the same composition. Keep authored defaults useful because they become schema defaults and are exercised during lifecycle certification.
+Field keys must be unique. Nested object keys must be unique among siblings. Bindings resolve to
+stable field IDs, a scalar leaf through an unambiguous `sourcePath` segment array, and a valid element
+target property. Asset IDs are unique and `asset:<id>` references must resolve inside the same
+composition. Keep authored defaults useful because they become schema defaults and are exercised
+during lifecycle certification.
 
 Every field compiles an operator-facing `gddType`. Select defaults must reference declared options;
 select-multiple defaults must contain only declared string values. Descriptions, option labels, file
-extensions, and constraints belong in the manifest schema and must survive OGraf import/export.
-Arrays/objects beyond select-multiple remain outside the scalar W12a profile until the W12b runtime
-collection design is approved.
+extensions, recursive object properties, array item schemas, and constraints belong in the manifest
+schema and must survive OGraf import/export. A runtime collection accepts only object-item arrays,
+one contiguous persistent-group prototype, explicit finite offsets, capacity 1..100, and truncate
+overflow. Capacity equals `maxItems`; prototype clip parents stay inside the prototype; one array
+field drives at most one collection. Scheduled updates are pure index-based snapshots and must remain
+reproducible when `goToTime()` seeks backward.

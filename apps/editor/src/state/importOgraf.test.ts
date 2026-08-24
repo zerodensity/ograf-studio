@@ -107,6 +107,66 @@ describe('best-effort OGraf import', () => {
     });
   });
 
+  it('round-trips recursive GDD fields and editor-generated runtime collections', async () => {
+    const project = createProject({ name: 'Leaderboard' });
+    const composition = project.compositions[0]!;
+    const field = createFieldDefinition('array', {
+      key: 'leaderboard',
+      constraints: { minItems: 0, maxItems: 4 },
+      items: createFieldDefinition('object', {
+        key: 'item',
+        properties: [createFieldDefinition('text', { key: 'name', required: true })],
+        defaultValue: { name: '' },
+      }),
+      defaultValue: [{ name: 'Ada' }],
+    });
+    const plate = createLayerOfKind('rectangle');
+    const label = createLayerOfKind('text');
+    plate.groupId = 'row';
+    label.groupId = 'row';
+    label.bindings = [{ fieldId: field.id, targetProperty: 'content', sourcePath: ['name'] }];
+    const pose = defaultTransformFor('text');
+    plate.keyframes = [createLayerKeyframe(0, defaultTransformFor('rectangle'))];
+    label.keyframes = [createLayerKeyframe(0, pose)];
+    composition.layers = [plate, label];
+    composition.dataFields = [field];
+    composition.runtimeCollections = [
+      {
+        id: 'leaderboard-rows',
+        name: 'Leaderboard rows',
+        fieldId: field.id,
+        prototypeLayerIds: [plate.id, label.id],
+        offsetPerItem: { x: 0, y: 72 },
+        capacity: 4,
+        overflow: 'truncate',
+      },
+    ];
+    const descriptor = compileDescriptor(composition);
+    const manifest = assembleManifest(project, composition, descriptor);
+    const zip = await packageBytes({
+      [`${manifest.id}.ograf.json`]: JSON.stringify(manifest),
+      'main.js': generateMainJs(descriptor, ''),
+    });
+
+    const imported = await importOgrafData('leaderboard.ograf.zip', zip);
+    const result = imported.project.compositions[0]!;
+    expect(result.dataFields[0]).toMatchObject({
+      key: 'leaderboard',
+      type: 'array',
+      constraints: { maxItems: 4 },
+      items: { type: 'object', properties: [{ key: 'name', type: 'text' }] },
+    });
+    expect(result.layers).toHaveLength(2);
+    expect(result.layers[1]!.bindings[0]!.sourcePath).toEqual(['name']);
+    expect(result.runtimeCollections[0]).toMatchObject({
+      id: 'leaderboard-rows',
+      prototypeLayerIds: [plate.id, label.id],
+      offsetPerItem: { x: 0, y: 72 },
+      capacity: 4,
+      overflow: 'truncate',
+    });
+  });
+
   it('imports manifest metadata, constraints, lifecycle hints, and schema without executing opaque JS', async () => {
     const manifest: OGrafManifest = {
       $schema: OGRAF_MANIFEST_SCHEMA_URL,

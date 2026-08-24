@@ -17,6 +17,7 @@ export {
   sampleCompiledLayerVisualState,
   type CompiledLayerVisualState,
 } from './loopRendering';
+export { expandRuntimeCollections, isRuntimeCollectionLayerActive } from './runtimeCollections';
 export { resolvePlayTarget, type LifecycleTarget } from './lifecycle';
 
 /** A concrete (non-abstract), constructible GraphicElement subclass — `typeof GraphicElement`

@@ -5,6 +5,7 @@ import {
   getResolvedLayerAnimationTracks,
 } from './layerAnimation';
 import { intersectConvexPolygons, polygonBounds, transformBoundsPolygon } from './clipping';
+import { fieldDefinitionAtPath } from './fieldSchema';
 import type { Composition, Layer, LayerTransform } from './types';
 
 export type DesignQaSeverity = 'error' | 'warning' | 'info';
@@ -259,16 +260,22 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
         const field = contentBinding
           ? composition.dataFields.find((candidate) => candidate.id === contentBinding.fieldId)
           : undefined;
+        const leaf =
+          field && contentBinding
+            ? fieldDefinitionAtPath(field, contentBinding.sourcePath ?? [], {
+                fromArrayItem: field.type === 'array',
+              })
+            : field;
         if (
-          field &&
-          (field.type === 'text' || field.type === 'textarea') &&
-          field.constraints.maxLength === undefined
+          leaf &&
+          (leaf.type === 'text' || leaf.type === 'textarea') &&
+          leaf.constraints.maxLength === undefined
         ) {
           add(
-            `data.missing-max-length.${layer.id}.${field.id}`,
+            `data.missing-max-length.${layer.id}.${leaf.id}`,
             'info',
             'data',
-            `“${field.label || field.key}” has no maxLength for operator-side text validation.`,
+            `“${leaf.label || leaf.key}” has no maxLength for operator-side text validation.`,
             [layer.id],
             [onAirFrame],
           );

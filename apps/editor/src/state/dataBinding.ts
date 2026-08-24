@@ -1,5 +1,6 @@
 import {
   resolveElementAssetReferences,
+  valueAtSourcePath,
   type Asset,
   type Element,
   type ElementType,
@@ -41,9 +42,13 @@ export function resolveEffectiveElement(
 ): Element {
   const element = layer.bindings.reduce<Element>((resolved, binding) => {
     const hasTestValue = Object.prototype.hasOwnProperty.call(testValues, binding.fieldId);
-    const value = hasTestValue
+    const rootValue = hasTestValue
       ? testValues[binding.fieldId]
       : dataFields.find((field) => field.id === binding.fieldId)?.defaultValue;
+    const field = dataFields.find((candidate) => candidate.id === binding.fieldId);
+    const itemValue =
+      field?.type === 'array' && Array.isArray(rootValue) ? rootValue[0] : rootValue;
+    const value = valueAtSourcePath(itemValue, binding.sourcePath);
     if (value === undefined) return resolved;
     const mapped = binding.valueMap?.[String(value)] ?? value;
     return {

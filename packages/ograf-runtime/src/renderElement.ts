@@ -6,6 +6,7 @@ import {
   type LayerAnimationTracks,
   type Paint,
 } from '@ograf-editor/scene-model';
+import { valueAtSourcePath } from '@ograf-editor/scene-model';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light_canvas.js';
 
@@ -296,7 +297,14 @@ export function renderAnimatedElementAtTime(
 export function resolveBoundElement(layer: CompiledLayer, data: Record<string, unknown>): Element {
   const bindings = layer.bindings ?? (layer.binding ? [layer.binding] : []);
   return bindings.reduce<Element>((element, binding) => {
-    const value = data[binding.dataKey];
+    const root = data[binding.dataKey];
+    const itemValue =
+      binding.itemIndex === undefined
+        ? root
+        : Array.isArray(root)
+          ? root[binding.itemIndex]
+          : undefined;
+    const value = valueAtSourcePath(itemValue, binding.sourcePath);
     if (value === undefined) return element;
     const mappedValue = binding.valueMap?.[String(value)] ?? value;
     const resolvedValue =

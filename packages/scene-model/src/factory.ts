@@ -7,6 +7,7 @@ import type {
   Element,
   EllipseElement,
   FieldDefinition,
+  FieldSchemaInput,
   FieldOption,
   FieldType,
   ImageElement,
@@ -321,6 +322,7 @@ export function defaultOptionsForFieldType(type: FieldType): FieldOption[] {
 export function defaultConstraintsForFieldType(type: FieldType): FieldDefinition['constraints'] {
   if (type === 'percentage') return { minimum: 0, maximum: 100, step: 1 };
   if (type === 'integer' || type === 'duration-ms') return { step: 1 };
+  if (type === 'array') return { minItems: 0, maxItems: 12 };
   return {};
 }
 
@@ -348,7 +350,10 @@ export function defaultValueForFieldType(
     case 'select':
       return options[0]?.value ?? '';
     case 'select-multiple':
+    case 'array':
       return [];
+    case 'object':
+      return {};
   }
 }
 
@@ -368,8 +373,39 @@ export function createFieldDefinition(
     options,
     constraints: defaultConstraintsForFieldType(type),
     fileExtensions: [],
+    properties: [],
+    items:
+      type === 'array'
+        ? createFieldDefinition('object', { key: 'item', label: 'Item', required: true })
+        : null,
     ...overrides,
   };
+}
+
+export function createFieldDefinitionFromInput(input: FieldSchemaInput): FieldDefinition {
+  const options = input.options ?? defaultOptionsForFieldType(input.fieldType);
+  const properties = (input.properties ?? []).map(createFieldDefinitionFromInput);
+  const items =
+    input.items === undefined
+      ? undefined
+      : input.items === null
+        ? null
+        : createFieldDefinitionFromInput(input.items);
+  return createFieldDefinition(input.fieldType, {
+    ...(input.id ? { id: input.id } : {}),
+    key: input.key,
+    label: input.label ?? input.key,
+    description: input.description ?? '',
+    required: input.required ?? false,
+    options,
+    constraints: input.constraints ?? defaultConstraintsForFieldType(input.fieldType),
+    fileExtensions: input.fileExtensions ?? [],
+    properties,
+    ...(items !== undefined ? { items } : {}),
+    ...(input.defaultValue !== undefined
+      ? { defaultValue: input.defaultValue }
+      : { defaultValue: defaultValueForFieldType(input.fieldType, options) }),
+  });
 }
 
 export function createCustomActionDefinition(
@@ -432,6 +468,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
     },
     layers: [],
     dataFields: [],
+    runtimeCollections: [],
     customActions: [],
     assets: [],
     designSystem: { name: 'Brand Kit', tokens: [] },
@@ -442,7 +479,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 18;
+export const PROJECT_DOCUMENT_VERSION = 19;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

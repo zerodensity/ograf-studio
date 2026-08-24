@@ -38,6 +38,14 @@ export interface BrowserCaptureResult {
   originalWidth: number;
   originalHeight: number;
   resolvedFonts: ResolvedFontResult[];
+  runtimeCollections?: Array<{
+    id: string;
+    name: string;
+    receivedCount: number;
+    renderedCount: number;
+    capacity: number;
+    truncated: boolean;
+  }>;
 }
 
 export interface BrowserStripRequest {

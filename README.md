@@ -46,6 +46,9 @@ packages, and an optional local MCP authoring server for AI-assisted workflows.
   without accidentally blending against a controller's external video bed.
 - Reality Hub-ready GDD field metadata with descriptions, select labels, file hints, scalar
   constraints, integer/duration/percentage controls, and select-multiple values.
+- Recursive GDD objects and arrays, including bounded runtime collections that expand one grouped
+  item prototype from Reality Hub data with explicit spacing, capacity, truncation, nested value
+  paths, deterministic updates, and non-realtime seeking.
 - Reusable authoring components that snapshot selected layers and bound fields, then insert fresh
   independent or explicitly refreshable linked instances without adding a proprietary runtime
   dependency.

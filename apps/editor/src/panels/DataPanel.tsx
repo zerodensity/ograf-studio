@@ -1,10 +1,12 @@
-import { Fragment, useState, type ChangeEvent } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import {
+  createFieldDefinition,
   defaultConstraintsForFieldType,
   defaultOptionsForFieldType,
   defaultValueForFieldType,
   type FieldConstraints,
   type FieldDefinition,
+  type GradientPaint,
   type FieldOption,
   type FieldType,
 } from '@ograf-editor/scene-model';
@@ -29,6 +31,8 @@ const FIELD_TYPE_OPTIONS: { value: FieldType; label: string }[] = [
   { value: 'file-path', label: 'File Path' },
   { value: 'select', label: 'Select' },
   { value: 'select-multiple', label: 'Select Multiple' },
+  { value: 'object', label: 'Object' },
+  { value: 'array', label: 'Array / Collection' },
 ];
 
 function optionsText(options: FieldOption[]): string {
@@ -145,12 +149,15 @@ export function DataPanel() {
                           onChange={(e) => {
                             const type = e.target.value as FieldType;
                             const options = defaultOptionsForFieldType(type);
+                            const defaults = createFieldDefinition(type);
                             updateDataField(field.id, {
                               type,
                               options,
                               constraints: defaultConstraintsForFieldType(type),
                               fileExtensions: [],
                               defaultValue: defaultValueForFieldType(type, options),
+                              properties: defaults.properties,
+                              items: defaults.items,
                             });
                           }}
                         >
@@ -198,6 +205,8 @@ export function DataPanel() {
             </table>
           )}
         </section>
+
+        <RuntimeCollectionsSection />
 
         <section className="data-panel-section">
           <div className="data-panel-section-header">
@@ -310,7 +319,13 @@ function FieldDetails({
     patch: Partial<
       Pick<
         FieldDefinition,
-        'description' | 'defaultValue' | 'options' | 'constraints' | 'fileExtensions'
+        | 'description'
+        | 'defaultValue'
+        | 'options'
+        | 'constraints'
+        | 'fileExtensions'
+        | 'properties'
+        | 'items'
       >
     >,
   ) => void;
@@ -340,7 +355,9 @@ function FieldDetails({
               const defaultValue =
                 field.type === 'select-multiple'
                   ? Array.isArray(field.defaultValue)
-                    ? field.defaultValue.filter((value) => values.has(value))
+                    ? field.defaultValue.filter(
+                        (value): value is string => typeof value === 'string' && values.has(value),
+                      )
                     : []
                   : typeof field.defaultValue === 'string' && values.has(field.defaultValue)
                     ? field.defaultValue
@@ -425,7 +442,31 @@ function FieldDetails({
             onChange={(event) => setConstraint('pattern', event.target.value)}
           />
         </label>
+        {field.type === 'array' && (
+          <>
+            <label>
+              <span>Min items</span>
+              <input
+                type="number"
+                min={0}
+                value={field.constraints.minItems ?? ''}
+                onChange={(event) => setConstraint('minItems', optionalNumber(event.target.value))}
+              />
+            </label>
+            <label>
+              <span>Max items / capacity</span>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={field.constraints.maxItems ?? ''}
+                onChange={(event) => setConstraint('maxItems', optionalNumber(event.target.value))}
+              />
+            </label>
+          </>
+        )}
       </div>
+      <FieldSchemaEditor field={field} update={update} />
     </div>
   );
 }
@@ -482,8 +523,8 @@ function DefaultValueInput({
     );
   }
   if (type === 'gradient') {
-    return typeof value === 'object' && !Array.isArray(value) ? (
-      <PaintEditor value={value} onChange={onChange} />
+    return value && typeof value === 'object' && !Array.isArray(value) && 'stops' in value ? (
+      <PaintEditor value={value as GradientPaint} onChange={onChange} />
     ) : null;
   }
   if (type === 'select') {
@@ -498,7 +539,9 @@ function DefaultValueInput({
     );
   }
   if (type === 'select-multiple') {
-    const selected = Array.isArray(value) ? value : [];
+    const selected = Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : [];
     return (
       <select
         multiple
@@ -515,6 +558,9 @@ function DefaultValueInput({
       </select>
     );
   }
+  if (type === 'object' || type === 'array') {
+    return <JsonValueInput value={value} onChange={onChange} />;
+  }
   return (
     <input
       type="text"
@@ -525,5 +571,327 @@ function DefaultValueInput({
       value={String(value)}
       onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
     />
+  );
+}
+
+function JsonValueInput({
+  value,
+  onChange,
+}: {
+  value: TestValue;
+  onChange: (value: TestValue) => void;
+}) {
+  const [text, setText] = useState(() => JSON.stringify(value, null, 2));
+  const [invalid, setInvalid] = useState(false);
+  useEffect(() => setText(JSON.stringify(value, null, 2)), [value]);
+  return (
+    <textarea
+      rows={5}
+      className={invalid ? 'data-json-invalid' : undefined}
+      value={text}
+      onChange={(event) => {
+        const next = event.target.value;
+        setText(next);
+        try {
+          const parsed = JSON.parse(next) as TestValue;
+          setInvalid(false);
+          onChange(parsed);
+        } catch {
+          setInvalid(true);
+        }
+      }}
+    />
+  );
+}
+
+function resetFieldType(field: FieldDefinition, type: FieldType): FieldDefinition {
+  return createFieldDefinition(type, {
+    id: field.id,
+    key: field.key,
+    label: field.label,
+    description: field.description,
+    required: field.required,
+  });
+}
+
+function FieldSchemaEditor({
+  field,
+  update,
+}: {
+  field: FieldDefinition;
+  update: (
+    fieldId: string,
+    patch: Partial<
+      Pick<
+        FieldDefinition,
+        | 'description'
+        | 'defaultValue'
+        | 'options'
+        | 'constraints'
+        | 'fileExtensions'
+        | 'properties'
+        | 'items'
+      >
+    >,
+  ) => void;
+}) {
+  if (field.type === 'object') {
+    const replace = (id: string, next: FieldDefinition) =>
+      update(field.id, {
+        properties: field.properties.map((property) => (property.id === id ? next : property)),
+      });
+    return (
+      <div className="data-field-schema-editor">
+        <div className="data-panel-section-header">
+          <strong>Object properties</strong>
+          <button
+            type="button"
+            onClick={() => {
+              const keys = new Set(field.properties.map((property) => property.key));
+              let index = field.properties.length + 1;
+              while (keys.has(`property_${index}`)) index++;
+              const property = createFieldDefinition('text', {
+                key: `property_${index}`,
+                label: `Property ${index}`,
+              });
+              update(field.id, { properties: [...field.properties, property] });
+            }}
+          >
+            + Property
+          </button>
+        </div>
+        {field.properties.map((property) => (
+          <div className="data-field-schema-node" key={property.id}>
+            <div className="data-panel-add-row">
+              <input
+                aria-label="Property key"
+                value={property.key}
+                onChange={(event) => replace(property.id, { ...property, key: event.target.value })}
+              />
+              <input
+                aria-label="Property label"
+                value={property.label}
+                onChange={(event) =>
+                  replace(property.id, { ...property, label: event.target.value })
+                }
+              />
+              <select
+                aria-label="Property type"
+                value={property.type}
+                onChange={(event) =>
+                  replace(property.id, resetFieldType(property, event.target.value as FieldType))
+                }
+              >
+                {FIELD_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <label>
+                <span>Required</span>
+                <input
+                  type="checkbox"
+                  checked={property.required}
+                  onChange={(event) =>
+                    replace(property.id, { ...property, required: event.target.checked })
+                  }
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  update(field.id, {
+                    properties: field.properties.filter(
+                      (candidate) => candidate.id !== property.id,
+                    ),
+                  })
+                }
+              >
+                Remove
+              </button>
+            </div>
+            <FieldDetails
+              field={property}
+              update={(_, patch) => replace(property.id, { ...property, ...patch })}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (field.type === 'array') {
+    const item = field.items ?? createFieldDefinition('object', { key: 'item', label: 'Item' });
+    return (
+      <div className="data-field-schema-editor">
+        <label>
+          <span>Item schema</span>
+          <select
+            value={item.type}
+            onChange={(event) =>
+              update(field.id, {
+                items: resetFieldType(item, event.target.value as FieldType),
+              })
+            }
+          >
+            {FIELD_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <FieldDetails
+          field={item}
+          update={(_, patch) => update(field.id, { items: { ...item, ...patch } })}
+        />
+      </div>
+    );
+  }
+  return null;
+}
+
+function RuntimeCollectionsSection() {
+  const composition = useActiveComposition();
+  const addRuntimeCollection = useProjectStore((state) => state.addRuntimeCollection);
+  const updateRuntimeCollection = useProjectStore((state) => state.updateRuntimeCollection);
+  const removeRuntimeCollection = useProjectStore((state) => state.removeRuntimeCollection);
+  const arrayFields = useMemo(
+    () =>
+      composition.dataFields.filter(
+        (field) => field.type === 'array' && field.items?.type === 'object',
+      ),
+    [composition.dataFields],
+  );
+  const groups = useMemo(
+    () =>
+      [...new Set(composition.layers.map((layer) => layer.groupId).filter(Boolean))] as string[],
+    [composition.layers],
+  );
+  const [fieldId, setFieldId] = useState('');
+  const [groupId, setGroupId] = useState('');
+  const [offsetX, setOffsetX] = useState(0);
+  const [offsetY, setOffsetY] = useState(72);
+  const [capacity, setCapacity] = useState(12);
+  useEffect(() => {
+    if (!arrayFields.some((field) => field.id === fieldId)) setFieldId(arrayFields[0]?.id ?? '');
+    if (!groups.includes(groupId)) setGroupId(groups[0] ?? '');
+  }, [arrayFields, fieldId, groupId, groups]);
+  return (
+    <section className="data-panel-section">
+      <div className="data-panel-section-header">
+        <h3>Runtime Collections</h3>
+      </div>
+      <p className="panel-placeholder">
+        Repeat one grouped item prototype from an object-item GDD array. Items share the prototype
+        timeline; overflow truncates at the authored capacity.
+      </p>
+      <div className="data-panel-add-row">
+        <select value={fieldId} onChange={(event) => setFieldId(event.target.value)}>
+          {arrayFields.map((field) => (
+            <option key={field.id} value={field.id}>
+              {field.label || field.key}
+            </option>
+          ))}
+        </select>
+        <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
+          {groups.map((id) => (
+            <option key={id} value={id}>
+              {composition.layers.find((layer) => layer.groupId === id)?.name ?? id}
+            </option>
+          ))}
+        </select>
+        <label>
+          X/item
+          <input
+            type="number"
+            value={offsetX}
+            onChange={(event) => setOffsetX(Number(event.target.value))}
+          />
+        </label>
+        <label>
+          Y/item
+          <input
+            type="number"
+            value={offsetY}
+            onChange={(event) => setOffsetY(Number(event.target.value))}
+          />
+        </label>
+        <label>
+          Capacity
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={capacity}
+            onChange={(event) => setCapacity(Number(event.target.value))}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={
+            !fieldId ||
+            !groupId ||
+            composition.runtimeCollections.some((item) => item.fieldId === fieldId)
+          }
+          onClick={() =>
+            addRuntimeCollection(
+              fieldId,
+              composition.layers
+                .filter((layer) => layer.groupId === groupId)
+                .map((layer) => layer.id),
+              { x: offsetX, y: offsetY },
+              capacity,
+            )
+          }
+        >
+          + Register Prototype
+        </button>
+      </div>
+      {composition.runtimeCollections.map((collection) => (
+        <div className="data-field-schema-node" key={collection.id}>
+          <input
+            value={collection.name}
+            onChange={(event) =>
+              updateRuntimeCollection(collection.id, { name: event.target.value })
+            }
+          />
+          <input
+            aria-label="Collection X offset"
+            type="number"
+            value={collection.offsetPerItem.x}
+            onChange={(event) =>
+              updateRuntimeCollection(collection.id, {
+                offsetPerItem: { ...collection.offsetPerItem, x: Number(event.target.value) },
+              })
+            }
+          />
+          <input
+            aria-label="Collection Y offset"
+            type="number"
+            value={collection.offsetPerItem.y}
+            onChange={(event) =>
+              updateRuntimeCollection(collection.id, {
+                offsetPerItem: { ...collection.offsetPerItem, y: Number(event.target.value) },
+              })
+            }
+          />
+          <input
+            aria-label="Collection capacity"
+            type="number"
+            min={1}
+            max={100}
+            value={collection.capacity}
+            onChange={(event) =>
+              updateRuntimeCollection(collection.id, { capacity: Number(event.target.value) })
+            }
+          />
+          <span>truncate · {collection.prototypeLayerIds.length} prototype layers</span>
+          <button type="button" onClick={() => removeRuntimeCollection(collection.id)}>
+            Remove
+          </button>
+        </div>
+      ))}
+    </section>
   );
 }

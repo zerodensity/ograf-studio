@@ -273,6 +273,109 @@ describe('OGraf MCP authoring host', () => {
     );
   });
 
+  it('authors recursive GDD data and a deterministic runtime collection by selectors', async () => {
+    const sessionId = 'runtime-collection-mcp-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const applied = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          {
+            type: 'add_data_field',
+            fieldType: 'array',
+            key: 'leaderboard',
+            label: 'Leaderboard',
+            defaultValue: [
+              { name: 'Ada', score: 10 },
+              { name: 'Lin', score: 8 },
+            ],
+            items: {
+              key: 'item',
+              fieldType: 'object',
+              defaultValue: { name: '', score: 0 },
+              properties: [
+                {
+                  key: 'name',
+                  label: 'Name',
+                  fieldType: 'text',
+                  required: true,
+                  constraints: { maxLength: 40 },
+                },
+                { key: 'score', label: 'Score', fieldType: 'integer' },
+              ],
+            },
+          },
+          { type: 'add_layer', kind: 'rectangle', name: 'Row plate' },
+          { type: 'add_layer', kind: 'text', name: 'Row name' },
+          {
+            type: 'set_layer_layout',
+            layerName: 'Row plate',
+            groupId: 'leaderboard-prototype',
+          },
+          {
+            type: 'set_layer_layout',
+            layerName: 'Row name',
+            groupId: 'leaderboard-prototype',
+          },
+          {
+            type: 'set_layer_bindings',
+            layerName: 'Row name',
+            bindings: [
+              {
+                fieldKey: 'leaderboard',
+                targetProperty: 'content',
+                sourcePath: ['name'],
+              },
+            ],
+          },
+          {
+            type: 'create_runtime_collection',
+            name: 'Leaderboard rows',
+            fieldKey: 'leaderboard',
+            layerNames: ['Row plate', 'Row name'],
+            offsetPerItem: { x: 0, y: 72 },
+            capacity: 4,
+          },
+        ],
+      },
+    });
+    expect(applied.isError).not.toBe(true);
+    const composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    expect(composition.dataFields[0]).toMatchObject({
+      key: 'leaderboard',
+      type: 'array',
+      constraints: { maxItems: 4 },
+      items: {
+        type: 'object',
+        properties: [
+          { key: 'name', type: 'text', constraints: { maxLength: 40 } },
+          { key: 'score', type: 'integer' },
+        ],
+      },
+    });
+    expect(composition.runtimeCollections[0]).toMatchObject({
+      name: 'Leaderboard rows',
+      offsetPerItem: { x: 0, y: 72 },
+      capacity: 4,
+      overflow: 'truncate',
+    });
+    expect(composition.layers[1]!.bindings[0]!.sourcePath).toEqual(['name']);
+
+    const inspected = await client.callTool({
+      name: 'ograf_inspect_scene',
+      arguments: { sessionId },
+    });
+    expect(inspected.structuredContent).toMatchObject({
+      compositions: [
+        {
+          runtimeCollections: [{ name: 'Leaderboard rows', fieldKey: 'leaderboard', capacity: 4 }],
+        },
+      ],
+    });
+  });
+
   it('authors and inspects static composition-local blend modes', async () => {
     const sessionId = 'blend-mode-mcp-test';
     await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });

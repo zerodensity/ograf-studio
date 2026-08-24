@@ -23,6 +23,9 @@ import type {
 export interface CompiledLayerBinding {
   dataKey: string;
   targetProperty: string;
+  sourcePath?: string[];
+  /** Runtime-expanded collection item index; absent for ordinary/object bindings. */
+  itemIndex?: number;
   valueMap?: Record<string, string | number | boolean | GradientPaint>;
 }
 
@@ -51,7 +54,23 @@ export interface CompiledLayer {
   binding?: CompiledLayerBinding | null;
   /** Runtime-only clipping relation; general authoring parent metadata remains compiled away. */
   clipParentId?: string | null;
+  /** Runtime-only visibility/data identity for one bounded collection slot. */
+  collectionItem?: { collectionId: string; dataKey: string; index: number };
 }
+
+export interface CompiledRuntimeCollection {
+  id: string;
+  name: string;
+  dataKey: string;
+  prototypeGroupId?: string | null;
+  prototypeLayers: CompiledLayer[];
+  offsetPerItem: { x: number; y: number };
+  capacity: number;
+  overflow: 'truncate';
+}
+
+export type CompiledPaintOrderEntry =
+  { type: 'layer'; id: string } | { type: 'collection'; id: string };
 
 export interface CompiledLayerPropertyKeyframe {
   id: string;
@@ -97,6 +116,10 @@ export interface CompiledGraphicDescriptor {
   updateTransitionFrames?: number;
   fonts?: CompiledFontResource[];
   layers: CompiledLayer[];
+  /** Bounded array-driven prototypes expanded by the packaged runtime. */
+  collections?: CompiledRuntimeCollection[];
+  /** Stable interleaving of ordinary layers and runtime collections. */
+  paintOrder?: CompiledPaintOrderEntry[];
   keyframes: CompiledKeyframe[];
   transitions: CompiledTransition[];
   /** The pausable states `playAction` navigates, in order. */

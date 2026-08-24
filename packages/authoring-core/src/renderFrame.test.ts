@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createFieldDefinition,
   createLayerKeyframe,
   createLayerOfKind,
   createLayerPropertyKeyframe,
@@ -119,5 +120,54 @@ describe('renderCompositionFrameSvg', () => {
     expect(svg).toContain(' Q ');
     expect(svg).toContain('style="isolation:isolate"');
     expect(svg).toContain('style="mix-blend-mode:multiply"');
+  });
+
+  it('renders default runtime collection items with item-relative bindings and offsets', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const field = createFieldDefinition('array', {
+      key: 'leaderboard',
+      constraints: { minItems: 0, maxItems: 4 },
+      items: createFieldDefinition('object', {
+        key: 'item',
+        properties: [createFieldDefinition('text', { key: 'name' })],
+        defaultValue: { name: '' },
+      }),
+      defaultValue: [{ name: 'Ada' }, { name: 'Lin' }],
+    });
+    const layer = createLayerOfKind('text');
+    layer.groupId = 'row';
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'content', sourcePath: ['name'] }];
+    layer.keyframes = [
+      createLayerKeyframe(0, {
+        x: 100,
+        y: 50,
+        width: 300,
+        height: 64,
+        rotation: 0,
+        opacity: 1,
+        transformOriginX: 0.5,
+        transformOriginY: 0.5,
+      }),
+    ];
+    composition.layers = [layer];
+    composition.dataFields = [field];
+    composition.runtimeCollections = [
+      {
+        id: 'rows',
+        name: 'Rows',
+        fieldId: field.id,
+        prototypeLayerIds: [layer.id],
+        offsetPerItem: { x: 0, y: 72 },
+        capacity: 4,
+        overflow: 'truncate',
+      },
+    ];
+
+    const { svg } = renderCompositionFrameSvg(project, composition.id, 0);
+    expect(svg).toContain('Ada');
+    expect(svg).toContain('Lin');
+    expect(svg).toContain('translate(100 50)');
+    expect(svg).toContain('translate(100 122)');
   });
 });

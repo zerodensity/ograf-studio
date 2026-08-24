@@ -62,6 +62,34 @@ describe('canonical OGraf validation', () => {
     expect(validateProject(project).valid).toBe(true);
     expect(validateManifest(manifest)).toEqual({ valid: true, errors: [] });
   });
+
+  it('accepts official recursive object and array GDD properties', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const item = createFieldDefinition('object', {
+      key: 'item',
+      properties: [
+        createFieldDefinition('text', {
+          key: 'name',
+          required: true,
+          constraints: { maxLength: 40 },
+        }),
+        createFieldDefinition('integer', { key: 'score' }),
+      ],
+      defaultValue: { name: '', score: 0 },
+    });
+    composition.dataFields = [
+      createFieldDefinition('array', {
+        key: 'leaderboard',
+        items: item,
+        constraints: { minItems: 0, maxItems: 12 },
+        defaultValue: [{ name: 'Ada', score: 10 }],
+      }),
+    ];
+    const manifest = assembleManifest(project, composition, compileDescriptor(composition));
+    expect(validateProject(project).valid).toBe(true);
+    expect(validateManifest(manifest)).toEqual({ valid: true, errors: [] });
+  });
 });
 
 describe('project validation', () => {
@@ -167,5 +195,49 @@ describe('project validation', () => {
     layer.blendMode = 'plus-lighter' as typeof layer.blendMode;
     project.compositions[0]!.layers = [layer];
     expect(validateProject(project).errors.join(' ')).toMatch(/unsupported blend mode/);
+  });
+
+  it('validates deterministic runtime collection ownership, paths, and capacity', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const field = createFieldDefinition('array', {
+      key: 'leaderboard',
+      constraints: { minItems: 0, maxItems: 3 },
+      items: createFieldDefinition('object', {
+        key: 'item',
+        properties: [createFieldDefinition('text', { key: 'name', required: true })],
+        defaultValue: { name: '' },
+      }),
+      defaultValue: [{ name: 'Ada' }],
+    });
+    const layer = createLayerOfKind('text');
+    layer.groupId = 'leaderboard-item';
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'content', sourcePath: ['name'] }];
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(
+        computeKeyframeFrames(composition)[index]!.frame,
+        defaultTransformForRole('text', keyframe.role),
+      ),
+    );
+    composition.layers = [layer];
+    composition.dataFields = [field];
+    composition.runtimeCollections = [
+      {
+        id: 'collection-1',
+        name: 'Leaderboard',
+        fieldId: field.id,
+        prototypeLayerIds: [layer.id],
+        offsetPerItem: { x: 0, y: 72 },
+        capacity: 3,
+        overflow: 'truncate',
+      },
+    ];
+    expect(validateProject(project).valid).toBe(true);
+
+    layer.bindings[0]!.sourcePath = ['missing'];
+    expect(validateProject(project).errors.join(' ')).toMatch(/must resolve to a scalar leaf/);
+    layer.bindings[0]!.sourcePath = ['name'];
+    composition.runtimeCollections[0]!.capacity = 4;
+    expect(validateProject(project).errors.join(' ')).toMatch(/capacity must equal field maxItems/);
   });
 });

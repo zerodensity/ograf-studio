@@ -8,6 +8,8 @@ import type {
   CompiledGraphicDescriptor,
   CompiledKeyframe,
   CompiledLayer,
+  CompiledPaintOrderEntry,
+  CompiledRuntimeCollection,
 } from '@ograf-editor/ograf-types';
 
 export type {
@@ -44,63 +46,115 @@ export function compileDescriptor(
     .filter((keyframe) => keyframe.role === 'step')
     .map((keyframe) => keyframe.id);
 
+  const compileLayer = (layer: Composition['layers'][number]): CompiledLayer => {
+    const animationTracks = getResolvedLayerAnimationTracks(layer);
+    const clipParent = layer.parentId
+      ? composition.layers.find(
+          (candidate) => candidate.id === layer.parentId && candidate.clipChildren,
+        )
+      : undefined;
+    return {
+      id: layer.id,
+      isVisible: layer.isVisible,
+      blendMode: layer.blendMode,
+      element: resolveElementAssetReferences(layer.element, composition.assets),
+      effects: layer.effects,
+      keyframes: layer.keyframes.map((keyframe) => ({
+        id: keyframe.id,
+        frame: keyframe.frame,
+        transform: keyframe.transform,
+        easing: keyframe.easing,
+      })),
+      animationTracks: Object.fromEntries(
+        Object.entries(animationTracks).map(([property, keyframes]) => [
+          property,
+          keyframes?.map((keyframe) => ({ ...keyframe })) ?? [],
+        ]),
+      ),
+      loop: layer.loop
+        ? {
+            ...layer.loop,
+            activation: { ...layer.loop.activation },
+            tracks: Object.fromEntries(
+              Object.entries(layer.loop.tracks).map(([property, keys]) => [
+                property,
+                keys?.map((key) => ({
+                  ...key,
+                  ...(key.curve ? { curve: { ...key.curve } } : {}),
+                })) ?? [],
+              ]),
+            ),
+          }
+        : null,
+      bindings: layer.bindings.flatMap((binding) => {
+        const dataKey = fieldKeyById.get(binding.fieldId);
+        return dataKey === undefined
+          ? []
+          : [
+              {
+                dataKey,
+                targetProperty: binding.targetProperty,
+                ...(binding.sourcePath?.length ? { sourcePath: [...binding.sourcePath] } : {}),
+                ...(binding.valueMap ? { valueMap: structuredClone(binding.valueMap) } : {}),
+              },
+            ];
+      }),
+      clipParentId: clipParent?.id ?? null,
+    };
+  };
+
+  const prototypeOwnerByLayerId = new Map<string, string>();
+  for (const collection of composition.runtimeCollections) {
+    for (const layerId of collection.prototypeLayerIds) {
+      prototypeOwnerByLayerId.set(layerId, collection.id);
+    }
+  }
+
   const layers: CompiledLayer[] = composition.layers
-    .filter((layer) => options.includeGuides || !layer.isGuide)
-    .map((layer) => {
-      const animationTracks = getResolvedLayerAnimationTracks(layer);
-      const clipParent = layer.parentId
-        ? composition.layers.find(
-            (candidate) => candidate.id === layer.parentId && candidate.clipChildren,
-          )
-        : undefined;
+    .filter(
+      (layer) =>
+        (options.includeGuides || !layer.isGuide) && !prototypeOwnerByLayerId.has(layer.id),
+    )
+    .map(compileLayer);
+
+  const collections: CompiledRuntimeCollection[] = composition.runtimeCollections.map(
+    (collection) => {
+      const dataKey = fieldKeyById.get(collection.fieldId);
+      if (!dataKey) throw new Error(`Runtime collection field is missing: ${collection.fieldId}`);
+      const prototypeLayers = collection.prototypeLayerIds.map((layerId) => {
+        const layer = composition.layers.find((candidate) => candidate.id === layerId);
+        if (!layer) throw new Error(`Runtime collection prototype layer is missing: ${layerId}`);
+        return compileLayer(layer);
+      });
       return {
-        id: layer.id,
-        isVisible: layer.isVisible,
-        blendMode: layer.blendMode,
-        element: resolveElementAssetReferences(layer.element, composition.assets),
-        effects: layer.effects,
-        keyframes: layer.keyframes.map((keyframe) => ({
-          id: keyframe.id,
-          frame: keyframe.frame,
-          transform: keyframe.transform,
-          easing: keyframe.easing,
-        })),
-        animationTracks: Object.fromEntries(
-          Object.entries(animationTracks).map(([property, keyframes]) => [
-            property,
-            keyframes?.map((keyframe) => ({ ...keyframe })) ?? [],
-          ]),
-        ),
-        loop: layer.loop
-          ? {
-              ...layer.loop,
-              activation: { ...layer.loop.activation },
-              tracks: Object.fromEntries(
-                Object.entries(layer.loop.tracks).map(([property, keys]) => [
-                  property,
-                  keys?.map((key) => ({
-                    ...key,
-                    ...(key.curve ? { curve: { ...key.curve } } : {}),
-                  })) ?? [],
-                ]),
-              ),
-            }
-          : null,
-        bindings: layer.bindings.flatMap((binding) => {
-          const dataKey = fieldKeyById.get(binding.fieldId);
-          return dataKey === undefined
-            ? []
-            : [
-                {
-                  dataKey,
-                  targetProperty: binding.targetProperty,
-                  ...(binding.valueMap ? { valueMap: structuredClone(binding.valueMap) } : {}),
-                },
-              ];
-        }),
-        clipParentId: clipParent?.id ?? null,
+        id: collection.id,
+        name: collection.name,
+        dataKey,
+        prototypeGroupId:
+          composition.layers.find((layer) => layer.id === collection.prototypeLayerIds[0])
+            ?.groupId ?? null,
+        prototypeLayers,
+        offsetPerItem: { ...collection.offsetPerItem },
+        capacity: collection.capacity,
+        overflow: collection.overflow,
       };
-    });
+    },
+  );
+
+  const paintOrder: CompiledPaintOrderEntry[] = [];
+  const emittedCollections = new Set<string>();
+  for (const layer of composition.layers) {
+    if (!options.includeGuides && layer.isGuide) continue;
+    const collectionId = prototypeOwnerByLayerId.get(layer.id);
+    if (collectionId) {
+      if (!emittedCollections.has(collectionId)) {
+        paintOrder.push({ type: 'collection', id: collectionId });
+        emittedCollections.add(collectionId);
+      }
+    } else {
+      paintOrder.push({ type: 'layer', id: layer.id });
+    }
+  }
 
   return {
     width: composition.width,
@@ -118,6 +172,8 @@ export function compileDescriptor(
         style: asset.fontStyle || 'normal',
       })),
     layers,
+    collections,
+    paintOrder,
     keyframes,
     transitions: composition.transitions.map((t) => ({
       fromKeyframeId: t.fromKeyframeId,

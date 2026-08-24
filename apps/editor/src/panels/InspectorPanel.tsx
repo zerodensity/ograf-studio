@@ -19,6 +19,7 @@ import {
   findLayerKeyframeAtFrame,
   getLayerEffectsAtFrame,
   getPaintAtFrame,
+  listFieldLeafPaths,
   getResolvedLayerAnimationTracks,
   isPixelTransformKey,
   parseLottieJson,
@@ -357,74 +358,115 @@ export function InspectorPanel() {
 
         <h3 className="inspector-section">Data Bindings</h3>
         <div className="inspector-binding-list">
-          {layer.bindings.map((binding, index) => (
-            <div className="inspector-binding" key={`${binding.targetProperty}:${index}`}>
-              <label className="inspector-row">
-                <span>Field</span>
-                <select
-                  aria-label={`Binding ${index + 1} field`}
-                  value={binding.fieldId}
-                  onChange={(event) => {
-                    const bindings = layer.bindings.map((candidate, candidateIndex) =>
-                      candidateIndex === index
-                        ? { ...candidate, fieldId: event.target.value }
-                        : candidate,
-                    );
-                    setLayerBindings(layer.id, bindings);
-                  }}
-                >
-                  {composition.dataFields.map((field) => (
-                    <option key={field.id} value={field.id}>
-                      {field.label || field.key}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="inspector-row">
-                <span>Property</span>
-                <select
-                  aria-label={`Binding ${index + 1} property`}
-                  value={binding.targetProperty}
-                  onChange={(event) => {
-                    const bindings = layer.bindings.map((candidate, candidateIndex) =>
-                      candidateIndex === index
-                        ? { ...candidate, targetProperty: event.target.value }
-                        : candidate,
-                    );
-                    setLayerBindings(layer.id, bindings);
-                  }}
-                >
-                  {BINDABLE_PROPERTIES[layer.element.type]
-                    .filter(
-                      (property) =>
-                        property.value === binding.targetProperty ||
-                        !layer.bindings.some(
-                          (candidate, candidateIndex) =>
-                            candidateIndex !== index && candidate.targetProperty === property.value,
-                        ),
-                    )
-                    .map((property) => (
-                      <option key={property.value} value={property.value}>
-                        {property.label}
+          {layer.bindings.map((binding, index) => {
+            const field = composition.dataFields.find(
+              (candidate) => candidate.id === binding.fieldId,
+            );
+            const sourcePaths = field
+              ? listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })
+              : [];
+            return (
+              <div className="inspector-binding" key={`${binding.targetProperty}:${index}`}>
+                <label className="inspector-row">
+                  <span>Field</span>
+                  <select
+                    aria-label={`Binding ${index + 1} field`}
+                    value={binding.fieldId}
+                    onChange={(event) => {
+                      const nextField = composition.dataFields.find(
+                        (candidate) => candidate.id === event.target.value,
+                      );
+                      const nextPath = nextField
+                        ? (listFieldLeafPaths(nextField, {
+                            fromArrayItem: nextField.type === 'array',
+                          })[0]?.path ?? [])
+                        : [];
+                      const bindings = layer.bindings.map((candidate, candidateIndex) =>
+                        candidateIndex === index
+                          ? { ...candidate, fieldId: event.target.value, sourcePath: nextPath }
+                          : candidate,
+                      );
+                      setLayerBindings(layer.id, bindings);
+                    }}
+                  >
+                    {composition.dataFields.map((field) => (
+                      <option key={field.id} value={field.id}>
+                        {field.label || field.key}
                       </option>
                     ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="inspector-binding-remove"
-                aria-label={`Remove binding ${index + 1}`}
-                onClick={() =>
-                  setLayerBindings(
-                    layer.id,
-                    layer.bindings.filter((_, candidateIndex) => candidateIndex !== index),
-                  )
-                }
-              >
-                Remove
-              </button>
-            </div>
-          ))}
+                  </select>
+                </label>
+                {(field?.type === 'object' || field?.type === 'array') && (
+                  <label className="inspector-row">
+                    <span>Value path</span>
+                    <select
+                      aria-label={`Binding ${index + 1} value path`}
+                      value={JSON.stringify(binding.sourcePath ?? [])}
+                      onChange={(event) => {
+                        const sourcePath = JSON.parse(event.target.value) as string[];
+                        setLayerBindings(
+                          layer.id,
+                          layer.bindings.map((candidate, candidateIndex) =>
+                            candidateIndex === index ? { ...candidate, sourcePath } : candidate,
+                          ),
+                        );
+                      }}
+                    >
+                      {sourcePaths.map((path) => (
+                        <option key={JSON.stringify(path.path)} value={JSON.stringify(path.path)}>
+                          {path.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <label className="inspector-row">
+                  <span>Property</span>
+                  <select
+                    aria-label={`Binding ${index + 1} property`}
+                    value={binding.targetProperty}
+                    onChange={(event) => {
+                      const bindings = layer.bindings.map((candidate, candidateIndex) =>
+                        candidateIndex === index
+                          ? { ...candidate, targetProperty: event.target.value }
+                          : candidate,
+                      );
+                      setLayerBindings(layer.id, bindings);
+                    }}
+                  >
+                    {BINDABLE_PROPERTIES[layer.element.type]
+                      .filter(
+                        (property) =>
+                          property.value === binding.targetProperty ||
+                          !layer.bindings.some(
+                            (candidate, candidateIndex) =>
+                              candidateIndex !== index &&
+                              candidate.targetProperty === property.value,
+                          ),
+                      )
+                      .map((property) => (
+                        <option key={property.value} value={property.value}>
+                          {property.label}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="inspector-binding-remove"
+                  aria-label={`Remove binding ${index + 1}`}
+                  onClick={() =>
+                    setLayerBindings(
+                      layer.id,
+                      layer.bindings.filter((_, candidateIndex) => candidateIndex !== index),
+                    )
+                  }
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })}
           <button
             type="button"
             disabled={
@@ -440,7 +482,14 @@ export function InspectorPanel() {
               )?.value;
               const fieldId = composition.dataFields[0]?.id;
               if (targetProperty && fieldId) {
-                setLayerBindings(layer.id, [...layer.bindings, { fieldId, targetProperty }]);
+                const field = composition.dataFields[0]!;
+                const sourcePath =
+                  listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })[0]?.path ??
+                  [];
+                setLayerBindings(layer.id, [
+                  ...layer.bindings,
+                  { fieldId, targetProperty, sourcePath },
+                ]);
               }
             }}
           >

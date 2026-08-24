@@ -36,4 +36,21 @@ describe('resolveEffectiveElement', () => {
       color: '#ff3366',
     });
   });
+
+  it('previews the first runtime collection item through a nested source path', () => {
+    const layer = createTextLayer();
+    const field = createFieldDefinition('array', {
+      items: createFieldDefinition('object', {
+        key: 'item',
+        properties: [createFieldDefinition('text', { key: 'name' })],
+        defaultValue: { name: '' },
+      }),
+      defaultValue: [{ name: 'Ada' }, { name: 'Lin' }],
+    });
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'content', sourcePath: ['name'] }];
+    expect(resolveEffectiveElement(layer, {}, [], [field])).toMatchObject({ content: 'Ada' });
+    expect(
+      resolveEffectiveElement(layer, { [field.id]: [{ name: 'Grace' }] }, [], [field]),
+    ).toMatchObject({ content: 'Grace' });
+  });
 });

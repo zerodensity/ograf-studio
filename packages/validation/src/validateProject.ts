@@ -6,6 +6,7 @@ import {
   gradientStopIndexForProperty,
   getResolvedLayerAnimationTracks,
   getTotalFrames,
+  fieldDefinitionAtPath,
   validatePaint,
   type Composition,
   type FieldDefinition,
@@ -28,6 +29,25 @@ function duplicates(values: string[]): string[] {
 }
 
 function validateFieldDefinition(field: FieldDefinition, owner: string, errors: string[]): void {
+  for (const duplicate of duplicates(field.properties.map((property) => property.key))) {
+    errors.push(`${owner}: repeats object property key "${duplicate}".`);
+  }
+  if (field.type === 'object') {
+    if (field.items !== null) errors.push(`${owner}: object fields cannot declare array items.`);
+    for (const property of field.properties) {
+      if (!property.key.trim()) errors.push(`${owner}: object property keys cannot be empty.`);
+      validateFieldDefinition(property, `${owner}.${property.key || '<empty>'}`, errors);
+    }
+  } else if (field.properties.length > 0) {
+    errors.push(`${owner}: only object fields can declare properties.`);
+  }
+  if (field.type === 'array') {
+    if (!field.items) errors.push(`${owner}: array fields require an item schema.`);
+    else validateFieldDefinition(field.items, `${owner}[]`, errors);
+  } else if (field.items !== null) {
+    errors.push(`${owner}: only array fields can declare an item schema.`);
+  }
+
   const optionValues = field.options.map((option) => option.value);
   for (const duplicate of duplicates(optionValues)) {
     errors.push(`${owner}: repeats select option value "${duplicate}".`);
@@ -44,7 +64,9 @@ function validateFieldDefinition(field: FieldDefinition, owner: string, errors: 
   if (
     field.type === 'select-multiple' &&
     (!Array.isArray(field.defaultValue) ||
-      field.defaultValue.some((value) => !optionValues.includes(value)))
+      field.defaultValue.some(
+        (value) => typeof value !== 'string' || !optionValues.includes(value),
+      ))
   ) {
     errors.push(`${owner}: select-multiple defaults must be declared option values.`);
   }
@@ -70,6 +92,12 @@ function validateFieldDefinition(field: FieldDefinition, owner: string, errors: 
       errors.push(`${owner}: ${key} must be a non-negative integer.`);
     }
   }
+  for (const key of ['minItems', 'maxItems'] as const) {
+    const value = constraints[key];
+    if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+      errors.push(`${owner}: ${key} must be a non-negative integer.`);
+    }
+  }
   if (
     constraints.minLength !== undefined &&
     constraints.maxLength !== undefined &&
@@ -83,6 +111,13 @@ function validateFieldDefinition(field: FieldDefinition, owner: string, errors: 
     constraints.minimum > constraints.maximum
   ) {
     errors.push(`${owner}: minimum cannot exceed maximum.`);
+  }
+  if (
+    constraints.minItems !== undefined &&
+    constraints.maxItems !== undefined &&
+    constraints.minItems > constraints.maxItems
+  ) {
+    errors.push(`${owner}: minItems cannot exceed maxItems.`);
   }
   if (
     constraints.step !== undefined &&
@@ -122,11 +157,89 @@ function validateFieldDefinition(field: FieldDefinition, owner: string, errors: 
       errors.push(`${owner}: default exceeds maximum.`);
     }
   }
+  if (field.type === 'boolean' && typeof field.defaultValue !== 'boolean') {
+    errors.push(`${owner}: boolean default must be boolean.`);
+  }
+  const stringTypes = new Set(['text', 'textarea', 'color', 'image-url', 'file-path', 'select']);
+  if (stringTypes.has(field.type) && typeof field.defaultValue !== 'string') {
+    errors.push(`${owner}: ${field.type} default must be a string.`);
+  }
+  if (field.type === 'gradient') {
+    if (
+      !field.defaultValue ||
+      typeof field.defaultValue !== 'object' ||
+      Array.isArray(field.defaultValue) ||
+      !('stops' in field.defaultValue)
+    ) {
+      errors.push(`${owner}: gradient default must be a gradient paint.`);
+    } else {
+      for (const problem of validatePaint(
+        field.defaultValue as Parameters<typeof validatePaint>[0],
+      )) {
+        errors.push(`${owner}: gradient default ${problem}.`);
+      }
+    }
+  }
+  if (field.type === 'object') {
+    if (
+      !field.defaultValue ||
+      typeof field.defaultValue !== 'object' ||
+      Array.isArray(field.defaultValue)
+    ) {
+      errors.push(`${owner}: object default must be an object.`);
+    } else {
+      const value = field.defaultValue as Record<string, unknown>;
+      for (const property of field.properties) {
+        if (property.required && !Object.hasOwn(value, property.key)) {
+          errors.push(`${owner}: default is missing required property "${property.key}".`);
+          continue;
+        }
+        if (Object.hasOwn(value, property.key)) {
+          validateFieldDefaultValue(
+            property,
+            value[property.key],
+            `${owner} default.${property.key}`,
+            errors,
+          );
+        }
+      }
+    }
+  }
+  if (field.type === 'array') {
+    if (!Array.isArray(field.defaultValue)) {
+      errors.push(`${owner}: array default must be an array.`);
+    } else {
+      if (constraints.minItems !== undefined && field.defaultValue.length < constraints.minItems) {
+        errors.push(`${owner}: default has fewer than minItems.`);
+      }
+      if (constraints.maxItems !== undefined && field.defaultValue.length > constraints.maxItems) {
+        errors.push(`${owner}: default exceeds maxItems.`);
+      }
+      if (field.items) {
+        field.defaultValue.forEach((value, index) =>
+          validateFieldDefaultValue(field.items!, value, `${owner} default[${index}]`, errors),
+        );
+      }
+    }
+  }
   for (const extension of field.fileExtensions) {
     if (!/^[a-z0-9][a-z0-9._-]*$/i.test(extension)) {
       errors.push(`${owner}: invalid file extension "${extension}".`);
     }
   }
+}
+
+function validateFieldDefaultValue(
+  field: FieldDefinition,
+  value: unknown,
+  owner: string,
+  errors: string[],
+): void {
+  validateFieldDefinition(
+    { ...field, defaultValue: value as FieldDefinition['defaultValue'] },
+    owner,
+    errors,
+  );
 }
 
 function validateComposition(composition: Composition, errors: string[], warnings: string[]): void {
@@ -166,6 +279,11 @@ function validateComposition(composition: Composition, errors: string[], warning
   }
   for (const duplicate of duplicates(composition.components.map((component) => component.id))) {
     errors.push(`${prefix}: duplicate component id "${duplicate}".`);
+  }
+  for (const duplicate of duplicates(
+    composition.runtimeCollections.map((collection) => collection.id),
+  )) {
+    errors.push(`${prefix}: duplicate runtime collection id "${duplicate}".`);
   }
   for (const duplicate of duplicates(composition.designSystem.tokens.map((token) => token.id))) {
     errors.push(`${prefix}: duplicate design-token id "${duplicate}".`);
@@ -441,6 +559,16 @@ function validateComposition(composition: Composition, errors: string[], warning
   for (const key of duplicates(composition.dataFields.map((field) => field.key))) {
     errors.push(`${prefix}: duplicate data field key "${key}".`);
   }
+  const allFieldNodes: FieldDefinition[] = [];
+  const collectFieldNodes = (field: FieldDefinition) => {
+    allFieldNodes.push(field);
+    field.properties.forEach(collectFieldNodes);
+    if (field.items) collectFieldNodes(field.items);
+  };
+  composition.dataFields.forEach(collectFieldNodes);
+  for (const id of duplicates(allFieldNodes.map((field) => field.id))) {
+    errors.push(`${prefix}: duplicate data schema node id "${id}".`);
+  }
   for (const field of composition.dataFields) {
     validateFieldDefinition(field, `${prefix}: data field "${field.key}"`, errors);
   }
@@ -448,6 +576,102 @@ function validateComposition(composition: Composition, errors: string[], warning
     errors.push(`${prefix}: duplicate custom action id "${actionId}".`);
   }
   const fieldIds = new Set(composition.dataFields.map((field) => field.id));
+  const fieldById = new Map(composition.dataFields.map((field) => [field.id, field]));
+  const collectionByPrototypeLayerId = new Map<string, Composition['runtimeCollections'][number]>();
+  const collectionFieldIds = new Set<string>();
+  for (const collection of composition.runtimeCollections) {
+    if (!collection.name.trim())
+      errors.push(`${prefix}: runtime collection names cannot be empty.`);
+    if (
+      !Number.isInteger(collection.capacity) ||
+      collection.capacity < 1 ||
+      collection.capacity > 100
+    ) {
+      errors.push(`${prefix}: runtime collection "${collection.name}" capacity must be 1..100.`);
+    }
+    if (
+      !Number.isFinite(collection.offsetPerItem.x) ||
+      !Number.isFinite(collection.offsetPerItem.y)
+    ) {
+      errors.push(`${prefix}: runtime collection "${collection.name}" offset must be finite.`);
+    }
+    if (collection.overflow !== 'truncate') {
+      errors.push(`${prefix}: runtime collection "${collection.name}" has unsupported overflow.`);
+    }
+    const field = fieldById.get(collection.fieldId);
+    if (!field) {
+      errors.push(`${prefix}: runtime collection "${collection.name}" references a missing field.`);
+    } else {
+      if (field.type !== 'array' || field.items?.type !== 'object') {
+        errors.push(
+          `${prefix}: runtime collection "${collection.name}" requires an array field with object items.`,
+        );
+      }
+      if (collectionFieldIds.has(field.id)) {
+        errors.push(
+          `${prefix}: array field "${field.key}" drives more than one runtime collection.`,
+        );
+      }
+      collectionFieldIds.add(field.id);
+      if (field.constraints.maxItems !== collection.capacity) {
+        errors.push(
+          `${prefix}: runtime collection "${collection.name}" capacity must equal field maxItems.`,
+        );
+      }
+    }
+    if (collection.prototypeLayerIds.length === 0) {
+      errors.push(`${prefix}: runtime collection "${collection.name}" has no prototype layers.`);
+      continue;
+    }
+    if (new Set(collection.prototypeLayerIds).size !== collection.prototypeLayerIds.length) {
+      errors.push(`${prefix}: runtime collection "${collection.name}" repeats prototype layers.`);
+    }
+    const prototypeLayers = collection.prototypeLayerIds
+      .map((id) => composition.layers.find((layer) => layer.id === id))
+      .filter((layer): layer is NonNullable<typeof layer> => Boolean(layer));
+    if (prototypeLayers.length !== collection.prototypeLayerIds.length) {
+      errors.push(`${prefix}: runtime collection "${collection.name}" references missing layers.`);
+    }
+    if (!prototypeLayers.some((layer) => layer.isVisible && !layer.isGuide)) {
+      errors.push(`${prefix}: runtime collection "${collection.name}" has no visible prototype.`);
+    }
+    if (prototypeLayers.some((layer) => layer.isGuide)) {
+      errors.push(
+        `${prefix}: runtime collection "${collection.name}" cannot contain guide layers.`,
+      );
+    }
+    const groups = new Set(prototypeLayers.map((layer) => layer.groupId));
+    if (groups.size !== 1 || groups.has(null)) {
+      errors.push(
+        `${prefix}: runtime collection "${collection.name}" prototype must use one persistent group.`,
+      );
+    }
+    const indexes = prototypeLayers
+      .map((layer) => composition.layers.findIndex((candidate) => candidate.id === layer.id))
+      .sort((left, right) => left - right);
+    if (indexes.some((index, position) => position > 0 && index !== indexes[position - 1]! + 1)) {
+      errors.push(
+        `${prefix}: runtime collection "${collection.name}" prototype layers must be contiguous.`,
+      );
+    }
+    const prototypeIds = new Set(collection.prototypeLayerIds);
+    for (const layer of prototypeLayers) {
+      if (collectionByPrototypeLayerId.has(layer.id)) {
+        errors.push(
+          `${prefix}: layer "${layer.name}" belongs to more than one runtime collection.`,
+        );
+      }
+      collectionByPrototypeLayerId.set(layer.id, collection);
+      const parent = layer.parentId
+        ? composition.layers.find((candidate) => candidate.id === layer.parentId)
+        : undefined;
+      if (parent?.clipChildren && !prototypeIds.has(parent.id)) {
+        errors.push(
+          `${prefix}: runtime collection "${collection.name}" clip parents must stay inside the prototype.`,
+        );
+      }
+    }
+  }
   const designTokenById = new Map(
     composition.designSystem.tokens.map((token) => [token.id, token]),
   );
@@ -530,6 +754,22 @@ function validateComposition(composition: Composition, errors: string[], warning
     for (const binding of layer.bindings) {
       if (!fieldIds.has(binding.fieldId)) {
         errors.push(`${prefix}: layer "${layer.name}" references a missing data field.`);
+        continue;
+      }
+      const field = fieldById.get(binding.fieldId)!;
+      const collection = collectionByPrototypeLayerId.get(layer.id);
+      const fromArrayItem = field.type === 'array';
+      if (fromArrayItem && collection?.fieldId !== field.id) {
+        errors.push(
+          `${prefix}: layer "${layer.name}" can bind array field "${field.key}" only inside its runtime collection prototype.`,
+        );
+        continue;
+      }
+      const resolved = fieldDefinitionAtPath(field, binding.sourcePath ?? [], { fromArrayItem });
+      if (!resolved || resolved.type === 'object' || resolved.type === 'array') {
+        errors.push(
+          `${prefix}: layer "${layer.name}" binding path for field "${field.key}" must resolve to a scalar leaf.`,
+        );
       }
     }
     for (const targetProperty of duplicates(
@@ -584,12 +824,30 @@ function validateComposition(composition: Composition, errors: string[], warning
     }
   }
   for (const field of composition.dataFields) {
-    if (
-      (field.type === 'image-url' || field.type === 'file-path') &&
-      typeof field.defaultValue === 'string'
-    ) {
-      validateAssetReference(field.defaultValue, `data field "${field.key}"`);
-    }
+    const visitFieldAssets = (
+      node: FieldDefinition,
+      value: FieldDefinition['defaultValue'],
+      owner: string,
+    ) => {
+      if ((node.type === 'image-url' || node.type === 'file-path') && typeof value === 'string') {
+        validateAssetReference(value, owner);
+      } else if (
+        node.type === 'object' &&
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value)
+      ) {
+        const record = value as Record<string, FieldDefinition['defaultValue']>;
+        for (const property of node.properties) {
+          if (record[property.key] !== undefined) {
+            visitFieldAssets(property, record[property.key]!, `${owner}.${property.key}`);
+          }
+        }
+      } else if (node.type === 'array' && node.items && Array.isArray(value)) {
+        value.forEach((item, index) => visitFieldAssets(node.items!, item, `${owner}[${index}]`));
+      }
+    };
+    visitFieldAssets(field, field.defaultValue, `data field "${field.key}"`);
   }
 
   if (composition.keyframes.every((keyframe) => keyframe.role !== 'step')) {

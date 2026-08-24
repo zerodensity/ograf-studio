@@ -120,7 +120,11 @@ function packageDescriptorResources(
     return path;
   };
 
-  for (const layer of packaged.layers) {
+  const packagedLayers = [
+    ...packaged.layers,
+    ...(packaged.collections ?? []).flatMap((collection) => collection.prototypeLayers),
+  ];
+  for (const layer of packagedLayers) {
     if (layer.element.type === 'image' && layer.element.src) {
       layer.element.src = packageUri(layer.element.src);
     } else if (layer.element.type === 'image-sequence') {
@@ -130,10 +134,27 @@ function packageDescriptorResources(
   for (const font of packaged.fonts ?? []) {
     font.source = packageUri(font.source);
   }
-  for (const field of packagedComposition.dataFields) {
-    if (field.type === 'image-url' && typeof field.defaultValue === 'string') {
-      field.defaultValue = packageUri(field.defaultValue);
+  const packageFieldValue = (
+    field: Composition['dataFields'][number],
+    value: typeof field.defaultValue,
+  ): typeof field.defaultValue => {
+    if (field.type === 'image-url' && typeof value === 'string') return packageUri(value);
+    if (field.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, typeof field.defaultValue>;
+      return Object.fromEntries(
+        Object.entries(record).map(([key, childValue]) => {
+          const child = field.properties.find((property) => property.key === key);
+          return [key, child ? packageFieldValue(child, childValue) : childValue];
+        }),
+      );
     }
+    if (field.type === 'array' && field.items && Array.isArray(value)) {
+      return value.map((item) => packageFieldValue(field.items!, item));
+    }
+    return value;
+  };
+  for (const field of packagedComposition.dataFields) {
+    field.defaultValue = packageFieldValue(field, field.defaultValue);
   }
   return { descriptor: packaged, composition: packagedComposition, resources };
 }
