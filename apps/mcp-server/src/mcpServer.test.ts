@@ -172,6 +172,121 @@ describe('OGraf MCP authoring host', () => {
     expect(result.structuredContent).not.toHaveProperty('editor');
   });
 
+  it('applies and returns deterministic design QA when browser capture is unavailable', async () => {
+    const sessionId = 'apply-review-browser-free-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        mode: 'apply',
+        includeReview: true,
+        sessionId,
+        expectedRevision: 0,
+        operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Reviewed panel' }],
+      },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      revision: 1,
+      review: { score: expect.any(Number), findings: expect.any(Array) },
+      capture: null,
+      captureOmitted: expect.stringContaining('not connected'),
+    });
+    expect(host.workspace.get(sessionId).revision).toBe(1);
+  });
+
+  it('adds a capture URL to apply review and never fails the mutation when capture fails', async () => {
+    const port = (host.httpServer.address() as AddressInfo).port;
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/editor`);
+    testEditorSocket = socket;
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve);
+      socket.once('error', reject);
+    });
+    const transparentPixel =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XcJR8QAAAABJRU5ErkJggg==';
+    let failCapture = false;
+    socket.on('message', (raw) => {
+      const message = JSON.parse(raw.toString()) as { type: string; requestId?: string };
+      if (!message.requestId) return;
+      if (message.type === 'heartbeat.request') {
+        socket.send(JSON.stringify({ type: 'heartbeat.result', requestId: message.requestId }));
+      } else if (message.type === 'capture.request') {
+        socket.send(
+          JSON.stringify({
+            type: 'capture.result',
+            requestId: message.requestId,
+            ...(failCapture
+              ? { error: 'Synthetic browser capture failure.' }
+              : {
+                  result: {
+                    mimeType: 'image/png',
+                    data: transparentPixel,
+                    width: 1,
+                    height: 1,
+                    originalWidth: 1,
+                    originalHeight: 1,
+                    resolvedFonts: [],
+                  },
+                }),
+          }),
+        );
+      }
+    });
+    socket.send(
+      JSON.stringify({
+        type: 'editor.hello',
+        project: host.workspace.get('editor').snapshot().project,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const sessionId = 'apply-review-capture-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const captured = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        mode: 'apply',
+        includeReview: true,
+        sessionId,
+        expectedRevision: 0,
+        operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Captured panel' }],
+      },
+    });
+    expect(captured.isError).not.toBe(true);
+    expect(captured.structuredContent).toMatchObject({
+      revision: 1,
+      review: { score: expect.any(Number) },
+      capture: { url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:/) },
+      captureOmitted: null,
+    });
+
+    failCapture = true;
+    const failedSessionId = 'apply-review-failed-capture-test';
+    await client.callTool({
+      name: 'ograf_create_project',
+      arguments: { sessionId: failedSessionId },
+    });
+    const degraded = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        mode: 'apply',
+        includeReview: true,
+        sessionId: failedSessionId,
+        expectedRevision: 0,
+        operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Still applied panel' }],
+      },
+    });
+    expect(degraded.isError).not.toBe(true);
+    expect(degraded.structuredContent).toMatchObject({
+      revision: 1,
+      review: { score: expect.any(Number) },
+      capture: null,
+      captureOmitted: expect.stringContaining('Synthetic browser capture failure'),
+    });
+    expect(host.workspace.get(failedSessionId).revision).toBe(1);
+  });
+
   it('creates a semantic lower third and exposes its intent through inspection', async () => {
     const sessionId = 'semantic-lower-third-test';
     await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });

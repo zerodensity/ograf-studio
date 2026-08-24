@@ -34,9 +34,11 @@
 - `ograf_apply_operations` is the single operation entry point. `mode: "apply"` commits;
   `mode: "dry-run"` performs browser-free validation/lint; `mode: "preview"` renders the projected
   frame or strip without changing project state, revision, or undo history; and `mode: "propose"`
-  presents that projection for explicit Accept or Reject in `sessionId: "editor"`. Generated dry-run
-  IDs are hypothetical. Proposal acceptance applies the exact batch only when the base revision is
-  still current; rejection, expiry, or conflict leaves the project unchanged.
+  presents that projection for explicit Accept or Reject in `sessionId: "editor"`. With `apply` or
+  `dry-run`, `includeReview: true` appends deterministic design QA and a short-lived capture URL when
+  the editor is responsive. Capture omission or failure is reported without failing the mutation or
+  QA. Generated dry-run IDs are hypothetical. Proposal acceptance applies the exact batch only when
+  the base revision is still current; rejection, expiry, or conflict leaves the project unchanged.
 - `ograf_review_design`: deterministic semantic, layout, typography, palette, spacing, and motion QA
   with stable finding/layer IDs and recommended preview frames. `includeStrip: true` adds an
   authoritative browser contact sheet. Craft findings cover lockstep translation, easing direction,
@@ -62,7 +64,9 @@ Always read before write. IDs are opaque; never manufacture layer, field, transi
 
 ## Mutations
 
-Call `ograf_apply_operations` with `sessionId`, `expectedRevision`, `operations`, optional `reason`, and optional `dryRun`.
+Call `ograf_apply_operations` with `sessionId`, `expectedRevision`, `operations`, optional `reason`,
+and the required mode-specific options. Prefer `includeReview: true` when an apply/dry-run and its
+deterministic design assessment belong in the same model turn.
 
 Supported operation discriminators:
 

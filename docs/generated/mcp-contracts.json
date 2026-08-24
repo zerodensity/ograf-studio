@@ -412,7 +412,7 @@
     {
       "name": "ograf_apply_operations",
       "title": "Apply, preview, or propose OGraf operations",
-      "description": "One revision-checked operation entry point. mode=apply commits one atomic batch. mode=dry-run performs browser-free validation/lint without changing revision. mode=preview renders a revision-neutral projected frame or strip in the connected editor. mode=propose presents that projection for explicit human Accept/Reject and requires sessionId=editor plus title. The operation schema appears once regardless of mode.",
+      "description": "One revision-checked operation entry point. mode=apply commits one atomic batch. mode=dry-run performs browser-free validation/lint without changing revision. Set includeReview=true with apply or dry-run to append deterministic design QA and a short-lived browser capture URL when the editor is responsive; QA/apply still succeed when capture is unavailable. mode=preview renders a revision-neutral projected frame or strip in the connected editor. mode=propose presents that projection for explicit human Accept/Reject and requires sessionId=editor plus title. The operation schema appears once regardless of mode.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2522,6 +2522,7 @@
             }
           },
           "reason": { "type": "string" },
+          "includeReview": { "default": false, "type": "boolean" },
           "broadcastLint": { "default": false, "type": "boolean" },
           "interlacedOutput": { "default": false, "type": "boolean" },
           "render": { "type": "string", "enum": ["frame", "strip"] },

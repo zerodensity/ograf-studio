@@ -136,6 +136,7 @@ const consolidatedOperationInputSchema = {
   expectedRevision: z.number().int().nonnegative(),
   operations: z.array(authoringOperationSchema).min(1),
   reason: z.string().optional(),
+  includeReview: z.boolean().default(false),
   broadcastLint: z.boolean().default(false),
   interlacedOutput: z.boolean().default(false),
   render: z.enum(['frame', 'strip']).optional(),
@@ -160,7 +161,11 @@ const consolidatedOperationInputSchema = {
 
 type ConsolidatedOperationInput = z.output<z.ZodObject<typeof consolidatedOperationInputSchema>>;
 
-function consolidateOperationTools(records: AgentToolRecord[]): AgentToolRecord[] {
+function consolidateOperationTools(
+  records: AgentToolRecord[],
+  workspace: AuthoringWorkspacePort,
+  bridge: EditorBridgePort,
+): AgentToolRecord[] {
   const names = [
     'ograf_apply_operations',
     'ograf_preview_operations',
@@ -182,7 +187,7 @@ function consolidateOperationTools(records: AgentToolRecord[]): AgentToolRecord[
     config: {
       title: 'Apply, preview, or propose OGraf operations',
       description:
-        'One revision-checked operation entry point. mode=apply commits one atomic batch. mode=dry-run performs browser-free validation/lint without changing revision. mode=preview renders a revision-neutral projected frame or strip in the connected editor. mode=propose presents that projection for explicit human Accept/Reject and requires sessionId=editor plus title. The operation schema appears once regardless of mode.',
+        'One revision-checked operation entry point. mode=apply commits one atomic batch. mode=dry-run performs browser-free validation/lint without changing revision. Set includeReview=true with apply or dry-run to append deterministic design QA and a short-lived browser capture URL when the editor is responsive; QA/apply still succeed when capture is unavailable. mode=preview renders a revision-neutral projected frame or strip in the connected editor. mode=propose presents that projection for explicit human Accept/Reject and requires sessionId=editor plus title. The operation schema appears once regardless of mode.',
       inputSchema: consolidatedOperationInputSchema,
       annotations: mutation,
     },
@@ -194,13 +199,74 @@ function consolidateOperationTools(records: AgentToolRecord[]): AgentToolRecord[
         operations: input.operations,
       };
       if (input.mode === 'apply' || input.mode === 'dry-run') {
-        return apply.handler({
+        if (input.includeReview && input.compositionId) {
+          const before = workspace.get(input.sessionId).snapshot().project;
+          if (!before.compositions.some((item) => item.id === input.compositionId)) {
+            throw new Error(`Composition not found: ${input.compositionId}`);
+          }
+        }
+        const applied = (await apply.handler({
           ...common,
           dryRun: input.mode === 'dry-run',
           broadcastLint: input.broadcastLint,
           interlacedOutput: input.interlacedOutput,
           ...(input.reason ? { reason: input.reason } : {}),
-        });
+        })) as {
+          content: Array<{ type: string; text?: string }>;
+          structuredContent: Record<string, unknown>;
+        };
+        if (!input.includeReview) return applied;
+
+        const project = applied.structuredContent.project as Project;
+        const composition = project.compositions.find(
+          (item) => item.id === (input.compositionId ?? project.mainCompositionId),
+        )!;
+        const review = reviewCompositionDesign(composition);
+        const frame = input.frame ?? firstStepFrame(composition);
+        let capture: Record<string, unknown> | null = null;
+        let captureOmitted: string | null = null;
+        const editor = bridge.health;
+        if (!editor.connected) {
+          captureOmitted =
+            'OGraf Studio is not connected; apply and deterministic review completed.';
+        } else if (!editor.responsive) {
+          captureOmitted =
+            'OGraf Studio is connected but unresponsive; apply and deterministic review completed.';
+        } else {
+          try {
+            const published = await bridge.capture({
+              target: 'composition',
+              project,
+              compositionId: composition.id,
+              frame,
+              maxDimension: input.maxDimension ?? 900,
+              matte: input.matte,
+              ...(input.dataOverrides ? { dataOverrides: input.dataOverrides } : {}),
+            });
+            const { data: _data, ...metadata } = published;
+            capture = {
+              compositionId: composition.id,
+              frame,
+              ...metadata,
+              fetchCommand: `curl --fail --output ograf-apply-review.png "${published.url}"`,
+            };
+          } catch (error) {
+            captureOmitted = `Browser capture failed after the ${input.mode}; the mutation and deterministic review remain valid: ${error instanceof Error ? error.message : String(error)}`;
+          }
+        }
+        const summary = applied.content.find((item) => item.type === 'text')?.text ?? '';
+        return textResult(
+          {
+            ...applied.structuredContent,
+            review,
+            capture,
+            captureOmitted,
+          },
+          `${summary} Design QA ${review.score}/100; capture ${capture ? 'available' : 'omitted'}.`,
+        );
+      }
+      if (input.includeReview) {
+        throw new Error('includeReview is available only for mode=apply or mode=dry-run.');
       }
       if (input.mode === 'preview') {
         return preview.handler({
@@ -3215,5 +3281,5 @@ export function createOGrafToolRecords(
     },
   );
 
-  return consolidateOperationTools(records);
+  return consolidateOperationTools(records, workspace, bridge);
 }
