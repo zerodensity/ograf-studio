@@ -457,6 +457,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
       showRulers: true,
       showActionSafe: false,
       showTitleSafe: false,
+      dimOutsideCanvas: false,
       snappingEnabled: true,
       snapToGrid: false,
       snapToGuides: true,
@@ -481,7 +482,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 20;
+export const PROJECT_DOCUMENT_VERSION = 21;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

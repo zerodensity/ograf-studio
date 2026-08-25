@@ -48,10 +48,11 @@ export function guidePositionFromViewport(
   scroll: { left: number; top: number },
   composition: { width: number; height: number },
   zoom: number,
+  origin = { x: composition.width * zoom, y: composition.height * zoom },
 ): number {
   return Math.round(
     axis === 'vertical'
-      ? (pointer.x - viewportRect.left + scroll.left) / zoom - composition.width
-      : (pointer.y - viewportRect.top + scroll.top) / zoom - composition.height,
+      ? (pointer.x - viewportRect.left + scroll.left - origin.x) / zoom
+      : (pointer.y - viewportRect.top + scroll.top - origin.y) / zoom,
   );
 }

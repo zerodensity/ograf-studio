@@ -100,6 +100,8 @@ export interface AgentMeasureTextResult {
   overflowsParent: boolean;
   /** Distinguishes text-box overflow from intentional ancestor masking. */
   clippedBy: 'parent' | 'own-box' | null;
+  appliedFontSize: number;
+  appliedFitRatio: number;
   appliedShrinkRatio: number;
   degenerate: boolean;
   resolvedFont: {
@@ -605,9 +607,14 @@ export async function measureAgentText(
     const overflowsParent =
       content.scrollWidth + strokeExpansion > host.clientWidth + 0.5 ||
       content.scrollHeight + strokeExpansion > host.clientHeight + 0.5;
+    const appliedFontSize = Number(content.dataset.ografAppliedFontSize ?? element.fontSize);
+    const appliedFitRatio = Number(content.dataset.ografFitRatio ?? 1);
     const appliedShrinkRatio =
       element.autoFit === 'shrink-to-fit' ? Number(content.dataset.ografShrinkRatio ?? 1) : 1;
-    const degenerate = content.dataset.ografShrinkDegenerate === 'true';
+    const degenerate =
+      element.autoFit === 'fit-to-width'
+        ? content.dataset.ografFitDegenerate === 'true'
+        : content.dataset.ografShrinkDegenerate === 'true';
     const clippingParent = layer.parentId
       ? composition.layers.find(
           (candidate) => candidate.id === layer.parentId && candidate.clipChildren,
@@ -628,6 +635,8 @@ export async function measureAgentText(
       lines: layout.lines,
       overflowsParent,
       clippedBy: overflowsParent ? 'own-box' : clippedByParent ? 'parent' : null,
+      appliedFontSize,
+      appliedFitRatio,
       appliedShrinkRatio,
       degenerate,
       resolvedFont: {

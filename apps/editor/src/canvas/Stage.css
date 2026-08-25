@@ -20,9 +20,16 @@
 .canvas-stage-viewport {
   position: absolute;
   inset: 0;
-  overflow: auto;
+  overflow: scroll;
+  overscroll-behavior: none;
+  scrollbar-width: none;
   background: var(--bg-canvas);
-  scrollbar-gutter: stable;
+}
+
+.canvas-stage-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .canvas-stage-viewport.is-panning,
@@ -38,7 +45,6 @@
 
 .canvas-stage-pasteboard {
   position: absolute;
-  inset: 0 auto auto 0;
   transform-origin: top left;
 }
 
@@ -57,17 +63,62 @@
 
 .canvas-safe-area {
   position: absolute;
-  border: 4px dashed rgba(255, 216, 74, 0.95);
   box-sizing: border-box;
 }
 
 .canvas-safe-area.action-safe {
-  inset: 5%;
+  border: 4px dashed rgba(42, 205, 76, 0.95);
 }
 
 .canvas-safe-area.title-safe {
-  inset: 10%;
-  border-color: rgba(74, 210, 255, 0.9);
+  border: 4px dotted rgba(255, 70, 70, 0.95);
+}
+
+.canvas-outside-dimmer {
+  --stage-frame-left: calc(var(--stage-origin-x, 0px) - var(--stage-scroll-left, 0px));
+  --stage-frame-top: calc(var(--stage-origin-y, 0px) - var(--stage-scroll-top, 0px));
+  --stage-frame-right: calc(var(--stage-frame-left) + var(--stage-frame-width));
+  --stage-frame-bottom: calc(var(--stage-frame-top) + var(--stage-frame-height));
+  --stage-frame-left-clamped: clamp(0px, var(--stage-frame-left), 100%);
+  --stage-frame-top-clamped: clamp(0px, var(--stage-frame-top), 100%);
+  --stage-frame-right-clamped: clamp(0px, var(--stage-frame-right), 100%);
+  --stage-frame-bottom-clamped: clamp(0px, var(--stage-frame-bottom), 100%);
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.canvas-outside-dimmer > span {
+  position: absolute;
+  display: block;
+  background: rgb(18 18 18 / 18%);
+}
+
+.canvas-outside-dimmer > .top {
+  inset: 0 0 auto;
+  height: var(--stage-frame-top-clamped);
+}
+
+.canvas-outside-dimmer > .bottom {
+  inset: var(--stage-frame-bottom-clamped) 0 0;
+}
+
+.canvas-outside-dimmer > .left,
+.canvas-outside-dimmer > .right {
+  top: var(--stage-frame-top-clamped);
+  height: calc(var(--stage-frame-bottom-clamped) - var(--stage-frame-top-clamped));
+}
+
+.canvas-outside-dimmer > .left {
+  left: 0;
+  width: var(--stage-frame-left-clamped);
+}
+
+.canvas-outside-dimmer > .right {
+  right: 0;
+  left: var(--stage-frame-right-clamped);
 }
 
 .canvas-rulers-overlay {

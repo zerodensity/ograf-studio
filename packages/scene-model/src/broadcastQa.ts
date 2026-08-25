@@ -2,6 +2,7 @@ import { computeKeyframeFrames } from './keyframeTiming';
 import { getLayerTransformAtFrame } from './layerAnimation';
 import { intersectConvexPolygons, polygonBounds, transformBoundsPolygon } from './clipping';
 import type { Composition, Layer, Project } from './types';
+import { getEbuR95SafeAreas } from './safeAreas';
 
 export type BroadcastQaSeverity = 'info' | 'warning';
 export type BroadcastQaCategory =
@@ -70,6 +71,7 @@ export function runBroadcastQa(
       .filter((item) => stepIds.has(item.keyframeId))
       .map((item) => item.frame);
     const frames = stepFrames.length > 0 ? stepFrames : lifecycle.map((item) => item.frame);
+    const { titleSafe } = getEbuR95SafeAreas(composition);
     const recommendedFontSize = 24 * (composition.height / 1080);
     for (const [index, layer] of composition.layers.entries()) {
       if (!layer.isVisible || layer.isGuide) continue;
@@ -80,11 +82,9 @@ export function runBroadcastQa(
         const fullHeight = bounds.y <= 0 && bounds.y + bounds.height >= composition.height;
         if (
           (!fullWidth &&
-            (bounds.x < composition.width * 0.1 ||
-              bounds.x + bounds.width > composition.width * 0.9)) ||
+            (bounds.x < titleSafe.x || bounds.x + bounds.width > titleSafe.x + titleSafe.width)) ||
           (!fullHeight &&
-            (bounds.y < composition.height * 0.1 ||
-              bounds.y + bounds.height > composition.height * 0.9))
+            (bounds.y < titleSafe.y || bounds.y + bounds.height > titleSafe.y + titleSafe.height))
         ) {
           issues.push({
             severity: 'warning',
@@ -92,7 +92,7 @@ export function runBroadcastQa(
             compositionId: composition.id,
             layerId: layer.id,
             frame,
-            message: `${layer.name} crosses the 10% title-safe boundary at frame ${frame}.`,
+            message: `${layer.name} crosses the EBU R 95 5% title-safe boundary at frame ${frame}.`,
           });
         }
       }

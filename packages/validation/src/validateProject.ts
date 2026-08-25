@@ -846,6 +846,13 @@ function validateComposition(composition: Composition, errors: string[], warning
         );
       }
     } else if (layer.element.type === 'text') {
+      if (
+        !(['auto-size', 'shrink-to-fit', 'fit-to-width', 'fixed'] as const).includes(
+          layer.element.autoFit,
+        )
+      ) {
+        errors.push(`${prefix}: text layer "${layer.name}" has an unsupported text sizing mode.`);
+      }
       if (!Number.isFinite(layer.element.strokeWidth) || layer.element.strokeWidth < 0) {
         errors.push(
           `${prefix}: text layer "${layer.name}" stroke width must be finite and non-negative.`,

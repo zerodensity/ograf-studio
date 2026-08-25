@@ -223,6 +223,18 @@ describe('project validation', () => {
     expect(errors).toMatch(/cannot animate text stroke width on a image element/);
   });
 
+  it('accepts fit-to-width and rejects unknown text sizing modes from untrusted JSON', () => {
+    const project = createProject();
+    const text = createLayerOfKind('text');
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.autoFit = 'fit-to-width';
+    project.compositions[0]!.layers = [text];
+    expect(validateProject(project).errors.join(' ')).not.toMatch(/unsupported text sizing mode/);
+
+    text.element.autoFit = 'stretch-glyphs' as typeof text.element.autoFit;
+    expect(validateProject(project).errors.join(' ')).toMatch(/unsupported text sizing mode/);
+  });
+
   it('rejects invalid text stroke values inside reusable component snapshots', () => {
     const project = createProject();
     const text = createLayerOfKind('text');

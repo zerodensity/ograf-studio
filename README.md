@@ -6,34 +6,47 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.05
+## New in OGraf Studio 0.06
 
-- Added document-v20 broadcast text outlines with editable stroke colour and independently animated
-  non-negative stroke width across the Inspector, Brand Kits, timeline/local-loop authoring, SVG
-  diagnostics, browser capture, and certified runtime output.
-- Paints outlines behind the glyph face with `paint-order: stroke fill`; legacy projects and reusable
-  component snapshots migrate to transparent/zero stroke without changing their appearance.
-- Extracted canonical AI tool schemas/handlers into transport-neutral `packages/agent-tools`, then
-  consolidated apply, dry-run, rendered preview, and human proposal behavior into one operation
-  contract. The server now advertises 26 tools instead of 28.
-- Added filtered capability sections and `includeReview: true` apply/dry-run responses, reducing
-  model context and combining mutation, deterministic design QA, and optional browser capture in one
-  round trip.
-- Refreshed the bundled News and Atlas templates with semantic intent, operator-safe field limits,
-  blend modes, cubic motion, and explicit QA exceptions; both score 99/100 and pass dual-profile
-  certification.
-- Regenerated the MCP contracts, updated and validated the portable `ograf-authoring` skill, and
-  raised the verified baseline to 285 tests across 56 files.
+- Added persistent in-app BYOK authoring chat with server-side Anthropic/OpenAI-compatible loops, a
+  reduced 14-tool surface, generated Skill-based prompt, proposal review, redacted progress, local
+  usage accounting, and credentials that never cross into browser JavaScript.
+- Added News, Sports, Entertainment, and Documentary style packs plus editable bug/DOG, clipped
+  ticker, scoreboard, clock, lower-third, and repeater recipes with portable standard OGraf output.
+- Added exact EBU R 95 3.5% action-safe / 5% title-safe overlays and deterministic **Fit to width**
+  text sizing shared by editor, capture, realtime playback, and non-realtime seeking.
+- Replaced the finite pasteboard with an infinite node-graph camera, plain-wheel zoom, middle-button
+  pan, hidden native scrollbars, and optional document-v21 **Dim outside canvas (18%)**.
+- Added depth-indented drag parenting and a counted ARIA Resources tree without changing paint order,
+  package resources, reusable-component behavior, or exported output.
+- Reworked timeline readability with full-height bordered color blocks, larger aligned diamonds,
+  property-level loop badges, readable expanded property rows, and sticky scroll headers.
+- Single-click now selects lifecycle/layer/property keys without seeking; double-click seeks, and a
+  drag threshold prevents pointer jitter from moving keys.
+- Unified editor typography, form/button contrast, frame-duration controls, panel dividers, and the
+  contextual Align/Distribute/Group toolbar. The verified baseline is 332 tests across 68 files.
 
-See [the complete 0.05 release notes](docs/releases/0.05.md) for validation evidence and current
+See [the complete 0.06 release notes](docs/releases/0.06.md) for validation evidence and current
 boundaries.
 
 ## Highlights
 
 - WYSIWYG canvas with layers, grouping, guides, rulers, snapping, clipping, and responsive layout
   aids.
+- Infinite node-graph-style canvas camera with hidden native scrollbars, unbounded middle-button
+  panning, plain-wheel pointer-anchored zoom, and camera-aware rulers/guides in Edit and OGraf
+  Preview.
+- Layers retain their true paint-order list while child names indent by complete parent depth.
+  Dragging over a row centre assigns its parent; upper and lower row-edge zones continue to reorder
+  before or after without conflating hierarchy and z-order.
+- EBU R 95 16:9 action-safe and title/graphics-safe overlays with exact 3.5% and 5% per-axis
+  margins for HD and UHD rasters, shared by canvas guides, broadcast QA, and MCP inspection/lint.
+- Optional **Dim outside canvas (18%)** layout aid adds a transparent dark-gray veil around the
+  composition in Edit and OGraf Preview without changing the canvas alpha or exported graphic.
 - Independent per-property animation tracks, per-key easing and curves, local loops, and freely
   movable OGraf lifecycle Steps.
+- Timeline `∞` badges identify the Step where each layer-local loop activates, on both the global
+  lifecycle marker and the matching layer key diamond.
 - Data fields with multiple independent property bindings per layer for text, images, colors, and
   structured gradients.
 - Composition-local layer blend modes with an isolated transparent root, so blending is portable
@@ -47,11 +60,19 @@ boundaries.
 - Reusable authoring components that snapshot selected layers and bound fields, then insert fresh
   independent or explicitly refreshable linked instances without adding a proprietary runtime
   dependency.
+- Compact Resources tree with counted, collapsible Brand Kit, Components, Images, Fonts, and Source
+  branches; individual item editors expand only when needed.
+- Unified Studio typography with one system UI family, one monospace diagnostics family, and only
+  12 px / 10 px editor text tiers across buttons, labels, and editable controls. Authored graphic
+  typography remains independent and unchanged.
 - Brand Kits with typed color, typography, and geometry tokens plus News, Sports, Entertainment,
   and Documentary style packs; copied token values remain editable and materialize into standard
   properties so exported graphics never require OGraf Studio at playout time.
 - Broadcast text outlines with editable stroke colour and independently animated width, rendered
   behind the glyph fill consistently in the editor, browser capture, SVG diagnostics, and export.
+- Text **Fit to width** sizing grows or shrinks glyphs to the largest proportional font size that
+  fills a fixed text box without overflowing either axis, and responds to data, animated box size,
+  stroke width, and packaged-font loading in editor preview and exported runtime.
 - Semantic lower-third, bug/DOG, clipped ticker, scoreboard, clock, and repeater recipes for fast
   AI/human authoring while keeping every result editable through normal layers, fields, groups, and
   tracks.
@@ -158,6 +179,44 @@ The server binds only to loopback. Its default writable workspace is the reposit
 `OGRAF_WORKSPACE_ROOT` before starting it to use a different confined workspace. Set
 `OGRAF_MCP_PORT` to change port `4318`, and set the editor's `VITE_OGRAF_AGENT_BRIDGE_URL` to the
 matching WebSocket URL when changing the port.
+
+## In-app AI chat (BYOK)
+
+OGraf Studio includes a **Chat** tab beside **Layers** in the left sidebar. The model loop runs in
+the local server process and drives the same canonical, revision-checked tool records as MCP. The
+browser receives only redacted chat/tool/usage events: provider credentials never enter renderer
+JavaScript, WebSocket frames, project files, or local usage storage.
+
+Configure the server before starting `npm run mcp:start`:
+
+```powershell
+$env:OGRAF_AGENT_PROVIDER = "anthropic" # or "openai-compatible"
+$env:OGRAF_AGENT_BASE_URL = "https://api.anthropic.com"
+$env:OGRAF_AGENT_MODEL = "your-model-id"
+npm run agent:credential
+npm run mcp:start
+```
+
+`agent:credential` prompts without echo and stores the secret as
+`OGraf Studio/<provider>` in Windows Credential Manager. For managed or air-gapped machines, set
+`OGRAF_AGENT_API_KEY` in the server environment instead; it is a fallback and is never persisted by
+Studio. `OGRAF_AGENT_BASE_URL` is required so facilities can use an internal gateway or self-hosted
+OpenAI-compatible endpoint. It may be an API root ending in `/v1` or a complete chat-completions URL.
+
+Optional server-only settings are `OGRAF_AGENT_CHEAP_MODEL` for routine rename/property/key work,
+`OGRAF_AGENT_EFFORT` (`low`, `medium`, or `high`), `OGRAF_AGENT_ORGANIZATION`,
+`OGRAF_AGENT_PROJECT`, and `OGRAF_AGENT_CREDENTIAL_TARGET`. Restart the server after changing them.
+The panel reports per-message, per-session, and cumulative-per-project token usage; cumulative usage
+is browser-local metadata keyed by project ID and is deliberately excluded from `.ogeproj`.
+It also reports recent external MCP activity. An optional session-local exclusive toggle prevents
+the in-app and external agents from authoring at the same time; optimistic revision checks remain
+the normal default when that toggle is off.
+
+The in-app model receives a reduced 14-tool authoring surface. Save, export, certification, project
+reset/open, and imports remain explicit Studio UI actions. Visually consequential tool batches still
+appear in the existing **Accept/Reject** review panel. The generated in-app knowledge prompt is a
+projection of `skills/ograf-authoring`; `npm run prompt:generate` updates it and `npm run verify`
+rejects drift.
 
 ## Claude Desktop configuration on Windows
 
@@ -280,15 +339,16 @@ bundle so tests work in a fresh clone.
 
 - `apps/editor` — React/Vite visual editor.
 - `apps/mcp-server` — localhost Streamable HTTP MCP server and editor bridge.
-- `packages/agent-tools` — transport-neutral canonical tool records, schemas, and bridge/workspace
-  ports shared by MCP and the planned in-app agent.
+- `packages/agent-tools` — transport-neutral canonical tool records, provider schemas, generated
+  authoring prompt, and bridge/workspace ports shared by MCP and the in-app agent.
 - `packages/scene-model` — canonical editable project model and migrations.
 - `packages/authoring-core` — framework-neutral revisioned authoring operations.
 - `packages/codegen` — manifest, descriptor, and export artifact compiler.
 - `packages/ograf-runtime` — descriptor-driven OGraf `Graphic` custom element.
 - `packages/validation` — official-schema and semantic validation.
 - `skills/ograf-authoring` — reusable MCP authoring skill and references.
-- `docs/generated` — generated MCP tool/schema contracts; regenerate instead of editing by hand.
+- `docs/generated` — generated MCP tool/schema contracts and in-app system prompt; regenerate
+  instead of editing by hand.
 - `templates` — example editable sources and OGraf packages.
 - `fixtures/ograf-schema` — vendored OGraf schema closure used by validation.
 

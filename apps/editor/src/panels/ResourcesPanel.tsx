@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   findAssetConsumers,
   findMissingAssetReferences,
@@ -12,6 +12,7 @@ import {
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { Panel } from './Panel';
+import { partitionResourceAssets } from './resourceTree';
 import './ResourcesPanel.css';
 
 const formatBytes = (bytes = 0) => {
@@ -19,6 +20,53 @@ const formatBytes = (bytes = 0) => {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
+
+function ResourceTreeBranch({
+  label,
+  count,
+  children,
+}: {
+  label: string;
+  count: number;
+  children: ReactNode;
+}) {
+  return (
+    <details className="resources-tree-branch" role="treeitem">
+      <summary>
+        <span className="resources-tree-label">{label}</span>
+        <span className="resources-tree-count">{count}</span>
+      </summary>
+      <div className="resources-tree-group" role="group">
+        {children}
+      </div>
+    </details>
+  );
+}
+
+function ResourceTreeItem({
+  label,
+  meta,
+  preview,
+  children,
+}: {
+  label: string;
+  meta?: string;
+  preview?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <details className="resources-tree-item" role="treeitem">
+      <summary title={label}>
+        {preview ?? <span className="resources-tree-item-icon">R</span>}
+        <span className="resources-tree-item-copy">
+          <span className="resources-tree-item-name">{label}</span>
+          {meta && <span className="resources-tree-item-meta">{meta}</span>}
+        </span>
+      </summary>
+      <div className="resources-tree-item-editor">{children}</div>
+    </details>
+  );
+}
 
 export function ResourcesPanel() {
   const composition = useActiveComposition();
@@ -47,6 +95,13 @@ export function ResourcesPanel() {
   const fontInputRef = useRef<HTMLInputElement>(null);
   const sourceInputRef = useRef<HTMLInputElement>(null);
   const missingReferences = useMemo(() => findMissingAssetReferences(composition), [composition]);
+  const assetsByKind = useMemo(
+    () => partitionResourceAssets(composition.assets),
+    [composition.assets],
+  );
+  const imageAssets = assetsByKind.images;
+  const fontAssets = assetsByKind.fonts;
+  const sourceAssets = assetsByKind.sources;
 
   useEffect(() => {
     const loaded: FontFace[] = [];
@@ -129,437 +184,441 @@ export function ResourcesPanel() {
   return (
     <Panel title="Resources">
       <div className="resources-panel">
-        <section className="data-panel-section">
-          <div className="resources-style-pack-row">
-            <select
-              aria-label="Broadcast style pack"
-              value={selectedStylePack}
-              onChange={(event) => setSelectedStylePack(event.target.value as StylePackId)}
-            >
-              {STYLE_PACKS.map((pack) => (
-                <option key={pack.id} value={pack.id}>
-                  {pack.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => applyStylePack(selectedStylePack)}
-              title="Copy editable pack tokens and apply them to compatible semantic layers"
-            >
-              Apply Pack
-            </button>
-          </div>
-          <div className="data-panel-section-header">
-            <input
-              className="resources-component-name"
-              aria-label="Brand kit name"
-              value={composition.designSystem.name}
-              onChange={(event) => setDesignSystemName(event.target.value)}
-            />
-            <button type="button" onClick={() => addDesignToken('color')}>
-              {'+ Token'}
-            </button>
-          </div>
-          {composition.designSystem.tokens.length === 0 ? (
-            <p className="panel-placeholder">
-              Add reusable colours, typography, and measurements for this brand.
-            </p>
-          ) : (
-            <ul className="resources-asset-list">
-              {composition.designSystem.tokens.map((token) => {
-                const uses = tokenUsageCount(token.id);
-                return (
-                  <li key={token.id} className="resources-asset-row">
-                    {token.type === 'color' && typeof token.value === 'string' ? (
-                      <input
-                        aria-label={`${token.name} colour`}
-                        type="color"
-                        value={token.value.slice(0, 7)}
-                        onChange={(event) =>
-                          updateDesignToken(token.id, { value: event.target.value })
-                        }
-                      />
-                    ) : (
-                      <span className="resources-font-preview">T</span>
-                    )}
-                    <div className="resources-asset-fields">
-                      <div className="resources-asset-inline">
-                        <input
-                          aria-label="Token name"
-                          value={token.name}
-                          onChange={(event) =>
-                            updateDesignToken(token.id, { name: event.target.value })
-                          }
-                        />
-                        <input
-                          aria-label="Token key"
-                          value={token.key}
-                          onChange={(event) =>
-                            updateDesignToken(token.id, { key: event.target.value })
-                          }
-                        />
-                      </div>
-                      <div className="resources-asset-inline">
-                        <select
-                          aria-label="Token type"
-                          value={token.type}
-                          onChange={(event) => {
-                            const type = event.target.value as DesignTokenType;
-                            updateDesignToken(token.id, {
-                              type,
-                              value: defaultTokenValue(type),
-                            });
-                          }}
-                        >
-                          <option value="color">Colour</option>
-                          <option value="number">Number</option>
-                          <option value="font-family">Font family</option>
-                          <option value="font-weight">Font weight</option>
-                          <option value="text">Text</option>
-                        </select>
-                        <input
-                          aria-label="Token value"
-                          type={
-                            token.type === 'number' || token.type === 'font-weight'
-                              ? 'number'
-                              : 'text'
-                          }
-                          value={token.value}
-                          onChange={(event) =>
-                            updateDesignToken(token.id, {
-                              value:
-                                token.type === 'number' || token.type === 'font-weight'
-                                  ? Number(event.target.value)
-                                  : event.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <span className="resources-asset-meta">
-                        {uses} linked layer{uses === 1 ? '' : 's'}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="data-table-delete"
-                      disabled={uses > 0}
-                      onClick={() => removeDesignToken(token.id)}
-                      title={uses > 0 ? 'Unlink this token before deleting it' : 'Delete token'}
-                    >
-                      {'✕'}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <p className="inspector-hint">
-            Token values are materialized into normal OGraf properties and stay portable.
-          </p>
-        </section>
-
-        <section className="data-panel-section">
-          <div className="data-panel-section-header">
-            <h3>Components</h3>
-            <button
-              type="button"
-              disabled={selectedLayerIds.length === 0}
-              onClick={() => createComponent(selectedLayerIds)}
-              title="Save the selected layers and their bound fields as a reusable component"
-            >
-              {'+ Save Selection'}
-            </button>
-          </div>
-          {composition.components.length === 0 ? (
-            <p className="panel-placeholder">Select layers to save a reusable component.</p>
-          ) : (
-            <ul className="resources-asset-list">
-              {composition.components.map((component) => (
-                <li key={component.id} className="resources-asset-row">
-                  <input
-                    className="resources-component-name"
-                    aria-label="Component name"
-                    value={component.name}
-                    onChange={(event) => renameComponent(component.id, event.target.value)}
-                  />
-                  <span className="resources-component-count">
-                    {component.layers.length} layer{component.layers.length === 1 ? '' : 's'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => selectMany(instantiateComponent(component.id))}
-                    title="Insert an independent editable instance"
-                  >
-                    Insert
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectMany(instantiateComponent(component.id, undefined, true))}
-                    title="Insert a portable layer instance that can be explicitly refreshed from this component"
-                  >
-                    Link
-                  </button>
-                  <button
-                    type="button"
-                    disabled={selectedLayerIds.length === 0}
-                    onClick={() => updateComponentFromLayers(component.id, selectedLayerIds)}
-                    title="Replace the saved component snapshot from the selected layers"
-                  >
-                    Update
-                  </button>
-                  <button
-                    type="button"
-                    disabled={linkedInstanceCount(component.id) === 0}
-                    onClick={() => selectMany(refreshLinkedComponentInstances(component.id))}
-                    title="Refresh every linked instance; independent instances remain unchanged"
-                  >
-                    Refresh {linkedInstanceCount(component.id) || ''}
-                  </button>
-                  <button
-                    type="button"
-                    className="data-table-delete"
-                    onClick={() => removeComponent(component.id)}
-                    title="Remove this saved component; existing instances remain"
-                  >
-                    {'✕'}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="inspector-hint">
-            Insert creates independent layers. Link creates normal portable layers that can be
-            explicitly refreshed after updating the saved snapshot.
-          </p>
-        </section>
-
-        <section className="data-panel-section">
-          <div className="data-panel-section-header">
-            <h3>Images</h3>
-            <button type="button" onClick={() => fileInputRef.current?.click()}>
-              {'+ Import Image/SVG Bundle'}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,.css,.ttf,.otf,.woff,.woff2"
-              multiple
-              className="resources-file-input"
-              onChange={handleFileChange}
-            />
-          </div>
-
-          {composition.assets.filter((asset) => asset.kind === 'image').length === 0 ? (
-            <p className="panel-placeholder">No images imported yet.</p>
-          ) : (
-            <ul className="resources-asset-list">
-              {composition.assets
-                .filter((asset) => asset.kind === 'image')
-                .map((asset) => (
-                  <li key={asset.id} className="resources-asset-row">
-                    <img src={asset.dataUri} alt="" className="resources-asset-thumb" />
-                    <div className="resources-asset-fields">
-                      <input
-                        aria-label="Resource name"
-                        value={asset.name}
-                        onChange={(event) => updateAsset(asset.id, { name: event.target.value })}
-                      />
-                      <span className="resources-asset-meta">
-                        {asset.originalFileName || asset.name} · {asset.mimeType} ·{' '}
-                        {formatBytes(asset.byteSize)} · {usageCount(asset)} use(s)
-                      </span>
-                      <input
-                        aria-label="Package path"
-                        className={
-                          !asset.packagePath || isSafePackagePath(asset.packagePath)
-                            ? ''
-                            : 'invalid'
-                        }
-                        placeholder={`assets/${asset.id}`}
-                        value={asset.packagePath ?? ''}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { packagePath: event.target.value || undefined })
-                        }
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="data-table-delete"
-                      disabled={usageCount(asset) > 0}
-                      onClick={() => removeAsset(asset.id)}
-                      title={
-                        usageCount(asset) > 0
-                          ? 'Remove or retarget every resource use first'
-                          : 'Remove resource'
+        <div className="resources-tree" role="tree" aria-label="Project resources">
+          <ResourceTreeBranch label="Brand kit" count={composition.designSystem.tokens.length}>
+            <div className="resources-tree-toolbar resources-style-pack-row">
+              <select
+                aria-label="Broadcast style pack"
+                value={selectedStylePack}
+                onChange={(event) => setSelectedStylePack(event.target.value as StylePackId)}
+              >
+                {STYLE_PACKS.map((pack) => (
+                  <option key={pack.id} value={pack.id}>
+                    {pack.name}
+                  </option>
+                ))}
+              </select>
+              <button type="button" onClick={() => applyStylePack(selectedStylePack)}>
+                Apply Pack
+              </button>
+            </div>
+            <div className="resources-tree-toolbar">
+              <input
+                aria-label="Brand kit name"
+                value={composition.designSystem.name}
+                onChange={(event) => setDesignSystemName(event.target.value)}
+              />
+              <button type="button" onClick={() => addDesignToken('color')}>
+                + Token
+              </button>
+            </div>
+            {composition.designSystem.tokens.length === 0 ? (
+              <p className="panel-placeholder">No design tokens.</p>
+            ) : (
+              <div className="resources-tree-items" role="group">
+                {composition.designSystem.tokens.map((token) => {
+                  const uses = tokenUsageCount(token.id);
+                  return (
+                    <ResourceTreeItem
+                      key={token.id}
+                      label={token.name || token.key}
+                      meta={`${token.type} · ${uses} linked`}
+                      preview={
+                        token.type === 'color' && typeof token.value === 'string' ? (
+                          <span
+                            className="resources-token-swatch"
+                            style={{ background: token.value }}
+                          />
+                        ) : (
+                          <span className="resources-tree-item-icon">T</span>
+                        )
                       }
                     >
-                      {'✕'}
-                    </button>
-                  </li>
-                ))}
-            </ul>
-          )}
-          <p className="inspector-hint">
-            For Photoshop SVG exports, select the SVG, CSS, linked images, and fonts together.
-          </p>
-          {svgImportStatus && <p className="inspector-hint">{svgImportStatus}</p>}
-        </section>
+                      <div className="resources-asset-fields">
+                        {token.type === 'color' && typeof token.value === 'string' && (
+                          <input
+                            aria-label={`${token.name} colour`}
+                            type="color"
+                            value={token.value.slice(0, 7)}
+                            onChange={(event) =>
+                              updateDesignToken(token.id, { value: event.target.value })
+                            }
+                          />
+                        )}
+                        <div className="resources-asset-inline">
+                          <input
+                            aria-label="Token name"
+                            value={token.name}
+                            onChange={(event) =>
+                              updateDesignToken(token.id, { name: event.target.value })
+                            }
+                          />
+                          <input
+                            aria-label="Token key"
+                            value={token.key}
+                            onChange={(event) =>
+                              updateDesignToken(token.id, { key: event.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="resources-asset-inline">
+                          <select
+                            aria-label="Token type"
+                            value={token.type}
+                            onChange={(event) => {
+                              const type = event.target.value as DesignTokenType;
+                              updateDesignToken(token.id, {
+                                type,
+                                value: defaultTokenValue(type),
+                              });
+                            }}
+                          >
+                            <option value="color">Colour</option>
+                            <option value="number">Number</option>
+                            <option value="font-family">Font family</option>
+                            <option value="font-weight">Font weight</option>
+                            <option value="text">Text</option>
+                          </select>
+                          <input
+                            aria-label="Token value"
+                            type={
+                              token.type === 'number' || token.type === 'font-weight'
+                                ? 'number'
+                                : 'text'
+                            }
+                            value={token.value}
+                            onChange={(event) =>
+                              updateDesignToken(token.id, {
+                                value:
+                                  token.type === 'number' || token.type === 'font-weight'
+                                    ? Number(event.target.value)
+                                    : event.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="resources-tree-actions">
+                          <span>
+                            {uses} linked layer{uses === 1 ? '' : 's'}
+                          </span>
+                          <button
+                            type="button"
+                            className="data-table-delete"
+                            disabled={uses > 0}
+                            onClick={() => removeDesignToken(token.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </ResourceTreeItem>
+                  );
+                })}
+              </div>
+            )}
+          </ResourceTreeBranch>
 
-        <section className="data-panel-section">
-          <div className="data-panel-section-header">
-            <h3>Fonts</h3>
-            <button type="button" onClick={() => fontInputRef.current?.click()}>
-              {'+ Import Font'}
-            </button>
-            <input
-              ref={fontInputRef}
-              type="file"
-              accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
-              className="resources-file-input"
-              onChange={handleFileChange}
-            />
-          </div>
-          {composition.assets.filter((asset) => asset.kind === 'font').length === 0 ? (
-            <p className="panel-placeholder">No fonts imported yet.</p>
-          ) : (
-            <ul className="resources-asset-list">
-              {composition.assets
-                .filter((asset) => asset.kind === 'font')
-                .map((asset) => (
-                  <li key={asset.id} className="resources-asset-row">
-                    <span
-                      className="resources-font-preview"
-                      style={{
-                        fontFamily: asset.fontFamily,
-                        fontWeight: asset.fontWeight,
-                        fontStyle: asset.fontStyle,
-                      }}
+          <ResourceTreeBranch label="Components" count={composition.components.length}>
+            <div className="resources-tree-toolbar">
+              <span>Reusable layer snapshots</span>
+              <button
+                type="button"
+                disabled={selectedLayerIds.length === 0}
+                onClick={() => createComponent(selectedLayerIds)}
+              >
+                + Save Selection
+              </button>
+            </div>
+            {composition.components.length === 0 ? (
+              <p className="panel-placeholder">No saved components.</p>
+            ) : (
+              <div className="resources-tree-items" role="group">
+                {composition.components.map((component) => {
+                  const linked = linkedInstanceCount(component.id);
+                  return (
+                    <ResourceTreeItem
+                      key={component.id}
+                      label={component.name}
+                      meta={`${component.layers.length} layers · ${linked} linked`}
+                      preview={<span className="resources-tree-item-icon">C</span>}
                     >
-                      Aa 123
-                    </span>
-                    <div className="resources-asset-fields">
                       <input
-                        aria-label="Resource name"
-                        value={asset.name}
-                        onChange={(event) => updateAsset(asset.id, { name: event.target.value })}
+                        aria-label="Component name"
+                        value={component.name}
+                        onChange={(event) => renameComponent(component.id, event.target.value)}
                       />
-                      <span className="resources-asset-meta">
-                        {asset.originalFileName || asset.name} · {asset.mimeType} ·{' '}
-                        {formatBytes(asset.byteSize)} · {usageCount(asset)} use(s)
-                      </span>
-                      <input
-                        aria-label="Font family"
-                        placeholder="Font family"
-                        value={asset.fontFamily ?? ''}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { fontFamily: event.target.value })
-                        }
-                      />
-                      <div className="resources-asset-inline">
-                        <input
-                          aria-label="Font weight"
-                          placeholder="100 900"
-                          value={asset.fontWeight ?? ''}
-                          onChange={(event) =>
-                            updateAsset(asset.id, { fontWeight: event.target.value })
-                          }
-                        />
-                        <select
-                          aria-label="Font style"
-                          value={asset.fontStyle ?? 'normal'}
-                          onChange={(event) =>
-                            updateAsset(asset.id, {
-                              fontStyle: event.target.value as Asset['fontStyle'],
-                            })
+                      <div className="resources-tree-actions wrap">
+                        <button
+                          type="button"
+                          onClick={() => selectMany(instantiateComponent(component.id))}
+                        >
+                          Insert
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            selectMany(instantiateComponent(component.id, undefined, true))
                           }
                         >
-                          <option value="normal">Normal</option>
-                          <option value="italic">Italic</option>
-                          <option value="oblique">Oblique</option>
-                        </select>
+                          Link
+                        </button>
+                        <button
+                          type="button"
+                          disabled={selectedLayerIds.length === 0}
+                          onClick={() => updateComponentFromLayers(component.id, selectedLayerIds)}
+                        >
+                          Update
+                        </button>
+                        <button
+                          type="button"
+                          disabled={linked === 0}
+                          onClick={() => selectMany(refreshLinkedComponentInstances(component.id))}
+                        >
+                          Refresh {linked || ''}
+                        </button>
+                        <button
+                          type="button"
+                          className="data-table-delete"
+                          onClick={() => removeComponent(component.id)}
+                        >
+                          Delete
+                        </button>
                       </div>
-                      <input
-                        aria-label="Package path"
-                        className={
-                          !asset.packagePath || isSafePackagePath(asset.packagePath)
-                            ? ''
-                            : 'invalid'
-                        }
-                        placeholder={`assets/${asset.id}`}
-                        value={asset.packagePath ?? ''}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { packagePath: event.target.value || undefined })
-                        }
-                      />
-                      <input
-                        aria-label="Font license name"
-                        placeholder="License name, e.g. OFL-1.1"
-                        value={asset.licenseName ?? ''}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { licenseName: event.target.value })
-                        }
-                      />
-                      <input
-                        aria-label="Font license URL"
-                        placeholder="License URL"
-                        value={asset.licenseUrl ?? ''}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { licenseUrl: event.target.value })
-                        }
-                      />
-                      <textarea
-                        aria-label="Font license text"
-                        rows={2}
-                        placeholder="Optional license text packaged under licenses/"
-                        value={asset.licenseText ?? ''}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { licenseText: event.target.value })
-                        }
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="data-table-delete"
-                      disabled={usageCount(asset) > 0}
-                      onClick={() => removeAsset(asset.id)}
-                      title={
-                        usageCount(asset) > 0
-                          ? 'Remove or retarget every resource use first'
-                          : 'Remove resource'
+                    </ResourceTreeItem>
+                  );
+                })}
+              </div>
+            )}
+          </ResourceTreeBranch>
+
+          <ResourceTreeBranch label="Images" count={imageAssets.length}>
+            <div className="resources-tree-toolbar">
+              <span>Images and SVG bundles</span>
+              <button type="button" onClick={() => fileInputRef.current?.click()}>
+                + Import
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.css,.ttf,.otf,.woff,.woff2"
+                multiple
+                className="resources-file-input"
+                onChange={handleFileChange}
+              />
+            </div>
+            {imageAssets.length === 0 ? (
+              <p className="panel-placeholder">No images imported.</p>
+            ) : (
+              <div className="resources-tree-items" role="group">
+                {imageAssets.map((asset) => {
+                  const uses = usageCount(asset);
+                  return (
+                    <ResourceTreeItem
+                      key={asset.id}
+                      label={asset.name}
+                      meta={`${formatBytes(asset.byteSize)} · ${uses} uses`}
+                      preview={<img src={asset.dataUri} alt="" className="resources-asset-thumb" />}
+                    >
+                      <div className="resources-asset-fields">
+                        <input
+                          aria-label="Resource name"
+                          value={asset.name}
+                          onChange={(event) => updateAsset(asset.id, { name: event.target.value })}
+                        />
+                        <span className="resources-asset-meta">
+                          {asset.originalFileName || asset.name} · {asset.mimeType}
+                        </span>
+                        <input
+                          aria-label="Package path"
+                          className={
+                            !asset.packagePath || isSafePackagePath(asset.packagePath)
+                              ? ''
+                              : 'invalid'
+                          }
+                          placeholder={`assets/${asset.id}`}
+                          value={asset.packagePath ?? ''}
+                          onChange={(event) =>
+                            updateAsset(asset.id, { packagePath: event.target.value || undefined })
+                          }
+                        />
+                        <div className="resources-tree-actions">
+                          <span>{uses} use(s)</span>
+                          <button
+                            type="button"
+                            className="data-table-delete"
+                            disabled={uses > 0}
+                            onClick={() => removeAsset(asset.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </ResourceTreeItem>
+                  );
+                })}
+              </div>
+            )}
+            <p className="inspector-hint">Select SVG companion files together when importing.</p>
+            {svgImportStatus && <p className="inspector-hint">{svgImportStatus}</p>}
+          </ResourceTreeBranch>
+
+          <ResourceTreeBranch label="Fonts" count={fontAssets.length}>
+            <div className="resources-tree-toolbar">
+              <span>Packaged font faces</span>
+              <button type="button" onClick={() => fontInputRef.current?.click()}>
+                + Import
+              </button>
+              <input
+                ref={fontInputRef}
+                type="file"
+                accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
+                className="resources-file-input"
+                onChange={handleFileChange}
+              />
+            </div>
+            {fontAssets.length === 0 ? (
+              <p className="panel-placeholder">No fonts imported.</p>
+            ) : (
+              <div className="resources-tree-items" role="group">
+                {fontAssets.map((asset) => {
+                  const uses = usageCount(asset);
+                  return (
+                    <ResourceTreeItem
+                      key={asset.id}
+                      label={asset.name}
+                      meta={`${asset.fontFamily || 'Unassigned family'} · ${uses} uses`}
+                      preview={
+                        <span
+                          className="resources-tree-font-preview"
+                          title={`Template font: ${asset.fontFamily || asset.name}`}
+                        >
+                          Aa
+                        </span>
                       }
                     >
-                      {'✕'}
-                    </button>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </section>
+                      <div className="resources-asset-fields">
+                        <input
+                          aria-label="Resource name"
+                          value={asset.name}
+                          onChange={(event) => updateAsset(asset.id, { name: event.target.value })}
+                        />
+                        <span className="resources-asset-meta">
+                          {asset.originalFileName || asset.name} · {formatBytes(asset.byteSize)}
+                        </span>
+                        <input
+                          aria-label="Font family"
+                          placeholder="Font family"
+                          value={asset.fontFamily ?? ''}
+                          onChange={(event) =>
+                            updateAsset(asset.id, { fontFamily: event.target.value })
+                          }
+                        />
+                        <div className="resources-asset-inline">
+                          <input
+                            aria-label="Font weight"
+                            placeholder="100 900"
+                            value={asset.fontWeight ?? ''}
+                            onChange={(event) =>
+                              updateAsset(asset.id, { fontWeight: event.target.value })
+                            }
+                          />
+                          <select
+                            aria-label="Font style"
+                            value={asset.fontStyle ?? 'normal'}
+                            onChange={(event) =>
+                              updateAsset(asset.id, {
+                                fontStyle: event.target.value as Asset['fontStyle'],
+                              })
+                            }
+                          >
+                            <option value="normal">Normal</option>
+                            <option value="italic">Italic</option>
+                            <option value="oblique">Oblique</option>
+                          </select>
+                        </div>
+                        <input
+                          aria-label="Package path"
+                          className={
+                            !asset.packagePath || isSafePackagePath(asset.packagePath)
+                              ? ''
+                              : 'invalid'
+                          }
+                          placeholder={`assets/${asset.id}`}
+                          value={asset.packagePath ?? ''}
+                          onChange={(event) =>
+                            updateAsset(asset.id, { packagePath: event.target.value || undefined })
+                          }
+                        />
+                        <input
+                          aria-label="Font license name"
+                          placeholder="License name, e.g. OFL-1.1"
+                          value={asset.licenseName ?? ''}
+                          onChange={(event) =>
+                            updateAsset(asset.id, { licenseName: event.target.value })
+                          }
+                        />
+                        <input
+                          aria-label="Font license URL"
+                          placeholder="License URL"
+                          value={asset.licenseUrl ?? ''}
+                          onChange={(event) =>
+                            updateAsset(asset.id, { licenseUrl: event.target.value })
+                          }
+                        />
+                        <textarea
+                          aria-label="Font license text"
+                          rows={2}
+                          placeholder="Optional license text packaged under licenses/"
+                          value={asset.licenseText ?? ''}
+                          onChange={(event) =>
+                            updateAsset(asset.id, { licenseText: event.target.value })
+                          }
+                        />
+                        <div className="resources-tree-actions">
+                          <span>{uses} use(s)</span>
+                          <button
+                            type="button"
+                            className="data-table-delete"
+                            disabled={uses > 0}
+                            onClick={() => removeAsset(asset.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </ResourceTreeItem>
+                  );
+                })}
+              </div>
+            )}
+          </ResourceTreeBranch>
 
-        <section className="data-panel-section">
-          <div className="data-panel-section-header">
-            <h3>Source attachments</h3>
-            <button type="button" onClick={() => sourceInputRef.current?.click()}>
-              {'+ Attach Source'}
-            </button>
-            <input
-              ref={sourceInputRef}
-              type="file"
-              accept=".css,.json,.txt,.md,.xml,.license,text/*,application/json"
-              multiple
-              className="resources-file-input"
-              onChange={handleFileChange}
-            />
-          </div>
-          {composition.assets.filter((asset) => asset.kind === 'source').length === 0 ? (
-            <p className="panel-placeholder">No source documents attached.</p>
-          ) : (
-            <ul className="resources-asset-list">
-              {composition.assets
-                .filter((asset) => asset.kind === 'source')
-                .map((asset) => (
-                  <li key={asset.id} className="resources-asset-row">
+          <ResourceTreeBranch label="Source attachments" count={sourceAssets.length}>
+            <div className="resources-tree-toolbar">
+              <span>CSS, JSON and source references</span>
+              <button type="button" onClick={() => sourceInputRef.current?.click()}>
+                + Attach
+              </button>
+              <input
+                ref={sourceInputRef}
+                type="file"
+                accept=".css,.json,.txt,.md,.xml,.license,text/*,application/json"
+                multiple
+                className="resources-file-input"
+                onChange={handleFileChange}
+              />
+            </div>
+            {sourceAssets.length === 0 ? (
+              <p className="panel-placeholder">No source documents attached.</p>
+            ) : (
+              <div className="resources-tree-items" role="group">
+                {sourceAssets.map((asset) => (
+                  <ResourceTreeItem
+                    key={asset.id}
+                    label={asset.name}
+                    meta={`${asset.mimeType} · ${formatBytes(asset.byteSize)}`}
+                    preview={<span className="resources-tree-item-icon">S</span>}
+                  >
                     <div className="resources-asset-fields">
                       <input
                         aria-label="Resource name"
@@ -567,8 +626,7 @@ export function ResourcesPanel() {
                         onChange={(event) => updateAsset(asset.id, { name: event.target.value })}
                       />
                       <span className="resources-asset-meta">
-                        {asset.originalFileName || asset.name} · {asset.mimeType} ·{' '}
-                        {formatBytes(asset.byteSize)}
+                        {asset.originalFileName || asset.name} · {asset.mimeType}
                       </span>
                       <input
                         aria-label="Package path"
@@ -583,19 +641,23 @@ export function ResourcesPanel() {
                           updateAsset(asset.id, { packagePath: event.target.value || undefined })
                         }
                       />
+                      <div className="resources-tree-actions">
+                        <span>{formatBytes(asset.byteSize)}</span>
+                        <button
+                          type="button"
+                          className="data-table-delete"
+                          onClick={() => removeAsset(asset.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      className="data-table-delete"
-                      onClick={() => removeAsset(asset.id)}
-                    >
-                      {'✕'}
-                    </button>
-                  </li>
+                  </ResourceTreeItem>
                 ))}
-            </ul>
-          )}
-        </section>
+              </div>
+            )}
+          </ResourceTreeBranch>
+        </div>
 
         {missingReferences.length > 0 && (
           <p className="resources-asset-warning" role="alert">

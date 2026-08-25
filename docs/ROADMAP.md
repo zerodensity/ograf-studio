@@ -32,11 +32,14 @@
   31-trajectory easing catalog and visual cubic Bézier editor (implemented).
 - Collision-safe property-key nudging, track offset, proportional scaling, reversal, and even
   distribution retiming tools (implemented); range selection and multi-track retiming remain queued.
-- Scrollable off-canvas pasteboard for authoring entrance/exit animations (implemented).
-- Middle-button, pointer-captured canvas panning across the complete pasteboard (implemented).
-- Pointer-anchored canvas-only Ctrl/Command-wheel zoom and Ctrl/Command-plus/minus shortcuts are
+- Infinite off-canvas camera for authoring entrance/exit animations, with hidden scrollbars and no
+  user-reachable boundary in Edit or OGraf Preview (implemented).
+- Middle-button, pointer-captured canvas panning with transparent camera recentering (implemented).
+- Pointer-anchored plain-wheel canvas zoom and Ctrl/Command-plus/minus keyboard shortcuts are
   implemented without invoking browser page zoom.
 - Selectable opaque backgrounds and editor-only transparency checkerboards (implemented).
+- Optional camera-aligned 18% dark-gray dimming outside the actual composition, persisted as an
+  authoring-only layout preference and excluded from capture/export (implemented).
 - Integer-pixel key authoring with subpixel runtime interpolation (implemented).
 - Direct layer selection from timeline gutter names (implemented).
 - Ctrl/Command multi-selection, group movement, and Shift axis-constrained dragging (implemented).
@@ -54,7 +57,9 @@
   while custom curves, track transforms, and local loops appear only when selected and expanded.
 - Safe areas, rulers/guides, grid/guide/layer snapping, alignment/distribution, authoring bounds and
   overflow preview, locking, persistent grouping, parenting, and responsive constraints
-  (implemented). Persistent groups now have canvas context-menu Group/Ungroup commands, complete
+  (implemented). Action and title/graphics safe geometry now follows EBU R 95 16:9 at 3.5% and 5%
+  per axis, including exact rounded HD/UHD pixels across overlays, QA, and MCP. Persistent groups
+  now have canvas context-menu Group/Ungroup commands, complete
   group selection from canvas/Layers/timeline, and a distinct move/resize/rotate overlay. Guide
   creation/movement/removal now follows Photoshop-style fixed viewport rulers. Numerical
   multi-layer transforms and constraint visualization remain polish items.
@@ -63,9 +68,14 @@
   MCP operations expose create/rename/recolor/ungroup semantics, and the authoring Skill recommends
   them for related multi-layer components. They remain independent from canvas object groups and
   are excluded from compiled OGraf output.
+- Layer parenting is directly visible through depth-based name indentation in the flat paint-order
+  Layers list. Row-centre drops assign a parent, row-edge drops retain before/after reordering, and
+  cycle-invalid targets are refused without changing hierarchy or z-order.
 - System/packaged-font selection with live preview, weight, line height, tracking, baseline shift,
   vertical alignment, case transforms, minimum shrink size, and visible/clip/ellipsis overflow is
-  implemented. Full localization and authored RTL direction remain queued.
+  implemented. Text sizing includes auto-sized boxes, floor-bounded shrink-to-fit, fixed sizing, and
+  Fit to width, which grows or shrinks proportional glyphs to the largest size contained by both
+  fixed box axes. Full localization and authored RTL direction remain queued.
 - W8 text outlines are implemented as document v20: editable stroke colour, independently animated
   non-negative stroke width, Brand Kit targets, and shared editor/runtime/SVG rendering with the
   outline painted behind the glyph fill.
@@ -95,6 +105,8 @@
   activation, finite or infinite repeat, independent easing, editor preview, compiled runtime
   playback, scheduled non-realtime sampling, validation, and MCP authoring. Ping-pong, multiple
   clips per layer, dedicated ticker content flow, and cycle-synchronized exits remain queued.
+- Local-loop activation is visible directly in the timeline through `∞` badges on the relevant
+  global Step and matching layer key, avoiding per-key inspection (implemented).
 
 - Reusable components are implemented as portable authoring snapshots: save/update selected layers
   and bound fields, insert independent or authoring-linked grouped instances with complete ID
@@ -152,6 +164,14 @@
   imports, and generated MCP contracts whose drift fails verification. Headless render/certify
   remains explicitly deferred; authentication for non-local hosting, subscriptions, and agent eval
   suites remain queued.
+- In-app BYOK authoring chat is implemented as a second renderer over the canonical agent-tool
+  records. Anthropic and OpenAI-compatible adapters run server-side, expose a reduced 14-tool
+  surface, use a generated and drift-gated projection of the authoring Skill, pass ambient
+  selection/frame/viewport/recent-edit context outside the cached prefix, preserve the existing
+  proposal panel, and report message/session/project token usage without writing telemetry into the
+  portable project. Credentials remain in Windows Credential Manager or the server environment;
+  save/export/certify/import/reset stay explicit UI actions. Streaming deltas, persisted transcript
+  history, provider pricing conversion, and broader provider adapters remain queued.
 - Round-two agent ergonomics are implemented: responsive bridge health and timeout diagnosis,
   first-class creation IDs, backing-aware contrast, browser-free track sampling, diagnostic dry
   runs, field update/removal, undoable reset, computed safe areas, change history, dependency
@@ -176,6 +196,11 @@
 - Optional OGraf Server API renderer testing.
 - Renderer compatibility matrix.
 - Accessibility, onboarding, keyboard workflow, and documentation polish.
+- The Resources pane now scales to large projects through counted category branches and nested
+  per-item disclosure editors in an ARIA tree (implemented).
+- Editor typography is consolidated to two families (system UI and monospace diagnostics) and two
+  sizes (12 px and 10 px), including every editable form control. Template typography remains a
+  separate authored-content concern (implemented).
 - The Preview & Export panel includes non-gating broadcast QA for Step-frame title-safe placement,
   text size/floors, packaged-font fallback, backing contrast, interlaced thin rules, long
   Latin/Turkish/Arabic replacement values, and source-image overlay comparison. Comparison overlays

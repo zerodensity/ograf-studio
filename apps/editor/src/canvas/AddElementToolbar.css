@@ -39,10 +39,17 @@
 
 .layout-toolbar {
   display: flex;
+  flex: none;
   gap: 3px;
-  margin-left: auto;
   padding-left: 6px;
   border-left: 1px solid var(--border);
+}
+
+.layout-toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 2px;
+  background: var(--border);
 }
 
 .layout-toolbar button {

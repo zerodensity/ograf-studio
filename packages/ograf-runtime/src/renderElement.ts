@@ -11,7 +11,15 @@ import { valueAtSourcePath } from '@ograf-editor/scene-model';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light_canvas.js';
 
-const textFitObservers = new WeakMap<HTMLElement, ResizeObserver>();
+interface MountedTextFit {
+  observer?: ResizeObserver;
+  fontSet?: FontFaceSet;
+  onFontsLoaded?: () => void;
+  probe?: HTMLElement;
+}
+
+const textFits = new WeakMap<HTMLElement, MountedTextFit>();
+const textFitCallbacks = new WeakMap<HTMLElement, () => void>();
 interface MountedLottie {
   animation: AnimationItem;
   width: number;
@@ -24,12 +32,67 @@ const lottieAnimations = new WeakMap<HTMLElement, MountedLottie>();
 /** Legacy default retained for migrated projects; each text element now carries an absolute floor. */
 export const SHRINK_TO_FIT_MIN_RATIO = 0.5;
 
-/** Disconnects shrink-to-fit observation before a renderer discards a content host. */
+export interface FittedFontSizeResult {
+  fontSize: number;
+  ratio: number;
+  degenerate: boolean;
+}
+
+export function findFittedFontSize(options: {
+  mode: 'shrink-to-fit' | 'fit-to-width';
+  authoredFontSize: number;
+  minFontSize: number;
+  fits: (fontSize: number) => boolean;
+}): FittedFontSizeResult {
+  const authored = Math.max(0.1, options.authoredFontSize);
+  const floor =
+    options.mode === 'shrink-to-fit' ? Math.min(authored, Math.max(1, options.minFontSize)) : 0.1;
+  const rounded = (value: number) => Math.max(0.1, Math.floor(value * 10) / 10);
+  if (!options.fits(floor)) {
+    const fontSize = rounded(floor);
+    return { fontSize, ratio: fontSize / authored, degenerate: true };
+  }
+
+  let lower = floor;
+  let upper = Math.max(floor, authored);
+  if (options.mode === 'fit-to-width' && options.fits(upper)) {
+    lower = upper;
+    while (upper < 16_384) {
+      const candidate = Math.min(16_384, upper * 2);
+      if (options.fits(candidate)) {
+        lower = candidate;
+        upper = candidate;
+        if (candidate === 16_384) break;
+      } else {
+        upper = candidate;
+        break;
+      }
+    }
+  }
+
+  if (lower !== upper) {
+    for (let iteration = 0; iteration < 16; iteration++) {
+      const candidate = (lower + upper) / 2;
+      if (options.fits(candidate)) lower = candidate;
+      else upper = candidate;
+    }
+  }
+  const fontSize = rounded(lower);
+  return { fontSize, ratio: fontSize / authored, degenerate: false };
+}
+
+/** Disconnects text-fitting observation before a renderer discards a content host. */
 export function disposeElementContent(container: HTMLElement): void {
   lottieAnimations.get(container)?.animation.destroy();
   lottieAnimations.delete(container);
-  textFitObservers.get(container)?.disconnect();
-  textFitObservers.delete(container);
+  const mountedFit = textFits.get(container);
+  mountedFit?.observer?.disconnect();
+  if (mountedFit?.fontSet && mountedFit.onFontsLoaded) {
+    mountedFit.fontSet.removeEventListener('loadingdone', mountedFit.onFontsLoaded);
+  }
+  mountedFit?.probe?.remove();
+  textFits.delete(container);
+  textFitCallbacks.delete(container);
   container.replaceChildren();
   delete container.dataset.ografBasePaint;
 }
@@ -63,6 +126,7 @@ export function applyAnimatedPaint(
       getTrackValueAtFrame(strokeTrack, frame, fallback),
     )}px`;
     content.style.paintOrder = 'stroke fill';
+    textFitCallbacks.get(renderHost)?.();
   }
 }
 
@@ -141,7 +205,7 @@ export function renderElementContent(
             : 'flex-start';
       content.style.transform = `translateY(${element.baselineShift}px)`;
       content.style.whiteSpace =
-        element.autoFit === 'auto-size'
+        element.autoFit === 'auto-size' || element.autoFit === 'fit-to-width'
           ? 'pre'
           : element.overflowPolicy === 'ellipsis'
             ? 'nowrap'
@@ -154,51 +218,101 @@ export function renderElementContent(
           ? `${element.fontSize * element.lineHeight}px`
           : String(element.lineHeight);
       content.style.overflow =
-        element.autoFit === 'shrink-to-fit' || element.overflowPolicy !== 'visible'
+        element.autoFit === 'shrink-to-fit' ||
+        element.autoFit === 'fit-to-width' ||
+        element.overflowPolicy !== 'visible'
           ? 'hidden'
           : 'visible';
       content.style.textOverflow = element.overflowPolicy === 'ellipsis' ? 'ellipsis' : 'clip';
       content.textContent = element.content;
       container.appendChild(content);
-      if (element.autoFit === 'shrink-to-fit') {
+      if (element.autoFit === 'shrink-to-fit' || element.autoFit === 'fit-to-width') {
+        const fitMode = element.autoFit;
+        const mounted: MountedTextFit = {};
+        if (fitMode === 'fit-to-width') {
+          const probe = content.cloneNode(true) as HTMLElement;
+          Object.assign(probe.style, {
+            position: 'fixed',
+            left: '-100000px',
+            top: '0',
+            visibility: 'hidden',
+            pointerEvents: 'none',
+            transform: 'none',
+            zIndex: '-1',
+          });
+          (document.body ?? document.documentElement).appendChild(probe);
+          mounted.probe = probe;
+        }
         const fit = () => {
+          if (textFitCallbacks.get(container) !== fit) return;
           if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
-          const floor = Math.min(element.fontSize, Math.max(1, element.minFontSize));
-          let lower = floor;
-          let upper = Math.max(floor, element.fontSize);
-          content.style.fontSize = `${floor}px`;
-          const strokeExpansion = Math.max(0, element.strokeWidth);
-          const fitsAtFloor =
-            content.scrollWidth + strokeExpansion <= container.clientWidth + 0.5 &&
-            content.scrollHeight + strokeExpansion <= container.clientHeight + 0.5;
-          if (!fitsAtFloor) {
-            content.style.fontSize = `${Math.floor(floor * 10) / 10}px`;
-            content.dataset.ografShrinkRatio = String(floor / element.fontSize);
-            content.dataset.ografShrinkDegenerate = 'true';
+          if (element.content.length === 0) {
+            content.style.fontSize = `${element.fontSize}px`;
+            content.dataset.ografAppliedFontSize = String(element.fontSize);
+            content.dataset.ografFitRatio = '1';
+            content.dataset.ografFitDegenerate = 'false';
             return;
           }
-          for (let iteration = 0; iteration < 12; iteration++) {
-            const candidate = (lower + upper) / 2;
-            content.style.fontSize = `${candidate}px`;
-            if (
-              content.scrollWidth + strokeExpansion <= container.clientWidth + 0.5 &&
-              content.scrollHeight + strokeExpansion <= container.clientHeight + 0.5
-            ) {
-              lower = candidate;
-            } else {
-              upper = candidate;
+          const strokeExpansion = Math.max(
+            0,
+            Number.parseFloat(content.style.webkitTextStrokeWidth) || element.strokeWidth,
+          );
+          const fits = (fontSize: number) => {
+            if (fitMode === 'shrink-to-fit') {
+              content.style.fontSize = `${fontSize}px`;
+              return (
+                content.scrollWidth + strokeExpansion <= container.clientWidth + 0.5 &&
+                content.scrollHeight + strokeExpansion <= container.clientHeight + 0.5
+              );
             }
+            const probe = mounted.probe;
+            if (!probe) return false;
+            probe.style.width = `${container.clientWidth}px`;
+            probe.style.height = `${container.clientHeight}px`;
+            probe.style.fontSize = `${fontSize}px`;
+            probe.style.webkitTextStrokeWidth = content.style.webkitTextStrokeWidth;
+            const range = document.createRange();
+            range.selectNodeContents(probe);
+            const bounds = range.getBoundingClientRect();
+            range.detach();
+            const availableHeight = Math.max(
+              0,
+              container.clientHeight - Math.abs(element.baselineShift),
+            );
+            return (
+              bounds.width + strokeExpansion <= container.clientWidth + 0.5 &&
+              bounds.height + strokeExpansion <= availableHeight + 0.5
+            );
+          };
+          const result = findFittedFontSize({
+            mode: fitMode,
+            authoredFontSize: element.fontSize,
+            minFontSize: element.minFontSize,
+            fits,
+          });
+          content.style.fontSize = `${result.fontSize}px`;
+          content.dataset.ografAppliedFontSize = String(result.fontSize);
+          content.dataset.ografFitRatio = String(result.ratio);
+          content.dataset.ografFitDegenerate = String(result.degenerate);
+          if (fitMode === 'shrink-to-fit') {
+            content.dataset.ografShrinkRatio = String(result.ratio);
+            content.dataset.ografShrinkDegenerate = String(result.degenerate);
           }
-          const applied = Math.floor(lower * 10) / 10;
-          content.style.fontSize = `${applied}px`;
-          content.dataset.ografShrinkRatio = String(applied / element.fontSize);
-          content.dataset.ografShrinkDegenerate = 'false';
         };
+        textFitCallbacks.set(container, fit);
+        textFits.set(container, mounted);
         fit();
         if (typeof ResizeObserver !== 'undefined') {
           const observer = new ResizeObserver(fit);
           observer.observe(container);
-          textFitObservers.set(container, observer);
+          mounted.observer = observer;
+        }
+        if (typeof document !== 'undefined' && document.fonts) {
+          const onFontsLoaded = () => fit();
+          document.fonts.addEventListener('loadingdone', onFontsLoaded);
+          void document.fonts.ready.then(fit);
+          mounted.fontSet = document.fonts;
+          mounted.onFontsLoaded = onFontsLoaded;
         }
       }
       break;

@@ -25,15 +25,16 @@ export function AppShell() {
   const [rightTab, setRightTab] = useState<RightTabId>('inspector');
   const project = useProjectStore((state) => state.project);
   const [runtimePreview, setRuntimePreview] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
 
   const openRuntimePreview = () => setRuntimePreview(true);
 
   const left = useResizable({
     key: 'left-sidebar',
     axis: 'col',
-    defaultSize: 220,
-    min: 160,
-    max: 480,
+    defaultSize: 380,
+    min: 360,
+    max: 420,
   });
   const right = useResizable({
     key: 'right-tabs',
@@ -56,13 +57,19 @@ export function AppShell() {
     <div
       className="app-shell"
       style={{
-        gridTemplateColumns: `${left.size}px 6px minmax(200px, 1fr) 6px ${right.size}px`,
-        gridTemplateRows: `40px 8px minmax(120px, 1fr) 6px ${timeline.size}px`,
+        gridTemplateColumns: `${leftCollapsed ? 34 : left.size}px var(--panel-divider-size) minmax(200px, 1fr) var(--panel-divider-size) ${right.size}px`,
+        gridTemplateRows: `40px 8px minmax(120px, 1fr) var(--panel-divider-size) ${timeline.size}px`,
       }}
     >
       <Menubar style={{ gridColumn: '1 / -1', gridRow: 1 }} />
-      <LeftSidebar style={{ gridColumn: 1, gridRow: '3 / 6' }} />
-      <ResizeHandle axis="col" gridColumn="2" gridRow="3 / 6" onPointerDown={left.startDrag} />
+      <LeftSidebar
+        style={{ gridColumn: 1, gridRow: '3 / 6' }}
+        collapsed={leftCollapsed}
+        onToggleCollapsed={() => setLeftCollapsed((value) => !value)}
+      />
+      {!leftCollapsed ? (
+        <ResizeHandle axis="col" gridColumn="2" gridRow="3 / 6" onPointerDown={left.startDrag} />
+      ) : null}
       {runtimePreview ? (
         <RuntimePreviewStage
           project={project}

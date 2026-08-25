@@ -112,6 +112,11 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   Keep `paint-order: stroke fill` semantics by authoring through Studio rather than simulating an
   outline with duplicate text layers. Stroke width can also use a local loop; stroke colour remains
   static.
+- Choose text sizing deliberately. `auto-size` changes the authored box around the authored font;
+  `shrink-to-fit` only reduces glyphs and stops at `minFontSize`; `fit-to-width` keeps the authored
+  box fixed and grows or shrinks glyphs to the largest uniform size that fits both box axes; `fixed`
+  performs no fitting. Fit-to-width keeps the typeface proportional and treats only explicit line
+  breaks as multiple lines. Verify data-bound extremes with `ograf_measure_text`.
 - Use `save_component` plus `instantiate_component` with `linked: false` for permanent independent
   instances. Use `linked: true` only when explicit later refresh is valuable; update a component
   from selected layers and call `refresh_component_instances` deliberately because refresh replaces
@@ -160,7 +165,13 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   `set_layer_layout` for locking, persistent groups, parenting, and responsive constraints. These
   fields are authoring-only except `clipChildren`: setting it on a parent compiles a deterministic
   animated rectangular mask for direct children. Constraint and ordinary parent translation edits
-  still bake their visual results into regular property tracks.
+  still bake their visual results into regular property tracks. `dimOutsideCanvas` adds the Studio
+  viewport's fixed 18%-opacity dark-gray veil outside the composition only; never recreate that
+  authoring aid as an exported layer or background.
+- Treat the exposed action/title safe bounds as EBU R 95 16:9 geometry: action safe is inset 3.5%
+  per axis and title/graphics safe is inset 5% per axis, with pixel margins rounded to the nearest
+  integer. At 1920x1080 this is 67/38 px and 96/54 px; at 3840x2160 it is 134/76 px and 192/108 px.
+  Use the bounds returned by scene inspection rather than reviving legacy 5%/10% assumptions.
 - Use `create_timeline_group` to organize two or more related timeline rows after their stable layer
   IDs are known. This is recommended for multi-part lower thirds, repeated forecast/day cells, and
   other compositions with many independently animated layers. Rename and color groups for legible

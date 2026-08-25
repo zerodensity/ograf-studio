@@ -9,6 +9,7 @@ import {
 import type { CanvasGuide, Composition } from '@ograf-editor/scene-model';
 import { useProjectStore } from '../state/projectStore';
 import { buildRulerTicks, guidePositionFromViewport, rulerScaleForZoom } from './canvasRuler';
+import type { StageCameraOrigin } from './stagePasteboard';
 
 const RULER_SIZE = 20;
 
@@ -26,24 +27,55 @@ export function CanvasRulers({
   composition,
   zoom,
   viewportRef,
+  stageOriginRef,
 }: {
   composition: Composition;
   zoom: number;
   viewportRef: RefObject<HTMLDivElement | null>;
+  stageOriginRef: RefObject<StageCameraOrigin>;
 }) {
   const addGuide = useProjectStore((state) => state.addCanvasGuide);
   const updateGuide = useProjectStore((state) => state.updateCanvasGuide);
   const removeGuide = useProjectStore((state) => state.removeCanvasGuide);
   const [drag, setDrag] = useState<GuideDrag | null>(null);
+  const [visibleRange, setVisibleRange] = useState({
+    minX: -composition.width,
+    maxX: composition.width * 2,
+    minY: -composition.height,
+    maxY: composition.height * 2,
+  });
   const scale = useMemo(() => rulerScaleForZoom(zoom), [zoom]);
   const horizontalTicks = useMemo(
-    () => buildRulerTicks(-composition.width, composition.width * 2, scale),
-    [composition.width, scale],
+    () => buildRulerTicks(visibleRange.minX - scale.major, visibleRange.maxX + scale.major, scale),
+    [scale, visibleRange.maxX, visibleRange.minX],
   );
   const verticalTicks = useMemo(
-    () => buildRulerTicks(-composition.height, composition.height * 2, scale),
-    [composition.height, scale],
+    () => buildRulerTicks(visibleRange.minY - scale.major, visibleRange.maxY + scale.major, scale),
+    [scale, visibleRange.maxY, visibleRange.minY],
   );
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const update = () => {
+      const origin = stageOriginRef.current;
+      if (!origin) return;
+      setVisibleRange({
+        minX: (viewport.scrollLeft - origin.x) / zoom,
+        maxX: (viewport.scrollLeft + viewport.clientWidth - origin.x) / zoom,
+        minY: (viewport.scrollTop - origin.y) / zoom,
+        maxY: (viewport.scrollTop + viewport.clientHeight - origin.y) / zoom,
+      });
+    };
+    update();
+    viewport.addEventListener('scroll', update);
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    return () => {
+      viewport.removeEventListener('scroll', update);
+      observer.disconnect();
+    };
+  }, [composition.height, composition.id, composition.width, stageOriginRef, viewportRef, zoom]);
 
   const positionForPointer = useCallback(
     (axis: CanvasGuide['axis'], clientX: number, clientY: number) => {
@@ -57,9 +89,10 @@ export function CanvasRulers({
         { left: viewport.scrollLeft, top: viewport.scrollTop },
         composition,
         zoom,
+        stageOriginRef.current ?? undefined,
       );
     },
-    [composition, viewportRef, zoom],
+    [composition, stageOriginRef, viewportRef, zoom],
   );
 
   const beginGuide = (event: React.PointerEvent, axis: CanvasGuide['axis'], guideId?: string) => {
@@ -135,7 +168,7 @@ export function CanvasRulers({
                 className={`canvas-ruler-tick ${tick.kind}`}
                 style={
                   {
-                    '--ruler-position': `calc(${(composition.width + tick.value) * zoom}px - var(--stage-scroll-left, 0px) - ${RULER_SIZE}px)`,
+                    '--ruler-position': `calc(var(--stage-origin-x, 0px) + ${tick.value * zoom}px - var(--stage-scroll-left, 0px) - ${RULER_SIZE}px)`,
                   } as RulerStyle
                 }
               >
@@ -154,7 +187,7 @@ export function CanvasRulers({
                 className={`canvas-ruler-tick ${tick.kind}`}
                 style={
                   {
-                    '--ruler-position': `calc(${(composition.height + tick.value) * zoom}px - var(--stage-scroll-top, 0px) - ${RULER_SIZE}px)`,
+                    '--ruler-position': `calc(var(--stage-origin-y, 0px) + ${tick.value * zoom}px - var(--stage-scroll-top, 0px) - ${RULER_SIZE}px)`,
                   } as RulerStyle
                 }
               >
@@ -171,8 +204,8 @@ export function CanvasRulers({
       {shownGuides.map((guide) => {
         const position =
           guide.axis === 'vertical'
-            ? `calc(${(composition.width + guide.position) * zoom}px - var(--stage-scroll-left, 0px))`
-            : `calc(${(composition.height + guide.position) * zoom}px - var(--stage-scroll-top, 0px))`;
+            ? `calc(var(--stage-origin-x, 0px) + ${guide.position * zoom}px - var(--stage-scroll-left, 0px))`
+            : `calc(var(--stage-origin-y, 0px) + ${guide.position * zoom}px - var(--stage-scroll-top, 0px))`;
         return (
           <button
             type="button"

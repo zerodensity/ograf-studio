@@ -5,6 +5,8 @@ import type { ExportArtifacts } from '@ograf-editor/codegen';
 import type { FieldValue, Project } from '@ograf-editor/scene-model';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AuthoringWorkspace } from './workspace';
+import type { ChatAgentController, ChatClientMessage } from './agent/chatAgent';
+import type { ChatServerEvent } from './agent/types';
 
 export interface CompatibilityResult {
   valid: boolean;
@@ -100,6 +102,8 @@ export interface BrowserMeasureTextResult {
   lines: number;
   overflowsParent: boolean;
   clippedBy: 'parent' | 'own-box' | null;
+  appliedFontSize: number;
+  appliedFitRatio: number;
   appliedShrinkRatio: number;
   degenerate: boolean;
   resolvedFont: {
@@ -165,7 +169,8 @@ type EditorInbound =
       result?: BrowserMeasureTextResult;
       error?: string;
     }
-  | { type: 'proposal.decision'; proposalId: string; decision: 'accept' | 'reject' };
+  | { type: 'proposal.decision'; proposalId: string; decision: 'accept' | 'reject' }
+  | ChatClientMessage;
 
 interface PendingCertification {
   resolve: (result: CompatibilityResult) => void;
@@ -228,6 +233,7 @@ export class EditorBridge {
   #lastHeartbeatLatencyMs: number | null = null;
   #certificationRegistryHealthy = true;
   #editorBaselineInitialized = false;
+  #chatController: ChatAgentController | null = null;
 
   constructor(
     private readonly server: HttpServer,
@@ -249,6 +255,14 @@ export class EditorBridge {
 
   get connected(): boolean {
     return this.#socket?.readyState === WebSocket.OPEN;
+  }
+
+  setChatController(controller: ChatAgentController): void {
+    this.#chatController = controller;
+  }
+
+  sendChatEvent(event: ChatServerEvent): void {
+    this.#send(event);
   }
 
   get health(): EditorBridgeHealth {
@@ -294,7 +308,15 @@ export class EditorBridge {
   }
 
   #connect(socket: WebSocket): void {
-    this.#socket?.close(1000, 'Replaced by a newer editor connection');
+    if (this.#socket?.readyState === WebSocket.OPEN) {
+      this.#socket.send(
+        JSON.stringify({
+          type: 'editor.replaced',
+          message: 'This tab is not the active editor session. Reload it to make it authoritative.',
+        }),
+      );
+      this.#socket.close(1000, 'Replaced by a newer editor connection');
+    }
     this.#socket = socket;
     this.#editorReady = false;
     this.#heartbeatRequest = null;
@@ -376,6 +398,7 @@ export class EditorBridge {
       }
       this.#editorReady = true;
       this.#requestHeartbeat();
+      this.#chatController?.handle({ type: 'chat.status.request' });
       return;
     }
     if (message.type === 'editor.project') {
@@ -435,6 +458,15 @@ export class EditorBridge {
     }
     if (message.type === 'proposal.decision') {
       void this.#handleProposalDecision(message.proposalId, message.decision);
+      return;
+    }
+    if (
+      message.type === 'chat.send' ||
+      message.type === 'chat.cancel' ||
+      message.type === 'chat.exclusive' ||
+      message.type === 'chat.status.request'
+    ) {
+      this.#chatController?.handle(message);
     }
   }
 

@@ -839,7 +839,6 @@ export function InspectorPanel() {
               <span>Font</span>
               <select
                 className="inspector-font-select"
-                style={{ fontFamily: selectedFontFamily }}
                 value={selectedFontFamily}
                 onChange={(e) => setTextElement({ fontFamily: e.target.value })}
               >
@@ -847,11 +846,7 @@ export function InspectorPanel() {
                   <option value={selectedFontFamily}>Current custom font</option>
                 )}
                 {availableFontOptions.map((option) => (
-                  <option
-                    key={option.value}
-                    value={option.value}
-                    style={{ fontFamily: option.value }}
-                  >
+                  <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
@@ -859,12 +854,9 @@ export function InspectorPanel() {
             </label>
             <div
               className="inspector-font-preview"
-              style={{
-                fontFamily: layer.element.fontFamily,
-                fontWeight: layer.element.fontWeight,
-              }}
+              title={`Selected template font: ${layer.element.fontFamily}`}
             >
-              Aa Broadcast Graphics 123
+              Template font: {selectedFontFamily}
             </div>
             <div className="inspector-grid">
               <label className="inspector-row">
@@ -906,6 +898,7 @@ export function InspectorPanel() {
                   min={1}
                   max={selectedFontSize}
                   value={layer.element.minFontSize}
+                  disabled={layer.element.autoFit !== 'shrink-to-fit'}
                   onChange={(e) =>
                     setTextElement({
                       minFontSize: Math.max(1, Math.min(selectedFontSize, Number(e.target.value))),
@@ -955,6 +948,7 @@ export function InspectorPanel() {
               >
                 <option value="auto-size">Auto size box</option>
                 <option value="shrink-to-fit">Shrink text to box</option>
+                <option value="fit-to-width">Fit to width</option>
                 <option value="fixed">Fixed box</option>
               </select>
             </label>
@@ -974,7 +968,8 @@ export function InspectorPanel() {
               </select>
             </label>
             <p className="inspector-hint">
-              Auto size changes the authored box. Shrink to box is recommended for data-bound text.
+              Auto size changes the authored box. Shrink only reduces text to its minimum-size
+              floor. Fit to width grows or shrinks text to fill the fixed box without overflow.
             </p>
           </>
         )}

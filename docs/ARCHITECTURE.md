@@ -36,10 +36,20 @@ deterministic SVG frame renderer. It has no React, browser, transport, or file-s
 
 `packages/agent-tools` is the transport-neutral composition layer above that mutation engine. It
 owns canonical Zod schemas and plain tool records, and depends only on injected workspace and editor-
-bridge ports. The MCP server renders those records through the MCP SDK; the planned in-app BYOK loop
-will filter and render the same records through provider adapters. Neither front door owns handlers.
+bridge ports. The MCP server renders those records through the MCP SDK; the in-app BYOK loop filters
+the same records to a 14-tool surface and renders provider-neutral JSON schemas through Anthropic or
+OpenAI-compatible adapters. Neither front door owns handlers.
 The consolidated `ograf_apply_operations` record exposes apply, browser-free dry-run, rendered
 preview, and human proposal modes while carrying the large recursive operation union only once.
+
+The in-app model loop runs in `apps/mcp-server`, never in the renderer. It keeps the generated,
+drift-gated authoring prompt and tool schemas as a stable cache prefix, normalizes provider calls,
+validates them through the canonical Zod schemas, and executes the same handlers as MCP. Changing
+selection, frame, viewport, and recent-edit context travels in conversation messages rather than
+the system prompt. Credentials are loaded from Windows Credential Manager first or a server
+environment variable fallback and are redacted from error/event paths. The existing editor
+WebSocket carries summarized chat lifecycle events alongside capture, synchronization, and proposal
+traffic; there is no second socket or self-MCP hop.
 
 `apps/mcp-server` exposes that boundary through localhost-only Streamable HTTP MCP. The `editor`
 session is synchronized to the browser over a local WebSocket bridge. Browser edits increment the
@@ -165,11 +175,24 @@ grid/threshold settings, authoring bounds, and editor overflow preview. These fi
 otherwise contains only the resulting layer transforms and standard OGraf behavior. Runtime
 composition bounds remain clipped even when the editor pasteboard previews overflow as visible.
 
+Document v21 adds `layout.dimOutsideCanvas`, defaulting false. When enabled, Edit and the main OGraf
+Preview render four camera-aligned, pointer-transparent regions using `rgb(18 18 18 / 18%)` around
+the composition rectangle. The actual work area remains untouched and transparent; the dimmer is
+excluded from the runtime descriptor, browser composition capture, certification, and package
+output.
+
+Safe-area geometry is derived centrally from EBU R 95 for 16:9 production. Action safe uses a 3.5%
+inset independently on each axis and title/graphics safe uses 5%; each pixel inset is rounded to the
+nearest integer. This yields action/title margins of 67/38 and 96/54 pixels at 1920x1080, and
+134/76 and 192/108 pixels at 3840x2160. The editor overlays, scene projections, broadcast QA, and
+MCP lint all consume the same computed rectangles.
+
 Rulers and guides render in an unscaled viewport overlay rather than inside the composition DOM.
 The ruler strips remain 20 screen pixels at every canvas zoom; adaptive 1/2/5 intervals keep major
-labels readable, while each tick and guide derives its screen position from the composition origin,
-canvas zoom, and current viewport scroll. Pointer coordinates are converted back into composition
-pixels before guide mutations enter `Composition.layout.guides`. This keeps Photoshop-style ruler
+labels readable, while each tick and guide derives its screen position from the composition's
+virtual camera origin, canvas zoom, and recentered viewport scroll. Only ticks spanning the current
+camera range are materialized. Pointer coordinates are converted back into composition pixels
+before guide mutations enter `Composition.layout.guides`. This keeps Photoshop-style ruler
 interaction independent from authored geometry and compiled output.
 
 The object clipboard is editor-only transient state. Copy and Cut snapshot complete selected layers;
@@ -178,14 +201,16 @@ a 20px position offset. Timeline `Insert Frame` adds a hold key using the preced
 whereas `Insert Keyframe` samples the evaluated pose at that frame. Neither command retimes global
 OGraf lifecycle markers or any other layer.
 
-Canvas viewport panning is also transient editor interaction state. A middle-button gesture captures
-the pointer at the viewport boundary and changes only `scrollLeft`/`scrollTop`; composition geometry,
-layer transforms, animation keys, preview, and exported output are untouched.
+Canvas viewport panning is also transient editor interaction state. Edit and OGraf Preview share a
+large hidden-scrollbar camera plane. Every auto-scroll or completed middle-button pan shifts the
+virtual composition origin by the inverse delta and recenters native `scrollLeft`/`scrollTop`,
+preserving the exact visible pixels while making the user-facing plane unbounded. Composition
+geometry, layer transforms, animation keys, preview state, and exported output remain untouched.
 
-Canvas viewport zoom is equally transient. Fit-to-view supplies the default scale; Ctrl/Command
-wheel and plus/minus set an editor-only manual scale while scroll compensation keeps the pointer or
-viewport-center anchor stable. The scale never enters the project document, runtime descriptor, or
-compiled output and never uses browser page zoom.
+Canvas viewport zoom is equally transient. Fit-to-view supplies the default scale; the plain mouse
+wheel sets an editor-only pointer-anchored scale, while Ctrl/Command plus/minus retain keyboard zoom
+around the viewport centre. Camera compensation keeps either anchor stable across recentering. The scale never enters the project
+document, runtime descriptor, or compiled output and never uses browser page zoom.
 
 The editor transport can optionally pause at the next lifecycle key whose role is `step`. This uses
 the same cumulative keyframe timing as compilation but remains preview state: it does not rewrite
@@ -247,6 +272,12 @@ relative package path, and font/license descriptors. Direct references are usage
 removal. Packaged font weight/style descriptors flow through the compiled descriptor into local
 `@font-face`; optional license text is emitted under `licenses/` without adding a runtime dependency.
 
+The Resources panel projects that flat registry and the composition-local Brand Kit/components into
+an editor-only ARIA tree. Five counted category nodes and their item nodes use native disclosure
+state, so collapsed branches render only compact summaries while one or more expanded items expose
+the unchanged mutation controls. Expansion state is transient UI state and never enters the project,
+registry, descriptor, or package.
+
 Certification imports each exact generated module inside a fresh hidden iframe realm, exercises its
 declared lifecycle, and destroys the entire realm afterward. This prevents custom-element registry
 or DOM/font state from leaking between repeated certifications. Agent-requested certification,
@@ -273,6 +304,13 @@ never reorders `composition.layers`, merges tracks, changes persistent canvas ob
 the compiled descriptor. Revisioned MCP operations create, rename, recolor, and ungroup the same
 organization while continuing to address the unchanged independent layer IDs.
 
+The Layers panel remains a flat, truthful projection of `composition.layers` paint order even when
+authoring parents exist. A layer name is indented by its resolved parent-chain depth without
+re-sorting the tree. HTML drag-and-drop divides each target row into explicit intent zones: the
+upper/lower quarters reorder before/after in paint order, while the centre half changes only
+`parentId`. Self-parenting, descendant cycles, and already-cyclic targets are rejected before the
+store mutation; the Inspector remains the explicit path for clearing a parent.
+
 Each property key owns its incoming easing. It can use a named dependency-free preset or an explicit
 cubic Bézier curve. The same pure samplers drive editor interpolation and are passed to GSAP as the
 exported runtime easing function, keeping linear, polynomial, Sine, Expo, Circ, Back, Bounce,
@@ -285,12 +323,25 @@ realtime playback, and non-realtime schedule replay calculate phase from an abso
 than callback counts. Loop keys never become composition keys or OGraf Steps, and loops never
 invoke lifecycle actions. See ADR-004.
 
+Timeline loop badges are a projection of that activation contract, not new keyframe data. A
+step-activated loop marks its referenced Step and the same-frame key on its layer row; a
+lifecycle-activated loop marks the first Step where its persistent on-air epoch begins. Stale Step
+references produce no badge and remain validation concerns.
+
 Layer effects are authored as structured blur/drop-shadow values. Blur, shadow alpha, X/Y offsets,
 and softness are numeric animation tracks; shadow enabled state and color remain discrete/static.
 A shared serializer produces the same CSS filter in Stage and GraphicElement at every frame.
 Text elements store a sizing policy. `auto-size` measures system-font content while authoring and
 writes integer layer bounds; `shrink-to-fit` uses the shared DOM renderer plus ResizeObserver so
-data-bound text remains inside animated runtime bounds; `fixed` preserves the authored box.
+data-bound text remains inside animated runtime bounds without exceeding the authored font size;
+`fit-to-width` keeps the authored box fixed and finds the largest uniform font size that contains
+the complete text and stroke in both dimensions, allowing growth or shrinkage; `fixed` preserves
+both box and authored font size. Fit-to-width uses explicit line breaks rather than implicit wrapping
+and re-evaluates on box, animated-stroke, and font-load changes. The same DOM renderer is shared by
+Stage, browser measurement/capture, realtime playback, and non-realtime seeking. Browser-free SVG
+diagnostics retain the authored font size because they cannot measure the target browser font.
+Fit-to-width measures through an offscreen untransformed probe so canvas zoom and layer/ancestor
+transforms cannot contaminate composition-pixel font sizing.
 
 ## Compliance gates
 
@@ -370,3 +421,6 @@ runtime performs bounded deterministic item expansion.
 Document version 20 adds text `strokeColor` and independently animatable `strokeWidth`. Migration
 backfills transparent/zero values and a static width key on text layers and reusable-component
 snapshots without changing legacy pixels.
+
+Document version 21 adds the authoring-only outside-canvas dimmer preference. Migration defaults it
+off, preserving existing editor appearance and all rendered/exported pixels.

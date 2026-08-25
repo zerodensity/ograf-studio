@@ -24,6 +24,7 @@ describe('Photoshop-style canvas rulers', () => {
         { left: 200, top: 100 },
         { width: 1000, height: 500 },
         0.5,
+        { x: 500, y: 250 },
       ),
     ).toBe(200);
   });

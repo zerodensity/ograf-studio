@@ -5,6 +5,11 @@ import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import { computeKeyframeFrames, getLayerTransformAtFrame } from '@ograf-editor/scene-model';
 import { createOGrafAuthoringHost } from './index';
+import {
+  createOGrafToolRecords,
+  filterInAppToolRecords,
+  providerToolWireBytes,
+} from '@ograf-editor/agent-tools';
 
 describe('OGraf MCP authoring host', () => {
   const host = createOGrafAuthoringHost();
@@ -61,6 +66,20 @@ describe('OGraf MCP authoring host', () => {
     expect(tools.tools.map((tool) => tool.name)).not.toContain('ograf_propose_operations');
   });
 
+  it('renders a bounded fourteen-tool in-app surface from the same canonical records', () => {
+    const records = createOGrafToolRecords(host.workspace, host.bridge);
+    const inApp = filterInAppToolRecords(records);
+    expect(inApp).toHaveLength(14);
+    expect(inApp.map((tool) => tool.name)).not.toEqual(
+      expect.arrayContaining([
+        'ograf_certify_project',
+        'ograf_save_project',
+        'ograf_export_package',
+      ]),
+    );
+    expect(providerToolWireBytes(records)).toBeLessThanOrEqual(65_000);
+  });
+
   it('explicitly deletes temporary sessions without allowing live-editor deletion', async () => {
     const sessionId = 'temporary-cleanup-test';
     await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
@@ -89,7 +108,7 @@ describe('OGraf MCP authoring host', () => {
         ellipse: { strokeWidth: { default: 0 } },
         text: {
           textAlign: { values: ['left', 'center', 'right'] },
-          autoFit: { values: ['auto-size', 'shrink-to-fit', 'fixed'] },
+          autoFit: { values: ['auto-size', 'shrink-to-fit', 'fit-to-width', 'fixed'] },
           strokeColor: { default: 'transparent' },
           strokeWidth: { default: 0, minimum: 0, animatable: true },
         },
@@ -163,6 +182,19 @@ describe('OGraf MCP authoring host', () => {
       canvasLayout: {
         boundsModes: ['allow', 'contain'],
         overflowPreview: ['visible', 'clip'],
+        outsideCanvasDimmer: {
+          property: 'dimOutsideCanvas',
+          color: '#121212',
+          opacity: 0.18,
+          authoringOnly: true,
+        },
+        safeAreas: {
+          standard: 'EBU R 95',
+          aspectRatio: '16:9',
+          actionSafeMarginPerAxis: 0.035,
+          titleSafeMarginPerAxis: 0.05,
+          pixelRounding: 'nearest-integer',
+        },
       },
     });
     expect((result.structuredContent as { easingPresets: string[] }).easingPresets).toContain(
@@ -1278,7 +1310,14 @@ describe('OGraf MCP authoring host', () => {
       arguments: {
         sessionId: 'editor',
         expectedRevision: 0,
-        operations: [{ type: 'add_layer', kind: 'text', name: 'Agent title' }],
+        operations: [
+          {
+            type: 'add_layer',
+            kind: 'text',
+            name: 'Agent title',
+            transform: { x: 67, y: 38 },
+          },
+        ],
         reason: 'MCP integration test',
       },
     });
@@ -1810,8 +1849,8 @@ describe('OGraf MCP authoring host', () => {
         }
       ).compositions[0]!.layout.safeAreas,
     ).toEqual({
-      actionSafe: { x: 96, y: 54, width: 1728, height: 972 },
-      titleSafe: { x: 192, y: 108, width: 1536, height: 864 },
+      actionSafe: { x: 67, y: 38, width: 1786, height: 1004 },
+      titleSafe: { x: 96, y: 54, width: 1728, height: 972 },
     });
     const changes = await client.callTool({
       name: 'ograf_get_changes',
@@ -2110,6 +2149,8 @@ describe('OGraf MCP authoring host', () => {
               boxHeight: 60,
               lines: 1,
               overflowsParent: true,
+              appliedFontSize: 24,
+              appliedFitRatio: 0.5,
               appliedShrinkRatio: 0.5,
               degenerate: true,
               resolvedFont: {
@@ -2190,6 +2231,8 @@ describe('OGraf MCP authoring host', () => {
     expect(measurement.structuredContent).toMatchObject({
       frame: expect.any(Number),
       overflowsParent: true,
+      appliedFontSize: 24,
+      appliedFitRatio: 0.5,
       appliedShrinkRatio: 0.5,
       degenerate: true,
       clippedAt: 8,

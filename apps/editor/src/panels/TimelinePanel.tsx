@@ -31,6 +31,8 @@ import { FrameDurationControl } from './FrameDurationControl';
 import { EASING_OPTION_GROUPS, easingLabel } from './easingOptions';
 import { EasingCurveEditor } from './EasingCurveEditor';
 import { buildTimelineEntries } from './timelineFolders';
+import { buildTimelineLoopBadges } from './timelineLoopBadges';
+import { isTimelineKeyDrag } from './timelinePointerIntent';
 import './TimelinePanel.css';
 
 const DEFAULT_PX_PER_FRAME = 12;
@@ -149,6 +151,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const rulerLabelInterval = pixelsPerFrame >= 10 ? 5 : pixelsPerFrame >= 6 ? 10 : 20;
 
   const keyframeFrames = computeKeyframeFrames(composition);
+  const loopBadges = buildTimelineLoopBadges(composition);
+  const loopBadgeByLayerId = new Map(loopBadges.map((badge) => [badge.layerId, badge]));
   const displayedKeyframeFrames = keyframeFrames.map((item) =>
     item.keyframeId === lifecycleDragPreview?.keyframeId
       ? { ...item, frame: lifecycleDragPreview.frame }
@@ -328,20 +332,6 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
     setLayerMenu({ x: event.clientX, y: event.clientY, layerIds });
   };
 
-  const lastSoughtLifecycleId = useRef<string | null>(null);
-  // Seek once when a lifecycle marker selection actually changes. Stage replaces `controller`
-  // after every edit, so treating controller replacement as a new selection would snap arbitrary
-  // layer keys back to the active OGraf marker.
-  useEffect(() => {
-    if (!controller || lastSoughtLifecycleId.current === activeKeyframeId) return;
-    const frame = keyframeFrames.find((f) => f.keyframeId === activeKeyframeId)?.frame;
-    if (frame !== undefined) {
-      controller.seek(frame);
-      lastSoughtLifecycleId.current = activeKeyframeId;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKeyframeId, controller]);
-
   const frameFromClientX = (clientX: number): number => {
     const rect = rulerRef.current?.getBoundingClientRect();
     if (!rect) return 0;
@@ -399,19 +389,17 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
     if (e.button !== 0) return;
     e.stopPropagation();
     const keyframe = composition.keyframes[keyframeIndex]!;
-    const startFrame = keyframeFrames[keyframeIndex]?.frame ?? 0;
     setActiveKeyframe(keyframe.id);
-    useTimelineStore.getState().controller?.seek(startFrame);
     if (keyframeIndex === 0) return;
 
     const bounds = lifecycleRetimeBounds(composition, keyframe.id);
     if (!bounds) return;
     const startX = e.clientX;
+    const playheadBeforeDrag = useTimelineStore.getState().currentFrame;
+    let isDragging = false;
     let previewFrame = bounds.currentFrame;
     const pointerTarget = e.currentTarget as HTMLElement;
     pointerTarget.setPointerCapture?.(e.pointerId);
-    setLifecycleRetimeNotice(null);
-    setLifecycleDragPreview({ keyframeId: keyframe.id, frame: previewFrame });
 
     const previewAtClientX = (clientX: number) => {
       const requestedFrame = bounds.currentFrame + Math.round((clientX - startX) / pixelsPerFrame);
@@ -421,6 +409,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
       );
       setLifecycleDragPreview({ keyframeId: keyframe.id, frame: previewFrame });
       useTimelineStore.getState().controller?.seek(previewFrame);
+    };
+    const beginDrag = () => {
+      if (isDragging) return;
+      isDragging = true;
+      setLifecycleRetimeNotice(null);
+      setLifecycleDragPreview({ keyframeId: keyframe.id, frame: previewFrame });
     };
     const cleanup = () => {
       window.removeEventListener('pointermove', onMove);
@@ -433,17 +427,23 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
       setLifecycleDragPreview(null);
     };
     const onMove = (event: PointerEvent) => {
+      if (!isDragging && !isTimelineKeyDrag(startX, event.clientX)) return;
       event.preventDefault();
+      beginDrag();
       previewAtClientX(event.clientX);
     };
     const onUp = (event: PointerEvent) => {
+      if (!isDragging) {
+        cleanup();
+        return;
+      }
       previewAtClientX(event.clientX);
       cleanup();
       commitLifecycleMove(keyframe.id, previewFrame);
     };
     const onCancel = () => {
       cleanup();
-      useTimelineStore.getState().controller?.seek(bounds.currentFrame);
+      if (isDragging) useTimelineStore.getState().controller?.seek(playheadBeforeDrag);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -484,12 +484,14 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
     property: AnimatableLayerProperty | null = null,
   ) => {
     if (e.button !== 0) return;
-    if (composition.layers.find((layer) => layer.id === layerId)?.isLocked) return;
     e.stopPropagation();
     selectLayerKeyframe(layerId, keyframeId, property);
-    controller?.seek(startFrame);
+    if (composition.layers.find((layer) => layer.id === layerId)?.isLocked) return;
     const startX = e.clientX;
+    let isDragging = false;
     const onMove = (event: PointerEvent) => {
+      if (!isDragging && !isTimelineKeyDrag(startX, event.clientX)) return;
+      isDragging = true;
       const frame = Math.max(
         0,
         Math.min(
@@ -861,6 +863,19 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 ))}
                 {composition.keyframes.map((keyframe, i) => {
                   const frame = displayedKeyframeFrames[i]?.frame ?? 0;
+                  const keyframeLoopBadges = loopBadges.filter(
+                    (badge) => badge.lifecycleKeyframeId === keyframe.id,
+                  );
+                  const loopLayerNames = keyframeLoopBadges
+                    .map(
+                      (badge) =>
+                        composition.layers.find((layer) => layer.id === badge.layerId)?.name,
+                    )
+                    .filter((name): name is string => Boolean(name));
+                  const loopDescription =
+                    loopLayerNames.length > 0
+                      ? ` · Loop enabled: ${loopLayerNames.join(', ')}`
+                      : '';
                   return (
                     <div
                       key={keyframe.id}
@@ -874,8 +889,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       style={{ left: frame * pixelsPerFrame }}
                       role="button"
                       tabIndex={0}
-                      aria-label={`${keyframe.name} at frame ${frame}`}
-                      title={`${keyframe.name} · frame ${frame}${keyframe.role === 'start' ? ' · Start is fixed' : ' · Drag to move'}`}
+                      aria-label={`${keyframe.name} at frame ${frame}${loopDescription}`}
+                      title={`${keyframe.name} · frame ${frame} · Click selects · Double-click seeks${keyframe.role === 'start' ? ' · Start is fixed' : ' · Drag to move · Shift+double-click renames'}${loopDescription}`}
                       onPointerDown={(e) => handleKeyframeMarkerPointerDown(e, i)}
                       onKeyDown={(event) => {
                         if ((event.target as HTMLElement).tagName === 'INPUT') return;
@@ -890,7 +905,6 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
                           setActiveKeyframe(keyframe.id);
-                          controller?.seek(frame);
                           return;
                         }
                         if (i > 0 && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
@@ -903,11 +917,25 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       }}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
-                        setEditingKeyframeId(keyframe.id);
-                        setEditingName(keyframe.name);
+                        if (e.shiftKey && keyframe.role !== 'start') {
+                          setEditingKeyframeId(keyframe.id);
+                          setEditingName(keyframe.name);
+                        } else {
+                          controller?.seek(frame);
+                        }
                       }}
                     >
-                      <span className="timeline-keyframe-marker-flag" />
+                      <span className="timeline-keyframe-marker-flag">
+                        {keyframeLoopBadges.length > 0 && (
+                          <span
+                            className="timeline-keyframe-loop-badge"
+                            aria-hidden="true"
+                            title={loopDescription.slice(3)}
+                          >
+                            ∞
+                          </span>
+                        )}
+                      </span>
                       {editingKeyframeId === keyframe.id ? (
                         <input
                           autoFocus
@@ -944,15 +972,15 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 const layerColorStyle = {
                   '--layer-color': timelineColorForLayer(layer.id),
                 } as LayerColorStyle;
+                const layerLoopBadge = loopBadgeByLayerId.get(layer.id);
                 const orderedKeys = [...layer.keyframes].sort((a, b) => a.frame - b.frame);
                 const layerRow = (
                   <div
                     className={`timeline-track${selectedLayerIds.includes(layer.id) ? ' selected' : ''}`}
                     key={layer.id}
                     style={layerColorStyle}
-                    onPointerDown={(event) => {
+                    onPointerDown={() => {
                       selectLayer(layer.id);
-                      handleScrubPointerDown(event, false);
                     }}
                     onDoubleClick={(event) => {
                       if (layer.isLocked) return;
@@ -990,44 +1018,62 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         </div>
                       );
                     })}
-                    {orderedKeys.map((keyframe) => (
-                      <div
-                        key={keyframe.id}
-                        className={`timeline-keyframe-dot${keyframe.id === selectedLayerKeyframeId ? ' active' : ''}`}
-                        style={{ left: keyframe.frame * pixelsPerFrame }}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`${layer.name} key at frame ${keyframe.frame}`}
-                        title={`${layer.name} · frame ${keyframe.frame}`}
-                        onFocus={() => selectLayerKeyframe(layer.id, keyframe.id)}
-                        onKeyDown={(event) => {
-                          if (layer.isLocked) return;
-                          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-                            event.preventDefault();
-                            moveLayerKeyframe(
+                    {orderedKeys.map((keyframe) => {
+                      const hasLoopBadge = layerLoopBadge?.frame === keyframe.frame;
+                      const loopTitle = hasLoopBadge
+                        ? layerLoopBadge.activation === 'lifecycle'
+                          ? ' · Loop begins here and remains active while on-air'
+                          : ' · Loop active at this Step'
+                        : '';
+                      return (
+                        <div
+                          key={keyframe.id}
+                          className={`timeline-keyframe-dot${keyframe.id === selectedLayerKeyframeId ? ' active' : ''}${hasLoopBadge ? ' has-loop' : ''}`}
+                          style={{ left: keyframe.frame * pixelsPerFrame }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`${layer.name} key at frame ${keyframe.frame}${loopTitle}`}
+                          title={`${layer.name} · frame ${keyframe.frame} · Click selects · Double-click seeks · Drag moves${loopTitle}`}
+                          onFocus={() => selectLayerKeyframe(layer.id, keyframe.id)}
+                          onDoubleClick={(event) => {
+                            event.stopPropagation();
+                            controller?.seek(keyframe.frame);
+                          }}
+                          onKeyDown={(event) => {
+                            if (layer.isLocked) return;
+                            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                              event.preventDefault();
+                              moveLayerKeyframe(
+                                layer.id,
+                                keyframe.id,
+                                keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
+                              );
+                            } else if (
+                              (event.key === 'Delete' || event.key === 'Backspace') &&
+                              orderedKeys.length > 1
+                            ) {
+                              event.preventDefault();
+                              removeLayerKeyframe(layer.id, keyframe.id);
+                              clearLayerKeyframe();
+                            }
+                          }}
+                          onPointerDown={(event) =>
+                            handleLayerKeyframePointerDown(
+                              event,
                               layer.id,
                               keyframe.id,
-                              keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
-                            );
-                          } else if (
-                            (event.key === 'Delete' || event.key === 'Backspace') &&
-                            orderedKeys.length > 1
-                          ) {
-                            event.preventDefault();
-                            removeLayerKeyframe(layer.id, keyframe.id);
-                            clearLayerKeyframe();
+                              keyframe.frame,
+                            )
                           }
-                        }}
-                        onPointerDown={(event) =>
-                          handleLayerKeyframePointerDown(
-                            event,
-                            layer.id,
-                            keyframe.id,
-                            keyframe.frame,
-                          )
-                        }
-                      />
-                    ))}
+                        >
+                          {hasLoopBadge && (
+                            <span className="timeline-layer-loop-badge" aria-hidden="true">
+                              ∞
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
                 if (!expandedLayerIds.has(layer.id)) return [layerRow];
@@ -1036,14 +1082,20 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                   const propertyKeys = [...(tracks[property] ?? [])].sort(
                     (a, b) => a.frame - b.frame,
                   );
+                  const propertyLoopBadgeFrame = layerLoopBadge?.properties.includes(property)
+                    ? layerLoopBadge.frame
+                    : undefined;
+                  const propertyLoopTitle =
+                    propertyLoopBadgeFrame === undefined
+                      ? ''
+                      : `${animatablePropertyLabel(property)} loop activates at frame ${propertyLoopBadgeFrame}`;
                   return (
                     <div
                       className={`timeline-track timeline-property-track${selectedLayerId === layer.id && selectedLayerProperty === property ? ' selected' : ''}`}
                       key={`${layer.id}:${property}`}
                       style={layerColorStyle}
-                      onPointerDown={(event) => {
+                      onPointerDown={() => {
                         selectLayer(layer.id);
-                        handleScrubPointerDown(event, false);
                       }}
                       onDoubleClick={(event) => {
                         if (layer.isLocked) return;
@@ -1074,46 +1126,75 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           </div>
                         );
                       })}
-                      {propertyKeys.map((keyframe) => (
-                        <div
-                          key={keyframe.id}
-                          className={`timeline-keyframe-dot property${keyframe.id === selectedLayerKeyframeId && selectedLayerProperty === property ? ' active' : ''}`}
-                          style={{ left: keyframe.frame * pixelsPerFrame }}
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`${animatablePropertyLabel(property)} key at frame ${keyframe.frame}`}
-                          title={`${animatablePropertyLabel(property)} · frame ${keyframe.frame} · value ${keyframe.value.toFixed(3)}`}
-                          onFocus={() => selectLayerKeyframe(layer.id, keyframe.id, property)}
-                          onKeyDown={(event) => {
-                            if (layer.isLocked) return;
-                            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-                              event.preventDefault();
-                              moveLayerPropertyKeyframe(
+                      {propertyKeys.map((keyframe) => {
+                        const hasLoopBadge = propertyLoopBadgeFrame === keyframe.frame;
+                        return (
+                          <div
+                            key={keyframe.id}
+                            className={`timeline-keyframe-dot property${keyframe.id === selectedLayerKeyframeId && selectedLayerProperty === property ? ' active' : ''}${hasLoopBadge ? ' has-loop' : ''}`}
+                            style={{ left: keyframe.frame * pixelsPerFrame }}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`${animatablePropertyLabel(property)} key at frame ${keyframe.frame}${hasLoopBadge ? ' · Loop activates here' : ''}`}
+                            title={`${animatablePropertyLabel(property)} · frame ${keyframe.frame} · value ${keyframe.value.toFixed(3)} · Click selects · Double-click seeks · Drag moves${hasLoopBadge ? ' · Loop activates here' : ''}`}
+                            onFocus={() => selectLayerKeyframe(layer.id, keyframe.id, property)}
+                            onDoubleClick={(event) => {
+                              event.stopPropagation();
+                              controller?.seek(keyframe.frame);
+                            }}
+                            onKeyDown={(event) => {
+                              if (layer.isLocked) return;
+                              if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                                event.preventDefault();
+                                moveLayerPropertyKeyframe(
+                                  layer.id,
+                                  property,
+                                  keyframe.id,
+                                  keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
+                                );
+                              } else if (
+                                (event.key === 'Delete' || event.key === 'Backspace') &&
+                                propertyKeys.length > 1
+                              ) {
+                                event.preventDefault();
+                                removeLayerPropertyKeyframe(layer.id, property, keyframe.id);
+                                clearLayerKeyframe();
+                              }
+                            }}
+                            onPointerDown={(event) =>
+                              handleLayerKeyframePointerDown(
+                                event,
                                 layer.id,
-                                property,
                                 keyframe.id,
-                                keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
-                              );
-                            } else if (
-                              (event.key === 'Delete' || event.key === 'Backspace') &&
-                              propertyKeys.length > 1
-                            ) {
-                              event.preventDefault();
-                              removeLayerPropertyKeyframe(layer.id, property, keyframe.id);
-                              clearLayerKeyframe();
+                                keyframe.frame,
+                                property,
+                              )
                             }
-                          }}
-                          onPointerDown={(event) =>
-                            handleLayerKeyframePointerDown(
-                              event,
-                              layer.id,
-                              keyframe.id,
-                              keyframe.frame,
-                              property,
-                            )
-                          }
-                        />
-                      ))}
+                          >
+                            {hasLoopBadge && (
+                              <span className="timeline-layer-loop-badge" aria-hidden="true">
+                                ∞
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {propertyLoopBadgeFrame !== undefined &&
+                        !propertyKeys.some(
+                          (keyframe) => keyframe.frame === propertyLoopBadgeFrame,
+                        ) && (
+                          <div
+                            className="timeline-keyframe-dot property has-loop timeline-property-loop-activation"
+                            style={{ left: propertyLoopBadgeFrame * pixelsPerFrame }}
+                            role="img"
+                            aria-label={propertyLoopTitle}
+                            title={propertyLoopTitle}
+                          >
+                            <span className="timeline-layer-loop-badge" aria-hidden="true">
+                              ∞
+                            </span>
+                          </div>
+                        )}
                     </div>
                   );
                 });
@@ -1131,8 +1212,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                     className={`timeline-lifecycle-dragline ${keyframe.role}${keyframe.id === activeKeyframeId ? ' active' : ''}`}
                     style={{ left: frame * pixelsPerFrame }}
                     aria-label={`${keyframe.name} at frame ${frame}. Drag or use arrow keys to move.`}
-                    title={`${keyframe.name} · frame ${frame} · Drag to move`}
+                    title={`${keyframe.name} · frame ${frame} · Click selects · Double-click seeks · Drag moves`}
                     onPointerDown={(event) => handleKeyframeMarkerPointerDown(event, keyframeIndex)}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                      controller?.seek(frame);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
                       event.preventDefault();

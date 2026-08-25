@@ -107,6 +107,8 @@ describe('migrateProject', () => {
     delete legacyText.autoFit;
     delete (textLayer as Omit<typeof textLayer, 'effects'> & { effects?: unknown }).effects;
     delete (textLayer as Omit<typeof textLayer, 'semantics'> & { semantics?: unknown }).semantics;
+    delete (project.compositions[0]!.layout as Partial<(typeof project.compositions)[0]['layout']>)
+      .dimOutsideCanvas;
     project.compositions[0]!.layers = [textLayer];
     project.documentVersion = 3;
 
@@ -123,7 +125,7 @@ describe('migrateProject', () => {
     });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(20);
+    expect(migrated.documentVersion).toBe(21);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -136,11 +138,27 @@ describe('migrateProject', () => {
     });
     expect(migrated.compositions[0]!.layout).toMatchObject({
       showRulers: true,
+      dimOutsideCanvas: false,
       snappingEnabled: true,
       boundsMode: 'allow',
       overflowPreview: 'visible',
       guides: [],
       timelineFolders: [],
+    });
+  });
+
+  it('preserves the fit-to-width text sizing mode at the project boundary', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw new Error('Expected a text layer.');
+    layer.element.autoFit = 'fit-to-width';
+    project.compositions[0]!.layers = [layer];
+
+    const migrated = migrateProject(project);
+
+    expect(migrated.compositions[0]!.layers[0]!.element).toMatchObject({
+      type: 'text',
+      autoFit: 'fit-to-width',
     });
   });
 
@@ -161,7 +179,7 @@ describe('migrateProject', () => {
     expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
       { fieldId: 'headline-field', targetProperty: 'content', sourcePath: [] },
     ]);
-    expect(migrated.documentVersion).toBe(20);
+    expect(migrated.documentVersion).toBe(21);
   });
 
   it('backfills document-v13 typography without changing the authored font size', () => {
@@ -198,7 +216,7 @@ describe('migrateProject', () => {
       minFontSize: 20,
       overflowPolicy: 'visible',
     });
-    expect(migrated.documentVersion).toBe(20);
+    expect(migrated.documentVersion).toBe(21);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {
@@ -238,7 +256,7 @@ describe('migrateProject', () => {
     project.documentVersion = 16;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(20);
+    expect(migrated.documentVersion).toBe(21);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       key: 'headline',
       defaultValue: 'News',
@@ -257,7 +275,7 @@ describe('migrateProject', () => {
     project.documentVersion = 17;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(20);
+    expect(migrated.documentVersion).toBe(21);
     expect(migrated.compositions[0]!.layers[0]!.blendMode).toBe('normal');
   });
 
@@ -275,7 +293,7 @@ describe('migrateProject', () => {
     project.documentVersion = 18;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(20);
+    expect(migrated.documentVersion).toBe(21);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       properties: [],
       items: null,
@@ -313,7 +331,7 @@ describe('migrateProject', () => {
     const migratedLayer = migrated.compositions[0]!.layers[0]!;
     const migratedComponentLayer = migrated.compositions[0]!.components[0]!.layers[0]!;
 
-    expect(migrated.documentVersion).toBe(20);
+    expect(migrated.documentVersion).toBe(21);
     expect(migratedLayer.element).toMatchObject({
       type: 'text',
       strokeColor: 'transparent',

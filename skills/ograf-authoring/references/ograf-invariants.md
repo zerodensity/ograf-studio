@@ -30,6 +30,9 @@ Save/export must certify the same artifact bytes that are written. If certificat
   explicit frame.
 - Shrink-to-fit never renders below the text layer's authored `minFontSize`. A degenerate result
   means that floor was reached and the box still cannot contain the text.
+- Fit-to-width may grow above or shrink below the authored font size. It chooses the largest uniform
+  size that contains the complete text and stroke inside both fixed box axes, without non-uniform
+  glyph distortion; only explicit line breaks create multiple lines.
 - Duplicate-group frame offsets never clamp keys; insufficient duration is an atomic error.
 - A clipping parent masks only direct children whose `parentId` points to it. The mask follows the
   parent's animated transformed bounds, rotation/origin, and rectangle radius; duplicated groups

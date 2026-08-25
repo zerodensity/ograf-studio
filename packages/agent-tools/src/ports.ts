@@ -98,6 +98,8 @@ export interface BrowserMeasureTextResult {
   lines: number;
   overflowsParent: boolean;
   clippedBy: 'parent' | 'own-box' | null;
+  appliedFontSize: number;
+  appliedFitRatio: number;
   appliedShrinkRatio: number;
   degenerate: boolean;
   resolvedFont: {
