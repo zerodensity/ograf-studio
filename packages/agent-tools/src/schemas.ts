@@ -291,6 +291,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
         showRulers: z.boolean().optional(),
         showActionSafe: z.boolean().optional(),
         showTitleSafe: z.boolean().optional(),
+        dimOutsideCanvas: z.boolean().optional(),
         snappingEnabled: z.boolean().optional(),
         snapToGrid: z.boolean().optional(),
         snapToGuides: z.boolean().optional(),

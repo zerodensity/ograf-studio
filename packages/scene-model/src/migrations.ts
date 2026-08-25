@@ -393,6 +393,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       showRulers: composition.layout?.showRulers ?? true,
       showActionSafe: composition.layout?.showActionSafe ?? false,
       showTitleSafe: composition.layout?.showTitleSafe ?? false,
+      dimOutsideCanvas: composition.layout?.dimOutsideCanvas ?? false,
       snappingEnabled: composition.layout?.snappingEnabled ?? true,
       snapToGrid: composition.layout?.snapToGrid ?? false,
       snapToGuides: composition.layout?.snapToGuides ?? true,

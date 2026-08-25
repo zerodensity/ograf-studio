@@ -4,6 +4,13 @@
   padding: 0;
 }
 
+.layer-list-drag-hint {
+  margin: 0 0 5px;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
 .layer-list li {
   display: flex;
   align-items: center;
@@ -26,8 +33,17 @@
   opacity: 0.4;
 }
 
-.layer-list li.drop-target {
+.layer-list li.drop-before {
   box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.layer-list li.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.layer-list li.drop-parent {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-panel-raised));
+  outline: 1px solid var(--accent);
 }
 
 .layer-list-drag-handle {
@@ -43,6 +59,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding-left: calc(var(--layer-depth, 0) * 16px);
+  transition: padding-left 100ms ease;
 }
 
 .layer-list-icon-btn {

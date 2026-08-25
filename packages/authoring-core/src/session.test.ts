@@ -463,7 +463,12 @@ describe('AuthoringSession', () => {
       operations: [
         {
           type: 'set_composition_layout',
-          patch: { showActionSafe: true, snapToGrid: true, gridSize: 20 },
+          patch: {
+            showActionSafe: true,
+            dimOutsideCanvas: true,
+            snapToGrid: true,
+            gridSize: 20,
+          },
         },
         { type: 'add_canvas_guide', axis: 'vertical', position: 960 },
         {
@@ -487,6 +492,7 @@ describe('AuthoringSession', () => {
     const child = composition.layers.find((layer) => layer.id === childId)!;
     expect(composition.layout).toMatchObject({
       showActionSafe: true,
+      dimOutsideCanvas: true,
       snapToGrid: true,
       gridSize: 20,
     });

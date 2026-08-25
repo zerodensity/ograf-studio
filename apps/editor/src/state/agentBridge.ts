@@ -6,6 +6,7 @@ import { certifyExportArtifacts } from './ografCompatibility';
 import { resetHistory } from './historyStore';
 import { useProjectStore } from './projectStore';
 import { useSelectionStore } from './selectionStore';
+import { useTimelineStore } from './timelineStore';
 import {
   captureAgentPng,
   measureAgentText,
@@ -17,6 +18,7 @@ import {
 
 interface AgentBridgeStatus {
   connected: boolean;
+  authoritative: boolean;
   revision: number | null;
   activity: string;
   setStatus: (patch: Partial<Omit<AgentBridgeStatus, 'setStatus'>>) => void;
@@ -24,9 +26,98 @@ interface AgentBridgeStatus {
 
 export const useAgentBridgeStatus = create<AgentBridgeStatus>((set) => ({
   connected: false,
+  authoritative: true,
   revision: null,
   activity: 'Agent bridge offline',
   setStatus: (patch) => set(patch),
+}));
+
+export interface ChatUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+}
+
+export interface ChatTranscriptEntry {
+  id: string;
+  turnId: string;
+  kind: 'user' | 'assistant' | 'tool' | 'proposal' | 'error';
+  text: string;
+  status?: 'running' | 'ok' | 'error';
+  usage?: ChatUsage;
+}
+
+interface AgentChatState {
+  configured: boolean | null;
+  exclusive: boolean;
+  externalAgentActive: boolean;
+  provider: string | null;
+  model: string | null;
+  configMessage: string | null;
+  entries: ChatTranscriptEntry[];
+  activeTurnId: string | null;
+  sessionUsage: ChatUsage;
+  projectUsage: ChatUsage;
+  addEntry: (entry: ChatTranscriptEntry) => void;
+  patchTool: (turnId: string, callId: string, patch: Partial<ChatTranscriptEntry>) => void;
+  setState: (patch: Partial<Omit<AgentChatState, 'addEntry' | 'patchTool' | 'setState'>>) => void;
+}
+
+const EMPTY_USAGE: ChatUsage = { input: 0, output: 0, cacheRead: 0 };
+const PROJECT_USAGE_KEY = 'ograf-studio:agent-usage';
+
+function addUsage(left: ChatUsage, right: ChatUsage): ChatUsage {
+  return {
+    input: left.input + right.input,
+    output: left.output + right.output,
+    cacheRead: left.cacheRead + right.cacheRead,
+  };
+}
+
+function readProjectUsage(projectId: string): ChatUsage {
+  try {
+    const all = JSON.parse(localStorage.getItem(PROJECT_USAGE_KEY) ?? '{}') as Record<
+      string,
+      ChatUsage
+    >;
+    return all[projectId] ?? EMPTY_USAGE;
+  } catch {
+    return EMPTY_USAGE;
+  }
+}
+
+function persistProjectUsage(projectId: string, usage: ChatUsage): void {
+  try {
+    const all = JSON.parse(localStorage.getItem(PROJECT_USAGE_KEY) ?? '{}') as Record<
+      string,
+      ChatUsage
+    >;
+    all[projectId] = usage;
+    localStorage.setItem(PROJECT_USAGE_KEY, JSON.stringify(all));
+  } catch {
+    // Usage display is local convenience state and must never enter the project document.
+  }
+}
+
+export const useAgentChatStore = create<AgentChatState>((set) => ({
+  configured: null,
+  exclusive: false,
+  externalAgentActive: false,
+  provider: null,
+  model: null,
+  configMessage: null,
+  entries: [],
+  activeTurnId: null,
+  sessionUsage: EMPTY_USAGE,
+  projectUsage: EMPTY_USAGE,
+  addEntry: (entry) => set((state) => ({ entries: [...state.entries, entry] })),
+  patchTool: (turnId, callId, patch) =>
+    set((state) => ({
+      entries: state.entries.map((entry) =>
+        entry.turnId === turnId && entry.id === callId ? { ...entry, ...patch } : entry,
+      ),
+    })),
+  setState: (patch) => set(patch),
 }));
 
 export interface AgentAuthoringProposal {
@@ -70,6 +161,7 @@ export const useAgentReviewStore = create<AgentReviewState>((set) => ({
 }));
 
 let sendProposalDecision: ((payload: unknown) => void) | null = null;
+let sendChatPayload: ((payload: unknown) => void) | null = null;
 
 export function decideAgentProposal(proposalId: string, decision: 'accept' | 'reject'): void {
   if (!sendProposalDecision) return;
@@ -78,6 +170,51 @@ export function decideAgentProposal(proposalId: string, decision: 'accept' | 're
       decision === 'accept' ? 'Applying accepted agent proposal…' : 'Rejecting agent proposal…',
   });
   sendProposalDecision({ type: 'proposal.decision', proposalId, decision });
+}
+
+export function sendAgentChat(text: string): void {
+  if (!sendChatPayload || !text.trim()) return;
+  const turnId = crypto.randomUUID();
+  const selection = useSelectionStore.getState();
+  const timeline = useTimelineStore.getState();
+  const activity = useAgentBridgeStatus.getState().activity;
+  useAgentChatStore.getState().addEntry({
+    id: `user-${turnId}`,
+    turnId,
+    kind: 'user',
+    text: text.trim(),
+  });
+  useAgentChatStore.getState().setState({ activeTurnId: turnId });
+  sendChatPayload({
+    type: 'chat.send',
+    turnId,
+    sessionId: 'editor',
+    text: text.trim(),
+    ambient: {
+      selection: {
+        layerIds: selection.selectedLayerIds,
+        primaryLayerId: selection.selectedLayerId,
+      },
+      frame: timeline.currentFrame,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        zoom: Number(
+          document.querySelector<HTMLElement>('.canvas-stage-viewport')?.dataset.ografZoom ?? 1,
+        ),
+      },
+      recentEdits: activity && activity !== 'Agent connected' ? [activity] : [],
+    },
+  });
+}
+
+export function cancelAgentChat(): void {
+  const turnId = useAgentChatStore.getState().activeTurnId;
+  if (turnId) sendChatPayload?.({ type: 'chat.cancel', turnId });
+}
+
+export function setAgentChatExclusive(enabled: boolean): void {
+  sendChatPayload?.({ type: 'chat.exclusive', enabled });
 }
 
 type BridgeMessage =
@@ -100,7 +237,30 @@ type BridgeMessage =
       type: 'proposal.resolved';
       proposalId: string;
       result: { status: string; message: string; revision?: number };
-    };
+    }
+  | { type: 'editor.replaced'; message: string }
+  | {
+      type: 'chat.config';
+      configured: boolean;
+      exclusive: boolean;
+      provider?: string;
+      model?: string;
+      message?: string;
+    }
+  | { type: 'chat.external'; active: boolean }
+  | { type: 'chat.turn.start'; turnId: string }
+  | { type: 'chat.text'; turnId: string; text: string }
+  | {
+      type: 'chat.tool';
+      turnId: string;
+      callId: string;
+      name: string;
+      summary: string;
+      status: 'running' | 'ok' | 'error';
+    }
+  | { type: 'chat.proposal'; turnId: string; proposalId: string }
+  | { type: 'chat.turn.end'; turnId: string; stopReason: string; usage: ChatUsage }
+  | { type: 'chat.error'; turnId: string; message: string };
 
 const BRIDGE_URL = import.meta.env.VITE_OGRAF_AGENT_BRIDGE_URL ?? 'ws://127.0.0.1:4318/editor';
 
@@ -112,6 +272,7 @@ export function useAgentBridge(): void {
     let syncTimer: number | undefined;
     let stopped = false;
     let applyingRemote = false;
+    let replaced = false;
     // Certification, raster capture, frame strips, and text measurement all exercise the same
     // browser renderer/font resources. Serialize them so a heavy strip cannot overlap a save gate
     // or leave shared renderer state half-disposed for the next request.
@@ -122,9 +283,13 @@ export function useAgentBridge(): void {
       if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
     };
     sendProposalDecision = send;
+    sendChatPayload = send;
 
     const unsubscribe = useProjectStore.subscribe((state, previous) => {
       if (state.project === previous.project || applyingRemote) return;
+      if (state.project.id !== previous.project.id) {
+        useAgentChatStore.getState().setState({ projectUsage: readProjectUsage(state.project.id) });
+      }
       window.clearTimeout(syncTimer);
       syncTimer = window.setTimeout(() => {
         send({
@@ -143,7 +308,7 @@ export function useAgentBridge(): void {
           socket?.close();
           return;
         }
-        status({ connected: true, activity: 'Agent connected' });
+        status({ connected: true, authoritative: true, activity: 'Agent connected' });
         send({ type: 'editor.hello', project: useProjectStore.getState().project });
       });
       socket.addEventListener('message', async (event) => {
@@ -155,6 +320,91 @@ export function useAgentBridge(): void {
         }
         if (message.type === 'editor.ack') {
           status({ revision: message.revision });
+          return;
+        }
+        if (message.type === 'editor.replaced') {
+          replaced = true;
+          status({ connected: false, authoritative: false, activity: message.message });
+          return;
+        }
+        if (message.type === 'chat.config') {
+          useAgentChatStore.getState().setState({
+            configured: message.configured,
+            exclusive: message.exclusive,
+            provider: message.provider ?? null,
+            model: message.model ?? null,
+            configMessage: message.message ?? null,
+            projectUsage: readProjectUsage(useProjectStore.getState().project.id),
+          });
+          return;
+        }
+        if (message.type === 'chat.external') {
+          useAgentChatStore.getState().setState({ externalAgentActive: message.active });
+          return;
+        }
+        if (message.type === 'chat.turn.start') {
+          useAgentChatStore.getState().setState({ activeTurnId: message.turnId });
+          return;
+        }
+        if (message.type === 'chat.text') {
+          useAgentChatStore.getState().addEntry({
+            id: `assistant-${message.turnId}-${crypto.randomUUID()}`,
+            turnId: message.turnId,
+            kind: 'assistant',
+            text: message.text,
+          });
+          return;
+        }
+        if (message.type === 'chat.tool') {
+          const chat = useAgentChatStore.getState();
+          const exists = chat.entries.some(
+            (entry) => entry.turnId === message.turnId && entry.id === message.callId,
+          );
+          if (exists) chat.patchTool(message.turnId, message.callId, { status: message.status });
+          else
+            chat.addEntry({
+              id: message.callId,
+              turnId: message.turnId,
+              kind: 'tool',
+              text: message.summary,
+              status: message.status,
+            });
+          return;
+        }
+        if (message.type === 'chat.proposal') {
+          useAgentChatStore.getState().addEntry({
+            id: `proposal-${message.proposalId}`,
+            turnId: message.turnId,
+            kind: 'proposal',
+            text: 'A design proposal is ready in the review panel.',
+          });
+          return;
+        }
+        if (message.type === 'chat.turn.end') {
+          const chat = useAgentChatStore.getState();
+          const sessionUsage = addUsage(chat.sessionUsage, message.usage);
+          const projectId = useProjectStore.getState().project.id;
+          const projectUsage = addUsage(readProjectUsage(projectId), message.usage);
+          persistProjectUsage(projectId, projectUsage);
+          chat.setState({ activeTurnId: null, sessionUsage, projectUsage });
+          chat.addEntry({
+            id: `usage-${message.turnId}`,
+            turnId: message.turnId,
+            kind: 'assistant',
+            text: message.stopReason === 'cancelled' ? 'Cancelled.' : '',
+            usage: message.usage,
+          });
+          return;
+        }
+        if (message.type === 'chat.error') {
+          const chat = useAgentChatStore.getState();
+          chat.setState({ activeTurnId: null });
+          chat.addEntry({
+            id: `error-${message.turnId}`,
+            turnId: message.turnId,
+            kind: 'error',
+            text: message.message,
+          });
           return;
         }
         if (message.type === 'heartbeat.request') {
@@ -280,7 +530,7 @@ export function useAgentBridge(): void {
         // The disposed bridge must not overwrite the status of its replacement connection.
         if (stopped) return;
         status({ connected: false, revision: null, activity: 'Agent bridge offline' });
-        reconnectTimer = window.setTimeout(connect, 3000);
+        if (!replaced) reconnectTimer = window.setTimeout(connect, 3000);
       });
       socket.addEventListener('error', () => socket?.close());
     };
@@ -292,6 +542,7 @@ export function useAgentBridge(): void {
       window.clearTimeout(syncTimer);
       unsubscribe();
       if (sendProposalDecision === send) sendProposalDecision = null;
+      if (sendChatPayload === send) sendChatPayload = null;
       socket?.close();
     };
   }, []);

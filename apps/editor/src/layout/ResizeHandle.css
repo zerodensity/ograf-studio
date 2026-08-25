@@ -5,6 +5,13 @@
   touch-action: none;
 }
 
+/* Keep a forgiving invisible grab area even though the visible/layout divider is only 3px. */
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  background: transparent;
+}
+
 .resize-handle::after {
   content: '';
   position: absolute;
@@ -22,6 +29,14 @@ body.is-resizing .resize-handle::after {
   cursor: col-resize;
 }
 
+.resize-handle-col::before {
+  inset: 0 -3px;
+}
+
 .resize-handle-row {
   cursor: row-resize;
+}
+
+.resize-handle-row::before {
+  inset: -3px 0;
 }

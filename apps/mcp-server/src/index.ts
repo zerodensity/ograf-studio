@@ -6,6 +6,8 @@ import express, { type Request, type Response } from 'express';
 import { EditorBridge } from './editorBridge';
 import { createOGrafMcpServer } from './mcpServer';
 import { AuthoringWorkspace } from './workspace';
+import { createOGrafToolRecords } from '@ograf-editor/agent-tools';
+import { ChatAgentController } from './agent/chatAgent';
 
 export function createOGrafAuthoringHost() {
   const app = express();
@@ -16,8 +18,24 @@ export function createOGrafAuthoringHost() {
   const httpServer = createServer(app);
   const workspace = new AuthoringWorkspace();
   const bridge = new EditorBridge(httpServer, workspace);
+  const chat = new ChatAgentController(createOGrafToolRecords(workspace, bridge), (event) =>
+    bridge.sendChatEvent(event),
+  );
+  bridge.setChatController(chat);
 
   app.post('/mcp', async (request: Request, response: Response) => {
+    const releaseExternal = chat.beginExternalRequest();
+    if (!releaseExternal) {
+      return response.status(423).json({
+        jsonrpc: '2.0',
+        error: {
+          code: -32004,
+          message: 'The in-app agent currently holds the exclusive authoring lock.',
+        },
+        id: request.body?.id ?? null,
+      });
+    }
+    response.once('close', releaseExternal);
     const mcp = createOGrafMcpServer(workspace, bridge);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on('close', () => {
@@ -56,7 +74,7 @@ export function createOGrafAuthoringHost() {
     response.setHeader('Cache-Control', 'private, no-store, max-age=0');
     return response.send(asset.data);
   });
-  return { app, httpServer, workspace, bridge };
+  return { app, httpServer, workspace, bridge, chat };
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

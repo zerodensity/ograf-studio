@@ -1,8 +1,9 @@
 import { useRef, type ChangeEvent } from 'react';
 import { parseLottieJson } from '@ograf-editor/scene-model';
-import { useProjectStore, type NewLayerKind } from '../state/projectStore';
+import { useActiveComposition, useProjectStore, type NewLayerKind } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { useTimelineStore } from '../state/timelineStore';
+import { isPersistentGroupSelection } from './groupSelection';
 import './AddElementToolbar.css';
 
 const KINDS: { kind: NewLayerKind; label: string }[] = [
@@ -15,6 +16,7 @@ const KINDS: { kind: NewLayerKind; label: string }[] = [
 ];
 
 export function AddElementToolbar({ onEnterOgrafPreview }: { onEnterOgrafPreview?: () => void }) {
+  const composition = useActiveComposition();
   const addLayer = useProjectStore((s) => s.addLayer);
   const addLowerThird = useProjectStore((s) => s.addLowerThird);
   const addBug = useProjectStore((s) => s.addBug);
@@ -33,6 +35,7 @@ export function AddElementToolbar({ onEnterOgrafPreview }: { onEnterOgrafPreview
   const updateLayerElement = useProjectStore((s) => s.updateLayerElement);
   const renameLayer = useProjectStore((s) => s.renameLayer);
   const lottieInputRef = useRef<HTMLInputElement>(null);
+  const selectionIsPersistentGroup = isPersistentGroupSelection(composition, selectedLayerIds);
 
   const importLottie = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -161,12 +164,16 @@ export function AddElementToolbar({ onEnterOgrafPreview }: { onEnterOgrafPreview
           >
             V≡
           </button>
-          <button type="button" onClick={() => groupLayers(selectedLayerIds)}>
-            Group
-          </button>
-          <button type="button" onClick={() => ungroupLayers(selectedLayerIds)}>
-            Ungroup
-          </button>
+          <span className="layout-toolbar-divider" aria-hidden="true" />
+          {selectionIsPersistentGroup ? (
+            <button type="button" onClick={() => ungroupLayers(selectedLayerIds)}>
+              Ungroup
+            </button>
+          ) : (
+            <button type="button" onClick={() => groupLayers(selectedLayerIds)}>
+              Group
+            </button>
+          )}
         </div>
       )}
     </div>

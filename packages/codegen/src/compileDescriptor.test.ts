@@ -59,6 +59,7 @@ describe('compileDescriptor', () => {
     child.constraints = { horizontal: 'right', vertical: 'bottom' };
     const composition = compositionWith([parent, child]);
     composition.layout.showTitleSafe = true;
+    composition.layout.dimOutsideCanvas = true;
     composition.layout.guides.push({ id: 'guide-v', axis: 'vertical', position: 960 });
     composition.layout.timelineFolders.push({
       id: 'folder-day-one',
@@ -80,10 +81,24 @@ describe('compileDescriptor', () => {
     expect(serialized).not.toContain('parentId');
     expect(serialized).not.toContain('constraints');
     expect(serialized).not.toContain('showTitleSafe');
+    expect(serialized).not.toContain('dimOutsideCanvas');
     expect(serialized).not.toContain('guide-v');
     expect(serialized).not.toContain('folder-day-one');
     expect(serialized).not.toContain('component-lower-third');
     expect(serialized).not.toContain('Reusable Lower Third');
+  });
+
+  it('preserves fit-to-width text sizing in the compiled runtime descriptor', () => {
+    const text = createLayerOfKind('text');
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.autoFit = 'fit-to-width';
+
+    const descriptor = compileDescriptor(compositionWith([text]));
+
+    expect(descriptor.layers[0]!.element).toMatchObject({
+      type: 'text',
+      autoFit: 'fit-to-width',
+    });
   });
 
   it('compiles only clipping parent relationships and preserves gradient paint', () => {

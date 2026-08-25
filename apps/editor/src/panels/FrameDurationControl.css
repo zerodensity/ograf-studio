@@ -7,16 +7,18 @@
 .frame-duration-control label {
   display: grid;
   gap: 3px;
-  color: var(--text-muted);
+  color: var(--text-dim);
   font-size: 10px;
 }
 
-.frame-duration-control .frame-duration-milliseconds {
-  opacity: 0.72;
-}
-
-.frame-duration-control .frame-duration-milliseconds:focus-within {
-  opacity: 1;
+.frame-duration-control input {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-canvas);
+  color: var(--text);
 }
 
 .frame-duration-exact,
@@ -26,7 +28,7 @@
 }
 
 .frame-duration-exact {
-  color: var(--text-muted);
+  color: var(--text-dim);
 }
 
 .frame-duration-warning {
@@ -37,4 +39,18 @@
   display: flex;
   grid-column: 1 / -1;
   gap: 5px;
+}
+
+.frame-duration-rounding button {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.frame-duration-rounding button:hover,
+.frame-duration-rounding button:focus-visible {
+  border-color: var(--accent);
 }

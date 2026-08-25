@@ -139,8 +139,9 @@ export function CompositionSettings() {
       {(
         [
           ['showRulers', 'Rulers'],
-          ['showActionSafe', 'Action safe (5%)'],
-          ['showTitleSafe', 'Title safe (10%)'],
+          ['showActionSafe', 'Action safe · EBU R 95 (3.5%)'],
+          ['showTitleSafe', 'Title safe · EBU R 95 (5%)'],
+          ['dimOutsideCanvas', 'Dim outside canvas (18%)'],
           ['snappingEnabled', 'Snapping'],
           ['snapToGrid', 'Snap to grid'],
           ['snapToGuides', 'Snap to guides'],

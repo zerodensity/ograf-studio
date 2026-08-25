@@ -480,6 +480,7 @@
                         "showRulers": { "type": "boolean" },
                         "showActionSafe": { "type": "boolean" },
                         "showTitleSafe": { "type": "boolean" },
+                        "dimOutsideCanvas": { "type": "boolean" },
                         "snappingEnabled": { "type": "boolean" },
                         "snapToGrid": { "type": "boolean" },
                         "snapToGuides": { "type": "boolean" },
@@ -3001,7 +3002,7 @@
     {
       "name": "ograf_measure_text",
       "title": "Measure OGraf text in the browser",
-      "description": "Requires a connected and responsive live browser editor. Measures one text layer with the authoritative browser runtime without mutating project state or revision. Omit frame to measure the first Step/on-air frame; pass frame explicitly for another pose. Omit text to use the bound field defaultValue when present, otherwise authored content. appliedShrinkRatio is the rendered/authored font-size ratio; degenerate=true means shrink-to-fit reached its 50% legibility floor and still could not fit. overflowsParent and clippedAt describe the real DOM box. resolvedFont.resolution=\"inferred\" is advisory because this bridge does not use platform-font inspection.",
+      "description": "Requires a connected and responsive live browser editor. Measures one text layer with the authoritative browser runtime without mutating project state or revision. Omit frame to measure the first Step/on-air frame; pass frame explicitly for another pose. Omit text to use the bound field defaultValue when present, otherwise authored content. appliedFontSize and appliedFitRatio report browser text fitting; appliedShrinkRatio remains the shrink-only compatibility value. degenerate=true means the selected fitting mode reached its floor and still could not fit. overflowsParent and clippedAt describe the real DOM box. resolvedFont.resolution=\"inferred\" is advisory because this bridge does not use platform-font inspection.",
       "inputSchema": {
         "type": "object",
         "properties": {

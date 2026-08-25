@@ -39,17 +39,24 @@ import { AddElementToolbar } from './AddElementToolbar';
 import { useFitZoom } from './useFitZoom';
 import { parseCssTransform } from './transformGeometry';
 import { constrainedTranslation, dominantDragAxis, type DragAxis } from './axisConstrainedDrag';
-import { getCenteredStageScroll, getStagePasteboardLayout } from './stagePasteboard';
+import {
+  getCenteredStageScroll,
+  getStagePasteboardLayout,
+  recenterStageCamera,
+  type StageCameraOrigin,
+} from './stagePasteboard';
 import { transparencyCheckerboardStyle } from './compositionBackground';
 import { viewportScrollForPointer, type ViewportPanOrigin } from './viewportPan';
 import { snapLayerPosition } from './layoutGeometry';
 import { CanvasLayoutOverlay } from './CanvasLayoutOverlay';
 import { CanvasRulers } from './CanvasRulers';
+import { CanvasOutsideDimmer } from './CanvasOutsideDimmer';
 import { isPersistentGroupSelection, selectionIdsForLayer } from './groupSelection';
 import {
   captureStageZoomAnchor,
   nextStageZoom,
   scrollForStageZoom,
+  stageZoomDirectionForWheel,
   type StageZoomAnchor,
 } from './stageZoom';
 import { nextOgrafStepFrame } from './ografStepPlayback';
@@ -100,12 +107,56 @@ export function Stage({
     () => getStagePasteboardLayout(composition.width, composition.height, zoom),
     [composition.height, composition.width, zoom],
   );
+  const pasteboardRef = useRef<HTMLDivElement>(null);
+  const stageOriginRef = useRef<StageCameraOrigin>({
+    x: pasteboard.frameLeft,
+    y: pasteboard.frameTop,
+  });
+  const recenteringRef = useRef(false);
 
-  const syncStageScrollCss = (viewport: HTMLDivElement) => {
+  const applyStageOrigin = useCallback((origin: StageCameraOrigin) => {
+    stageOriginRef.current = origin;
+    const element = pasteboardRef.current;
+    if (element) {
+      element.style.left = `${origin.x}px`;
+      element.style.top = `${origin.y}px`;
+    }
+  }, []);
+
+  const syncStageCameraCss = useCallback((viewport: HTMLDivElement) => {
     const target = workspaceRef.current ?? viewport;
     target.style.setProperty('--stage-scroll-left', `${viewport.scrollLeft}px`);
     target.style.setProperty('--stage-scroll-top', `${viewport.scrollTop}px`);
-  };
+    target.style.setProperty('--stage-origin-x', `${stageOriginRef.current.x}px`);
+    target.style.setProperty('--stage-origin-y', `${stageOriginRef.current.y}px`);
+  }, []);
+
+  const recenterStageViewport = useCallback(
+    (viewport: HTMLDivElement) => {
+      if (recenteringRef.current) return;
+      const next = recenterStageCamera(
+        pasteboard,
+        viewport.clientWidth,
+        viewport.clientHeight,
+        { left: viewport.scrollLeft, top: viewport.scrollTop },
+        stageOriginRef.current,
+      );
+      if (
+        Math.abs(next.scroll.left - viewport.scrollLeft) < 0.5 &&
+        Math.abs(next.scroll.top - viewport.scrollTop) < 0.5
+      )
+        return;
+      recenteringRef.current = true;
+      applyStageOrigin(next.origin);
+      viewport.scrollLeft = next.scroll.left;
+      viewport.scrollTop = next.scroll.top;
+      syncStageCameraCss(viewport);
+      requestAnimationFrame(() => {
+        recenteringRef.current = false;
+      });
+    },
+    [applyStageOrigin, pasteboard, syncStageCameraCss],
+  );
 
   const requestStageZoom = useCallback(
     (direction: 'in' | 'out', client?: { x: number; y: number }) => {
@@ -123,6 +174,8 @@ export function Stage({
         viewport.scrollTop,
         viewportX,
         viewportY,
+        stageOriginRef.current.x,
+        stageOriginRef.current.y,
       );
       setManualZoom(nextZoom);
     },
@@ -137,9 +190,10 @@ export function Stage({
     const viewport = viewportRef.current;
     if (!viewport) return;
     const handleWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
+      const direction = stageZoomDirectionForWheel(event.deltaY);
+      if (!direction) return;
       event.preventDefault();
-      requestStageZoom(event.deltaY < 0 ? 'in' : 'out', { x: event.clientX, y: event.clientY });
+      requestStageZoom(direction, { x: event.clientX, y: event.clientY });
     };
     viewport.addEventListener('wheel', handleWheel, { passive: false });
     return () => viewport.removeEventListener('wheel', handleWheel);
@@ -301,6 +355,7 @@ export function Stage({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     setIsPanning(false);
+    recenterStageViewport(event.currentTarget);
   };
 
   const readTransformPatch = (
@@ -660,14 +715,18 @@ export function Stage({
     if (!viewport) return;
 
     const anchor = pendingZoomAnchorRef.current;
+    if (!anchor) {
+      applyStageOrigin({ x: pasteboard.frameLeft, y: pasteboard.frameTop });
+    }
     const scroll = anchor
-      ? scrollForStageZoom(anchor, zoom)
+      ? scrollForStageZoom(anchor, zoom, stageOriginRef.current.x, stageOriginRef.current.y)
       : getCenteredStageScroll(pasteboard, viewport.clientWidth, viewport.clientHeight);
     pendingZoomAnchorRef.current = null;
     viewport.scrollLeft = scroll.left;
     viewport.scrollTop = scroll.top;
-    syncStageScrollCss(viewport);
-  }, [pasteboard, zoom]);
+    syncStageCameraCss(viewport);
+    recenterStageViewport(viewport);
+  }, [applyStageOrigin, pasteboard, recenterStageViewport, syncStageCameraCss, zoom]);
 
   useLayoutEffect(() => {
     // updateTarget (rather than updateRect) refreshes transform-origin as well as the outer bounds.
@@ -696,8 +755,9 @@ export function Stage({
         <div
           className={`canvas-stage-viewport${isPanning ? ' is-panning' : ''}`}
           ref={viewportRef}
+          data-ograf-zoom={zoom}
           aria-label={`Canvas viewport, ${Math.round(zoom * 100)}% zoom`}
-          title="Ctrl+wheel or Ctrl+plus/minus to zoom the canvas"
+          title="Mouse wheel or Ctrl/Command+plus/minus to zoom; middle-drag to pan"
           tabIndex={0}
           style={transparencyCheckerboardStyle(1)}
           onPointerDownCapture={beginViewportPan}
@@ -708,6 +768,7 @@ export function Stage({
             if (panGestureRef.current?.pointerId === event.pointerId) {
               panGestureRef.current = null;
               setIsPanning(false);
+              recenterStageViewport(event.currentTarget);
             }
           }}
           onAuxClick={(event) => {
@@ -715,8 +776,9 @@ export function Stage({
           }}
           onContextMenu={handleCanvasContextMenu}
           onScroll={(event) => {
-            syncStageScrollCss(event.currentTarget);
+            syncStageCameraCss(event.currentTarget);
             moveableRef.current?.updateRect();
+            if (!panGestureRef.current) recenterStageViewport(event.currentTarget);
           }}
         >
           <div
@@ -724,18 +786,21 @@ export function Stage({
             style={{ width: pasteboard.measureWidth, height: pasteboard.measureHeight }}
           >
             <div
+              ref={pasteboardRef}
               className="canvas-stage-pasteboard"
               style={{
-                width: composition.width * 3,
-                height: composition.height * 3,
+                left: stageOriginRef.current.x,
+                top: stageOriginRef.current.y,
+                width: composition.width,
+                height: composition.height,
                 transform: `scale(${zoom})`,
               }}
             >
               <div
                 className="canvas-stage-frame"
                 style={{
-                  left: composition.width,
-                  top: composition.height,
+                  left: 0,
+                  top: 0,
                   width: composition.width,
                   height: composition.height,
                   backgroundColor: composition.backgroundColor,
@@ -914,7 +979,13 @@ export function Stage({
             />
           )}
         </div>
-        <CanvasRulers composition={composition} zoom={zoom} viewportRef={viewportRef} />
+        <CanvasOutsideDimmer composition={composition} zoom={zoom} />
+        <CanvasRulers
+          composition={composition}
+          zoom={zoom}
+          viewportRef={viewportRef}
+          stageOriginRef={stageOriginRef}
+        />
       </div>
       {objectMenu && (
         <ContextMenu

@@ -26,6 +26,7 @@ import {
   getLayerPropertyValueAtFrame,
   getLoopPropertyValueAtElapsed,
   getLayerAnimatableProperties,
+  getEbuR95SafeAreas,
   getStylePack,
   getLayerTransformAtFrame,
   getResolvedLayerAnimationTracks,
@@ -515,19 +516,9 @@ function inspectComposition(composition: Composition) {
       timelineGroups: composition.layout.timelineFolders,
       timelineFoldersDeprecated:
         'Deprecated storage name retained for project compatibility; use timelineGroups and the timeline-group operations.',
-      safeAreas: safeAreaBounds(composition),
+      safeAreas: getEbuR95SafeAreas(composition),
     },
   };
-}
-
-function safeAreaBounds(composition: Pick<Composition, 'width' | 'height'>) {
-  const bounds = (margin: number) => ({
-    x: composition.width * margin,
-    y: composition.height * margin,
-    width: composition.width * (1 - margin * 2),
-    height: composition.height * (1 - margin * 2),
-  });
-  return { actionSafe: bounds(0.05), titleSafe: bounds(0.1) };
 }
 
 function defaultStripFrames(composition: Composition): number[] {
@@ -655,7 +646,7 @@ function projectSnapshotProjection(
           timelineGroups: composition.layout.timelineFolders,
           timelineFoldersDeprecated:
             'Deprecated storage name retained for project compatibility; use timelineGroups and the timeline-group operations.',
-          safeAreas: safeAreaBounds(composition),
+          safeAreas: getEbuR95SafeAreas(composition),
         };
       }
       if (sections.has('metadata')) {
@@ -1201,10 +1192,11 @@ function broadcastLintWarnings(project: Project, interlacedOutput: boolean): str
       .filter((item) => stepIds.has(item.keyframeId))
       .map((item) => item.frame);
     const frames = stepFrames.length > 0 ? stepFrames : lifecycleFrames.map((item) => item.frame);
-    const actionMarginX = composition.width * 0.05;
-    const actionMarginY = composition.height * 0.05;
-    const titleMarginX = composition.width * 0.1;
-    const titleMarginY = composition.height * 0.1;
+    const safeAreas = getEbuR95SafeAreas(composition);
+    const actionMarginX = safeAreas.actionSafe.x;
+    const actionMarginY = safeAreas.actionSafe.y;
+    const titleMarginX = safeAreas.titleSafe.x;
+    const titleMarginY = safeAreas.titleSafe.y;
     const minimumFontSize = 24 * (composition.height / 1080);
     const minimumInterlacedHeight = 3 * (composition.height / 1080);
     for (const [index, layer] of composition.layers.entries()) {
@@ -1236,11 +1228,11 @@ function broadcastLintWarnings(project: Project, interlacedOutput: boolean): str
         ];
         if (actionAxes.length > 0) {
           warnings.push(
-            `Broadcast lint: composition "${composition.name}" layer "${layer.name}" is outside 5% action-safe bounds on the ${actionAxes.join(' and ')} axis at frame ${frame}.`,
+            `Broadcast lint: composition "${composition.name}" layer "${layer.name}" is outside EBU R 95 3.5% action-safe bounds on the ${actionAxes.join(' and ')} axis at frame ${frame}.`,
           );
         } else if (titleAxes.length > 0) {
           warnings.push(
-            `Broadcast lint: composition "${composition.name}" layer "${layer.name}" is inside action-safe but outside 10% title-safe bounds on the ${titleAxes.join(' and ')} axis at frame ${frame}.`,
+            `Broadcast lint: composition "${composition.name}" layer "${layer.name}" is inside action-safe but outside EBU R 95 5% title-safe bounds on the ${titleAxes.join(' and ')} axis at frame ${frame}.`,
           );
         }
       }
@@ -1442,7 +1434,7 @@ export function createOGrafToolRecords(
             },
             autoFit: {
               type: 'enum',
-              values: ['auto-size', 'shrink-to-fit', 'fixed'],
+              values: ['auto-size', 'shrink-to-fit', 'fit-to-width', 'fixed'],
               default: 'auto-size',
             },
           },
@@ -1668,13 +1660,25 @@ export function createOGrafToolRecords(
             'Lifecycle retiming shares the browser editor planner and therefore returns the same duration bounds and warnings. Structural canvas groups, reusable-component snapshots, custom actions, and asset removal use the same canonical project mutations as OGraf Studio.',
         },
         canvasLayout: {
-          safeAreas: ['action-safe-5-percent', 'title-safe-10-percent'],
+          safeAreas: {
+            standard: 'EBU R 95',
+            aspectRatio: '16:9',
+            actionSafeMarginPerAxis: 0.035,
+            titleSafeMarginPerAxis: 0.05,
+            pixelRounding: 'nearest-integer',
+          },
           guides: ['vertical', 'horizontal'],
           snappingTargets: ['grid', 'guides', 'layers', 'composition-edges-and-centres'],
           horizontalConstraints: ['left', 'right', 'left-right', 'center', 'scale'],
           verticalConstraints: ['top', 'bottom', 'top-bottom', 'center', 'scale'],
           boundsModes: ['allow', 'contain'],
           overflowPreview: ['visible', 'clip'],
+          outsideCanvasDimmer: {
+            property: 'dimOutsideCanvas',
+            color: '#121212',
+            opacity: 0.18,
+            authoringOnly: true,
+          },
           timelineGroups: {
             operations: [
               'create_timeline_group',
@@ -2697,8 +2701,12 @@ export function createOGrafToolRecords(
                 );
               }
               if (measurement.degenerate) {
+                const fittingFloor =
+                  layer.element.autoFit === 'fit-to-width'
+                    ? 'the 0.1px fit-to-width floor'
+                    : `its ${layer.element.minFontSize}px shrink-to-fit floor`;
                 warnings.push(
-                  `Composition "${composition.name}": text layer "${layer.name}" reached the 50% shrink-to-fit floor for ${field ? `field "${field.key}" value` : 'authored text'} ${JSON.stringify(value)} and remains degenerate.`,
+                  `Composition "${composition.name}": text layer "${layer.name}" reached ${fittingFloor} for ${field ? `field "${field.key}" value` : 'authored text'} ${JSON.stringify(value)} and remains degenerate.`,
                 );
               }
             }
@@ -2803,7 +2811,7 @@ export function createOGrafToolRecords(
     {
       title: 'Measure OGraf text in the browser',
       description:
-        'Requires a connected and responsive live browser editor. Measures one text layer with the authoritative browser runtime without mutating project state or revision. Omit frame to measure the first Step/on-air frame; pass frame explicitly for another pose. Omit text to use the bound field defaultValue when present, otherwise authored content. appliedShrinkRatio is the rendered/authored font-size ratio; degenerate=true means shrink-to-fit reached its 50% legibility floor and still could not fit. overflowsParent and clippedAt describe the real DOM box. resolvedFont.resolution="inferred" is advisory because this bridge does not use platform-font inspection.',
+        'Requires a connected and responsive live browser editor. Measures one text layer with the authoritative browser runtime without mutating project state or revision. Omit frame to measure the first Step/on-air frame; pass frame explicitly for another pose. Omit text to use the bound field defaultValue when present, otherwise authored content. appliedFontSize and appliedFitRatio report browser text fitting; appliedShrinkRatio remains the shrink-only compatibility value. degenerate=true means the selected fitting mode reached its floor and still could not fit. overflowsParent and clippedAt describe the real DOM box. resolvedFont.resolution="inferred" is advisory because this bridge does not use platform-font inspection.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),

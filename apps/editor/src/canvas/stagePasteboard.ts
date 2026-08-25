@@ -7,9 +7,16 @@ export interface StagePasteboardLayout {
   measureHeight: number;
 }
 
+export interface StageCameraOrigin {
+  x: number;
+  y: number;
+}
+
+export const INFINITE_STAGE_MEASURE_PX = 200_000;
+
 /**
- * Gives the editor canvas one complete composition-size work area on every side. This is editor
- * pasteboard only: the composition frame remains the broadcast/output boundary.
+ * Hosts the composition in a large recentering scroll plane. The camera origin is shifted whenever
+ * scrolling is recentered, so the user-facing workspace has no reachable boundary.
  */
 export function getStagePasteboardLayout(
   compositionWidth: number,
@@ -22,10 +29,10 @@ export function getStagePasteboardLayout(
   return {
     frameWidth,
     frameHeight,
-    frameLeft: frameWidth,
-    frameTop: frameHeight,
-    measureWidth: frameWidth * 3,
-    measureHeight: frameHeight * 3,
+    frameLeft: (INFINITE_STAGE_MEASURE_PX - frameWidth) / 2,
+    frameTop: (INFINITE_STAGE_MEASURE_PX - frameHeight) / 2,
+    measureWidth: INFINITE_STAGE_MEASURE_PX,
+    measureHeight: INFINITE_STAGE_MEASURE_PX,
   };
 }
 
@@ -34,11 +41,26 @@ export function getCenteredStageScroll(
   viewportWidth: number,
   viewportHeight: number,
 ): { left: number; top: number } {
-  const visibleMarginX = Math.max(0, (viewportWidth - layout.frameWidth) / 2);
-  const visibleMarginY = Math.max(0, (viewportHeight - layout.frameHeight) / 2);
-
   return {
-    left: Math.max(0, layout.frameLeft - visibleMarginX),
-    top: Math.max(0, layout.frameTop - visibleMarginY),
+    left: Math.max(0, (layout.measureWidth - viewportWidth) / 2),
+    top: Math.max(0, (layout.measureHeight - viewportHeight) / 2),
+  };
+}
+
+/** Recenters browser scroll coordinates while preserving the exact visible camera position. */
+export function recenterStageCamera(
+  layout: StagePasteboardLayout,
+  viewportWidth: number,
+  viewportHeight: number,
+  scroll: { left: number; top: number },
+  origin: StageCameraOrigin,
+): { scroll: { left: number; top: number }; origin: StageCameraOrigin } {
+  const centered = getCenteredStageScroll(layout, viewportWidth, viewportHeight);
+  return {
+    scroll: centered,
+    origin: {
+      x: origin.x + centered.left - scroll.left,
+      y: origin.y + centered.top - scroll.top,
+    },
   };
 }

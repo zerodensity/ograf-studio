@@ -63,8 +63,8 @@ export interface TextElement {
   /** Absolute legibility floor used by shrink-to-fit. */
   minFontSize: number;
   overflowPolicy: 'visible' | 'clip' | 'ellipsis';
-  /** Auto size grows the authored box; shrink-to-fit reduces text inside a fixed authored box. */
-  autoFit: 'auto-size' | 'shrink-to-fit' | 'fixed';
+  /** Auto size grows the box; shrink only reduces; fit-to-width grows or shrinks inside the box. */
+  autoFit: 'auto-size' | 'shrink-to-fit' | 'fit-to-width' | 'fixed';
 }
 
 export interface ImageElement {
@@ -555,6 +555,7 @@ export interface CompositionLayout {
   showRulers: boolean;
   showActionSafe: boolean;
   showTitleSafe: boolean;
+  dimOutsideCanvas: boolean;
   snappingEnabled: boolean;
   snapToGrid: boolean;
   snapToGuides: boolean;

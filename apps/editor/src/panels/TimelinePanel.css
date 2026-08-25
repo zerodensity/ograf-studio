@@ -357,7 +357,11 @@
 }
 
 .timeline-gutter-spacer {
+  position: sticky;
+  top: 0;
+  z-index: 7;
   height: 42px;
+  background: var(--bg-panel-raised);
   border-bottom: 1px solid var(--border);
 }
 
@@ -493,7 +497,7 @@
 
 .timeline-property-gutter-row {
   width: 100%;
-  height: 24px;
+  height: 28px;
   display: flex;
   align-items: center;
   padding: 0 8px 0 28px;
@@ -617,7 +621,7 @@
 .timeline-ruler {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: 7;
   height: 42px;
   background: var(--bg-panel-raised);
   border-bottom: 1px solid var(--border);
@@ -662,7 +666,7 @@
   padding: 0 4px 0 2px;
   cursor: ew-resize;
   white-space: nowrap;
-  transform: translateX(-4px);
+  transform: translateX(-11px);
 }
 
 .timeline-keyframe-marker.start {
@@ -670,11 +674,26 @@
 }
 
 .timeline-keyframe-marker-flag {
-  width: 8px;
-  height: 8px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
   transform: rotate(45deg);
   background: var(--text-dim);
   flex: none;
+}
+
+.timeline-keyframe-loop-badge {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  transform: rotate(-45deg);
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 2px var(--bg-canvas);
 }
 
 .timeline-keyframe-marker.active .timeline-keyframe-marker-flag {
@@ -747,17 +766,16 @@
 }
 
 .timeline-property-track {
-  height: 24px;
+  height: 28px;
   background: rgba(0, 0, 0, 0.08);
 }
 
 .timeline-property-track .timeline-keyframe-dot {
-  width: 8px;
-  height: 8px;
+  width: 18px;
+  height: 18px;
 }
 
 .timeline-layer-span.property {
-  height: 5px;
   opacity: 0.78;
 }
 
@@ -918,8 +936,8 @@
 .timeline-keyframe-dot {
   position: absolute;
   top: 50%;
-  width: 10px;
-  height: 10px;
+  width: 18px;
+  height: 18px;
   transform: translate(-50%, -50%) rotate(45deg);
   background: var(--layer-color);
   border: 1px solid color-mix(in srgb, var(--layer-color) 70%, white);
@@ -941,38 +959,57 @@
   outline-offset: 3px;
 }
 
+.timeline-property-loop-activation {
+  pointer-events: none;
+}
+
+.timeline-layer-loop-badge {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transform: rotate(-45deg);
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 2px var(--bg-canvas);
+  pointer-events: none;
+}
+
 .timeline-layer-span {
   position: absolute;
-  top: 50%;
-  height: 8px;
-  transform: translateY(-50%);
-  background: color-mix(in srgb, var(--layer-color) 48%, transparent);
-  border-top: 1px solid var(--layer-color);
-  border-bottom: 1px solid color-mix(in srgb, var(--layer-color) 45%, transparent);
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--layer-color) 34%, var(--bg-canvas));
+  border: 1px solid color-mix(in srgb, var(--text-dim) 62%, transparent);
   pointer-events: none;
   overflow: hidden;
   z-index: 1;
 }
 
 .timeline-layer-span-label {
-  display: block;
-  color: color-mix(in srgb, var(--layer-color) 35%, white);
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: color-mix(in srgb, var(--layer-color) 22%, white);
   font-family: var(--mono);
   font-size: 8px;
-  line-height: 7px;
+  line-height: 1;
   text-align: center;
   white-space: nowrap;
 }
 
 .timeline-layer-span-easing {
   position: absolute;
-  top: -1px;
+  top: 50%;
   right: 3px;
+  transform: translateY(-50%);
   overflow: hidden;
-  color: color-mix(in srgb, var(--layer-color) 18%, white);
+  color: color-mix(in srgb, var(--layer-color) 12%, white);
   font-family: var(--mono);
   font-size: 8px;
-  line-height: 8px;
+  line-height: 1;
   white-space: nowrap;
   pointer-events: none;
 }
@@ -980,8 +1017,8 @@
 .timeline-layer-span.eased {
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--layer-color) 30%, transparent),
-    color-mix(in srgb, var(--layer-color) 62%, transparent)
+    color-mix(in srgb, var(--layer-color) 22%, var(--bg-canvas)),
+    color-mix(in srgb, var(--layer-color) 52%, var(--bg-canvas))
   );
 }
 
@@ -991,7 +1028,7 @@
   bottom: 0;
   width: 2px;
   pointer-events: none;
-  z-index: 6;
+  z-index: 8;
 }
 
 .timeline-playhead::before {
