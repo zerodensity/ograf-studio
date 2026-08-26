@@ -181,6 +181,11 @@ the composition rectangle. The actual work area remains untouched and transparen
 excluded from the runtime descriptor, browser composition capture, certification, and package
 output.
 
+Document v22 adds `layout.showCenterMarker`, defaulting false. When enabled, the authoring Stage
+draws a pointer-transparent cross at the exact composition centre. The cross applies the inverse
+canvas zoom so its on-screen size stays legible, and remains outside the runtime descriptor,
+browser composition capture, certification, and package output.
+
 Safe-area geometry is derived centrally from EBU R 95 for 16:9 production. Action safe uses a 3.5%
 inset independently on each axis and title/graphics safe uses 5%; each pixel inset is rounded to the
 nearest integer. This yields action/title margins of 67/38 and 96/54 pixels at 1920x1080, and
@@ -211,6 +216,40 @@ Canvas viewport zoom is equally transient. Fit-to-view supplies the default scal
 wheel sets an editor-only pointer-anchored scale, while Ctrl/Command plus/minus retain keyboard zoom
 around the viewport centre. Camera compensation keeps either anchor stable across recentering. The scale never enters the project
 document, runtime descriptor, or compiled output and never uses browser page zoom.
+
+The application shell owns an editor-local docking model independent from project state. Seven tool
+panes occupy validated left, right, top, and bottom groups around the fixed canvas; each group is a
+tab stack, and panes may move between edge groups or into bounded floating windows. Dragging exposes
+five explicit drop hints (four edges plus float), while floating headers retain a dock-location
+selector for keyboard-accessible recovery. Direct floating-window movement checks both a
+132-screen-pixel pointer threshold and a 40-pixel floating-frame threshold. The nearest edge alone
+receives a labelled high-contrast guide and live region preview; limited outside-workspace proximity
+keeps literal corners usable, and pointer release commits that dock. Movement outside both thresholds
+remains an ordinary floating reposition. Bottom-zone groups use a vertical stack and new arrivals
+insert first, placing them above and reducing the height of the existing bottom pane. Dock
+membership, active tabs, floating geometry, and region sizes persist only in local storage. They
+never enter `.ogs`, history, MCP revisions, runtime descriptors, certification, capture, or exported
+packages.
+
+Tab ordering is part of that same local docking model. Pointer-dragging a tab divides each target at
+its horizontal midpoint, renders a before/after insertion marker, removes the pane from its prior
+group, and inserts it at the exact requested index. That same pointer gesture enters the global
+docking overlay after the drag threshold: release over a tab to reorder, over a guide/edge to dock,
+or in free centre space to float. Native drag remains only as a compatibility path for a floating
+window's explicit dock handle. Reordering never remounts or mutates project data.
+
+Each dock group owns a positive proportional weight. Regions materialize a resize handle between
+adjacent groups, measure every group's current pixel extent at pointer-down, clamp the affected pair
+to an 80 px vertical or 120 px horizontal minimum, and write all measured extents back as weights.
+Flex layout then preserves the ratio across outer-region resizing and reloads. These weights remain
+inside the validated local docking document and never cross into project state.
+
+Closed panes are explicit members of the local docking document rather than absent data. Closing
+first removes the pane from its dock group or floating list and records its stable pane ID; parser
+repair therefore restores genuinely missing panes but preserves intentional closure. Reopening from
+the Window menu removes that closed marker and docks Layers/Chat/Resources left,
+Inspector/Data/Preview & Export right, and Timeline bottom. Close/reopen state follows the same
+local-only persistence boundary as docking and split weights.
 
 The editor transport can optionally pause at the next lifecycle key whose role is `step`. This uses
 the same cumulative keyframe timing as compilation but remains preview state: it does not rewrite
@@ -314,7 +353,22 @@ store mutation; the Inspector remains the explicit path for clearing a parent.
 Each property key owns its incoming easing. It can use a named dependency-free preset or an explicit
 cubic Bézier curve. The same pure samplers drive editor interpolation and are passed to GSAP as the
 exported runtime easing function, keeping linear, polynomial, Sine, Expo, Circ, Back, Bounce,
-Elastic, and custom curve motion deterministic across both surfaces.
+Elastic, and custom curve motion deterministic across both surfaces. Newly authored generic layer
+keys, property keys, and lifecycle transitions default to neutral linear interpolation. Recipes and
+explicit operations remain responsible for intentional non-linear motion; migrations retain legacy
+stored/fallback easing so opening an existing project does not redesign its animation.
+
+Top-level Timeline layer rows use one fixed neutral-gray summary colour across their gutter swatch,
+animation blocks, borders, labels, and key diamonds. Expanded properties retain the stable semantic
+palette defined by property meaning, so the parent overview stays neutral without flattening detailed
+track identification.
+
+The canonical model may materialize static compatibility keys at lifecycle frames for every
+animatable property, but the Timeline does not treat those as meaningful authoring tracks. Its
+default projection includes properties whose values differ, that contain a non-lifecycle authored
+key, or that own a local-loop track. Selected/manually added properties remain visible. **All** is a
+transient projection override; **+ Property** reveals a compatible property and selects/adds its key
+at the current frame. Neither visibility preference enters `.ogs` or compiled OGraf output.
 
 One optional local loop clip may sit beside a layer's finite lifecycle tracks. Its independent
 numeric property tracks use a local frame ruler and activate either for the on-air lifecycle or one
@@ -368,10 +422,17 @@ provides the generated-module/DOM contract test on every save and export.
 
 Editor documents have their own monotonically increasing schema version, independent from the public graphic version. Files are migrated and validated before reaching stores.
 
-Editable source uses the `.ogeproj` extension. It intentionally does not end in `.json`, because
-`ograf-devtool` scans generic JSON files in a selected directory as candidate manifests. The source
-format is not a playout artifact; only the extracted `.ograf.zip` contents (`*.ograf.json`,
-`main.js`, and resources) belong in an OGraf tool or renderer.
+Editable source uses the `.ogs` extension. It intentionally does not end in `.json`, because
+`ograf-devtool` scans generic JSON files in a selected directory as candidate manifests. Legacy
+`.ogeproj` and `.ogeproj.json` sources remain readable but every new browser/MCP save requires
+`.ogs`. The source format is not a playout artifact; only the extracted `.ograf.zip` contents
+(`*.ograf.json`, `main.js`, and resources) belong in an OGraf tool or renderer.
+
+Local picker and remote URL loading converge on the same source parser and store migration boundary.
+The remote path accepts absolute HTTP(S) only, omits credentials, requires browser CORS, rechecks the
+final redirect scheme, reads the response through a 32 MiB bounded stream, and never replaces the
+current project before explicit user confirmation. Public GitHub raw-file URLs satisfy this model;
+normal GitHub `/blob/` pages return HTML and are not project sources.
 
 Document version 3 replaces v2 layer `poses[lifecycleId]` maps with independent `layer.keyframes[]`.
 Migration projects the old poses onto their original cumulative lifecycle frames, preserving motion.
@@ -424,3 +485,6 @@ snapshots without changing legacy pixels.
 
 Document version 21 adds the authoring-only outside-canvas dimmer preference. Migration defaults it
 off, preserving existing editor appearance and all rendered/exported pixels.
+
+Document version 22 adds the authoring-only centre-marker preference. Migration defaults it off,
+preserving existing editor appearance and all rendered/exported pixels.

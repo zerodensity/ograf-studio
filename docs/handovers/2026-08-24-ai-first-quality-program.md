@@ -10,7 +10,7 @@
 - Release baseline: `1f6e697` — `feat: release OGraf Studio 0.03 AI-first authoring`
 - Follow-up checkpoint: `ee7048d` — Preview Start/replay plus source-overlay geometry fixes
 - Working tree: expected clean after the W1 documentation commit containing this updated work order
-- Current verified baseline: `npm run verify` → **231 passed / 52 files**, plus contracts, format,
+- Current verified baseline: `npm run verify` → **240 passed / 53 files**, plus contracts, format,
   lint, typecheck, runtime build, and editor production build
 - Preceding handover: [2026-08-24 AI-first authoring areas 1-9](./2026-08-24-ai-first-authoring-1-9.md)
 
@@ -50,7 +50,7 @@ pass.
   retime another layer's keys, and must never silently move lifecycle markers.
 - **Non-realtime honesty.** `supportsNonRealTime` may only stay true if every animated element
   remains deterministic under `goToTime()`.
-- **Certification is a hard gate.** Never add a path that writes `.ogeproj` or `.ograf.zip` without
+- **Certification is a hard gate.** Never add a path that writes `.ogs` or `.ograf.zip` without
   passing the exact-artifact certification.
 - **One migration boundary.** `PROJECT_DOCUMENT_VERSION` is currently **16**
   (`packages/scene-model/src/factory.ts:415`). Any schema change bumps it and adds a migration in
@@ -91,7 +91,7 @@ Each item is independently shippable. IDs are stable; reference them in commits.
 
 **Problem.** `CLAUDE.md` is auto-loaded into every AI session and is two milestones stale. It states
 Phase 5 is partially complete, `ui-kit` is an empty stub, and _"Nothing is committed to git yet"_.
-Reality: 5 releases, an MCP server, `authoring-core`, a published Skill, 63 operations, 228 tests.
+Reality: 5 releases, an MCP server, `authoring-core`, a published Skill, 63 operations, 240 tests.
 Every agent session currently starts from a false model of the project.
 
 **Change.** Rewrite `CLAUDE.md` as a short pointer file:
@@ -107,7 +107,7 @@ Every agent session currently starts from a false model of the project.
 
 **Result.** Replaced the stale phase narrative with a short pointer file covering the current
 product identity/release, authoritative documents, durable npm/runtime-build facts, verification,
-and the `.ogeproj`/`.ograf.zip` boundary.
+and the `.ogs`/`.ograf.zip` boundary.
 
 ---
 
@@ -157,7 +157,7 @@ in 0.05.
 
 ---
 
-### W3 — Fix the lower-third recipe's motion, add a motion vocabulary
+### W3 — Fix the lower-third recipe's motion, add a motion vocabulary — completed 2026-08-24
 
 **Problem.** This is the highest quality-per-line fix in the repository.
 
@@ -226,17 +226,25 @@ motion?: {
 - `reviewCompositionDesign` on the default recipe output emits **zero** motion warnings, including
   the new lockstep rule from W5.
 
+**Result.** Added shared `wipe-reveal`, `stagger-cascade`, and `directional-slide` scene-model
+presets. The lower-third default is now a compiled `clipChildren` wipe with cubic-out entrance and
+cubic-in exit; `stagger`, `slide`, and `none` are explicit alternatives with four-direction motion.
+Staggers reject atomically when they cannot fit before the first Step. Scale-pop, mask-slide, and
+blur-in remain deferred until a real recipe needs them. Focused recipe/compiler/MCP tests pass,
+`reviewCompositionDesign` scores the default output 100 with zero findings, its five-frame browser
+strip was visually inspected, and dual-mode certification passed all five exact gates.
+
 ---
 
 ### W4 — Golden template corpus and template MCP tools (highest quality leverage)
 
-**Problem.** `templates/` contains two files: `news-lower-third.ogeproj` and
-`atlas-news-package.ogeproj`. That is not a library. Agents currently assemble professional graphics
+**Problem.** `templates/` contains two files: `news-lower-third.ogs` and
+`atlas-news-package.ogs`. That is not a library. Agents currently assemble professional graphics
 from primitives every time, which is where taste failures originate.
 
 **Change.**
 
-1. Author **12–15 certified reference `.ogeproj` templates** spanning the real broadcast vocabulary:
+1. Author **12–15 certified reference `.ogs` templates** spanning the real broadcast vocabulary:
    lower third (news / sports / entertainment variants), bug/DOG, ticker/crawl, scoreboard, clock,
    full-frame title, stat panel, over-the-shoulder, endboard, credits roll, L-bar, break bumper.
 
@@ -298,7 +306,7 @@ reject on sight.**
 - Extend the `DesignQaCategory` union rather than overloading existing categories.
 - Finding ids must stay stable and layer-scoped — agents key off them.
 - Recalibrate the score weights at `packages/scene-model/src/designQa.ts:274` so the added rules do
-  not make every existing project fail. Target: current `templates/*.ogeproj` score 85 or above after
+  not make every existing project fail. Target: current `templates/*.ogs` score 85 or above after
   the change, and W3's fixed recipe 95 or above.
 - **Run W3 before W5**, or the new lockstep rule will immediately fail the shipped recipe.
 
@@ -416,29 +424,235 @@ This is largely a transport swap, not a rewrite — but it is real work and it n
 
 ---
 
+### W12 — Full GDD schema support — **highest priority in this programme**
+
+> Added 2026-08-24 after establishing the deployment target: these templates run in **Zero Density
+> Lino** playout, driven by **Reality Hub**. That context makes the manifest schema the single most
+> important surface OGraf Studio produces. Read the Deployment context section below before starting.
+
+**Problem.** OGraf Studio implements seven flat scalar field types —
+`text | textarea | number | boolean | color | gradient | image-url`
+(`packages/scene-model/src/types.ts:379`) — over a `FieldDefinition` of
+`{id, key, label, type, defaultValue, required}` (`types.ts:384`).
+
+The official GDD schema vendored in `fixtures/ograf-schema/` defines considerably more, and **none of
+the following is implemented**:
+
+| OGraf GDD defines                                                      | Status  | Consumed by                                  |
+| ---------------------------------------------------------------------- | ------- | -------------------------------------------- |
+| `array` with `items`                                                   | missing | Variable-length collections from Hub modules |
+| `object` with nested `properties`                                      | missing | Grouped operator fields                      |
+| `select`, `select-multiple`                                            | missing | Form Builder dropdowns                       |
+| `integer`                                                              | missing | Scores, counts                               |
+| `duration-ms`                                                          | missing | Clocks, timers, countdowns                   |
+| `percentage`                                                           | missing | Bars, gauges                                 |
+| `file-path`                                                            | missing | Media pickers                                |
+| JSON Schema constraints (`maxLength`, `minimum`, `maximum`, `pattern`) | missing | Operator-side validation                     |
+
+Two further defects:
+
+1. **`gddType` is never emitted.** `packages/validation/src/validateManifest.ts:15` registers the GDD
+   type schema for _validation_, but `packages/codegen/src/compileDataSchema.ts` never writes a
+   `gddType` on any property. Compiled manifests therefore carry plain JSON Schema with no GDD hints,
+   so a consuming form builder cannot tell a colour picker from a text box.
+2. **No operator-facing description.** `FieldDefinition` has `label` but no help text, so the
+   generated form can never explain a field.
+
+**Why this outranks everything else.** The schema is OGraf Studio's entire contract with the playout
+stack. Reality Hub Form Builder generates the operator panel from it; Hub modules push data into it;
+MOS fills it from the newsroom rundown. Concretely:
+
+- No `array` → a Hub module can fetch a twelve-row leaderboard, but the template can only render a
+  fixed count. Variable-length graphics are impossible — and this is an implementation gap, not a
+  spec limitation.
+- No `select` → operators type free text where a controlled vocabulary belongs.
+- No `maxLength` → a journalist types 90 characters into a 40-character lower third. Authoring-time
+  `ograf_measure_text` and shrink-to-fit cannot help, because the limit is never communicated to the
+  form. This is the most common live-graphics failure in news.
+
+**Good news on feasibility.** `JSONSchemaProperty` in `compileDataSchema.ts:8` _already_ declares
+`enum`, `items`, `properties`, `required`, `minItems`, `minimum`, and `maximum` — the gradient field
+already exercises the nested-object and array machinery at `compileDataSchema.ts:56`. The compiler is
+largely capable; the **authoring model** is what is flat.
+
+**Change — phase this. Do not attempt it as one commit.**
+
+**W12a — scalar enrichment (low risk, most of the operator benefit).**
+
+- Extend `FieldType` with `select`, `select-multiple`, `integer`, `duration-ms`, `percentage`,
+  `file-path`.
+- Extend `FieldDefinition` with optional `description`, `options` (for the select types), and a
+  `constraints` object (`maxLength`, `minLength`, `minimum`, `maximum`, `pattern`, `step`).
+- Emit `gddType` from `compileDataSchema.ts` for every field, including the existing types
+  (`single-line`, `multi-line`, `color-rrggbb`/`color-rrggbbaa`, `file-path`).
+- Surface all of it in the Inspector's data-field editor, `ograf_get_capabilities`, and the
+  `add_data_field` / `update_data_field` MCP operations.
+- Feed `constraints.maxLength` into authoring QA: `ograf_measure_text` should stress the declared
+  maximum, and `designQa` should warn when a bound text layer has no `maxLength`.
+
+**W12b — collections (`array` / `object`) — separate effort, own design pass.**
+
+The data half is straightforward; the **rendering** half is the real work and needs a written design
+before any code:
+
+- How does an `array` field bind to layers? A repeated group must be cloned per item at runtime,
+  which is a genuine new runtime capability in `packages/ograf-runtime`, not an authoring-time
+  materialization. This is distinct from `create_repeater`, which is explicitly finite.
+- How does it interact with `supportsNonRealTime`? Data is set before `goToTime()` seeks, so it is
+  deterministic **provided** no animation depends on item arrival order or on a count that changes
+  mid-timeline. State that constraint explicitly and enforce it in validation.
+- What is the authoring representation? Most likely one template group tagged as the item prototype,
+  with item-scoped bindings resolving against `array[i]`.
+- What happens when the array is longer than the design accommodates? Define overflow (clip, scroll,
+  paginate) as an authored property, not an accident.
+
+Do not start W12b until that design is written and agreed.
+
+**Constraints.**
+
+- Bumps `PROJECT_DOCUMENT_VERSION` (16 → 17, or 17 → 18 if W8 lands first). Migration test mandatory;
+  existing fields default to no constraints and no description.
+- Every addition must validate against the vendored official schemas — the GDD fixtures are the
+  authority, not this document.
+- Certification must still pass; add a manifest test asserting `gddType` is emitted for every field
+  and that constraints round-trip.
+- Touches `scene-model` (types, factory, migrations), `codegen` (`compileDataSchema`), `validation`,
+  the editor Inspector, `authoring-core` operations, and the MCP schema. It is the largest item on
+  this board — budget accordingly.
+
+**Acceptance.**
+
+- A compiled manifest carries `gddType` and constraints for every field and passes official schema
+  validation plus full certification.
+- A `select` field renders as a dropdown, and a `maxLength` field as a length-limited input, in
+  Reality Hub Form Builder against a real `.ograf.zip`.
+- W12b only: a template renders a variable-length array end to end from a Hub module.
+
+---
+
+### W13 — Blend modes
+
+**Problem.** No `blendMode` exists anywhere in the scene model, compiler, or runtime — confirmed by
+search. `docs/ROADMAP.md:101` already queues blend modes alongside video and nested compositions.
+Multiply, screen, add, and overlay are everyday broadcast-design tools; their absence caps how
+sophisticated any template can look.
+
+**Change.** Add an optional `blendMode` to every layer, compiling to CSS `mix-blend-mode`. It is
+CSS-native, deterministic under `goToTime()`, static (not animatable — keep it a discrete setting
+like shadow enable/colour), and compiles to a single property with no runtime dependency.
+
+Support the useful subset rather than the full CSS list: `normal`, `multiply`, `screen`, `overlay`,
+`darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`,
+`exclusion`.
+
+**Resolve this before writing code — it is the whole risk of the item.**
+
+> **Blending against transparent output.** OGraf templates render over a transparent background for
+> downstream keying. With no opaque backdrop there is nothing to blend into, and CSS blending is
+> governed by stacking context and `isolation`. A layer set to `multiply` may look correct over the
+> editor's checkerboard and disappear — or key incorrectly — on air.
+
+Decide and document explicitly:
+
+- Do layers blend only within their own group/stacking context, or against the entire composition
+  stack beneath them?
+- Does the composition root get `isolation: isolate`? If it does, layers can never blend with the
+  external video bed; if it does not, behaviour depends on the renderer's compositing.
+- What does a blended layer do when `transparentOutput` is enabled?
+
+Whatever is chosen must produce **identical** results across Stage, OGraf Preview, PNG
+capture/strips, SVG diagnostics, and the compiled runtime — the editor must not flatter the result.
+
+**Constraints.**
+
+- Bumps `PROJECT_DOCUMENT_VERSION`; migration defaults every existing layer to `normal`.
+- Interacts with `clipChildren`: a clipping parent already creates a stacking context. Add explicit
+  tests for a blended child inside a clipping parent.
+- Add to `ograf_get_capabilities.elementSchemas`, the Inspector, and the MCP `update_element`
+  operation.
+- Verify against Lino, not only the devtool — blending is exactly where a renderer's compositor can
+  legitimately differ.
+
+**Acceptance.** A multiply-blended layer over a transparent composition renders identically in the
+editor, in PNG capture, and in the certified package, and its on-air behaviour in Lino is documented.
+
+---
+
+## Deployment context
+
+Established 2026-08-24. This changes how several priorities should be read, and it is the reason
+W12 exists.
+
+**These templates run in Zero Density Lino playout, orchestrated by Reality Hub.** That stack already
+owns, by explicit design:
+
+- **Data sourcing and business logic.** Reality Hub states that data handling belongs in Hub modules,
+  "keeping rendering projects focused on graphics instead of external API connections, data parsing,
+  and operational control," and that data is fetched, validated, normalized, filtered, and
+  transformed in the module layer _before_ it reaches templates.
+- **Operator interfaces.** Form Builder generates no-code operator panels from the template schema.
+- **Rundowns and playout.** Lino Playout provides rundowns/playlists, Program/Preview, and Take
+  In / Take Next / Continue / Take Out / Clear / Change / Update.
+- **Newsroom integration.** MOS to iNEWS, ENPS, Octopus, and Dina; CII, RossTalk, and REST automation.
+- **Multi-user, roles, permissions, and multi-channel operation.**
+
+**Consequences for this programme:**
+
+1. **Do not build data connectors, rundown features, MOS support, or operator UIs into OGraf Studio.**
+   That is Reality Hub's layer, and duplicating it is wasted work.
+2. **The manifest schema is the contract.** Everything OGraf Studio can express about a field becomes
+   the operator's experience. This is why W12 is the highest-priority item.
+3. **Broadcast-legal colour is deliberately out of scope.** Reality renders through its own engine
+   and video I/O, which owns legal-range conversion. At most add a one-line advisory lint; do not
+   build a colour pipeline.
+4. **Certification against the official devtool is accepted as sufficient.** A cross-renderer matrix
+   is low value when the target is one known renderer. One smoke test of a real `.ograf.zip` in Lino
+   would close the remaining gap and is worth doing once.
+5. **The relevant commercial benchmark is Viz Flowics** (cloud, 2D, HTML5), not Viz Artist. Flowics
+   ships a public template library — independent confirmation of W4 — and treats localization/RTL as
+   a shipping feature rather than a QA check.
+
+---
+
 ## Sequencing
 
 ```
-Phase 0   W1                     docs hygiene, unblocks every agent session
-Phase 1   W4 -> W3 -> W6         quality content; W3 must land before W5
-Phase 2   W5                     quality oracle (depends on W3)
-Phase 3   W2 -> W10 -> W9        context and round-trip efficiency
-Phase 4   W8 -> W7               primitives and recipe breadth (W7 depends on W3)
-Phase 5   W11                    GATED on explicit user approval
+Phase 0   W1                     docs hygiene, unblocks every agent session          [done]
+Phase 1   W12a -> W13            playout contract; highest value for the Lino target
+Phase 2   W4 -> W3 -> W6         quality content; W3 must land before W5
+Phase 3   W5                     quality oracle (depends on W3)
+Phase 4   W2 -> W10 -> W9        context and round-trip efficiency
+Phase 5   W8 -> W7               primitives and recipe breadth (W7 depends on W3)
+Phase 6   W12b                   collections; BLOCKED on a written design pass
+Phase 7   W11                    GATED on explicit user approval
 ```
 
-W2 is independently shippable at any point and is the cheapest large win if context pressure is the
-immediate pain.
+W12a and W13 were promoted ahead of the quality content once the Lino/Reality Hub deployment target
+was established: they determine what the playout stack can actually do with the output, which
+outranks how good the output looks. W13 is small; W12a is not.
+
+W2 remains independently shippable at any point and is the cheapest large win if context pressure is
+the immediate pain.
+
+**Document-version ordering.** W8, W12, and W13 each bump `PROJECT_DOCUMENT_VERSION`. Land them in a
+deliberate order, one bump per item, each with its own migration and test. Do not batch them.
 
 ---
 
 ## What not to do
 
-- Do not add a proprietary runtime primitive to solve a design problem. Materialize instead.
+- Do not add a proprietary runtime primitive to solve a design problem. Materialize instead. The one
+  sanctioned exception is W12b's array repetition, and only after its design pass.
+- Do not build data connectors, polling, rundowns, MOS support, or operator UIs into OGraf Studio.
+  Reality Hub owns that layer by design — see Deployment context. Express capability through the
+  manifest schema instead.
+- Do not invent field types or schema keywords. The vendored GDD fixtures in `fixtures/ograf-schema/`
+  are the authority; if it is not in the spec, it does not ship.
+- Do not build a broadcast-legal colour pipeline. The playout engine owns legal-range conversion.
 - Do not make `designQa` non-deterministic or browser-dependent. Its value is that it runs anywhere.
 - Do not hand-edit `docs/generated/mcp-contracts.*`.
 - Do not widen `operations` to `z.unknown()` to shrink the schema (see W2).
-- Do not start W11.
+- Do not start W11, and do not start W12b before its design is written and agreed.
 - Do not expand recipe/QA heuristics speculatively beyond what is specified here — the previous
   handover's standing instruction is to tune from real production usage.
 
@@ -474,3 +688,16 @@ Additionally, for items touching recipes, QA, motion, or the element schema:
 - **W2 changes the public MCP surface.** Keep deprecated aliases for one release.
 - The editor production bundle is already large and emits a chunk advisory. W4 must not bundle
   template payloads into the app.
+- **W12 is the largest item on this board.** It spans `scene-model`, `codegen`, `validation`, the
+  editor Inspector, `authoring-core`, and the MCP schema, and bumps the document version. Phasing it
+  as W12a/W12b is not optional.
+- **W12b introduces a genuine runtime capability.** Array-driven repetition means cloning layers at
+  runtime inside `packages/ograf-runtime` — the first thing in this programme that cannot be solved by
+  authoring-time materialization. It is legitimate (the array shape is spec-native and the runtime is
+  already shipped in every package), but it must not break `supportsNonRealTime`. Write the design
+  first.
+- **W13's real risk is transparent output, not the property.** `mix-blend-mode` with no opaque backdrop
+  is governed by stacking context and `isolation`; a layer can look correct in the editor and key
+  wrongly on air. Resolve the isolation question before implementing, and verify in Lino rather than
+  only against the devtool.
+- **Three items bump the document version** (W8, W12, W13). Sequence them one at a time.

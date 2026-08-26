@@ -848,7 +848,7 @@ export function Stage({
                     />
                   );
                 })}
-                <CanvasLayoutOverlay composition={composition} />
+                <CanvasLayoutOverlay composition={composition} zoom={zoom} />
               </div>
             </div>
           </div>

@@ -26,6 +26,8 @@ Save/export must certify the same artifact bytes that are written. If certificat
 - Each property track retains at least one key.
 - Easing is per incoming property key, never global.
 - Custom cubic Bézier curves override the named easing for that key.
+- Generic keys and transitions default to linear; intentional non-linear recipe motion must be
+  explicit. Existing stored or migrated easing remains authoritative.
 - Authored transform/effect edits write every lifecycle frame; frame-scoped edits require an
   explicit frame.
 - Shrink-to-fit never renders below the text layer's authored `minFontSize`. A degenerate result

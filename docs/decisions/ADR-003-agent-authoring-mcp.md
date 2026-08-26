@@ -34,7 +34,7 @@ Ship `skills/ograf-authoring` as the agent workflow contract only after the MCP 
 - UI and agents use the same scene and timeline semantics without coupling the core to React.
 - Concurrent changes cannot silently overwrite one another.
 - Agent transactions are observable, reversible, testable, and visually inspectable.
-- MCP cannot produce an uncertified `.ogeproj` or `.ograf.zip` through its output tools.
+- MCP cannot produce an uncertified `.ogs` or `.ograf.zip` through its output tools.
 - Certification/save/export require the editor browser to remain open; headless browser
   certification can be added later without weakening the gate.
 - Localhost binding, DNS-rebinding protection, workspace path confinement, and explicit destructive

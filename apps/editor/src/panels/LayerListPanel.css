@@ -86,3 +86,31 @@
 .layer-list-icon-btn.active {
   color: #ffb020;
 }
+
+.layer-list-visibility-btn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+}
+
+.layer-list-visibility-btn.is-visible {
+  color: var(--text);
+}
+
+.layer-visibility-eye,
+.layer-visibility-slash {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.layer-visibility-pupil {
+  fill: currentColor;
+}
+
+.layer-visibility-slash {
+  stroke-width: 1.6;
+}

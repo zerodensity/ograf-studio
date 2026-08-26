@@ -1,10 +1,13 @@
 # Handover — 2026-08-24 — In-App Chat Panel (BYOK) — implementation spec
 
-> Forward work order for a new subsystem. Nothing here is implemented. Decision and rationale live in
+> Forward work order for a new subsystem. Decision and rationale live in
 > [ADR-006](../decisions/ADR-006-in-app-byok-agent.md); this document is the actionable plan.
 >
-> Companion programme: [AI-First Quality Program](./2026-08-24-ai-first-quality-program.md) (W1–W13).
-> **C0 below overlaps W2 — read that item before starting.**
+> **C0 is complete** (commits `01b9ca9` and `a44c4f0`, which also landed W2). **C1–C5 remain
+> unimplemented** and are the subject of this document.
+>
+> Companion programme: [AI-First Quality Program](./2026-08-24-ai-first-quality-program.md)
+> (W1–W14). Related: [ADR-007](../decisions/ADR-007-declarative-conditional-visibility.md), accepted.
 
 ## Objective
 
@@ -17,25 +20,30 @@ deterministic QA, and an Accept/Reject proposal flow. All of it is currently gat
 external agent host and configure a local MCP server." This subsystem removes that barrier. It must
 not reinvent what is behind it.
 
-## Baseline at time of writing
+## Baseline — re-verified 2026-08-24 after C0
 
-- Branch `codex/ai-first-authoring`; release baseline v0.04 (`e36a33d`)
+- Branch `codex/ai-first-authoring`; release baseline v0.04 (`e36a33d`), with C0, W2, W9, W10, and
+  the template refresh committed on top and **not yet pushed**.
 - `PROJECT_DOCUMENT_VERSION` = **19**
-- W1, W2, W3, W5, W12a, W12b, and W13 have landed. Before W2 the recursive operation contract was
-  334,854 bytes across 28 tools; after consolidation it is 133,868 bytes across 26 tools.
+- Verification: **271 tests across 54 files**.
+- MCP surface: **26 tools**. Measure the wire size, not the file — the Prettier-indented
+  `mcp-contracts.json` is 146,632 bytes on disk but the payload a model actually receives is
+  **70,900 bytes ≈ 18k tokens**. W2 brought this down from ~37k tokens; W9 and W10 added parameters
+  since, so it drifts upward with every new option. Treat ~18k as the number C2 must reduce further.
 - `apps/editor` depends on `codegen`, `ograf-runtime`, `ograf-types`, `scene-model`, `validation`.
-  It does **not** depend on `authoring-core`.
+  It does **not** depend on `authoring-core` or `agent-tools`.
+- **ADR-007 (W14, declarative conditional visibility) is accepted and unimplemented.** It will add a
+  layer-level binding target. See the forward note under C3.
 
 ---
 
 ## Architecture
 
-### The layering that actually exists
+### The layering as it now exists
 
-A correction worth stating plainly, because it is easy to get wrong: **`authoring-core` is the
-mutation engine, not the capability surface.** `mcpServer.ts` imports only four symbols from it —
-`applyAuthoringOperations`, `RevisionConflictError`, `renderCompositionFrameSvg`, and the
-`AuthoringOperation` type. Everything else composes other packages.
+**`authoring-core` is the mutation engine, not the capability surface** — it supplies operations,
+sessions, revisions, dry runs, and SVG render, and nothing else. The composition layer that turns
+those into tools was extracted by C0 and now lives in `packages/agent-tools`:
 
 ```
 scene-model      domain model, design/broadcast QA, geometry, sampling
@@ -43,20 +51,26 @@ validation       schema + semantic checks   (already a dependency of authoring-c
 codegen          compile to OGraf artifacts, export profiles, package layout
 authoring-core   operations + sessions + revisions + dry runs + SVG render
 ─────────────────────────────────────────────────────────────────────────
-mcpServer.ts     COMPOSITION LAYER — ~2855 lines, the part to extract
-editorBridge.ts  browser round-trip (capture, strip, measure, certify, proposals)
-workspace.ts     workspace confinement + session registry
+packages/agent-tools/src/
+  ports.ts        166 lines   injected bridge + workspace interfaces
+  schemas.ts      909 lines   zod operation and tool schemas
+  toolRecords.ts 3354 lines   the 26 tool records — single source of truth
+  index.ts
+─────────────────────────────────────────────────────────────────────────
+apps/mcp-server/src/
+  mcpServer.ts     23 lines   thin MCP renderer
+  schemas.ts        2 lines   re-export
+  editorBridge.ts            browser round-trip (capture, strip, measure, certify, proposals)
+  workspace.ts               workspace confinement + session registry
 ```
 
-Building the chat directly on `authoring-core` would mean rewriting the composition layer and
-maintaining two copies. Do not do that.
-
-### Target shape
+**The second renderer is the only thing left to build.** `ports.ts` is already the seam: the in-app
+loop supplies the same bridge and workspace implementations that `apps/mcp-server` does today.
 
 ```
-packages/agent-tools          ← extracted composition layer, single source
-   ├── apps/mcp-server        ← renders MCP registrations (external agents)
-   └── in-app agent loop      ← renders provider tool defs (built-in chat)
+packages/agent-tools          single source
+   ├── apps/mcp-server        MCP registrations   (external agents)  ← exists
+   └── in-app agent loop      provider tool defs  (built-in chat)    ← C1
 ```
 
 ### Non-negotiables
@@ -144,17 +158,44 @@ shows up only on the customer's bill — which makes it a support ticket, not a 
 
 ### C2 — Reduced in-app tool surface
 
-The chat does not need all 28 tools. Expose a **filtered subset of the same records** — never a fork.
+The chat does not need all 26 tools. Expose a **filtered subset of the same records** — never a fork.
+The current surface, with the proposed disposition:
 
-- **Exclude and make UI actions instead:** `ograf_certify_project`, `ograf_save_project`,
-  `ograf_export_package`. These are consequential, user-initiated, and already have UI affordances.
-- **Exclude as meaningless in-app:** session lifecycle and workspace-opening tools that assume an
-  external host.
-- **Keep:** query/inspect, timeline, sampling, apply (with `mode`), capture/strip, measure, review,
-  validate.
+| Tool                        | In-app               | Reason                                                    |
+| --------------------------- | -------------------- | --------------------------------------------------------- |
+| `ograf_get_capabilities`    | keep                 | use W10's `sections` to request only what is needed       |
+| `ograf_query_scene`         | keep                 | primary compact selection path                            |
+| `ograf_inspect_scene`       | keep                 |                                                           |
+| `ograf_get_project`         | keep                 | with `include` filters                                    |
+| `ograf_get_timeline`        | keep                 |                                                           |
+| `ograf_sample_tracks`       | keep                 | browser-free geometry checks                              |
+| `ograf_apply_operations`    | keep                 | the workhorse; `mode` + `includeReview`                   |
+| `ograf_capture`             | keep                 |                                                           |
+| `ograf_render_strip`        | keep                 |                                                           |
+| `ograf_measure_text`        | keep                 |                                                           |
+| `ograf_review_design`       | keep                 |                                                           |
+| `ograf_validate_project`    | keep                 |                                                           |
+| `ograf_undo` / `ograf_redo` | keep                 |                                                           |
+| `ograf_render_frame`        | drop                 | superseded by browser capture in-app                      |
+| `ograf_get_changes`         | drop                 | single-agent context; revision conflicts surface directly |
+| `ograf_certify_project`     | **drop → UI button** | consequential, user-initiated                             |
+| `ograf_save_project`        | **drop → UI button** | consequential, user-initiated                             |
+| `ograf_export_package`      | **drop → UI button** | consequential, user-initiated                             |
+| `ograf_create_project`      | drop                 | the editor owns project lifecycle                         |
+| `ograf_reset_project`       | drop                 | destructive; belongs to the menubar                       |
+| `ograf_delete_session`      | drop                 | external-host concept                                     |
+| `ograf_list_sessions`       | drop                 | external-host concept                                     |
+| `ograf_open_project`        | drop                 | the editor's own open flow                                |
+| `ograf_import_asset`        | drop                 | workspace-confined; use the editor importer               |
+| `ograf_import_svg_bundle`   | drop                 | same                                                      |
 
-Target roughly 12–15 tools. Smaller prefix, lower cost, and fewer ways for a model to do something
+That lands at **14 tools**. Smaller prefix, lower cost, and fewer ways for a model to do something
 surprising to somebody's project.
+
+**W9 changes the shape of the loop here.** `ograf_apply_operations` now carries `includeReview` and
+`broadcastLint`, so apply-and-review is one call rather than two. Default `includeReview: true` for
+the in-app loop: under BYOK a saved round trip is the customer's money, and the review findings are
+what keep the agent honest about quality.
 
 **Acceptance.**
 
@@ -164,7 +205,8 @@ surprising to somebody's project.
   in-app tool list and are not reachable by the model.
 - Adding a tool to `agent-tools` appears on the MCP surface automatically, and in-app only if the
   filter admits it. A test covers both halves.
-- The in-app list is 12–15 tools.
+- The in-app list is 12–15 tools, and its rendered wire size is recorded in a test so the prefix
+  cannot drift upward unnoticed as new options are added.
 
 ---
 
@@ -203,6 +245,12 @@ as `contracts:check` guards the MCP surface. One knowledge source, two renderers
 
 **Revisit retrieval when W4 lands.** A 12–15 template corpus with descriptions will be large and
 selectively relevant — that is the real retrieval case, and `ograf_list_templates` is already its tool.
+
+**Forward note — W14 / ADR-007.** Declarative conditional visibility is accepted and unimplemented.
+When it lands it adds a layer-level binding target with a small condition vocabulary, which is
+exactly the kind of authoring rule the in-app agent needs stated in its prompt. Because the prompt is
+generated from `SKILL.md` and drift-gated, this requires no separate work here — but do not hand-write
+conditional guidance into the chat prompt. Put it in `SKILL.md` and let both renderers pick it up.
 
 **Acceptance.**
 

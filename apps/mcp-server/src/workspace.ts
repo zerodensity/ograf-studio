@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AuthoringSession } from '@ograf-editor/authoring-core';
-import { createProject, migrateProject, type Project } from '@ograf-editor/scene-model';
+import {
+  createProject,
+  isProjectSourcePath,
+  migrateProject,
+  type Project,
+} from '@ograf-editor/scene-model';
 
 export class AuthoringWorkspace {
   readonly root: string;
@@ -75,8 +80,8 @@ export class AuthoringWorkspace {
   }
 
   async open(sessionId: string, inputPath: string): Promise<AuthoringSession> {
-    if (!inputPath.toLowerCase().endsWith('.ogeproj')) {
-      throw new Error('Editable project input must use the .ogeproj extension.');
+    if (!isProjectSourcePath(inputPath)) {
+      throw new Error('Editable project input must use .ogs or a legacy .ogeproj extension.');
     }
     const project = migrateProject(
       JSON.parse(await readFile(this.resolveAllowedPath(inputPath), 'utf8')),

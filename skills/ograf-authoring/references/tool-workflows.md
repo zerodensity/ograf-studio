@@ -274,13 +274,13 @@ session with a fresh project as one undoable transaction. `keepDataFields: true`
 definitions only; layers and bindings are removed.
 
 Use `ograf_delete_session` with `confirm: true` to remove an obsolete temporary/smoke-test session.
-It cannot delete `editor` and does not remove saved `.ogeproj` or `.ograf.zip` files.
+It cannot delete `editor` and does not remove saved `.ogs` or `.ograf.zip` files.
 
 ## Certification and files
 
 - `ograf_certify_project`: exact manifest, package, module, and declared lifecycle certification in
   the browser; optionally choose `realtime`, `non-realtime`, or `dual` output profile.
-- `ograf_save_project`: certified editable `.ogeproj` source.
+- `ograf_save_project`: certified editable `.ogs` source.
 - `ograf_export_package`: certified `.ograf.zip` with a named real-time, non-real-time, or dual
   export profile; the editable project is not mutated.
 

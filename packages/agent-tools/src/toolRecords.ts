@@ -32,6 +32,7 @@ import {
   getResolvedLayerAnimationTracks,
   getTotalFrames,
   intersectConvexPolygons,
+  PROJECT_SOURCE_EXTENSION,
   MOTION_PRESET_NAMES,
   STYLE_PACKS,
   polygonBounds,
@@ -2927,7 +2928,7 @@ export function createOGrafToolRecords(
     {
       title: 'Open OGraf editable project',
       description:
-        'Opens a .ogeproj file inside the configured workspace into a new authoring session.',
+        'Opens a .ogs file (or legacy .ogeproj source) inside the configured workspace into a new authoring session.',
       inputSchema: { sessionId: z.string(), path: z.string() },
       annotations: mutation,
     },
@@ -3295,7 +3296,7 @@ export function createOGrafToolRecords(
     {
       title: 'Certify and save editable OGraf project',
       description:
-        'Requires a connected and responsive live browser editor. Saves .ogeproj source inside the workspace only after exact output artifacts pass all OGraf certification checks.',
+        'Requires a connected and responsive live browser editor. Saves .ogs source inside the workspace only after exact output artifacts pass all OGraf certification checks.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         path: z.string(),
@@ -3305,8 +3306,8 @@ export function createOGrafToolRecords(
       annotations: mutation,
     },
     async ({ sessionId, path, overwrite }) => {
-      if (extname(path).toLowerCase() !== '.ogeproj')
-        throw new Error('Project path must end in .ogeproj.');
+      if (extname(path).toLowerCase() !== PROJECT_SOURCE_EXTENSION)
+        throw new Error(`Project path must end in ${PROJECT_SOURCE_EXTENSION}.`);
       const { certification } = await certifiedArtifacts(workspace, bridge, sessionId);
       const target = workspace.resolveAllowedPath(path);
       const project = workspace.get(sessionId).snapshot().project;

@@ -13,7 +13,7 @@
    or Reject it in OGraf Studio.
 5. Run `ograf_review_design`, then render entrance start, mid-motion, settled frame, and exit.
    Inspect property tracks to confirm stagger and independent easing.
-6. Validate and certify. Save `.ogeproj` only if requested; export `.ograf.zip` only if requested.
+6. Validate and certify. Save `.ogs` only if requested; export `.ograf.zip` only if requested.
 
 Use a small number of coherent batches so undo remains meaningful. Bind a field created earlier in
 the same batch by `fieldKey`; use `fieldId` after its creation result has been returned.

@@ -99,6 +99,8 @@ body.is-resizing[data-resize-axis='row'] {
     .timeline-readout-separator,
     .timeline-zoom-controls,
     .timeline-lifecycle-toast,
+    .timeline-property-add,
+    .timeline-show-all-properties,
     .timeline-key-editor-selection span,
     .timeline-folder-count,
     .timeline-ruler-tick,

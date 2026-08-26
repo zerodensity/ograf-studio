@@ -1,13 +1,22 @@
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type FormEvent } from 'react';
 import { useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
-import { openProjectFromFile, saveProjectToFile } from '../state/fileIO';
+import { openProjectFromFile, openProjectFromUrl, saveProjectToFile } from '../state/fileIO';
 import { resetHistory } from '../state/historyStore';
 import { useAgentBridgeStatus } from '../state/agentBridge';
 import { importEditableProjectFromOgraf, type OgrafImportResult } from '../state/importOgraf';
+import { DOCK_PANE_IDS, DOCK_PANE_LABELS, type DockPaneId } from '../layout/dockModel';
 import './Menubar.css';
 
-export function Menubar({ style }: { style?: CSSProperties }) {
+export function Menubar({
+  style,
+  closedDockPanes = [],
+  onToggleDockPane,
+}: {
+  style?: CSSProperties;
+  closedDockPanes?: DockPaneId[];
+  onToggleDockPane?: (pane: DockPaneId) => void;
+}) {
   const projectName = useProjectStore((s) => s.project.name);
   const newProject = useProjectStore((s) => s.newProject);
   const loadProject = useProjectStore((s) => s.loadProject);
@@ -15,6 +24,10 @@ export function Menubar({ style }: { style?: CSSProperties }) {
   const select = useSelectionStore((s) => s.select);
   const [status, setStatus] = useState('');
   const [importReport, setImportReport] = useState<OgrafImportResult | null>(null);
+  const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
+  const [remoteUrl, setRemoteUrl] = useState('');
+  const [remoteBusy, setRemoteBusy] = useState(false);
+  const [windowMenuOpen, setWindowMenuOpen] = useState(false);
   const agentConnected = useAgentBridgeStatus((state) => state.connected);
   const agentActivity = useAgentBridgeStatus((state) => state.activity);
 
@@ -71,6 +84,33 @@ export function Menubar({ style }: { style?: CSSProperties }) {
     }
   };
 
+  const handleOpenUrl = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!remoteUrl.trim() || remoteBusy) return;
+    setRemoteBusy(true);
+    setStatus('Downloading remote project…');
+    try {
+      const opened = await openProjectFromUrl(remoteUrl);
+      if (
+        !confirm(
+          `Open remote project "${opened.name}"? Unsaved changes in the current project will be lost.`,
+        )
+      ) {
+        setStatus('Remote project open cancelled');
+        return;
+      }
+      loadProject(opened);
+      resetHistory();
+      select(null);
+      setRemoteDialogOpen(false);
+      setStatus(`Opened remote project "${opened.name}"`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Failed to open remote project');
+    } finally {
+      setRemoteBusy(false);
+    }
+  };
+
   const handleSave = async () => {
     setStatus('Running OGraf compatibility tests…');
     try {
@@ -98,6 +138,9 @@ export function Menubar({ style }: { style?: CSSProperties }) {
         <button type="button" onClick={handleOpen}>
           Open
         </button>
+        <button type="button" onClick={() => setRemoteDialogOpen(true)}>
+          Open URL
+        </button>
         <button
           type="button"
           onClick={handleImportOgraf}
@@ -108,10 +151,42 @@ export function Menubar({ style }: { style?: CSSProperties }) {
         <button
           type="button"
           onClick={handleSave}
-          title="Save editable .ogeproj source. Use Export .ograf.zip for a playout package."
+          title="Save editable .ogs source. Use Export .ograf.zip for a playout package."
         >
           Save Project
         </button>
+        <div className="menubar-window-control">
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={windowMenuOpen}
+            onClick={() => setWindowMenuOpen((open) => !open)}
+          >
+            Window
+          </button>
+          {windowMenuOpen ? (
+            <div className="menubar-window-menu" role="menu" aria-label="Window panes">
+              {DOCK_PANE_IDS.map((pane) => {
+                const open = !closedDockPanes.includes(pane);
+                return (
+                  <button
+                    key={pane}
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={open}
+                    onClick={() => {
+                      onToggleDockPane?.(pane);
+                      setWindowMenuOpen(false);
+                    }}
+                  >
+                    <span aria-hidden="true">{open ? '✓' : ''}</span>
+                    {DOCK_PANE_LABELS[pane]}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
       </nav>
       <span
         className={`menubar-agent-status${agentConnected ? ' is-connected' : ''}`}
@@ -121,6 +196,60 @@ export function Menubar({ style }: { style?: CSSProperties }) {
         {agentActivity}
       </span>
       {status && <span className="menubar-status">{status}</span>}
+      {remoteDialogOpen && (
+        <section
+          className="ograf-import-report remote-project-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="remote-project-dialog-title"
+        >
+          <form onSubmit={(event) => void handleOpenUrl(event)}>
+            <div className="ograf-import-report-header">
+              <div>
+                <strong id="remote-project-dialog-title">Open project from URL</strong>
+                <span>Download editable .ogs source over HTTP(S)</span>
+              </div>
+              <button
+                type="button"
+                disabled={remoteBusy}
+                onClick={() => setRemoteDialogOpen(false)}
+                aria-label="Close remote project dialog"
+              >
+                ×
+              </button>
+            </div>
+            <p>
+              The server must allow browser CORS access. The project is downloaded and validated
+              before you confirm replacing the current project; credentials are never sent.
+            </p>
+            <label className="remote-project-url-field">
+              <span>Project URL</span>
+              <input
+                autoFocus
+                type="url"
+                inputMode="url"
+                required
+                placeholder="https://raw.githubusercontent.com/owner/repo/main/news.ogs"
+                value={remoteUrl}
+                disabled={remoteBusy}
+                onChange={(event) => setRemoteUrl(event.target.value)}
+              />
+            </label>
+            <div className="ograf-import-report-actions">
+              <button
+                type="button"
+                disabled={remoteBusy}
+                onClick={() => setRemoteDialogOpen(false)}
+              >
+                Cancel
+              </button>
+              <button type="submit" disabled={remoteBusy || !remoteUrl.trim()}>
+                {remoteBusy ? 'Downloading…' : 'Open and replace'}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
       {importReport && (
         <section
           className="ograf-import-report"

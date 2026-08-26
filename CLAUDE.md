@@ -1,7 +1,7 @@
 # OGraf Studio
 
 OGraf Studio is a browser-based visual editor and deterministic runtime for authoring portable EBU
-OGraf-compatible HTML5 broadcast graphics. The current product release is **0.03**.
+OGraf-compatible HTML5 broadcast graphics. The current product release is **0.07**.
 
 ## Read first
 
@@ -9,8 +9,17 @@ OGraf-compatible HTML5 broadcast graphics. The current product release is **0.03
    requirements.
 2. `docs/STATUS.md` — current implemented capability and verification truth.
 3. `docs/ARCHITECTURE.md` — runtime, editor, persistence, compilation, and certification boundaries.
-4. The newest dated file in `docs/handovers/` — current work, decisions, risks, and next actions.
-5. `skills/ograf-authoring/SKILL.md` — required contract when an AI agent authors graphics through
+4. `docs/decisions/` — accepted ADRs. They are binding architectural constraints, not history.
+5. The active work orders in `docs/handovers/`. Several files share the same date, so they are named
+   explicitly rather than resolved by filename order:
+   - `2026-08-24-ai-first-quality-program.md` — work items W1–W13 (quality, context cost, primitives).
+   - `2026-08-24-in-app-chat-byok.md` — work items C0–C5, the in-app BYOK chat subsystem. Implements
+     `docs/decisions/ADR-006-in-app-byok-agent.md`.
+
+   Older dated handovers are historical records of completed work. Keep this list current: when a
+   work order is finished or a new one is written, update it here.
+
+6. `skills/ograf-authoring/SKILL.md` — required contract when an AI agent authors graphics through
    the running OGraf Studio MCP server. It is not the source-development workflow.
 
 `docs/HANDOVER.md` and `docs/PLAN.md` are historical background. Do not treat their old phase
@@ -33,6 +42,7 @@ status, package inventory, or next-step lists as current truth when they differ 
 
 ## File boundary
 
-- `.ogeproj` is versioned editable source and migrates once before entering application state.
+- `.ogs` is versioned editable source and migrates once before entering application state; legacy
+  `.ogeproj` sources remain readable.
 - `.ograf.zip` is certified playout output.
 - Never bypass the product certification path by manually assembling project JSON or release ZIPs.

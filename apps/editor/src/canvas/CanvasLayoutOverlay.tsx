@@ -1,6 +1,12 @@
 import { getEbuR95SafeAreas, type Composition } from '@ograf-editor/scene-model';
 
-export function CanvasLayoutOverlay({ composition }: { composition: Composition }) {
+export function CanvasLayoutOverlay({
+  composition,
+  zoom,
+}: {
+  composition: Composition;
+  zoom: number;
+}) {
   const layout = composition.layout;
   const safeAreas = getEbuR95SafeAreas(composition);
   return (
@@ -24,6 +30,14 @@ export function CanvasLayoutOverlay({ composition }: { composition: Composition 
             top: safeAreas.titleSafe.y,
             width: safeAreas.titleSafe.width,
             height: safeAreas.titleSafe.height,
+          }}
+        />
+      )}
+      {layout.showCenterMarker && (
+        <div
+          className="canvas-center-marker"
+          style={{
+            transform: `translate(-50%, -50%) scale(${1 / Math.max(zoom, 0.01)})`,
           }}
         />
       )}

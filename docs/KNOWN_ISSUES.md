@@ -14,7 +14,7 @@
   while arbitrary third-party runtime JavaScript yields a manifest-only editable shell because the
   importer deliberately does not execute untrusted code or attempt general JavaScript decompilation.
 - Asset payloads now persist once in `composition.assets` and layers/fields may use `asset:<id>`;
-  large aggregate registries can still exhaust browser storage because `.ogeproj` remains a
+  large aggregate registries can still exhaust browser storage because `.ogs` remains a
   self-contained JSON document.
 - The editor production bundle is large and needs route/panel code splitting.
 - Every package containing a Lottie layer currently embeds the light canvas player (roughly 450 KB

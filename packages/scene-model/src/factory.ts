@@ -262,7 +262,7 @@ export function createLayerKeyframe(
   return {
     id: createId('layer-keyframe'),
     frame,
-    easing: 'ease-in-out',
+    easing: 'linear',
     ...overrides,
     transform: normalizedTransform,
   };
@@ -277,7 +277,7 @@ export function createLayerPropertyKeyframe(
     id: createId('property-keyframe'),
     frame: Math.round(frame),
     value,
-    easing: 'ease-in-out',
+    easing: 'linear',
     ...overrides,
   };
 }
@@ -297,7 +297,7 @@ export function createLayerLoopClip(overrides: Partial<LayerLoopClip> = {}): Lay
 
 export const DEFAULT_FRAME_RATE = 25;
 const DEFAULT_TRANSITION_FRAMES = 12;
-const DEFAULT_TRANSITION_EASING: EasingPreset = 'ease-in-out';
+const DEFAULT_TRANSITION_EASING: EasingPreset = 'linear';
 
 export function createTransition(
   fromKeyframeId: string,
@@ -457,6 +457,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
       showRulers: true,
       showActionSafe: false,
       showTitleSafe: false,
+      showCenterMarker: false,
       dimOutsideCanvas: false,
       snappingEnabled: true,
       snapToGrid: false,
@@ -482,7 +483,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 21;
+export const PROJECT_DOCUMENT_VERSION = 22;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

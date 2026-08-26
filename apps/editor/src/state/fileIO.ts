@@ -1,18 +1,30 @@
-import type { Project } from '@ograf-editor/scene-model';
+import {
+  LEGACY_PROJECT_SOURCE_EXTENSIONS,
+  PROJECT_SOURCE_EXTENSION,
+  type Project,
+} from '@ograf-editor/scene-model';
 import { certifyProject } from './ografCompatibility';
 
 const AUTOSAVE_KEY = 'ograf-editor:autosave-project';
 const FILE_TYPES = [
   // Deliberately does not end in .json: ograf-devtool discovers every JSON file in a selected
   // directory as a possible manifest and would report an editor source file as incompatible.
-  { description: 'OGraf Studio Project Source', accept: { 'application/json': ['.ogeproj'] } },
+  {
+    description: 'OGraf Studio Project Source',
+    accept: { 'application/json': [PROJECT_SOURCE_EXTENSION] },
+  },
 ];
 const OPEN_FILE_TYPES = [
   {
     description: 'OGraf Studio Project Source',
-    accept: { 'application/json': ['.ogeproj', '.ogeproj.json'] },
+    accept: {
+      'application/json': [PROJECT_SOURCE_EXTENSION, ...LEGACY_PROJECT_SOURCE_EXTENSIONS],
+    },
   },
 ];
+export const MAX_REMOTE_PROJECT_BYTES = 32 * 1024 * 1024;
+
+export type ProjectFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export function saveAutosave(project: Project): void {
   try {
@@ -44,7 +56,7 @@ function downloadProjectAsFile(project: Project): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `${project.name || 'untitled'}.ogeproj`;
+  anchor.download = `${project.name || 'untitled'}${PROJECT_SOURCE_EXTENSION}`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -68,7 +80,7 @@ export async function saveProjectToFile(
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
-        suggestedName: `${snapshot.name || 'untitled'}.ogeproj`,
+        suggestedName: `${snapshot.name || 'untitled'}${PROJECT_SOURCE_EXTENSION}`,
         types: FILE_TYPES,
       });
       const writable = await handle.createWritable();
@@ -121,11 +133,100 @@ function isProject(value: unknown): value is Project {
   );
 }
 
+export function parseProjectSource(text: string): Project {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('The project source is not valid JSON.');
+  }
+  if (!isProject(parsed)) throw new Error('That source is not a valid OGraf Studio project.');
+  return parsed;
+}
+
+function requireHttpUrl(value: string, label: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error(`${label} must be a complete HTTP or HTTPS URL.`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`${label} must use HTTP or HTTPS.`);
+  }
+  return url;
+}
+
+async function readRemoteProjectText(response: Response): Promise<string> {
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > MAX_REMOTE_PROJECT_BYTES) {
+    throw new Error('Remote project exceeds the 32 MiB download limit.');
+  }
+
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > MAX_REMOTE_PROJECT_BYTES) {
+      throw new Error('Remote project exceeds the 32 MiB download limit.');
+    }
+    return new TextDecoder().decode(bytes);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const textChunks: string[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > MAX_REMOTE_PROJECT_BYTES) {
+      await reader.cancel();
+      throw new Error('Remote project exceeds the 32 MiB download limit.');
+    }
+    textChunks.push(decoder.decode(value, { stream: true }));
+  }
+  textChunks.push(decoder.decode());
+  return textChunks.join('');
+}
+
+/** Downloads an editable project without credentials; the remote server must allow browser CORS. */
+export async function openProjectFromUrl(
+  rawUrl: string,
+  fetchProject: ProjectFetcher = (input, init) => fetch(input, init),
+): Promise<Project> {
+  const requestedUrl = requireHttpUrl(rawUrl, 'Project URL');
+  let response: Response;
+  try {
+    response = await fetchProject(requestedUrl, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+      redirect: 'follow',
+      cache: 'no-store',
+      headers: { Accept: 'application/json, text/json;q=0.9, */*;q=0.1' },
+    });
+  } catch {
+    throw new Error(
+      'Could not download the remote project. Check the URL, network connection, and server CORS policy.',
+    );
+  }
+  if (!response.ok) {
+    throw new Error(`Remote project request failed with HTTP ${response.status}.`);
+  }
+  if (response.url) requireHttpUrl(response.url, 'Redirected project URL');
+  return parseProjectSource(await readRemoteProjectText(response));
+}
+
 function openProjectViaInputFallback(): Promise<Project | null> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.ogeproj,.ogeproj.json,.json,application/json';
+    input.accept = [
+      PROJECT_SOURCE_EXTENSION,
+      ...LEGACY_PROJECT_SOURCE_EXTENSIONS,
+      '.json',
+      'application/json',
+    ].join(',');
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) {
@@ -135,12 +236,7 @@ function openProjectViaInputFallback(): Promise<Project | null> {
       file
         .text()
         .then((text) => {
-          const parsed: unknown = JSON.parse(text);
-          if (!isProject(parsed)) {
-            reject(new Error('That file is not a valid OGraf Studio project.'));
-            return;
-          }
-          resolve(parsed);
+          resolve(parseProjectSource(text));
         })
         .catch(reject);
     };
@@ -156,9 +252,7 @@ export async function openProjectFromFile(): Promise<Project | null> {
       if (!handle) return null;
       const file = await handle.getFile();
       const text = await file.text();
-      const parsed: unknown = JSON.parse(text);
-      if (!isProject(parsed)) throw new Error('That file is not a valid OGraf Studio project.');
-      return parsed;
+      return parseProjectSource(text);
     } catch (err) {
       if (isAbort(err)) return null;
       throw err;

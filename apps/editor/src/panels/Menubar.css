@@ -24,6 +24,42 @@
   gap: 4px;
 }
 
+.menubar-window-control {
+  position: relative;
+}
+
+.menubar-window-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 5px);
+  left: 0;
+  width: 190px;
+  display: grid;
+  gap: 2px;
+  padding: 5px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 42%);
+}
+
+.menubar-actions .menubar-window-menu button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  color: var(--text);
+  text-align: left;
+}
+
+.menubar-window-menu button span {
+  color: var(--accent);
+  font-weight: 800;
+  text-align: center;
+}
+
 .menubar-status {
   color: var(--text-dim);
   font-size: 11px;
@@ -172,4 +208,45 @@
   background: var(--accent);
   color: #fff;
   cursor: pointer;
+}
+
+.remote-project-dialog form {
+  display: grid;
+  gap: 12px;
+}
+
+.remote-project-dialog .ograf-import-report-actions {
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.remote-project-dialog .ograf-import-report-actions button:first-child {
+  background: var(--bg-panel-raised);
+  color: var(--text);
+}
+
+.remote-project-dialog button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.remote-project-url-field {
+  display: grid;
+  gap: 5px;
+  color: var(--text-dim);
+}
+
+.remote-project-url-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-canvas);
+  color: var(--text);
+}
+
+.remote-project-url-field input:focus {
+  border-color: var(--accent);
+  outline: none;
 }

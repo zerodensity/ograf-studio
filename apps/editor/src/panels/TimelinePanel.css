@@ -350,7 +350,7 @@
 
 .timeline-gutter {
   flex: none;
-  width: 130px;
+  width: 170px;
   overflow: hidden;
   border-right: 1px solid var(--border);
   background: var(--bg-panel-raised);
@@ -417,7 +417,10 @@
   width: 19px;
   flex: none;
   padding: 0;
-  color: var(--text-dim);
+  color: var(--text-heading);
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
 }
 
 .timeline-folder-select {
@@ -480,8 +483,16 @@
   width: 22px;
   height: 100%;
   flex: none;
-  color: var(--text-dim);
+  color: var(--text-heading);
+  font-weight: 800;
+  line-height: 1;
   padding: 0;
+  text-align: center;
+}
+
+.timeline-folder-toggle:hover,
+.timeline-property-toggle:hover {
+  color: var(--accent);
 }
 
 .timeline-layer-select {
@@ -542,6 +553,48 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.timeline-property-visibility-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding-right: 4px;
+}
+
+.timeline-property-add,
+.timeline-show-all-properties {
+  height: 21px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-canvas);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.timeline-property-add {
+  width: 25px;
+  appearance: none;
+  font-weight: 700;
+  text-align: center;
+}
+
+.timeline-show-all-properties {
+  min-width: 28px;
+}
+
+.timeline-property-add:hover:not(:disabled),
+.timeline-show-all-properties:hover,
+.timeline-show-all-properties[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--text-heading);
+}
+
+.timeline-property-add:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .timeline-gutter-empty {
@@ -998,6 +1051,32 @@
   line-height: 1;
   text-align: center;
   white-space: nowrap;
+}
+
+.timeline-layer-span-metadata {
+  position: absolute;
+  inset: 0 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.timeline-layer-span-metadata .timeline-layer-span-label {
+  flex: 1 1 20px;
+  min-width: 20px;
+  height: auto;
+  overflow: hidden;
+}
+
+.timeline-layer-span-metadata .timeline-layer-span-easing {
+  position: static;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 24px);
+  transform: none;
+  text-overflow: ellipsis;
 }
 
 .timeline-layer-span-easing {

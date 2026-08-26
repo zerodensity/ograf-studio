@@ -2,7 +2,7 @@
 
 Last verified: 2026-08-26
 
-Current release: **OGraf Studio 0.06**
+Current release: **OGraf Studio 0.07**
 
 ## Current milestone
 
@@ -10,8 +10,12 @@ AI-first broadcast authoring and OGraf compliance hardening.
 
 ## Working
 
+- The repository is licensed under GNU AGPL v3.0 only (`AGPL-3.0-only`); the root `LICENSE`, root
+  package, and every private workspace manifest carry the same licensing declaration.
+
 - The user-facing product name is **OGraf Studio**. Existing `@ograf-editor/*` package names,
-  `.ogeproj` source compatibility, persisted IDs, and MCP tool names remain unchanged.
+  `.ogs` is the canonical editable source extension; legacy `.ogeproj`/`.ogeproj.json` files remain
+  readable. Persisted IDs and MCP tool names remain unchanged.
 - AI-first authoring areas 1-9 are implemented: semantic roles/tags/intent, materialized lower-third
   and repeater recipes, compact semantic scene queries, rendered operation dry runs, generated MCP
   contracts, workspace-confined asset/SVG bundle imports, Brand Kits/design tokens, linked
@@ -22,17 +26,43 @@ AI-first broadcast authoring and OGraf compliance hardening.
   W2 consolidates apply, browser-free dry-run, rendered preview, and human-review proposal behavior
   into one mode-based `ograf_apply_operations` schema. Registered tools dropped from 28 to 26 and
   the generated contract from 334,854 to 133,868 bytes without changing operation semantics.
-- The editor now has a persistent, collapsible **Layers / Chat** left-sidebar switch for built-in
+- The editor now has a persistent **Layers / Chat** dock-tab switch for built-in
   BYOK authoring. Its server-side Anthropic and OpenAI-compatible loop filters the canonical records
   to 14 tools (59,911 wire bytes), applies review-by-default on committed/dry-run batches, reports
   redacted tool progress/proposal references and token usage, and keeps per-project totals in local
-  app state rather than `.ogeproj`. Credentials load from Windows Credential Manager before the
+  app state rather than `.ogs`. Credentials load from Windows Credential Manager before the
   environment fallback and never cross the editor WebSocket. Selection, frame, zoomed viewport, and
   recent edit context are attached per turn outside the stable cached prefix. The system prompt is
   a deterministic ~6,542-token projection of the `ograf-authoring` Skill; prompt drift, unavailable
   out-of-process guidance, and the 9,000-token budget now fail verification.
   External MCP request activity is visible in Chat, and an optional session-local exclusive lock
   prevents either agent front door from starting while the other is active.
+- Layers, Chat, Resources, Inspector, Data, Preview & Export, and Timeline now participate in an
+  editor-local docking workspace around the fixed canvas. Pane tabs can be dragged onto visible
+  left/right/top/bottom hints, dropped onto another tab bar to form a tab stack, or double-clicked
+  into movable/resizable floating windows. Floating headers provide drag-to-dock and keyboard-safe
+  dock-location controls. Moving either the pointer within 132 screen pixels or the floating frame
+  within 40 pixels of the nearest workspace edge presents a high-contrast Visual Studio-style
+  directional guide plus live dock-region preview; proximity slightly outside the workspace remains
+  valid so corners work. Releasing there docks the complete pane, while releasing in the centre
+  keeps it floating. A new bottom-docked pane is inserted above existing bottom panes in a vertical
+  split, reducing their height instead of consuming horizontal space. Region sizes and the validated
+  layout persist in local storage without entering `.ogs`, undo history, MCP revisions, runtime
+  descriptors, or exported graphics.
+  Tabs inside a dock group can also be reordered directly: the hovered tab exposes a left/right
+  insertion marker, and the dropped pane is inserted on that side. The same indexed drop works for
+  panes arriving from another dock group, with the resulting order persisted locally. The complete
+  tab body now owns one pointer gesture: dropping over a tab reorders, dropping on a guide or edge
+  docks, and dropping in free centre space floats. No separate grip interaction is required.
+  Adjacent groups inside every dock region expose a dedicated split handle. Vertical stacks use
+  horizontal dividers and horizontal stacks use vertical dividers; dragging resizes the neighboring
+  pair live with 80 px stacked/120 px side-by-side minimums. Proportional group weights persist with
+  the rest of the local docking layout and scale when the outer region changes size.
+  Every dock group exposes an × action for its active pane, and floating headers expose the same
+  close action. Closed pane IDs are persisted as an explicit docking state so validation does not
+  mistake them for missing/corrupt panes. The top-bar **Window** menu lists all seven panes with
+  checked open states; selecting an open pane closes it and selecting a closed pane reopens it in its
+  default left/right/bottom region.
 - Browser certification is isolated in a disposable iframe/custom-element registry. Certification,
   PNG capture, contact sheets, and text measurement run through one serialized browser-work queue;
   packaged-font waits remain bounded and bridge health continues to expose responsiveness/latency.
@@ -42,7 +72,7 @@ AI-first broadcast authoring and OGraf compliance hardening.
 - The Resources pane is now a compact ARIA tree. Counted Brand Kit, Components, Images, Fonts, and
   Source attachment branches collapse independently; each resource/token/component is another
   compact disclosure row whose existing metadata and actions appear only when expanded. Expansion
-  is local UI state and does not alter `.ogeproj`.
+  is local UI state and does not alter `.ogs`.
 - Studio chrome now uses one system sans family and one monospace diagnostics family at exactly two
   text sizes: 12 px for controls/content and 10 px for dense metadata. Buttons, inputs, selects, and
   textareas follow the same contract; font pickers identify template fonts without restyling the
@@ -113,6 +143,9 @@ AI-first broadcast authoring and OGraf compliance hardening.
   composition rectangle. The actual canvas, composition capture, runtime descriptor,
   certification, and exported transparency remain unchanged; migration defaults existing projects
   off.
+- Document v22 adds an optional **Center marker** Canvas Layout preference. Edit mode draws a
+  zoom-stable cross at the exact composition centre; the marker is editor-only, defaults off, and
+  remains excluded from capture, certification, runtime descriptors, and exported graphics.
 - Semantic layer metadata supports meaningful roles, normalized tags, and intent descriptions. It
   drives compact MCP queries, deterministic QA, and authoring recipes while remaining excluded from
   compiled output. The lower-third recipe creates four grouped layers/two editable fields with a
@@ -147,11 +180,16 @@ AI-first broadcast authoring and OGraf compliance hardening.
   manifest schema, canonical package paths, browser module import/default export, required Graphic
   API, and the devtool realtime/non-realtime lifecycle exercise. Both editable-source Save and ZIP
   Export run the gate before any picker, write, or download begins.
-- Editable source is clearly named `.ogeproj` instead of `.ogeproj.json`, preventing SuperFlyTV's
-  devtool from misidentifying editor source as an invalid OGraf manifest. The UI distinguishes
-  source from `.ograf.zip` playout output and explains that the ZIP must be extracted for devtool.
+- Editable source is clearly named `.ogs`, preventing SuperFlyTV's devtool from misidentifying
+  editor source as an invalid OGraf manifest. New saves require `.ogs`; local and MCP opens still
+  accept legacy `.ogeproj`/`.ogeproj.json`. The UI distinguishes source from `.ograf.zip` playout
+  output and explains that the ZIP must be extracted for devtool.
+- **Open URL** downloads editable `.ogs` source from absolute HTTP(S) locations through a
+  credential-free, CORS-dependent, redirect-scheme-checked, 32 MiB bounded stream. Remote and local
+  sources share one parser/migration boundary, and the downloaded project is validated before the
+  user confirms replacing the current project. Public GitHub raw-file URLs are supported.
 - The menubar now offers best-effort **Import OGraf** conversion from `.ograf.zip` or selected loose
-  package files. Embedded `.ogeproj` source is preferred; editor-generated `main.js` descriptors
+  package files. Embedded `.ogs` or legacy `.ogeproj` source is preferred; editor-generated `main.js` descriptors
   reconstruct layers, lifecycle/property tracks, effects, loops, clipping, bindings, schema fields,
   actions, and packaged images; opaque third-party runtimes safely fall back to manifest metadata,
   requirements, lifecycle hints, schema, and actions without executing imported JavaScript. Every
@@ -161,9 +199,12 @@ AI-first broadcast authoring and OGraf compliance hardening.
   per-key easing, canvas auto-keying, and v2 → v3 migration.
 - Live Inspector transform values during canvas drag, resize, and rotation gestures, with a single
   authored/history commit when the pointer is released.
-- Color-coded layer tracks with matching enlarged key diamonds, full-height bordered key-to-key
-  blocks, duration labels, gutter swatches, and five-frame ruler labels. Expanded property tracks
-  use the same row, block, label, and diamond sizes as their parent layer.
+- Timeline parent layers share one fixed neutral-gray summary colour instead of ID-hashed random hues. Expanded
+  properties use a stable semantic palette: Position X/Y, Width, Height, Rotation, Alpha, origins,
+  text stroke, blur, shadow values, and indexed gradient stops retain the same colour across every
+  object/project. Matching enlarged diamonds, full-height bordered key-to-key blocks, duration
+  labels, gutter swatches, and five-frame ruler labels use that contract; child rows retain the same
+  row, block, label, and diamond sizes as their parent layer.
 - Persistent playback transport with previous/next-frame stepping, play/pause, stop-to-zero,
   end-of-timeline replay, and one compact current-frame/total-frame/elapsed-duration readout.
 - Mouse scrubbing remains explicit on the playhead head/full vertical line and ruler. Single-clicking
@@ -246,6 +287,10 @@ AI-first broadcast authoring and OGraf compliance hardening.
   same pure functions, including overshoot motion. Timeline controls explicitly separate OGraf
   lifecycle-transition easing from selected layer-key easing; changing a key affects only that key
   on that object.
+- Newly authored generic layer keys, property keys, editor auto-keys, and lifecycle transitions now
+  default to `None (Linear)`. Recipes continue to request deliberate entrance/exit easing, explicit
+  user/MCP values win, and legacy migrations retain historical easing so existing projects do not
+  change motion when opened.
 - Text layers offer a previewed system-font dropdown and Auto size, Shrink text to box, Fit to
   width, or Fixed sizing. Auto size immediately authors the measured text bounds, keeping Moveable
   synchronized after content, face, or font-size edits; shrink-to-fit responds to runtime data and
@@ -262,6 +307,12 @@ AI-first broadcast authoring and OGraf compliance hardening.
 - Document v5 provides expandable, independent tracks for position, size, rotation, alpha,
   transform origin, blur, and numeric drop-shadow parameters. Editing or inserting a key affects
   only that property at that freely chosen frame; v4 full-pose timelines migrate losslessly.
+- Expanded layers now hide static lifecycle compatibility tracks by default. A property row appears
+  when its value changes, it has a non-lifecycle authored key, it owns a local loop, or the user has
+  selected/manually revealed it. **All** temporarily shows every compatible property; **+ Property**
+  reveals and selects/adds one at the current frame. These visibility controls are editor-local and
+  never change `.ogs` merely by showing or hiding rows. High-contrast `+`/`-` disclosure buttons
+  replace the former small triangles on both Timeline Groups and layer-property expansion.
 - Every property key has its own incoming easing and optional editable cubic Bézier curve. The
   timeline includes a live SVG curve preview with draggable handles and precise control-point
   fields; the editor evaluator and generated GSAP runtime consume the same curve data.
@@ -438,7 +489,7 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-08-26, including generated MCP contract and in-app prompt drift,
-  format, lint, all workspace typechecks, 332 tests across 68 files, the runtime bundle, and the editor production
+  format, lint, all workspace typechecks, 363 tests across 75 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
 - The 328-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,

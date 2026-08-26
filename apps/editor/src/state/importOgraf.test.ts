@@ -268,7 +268,7 @@ describe('best-effort OGraf import', () => {
     const zip = await packageBytes({
       'graphic.ograf.json': JSON.stringify(manifest),
       'main.js': 'export default class Graphic {}',
-      'source.ogeproj': JSON.stringify(project),
+      'source.ogs': JSON.stringify(project),
     });
 
     const imported = await importOgrafData('with-source.ograf.zip', zip);

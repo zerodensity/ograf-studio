@@ -74,6 +74,38 @@
   border: 4px dotted rgba(255, 70, 70, 0.95);
 }
 
+.canvas-center-marker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  transform-origin: center;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 90%));
+}
+
+.canvas-center-marker::before,
+.canvas-center-marker::after {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  content: '';
+  background: #35d0ff;
+  border-radius: 1px;
+  transform: translate(-50%, -50%);
+}
+
+.canvas-center-marker::before {
+  width: 100%;
+  height: 2px;
+}
+
+.canvas-center-marker::after {
+  width: 2px;
+  height: 100%;
+}
+
 .canvas-outside-dimmer {
   --stage-frame-left: calc(var(--stage-origin-x, 0px) - var(--stage-scroll-left, 0px));
   --stage-frame-top: calc(var(--stage-origin-y, 0px) - var(--stage-scroll-top, 0px));
