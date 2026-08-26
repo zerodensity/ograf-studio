@@ -1982,9 +1982,22 @@ describe('OGraf MCP authoring host', () => {
     expect(host.workspace.get('editor').revision).toBe(before);
   });
 
+  it('requires the canonical .ogs extension for new MCP saves', async () => {
+    const result = await client.callTool({
+      name: 'ograf_save_project',
+      arguments: {
+        sessionId: 'editor',
+        path: 'fixtures/legacy-output.ogeproj',
+        confirm: true,
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain('Project path must end in .ogs');
+  });
+
   it('keeps certified save and export closed when the editor is disconnected', async () => {
     for (const [name, path] of [
-      ['ograf_save_project', 'fixtures/disconnected-gate.ogeproj'],
+      ['ograf_save_project', 'fixtures/disconnected-gate.ogs'],
       ['ograf_export_package', 'fixtures/disconnected-gate.ograf.zip'],
     ] as const) {
       const result = await client.callTool({

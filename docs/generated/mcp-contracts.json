@@ -3088,7 +3088,7 @@
     {
       "name": "ograf_open_project",
       "title": "Open OGraf editable project",
-      "description": "Opens a .ogeproj file inside the configured workspace into a new authoring session.",
+      "description": "Opens a .ogs file (or legacy .ogeproj source) inside the configured workspace into a new authoring session.",
       "inputSchema": {
         "type": "object",
         "properties": { "sessionId": { "type": "string" }, "path": { "type": "string" } },
@@ -3243,7 +3243,7 @@
     {
       "name": "ograf_save_project",
       "title": "Certify and save editable OGraf project",
-      "description": "Requires a connected and responsive live browser editor. Saves .ogeproj source inside the workspace only after exact output artifacts pass all OGraf certification checks.",
+      "description": "Requires a connected and responsive live browser editor. Saves .ogs source inside the workspace only after exact output artifacts pass all OGraf certification checks.",
       "inputSchema": {
         "type": "object",
         "properties": {

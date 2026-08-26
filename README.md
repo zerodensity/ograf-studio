@@ -6,27 +6,22 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.06
+## New in OGraf Studio 0.07
 
-- Added persistent in-app BYOK authoring chat with server-side Anthropic/OpenAI-compatible loops, a
-  reduced 14-tool surface, generated Skill-based prompt, proposal review, redacted progress, local
-  usage accounting, and credentials that never cross into browser JavaScript.
-- Added News, Sports, Entertainment, and Documentary style packs plus editable bug/DOG, clipped
-  ticker, scoreboard, clock, lower-third, and repeater recipes with portable standard OGraf output.
-- Added exact EBU R 95 3.5% action-safe / 5% title-safe overlays and deterministic **Fit to width**
-  text sizing shared by editor, capture, realtime playback, and non-realtime seeking.
-- Replaced the finite pasteboard with an infinite node-graph camera, plain-wheel zoom, middle-button
-  pan, hidden native scrollbars, and optional document-v21 **Dim outside canvas (18%)**.
-- Added depth-indented drag parenting and a counted ARIA Resources tree without changing paint order,
-  package resources, reusable-component behavior, or exported output.
-- Reworked timeline readability with full-height bordered color blocks, larger aligned diamonds,
-  property-level loop badges, readable expanded property rows, and sticky scroll headers.
-- Single-click now selects lifecycle/layer/property keys without seeking; double-click seeks, and a
-  drag threshold prevents pointer jitter from moving keys.
-- Unified editor typography, form/button contrast, frame-duration controls, panel dividers, and the
-  contextual Align/Distribute/Group toolbar. The verified baseline is 332 tests across 68 files.
+- Added a persistent Visual Studio-style docking workspace: panes can reorder, tab together, float,
+  dock at all four edges/corners, resize internally, close, and reopen through the Window menu.
+- Changed the canonical editable project extension to `.ogs` while retaining legacy `.ogeproj`
+  reads; browser and MCP saves now require `.ogs` and packaged `.ograf.zip` output is unchanged.
+- Added remote CORS-bounded project loading, a zoom-stable canvas center marker, Photoshop-style
+  layer visibility icons, and persistent editor-only layout preferences.
+- Made top-level timeline tracks neutral gray, assigned stable semantic property colors, hid inactive
+  compatibility tracks by default, and prevented frame-count/easing-label collisions.
+- Switched newly authored generic keys and lifecycle transitions to neutral Linear easing while
+  preserving explicit recipe/user/MCP easing and all migrated legacy motion.
+- Relicensed the complete project under the GNU Affero General Public License v3.0.
+- Raised the verified baseline to 363 tests across 75 files.
 
-See [the complete 0.06 release notes](docs/releases/0.06.md) for validation evidence and current
+See [the complete 0.07 release notes](docs/releases/0.07.md) for validation evidence and current
 boundaries.
 
 ## Highlights
@@ -45,6 +40,12 @@ boundaries.
   composition in Edit and OGraf Preview without changing the canvas alpha or exported graphic.
 - Independent per-property animation tracks, per-key easing and curves, local loops, and freely
   movable OGraf lifecycle Steps.
+- Timeline parent layers use one fixed summary colour, while Position X/Y, Width, Height, Rotation,
+  Alpha, origins, text stroke, blur, shadow values, and gradient-stop tracks use a stable semantic
+  colour palette across every object and project.
+- Expanded timeline layers show only properties that change, have an authored non-lifecycle key, or
+  own a local loop. **All** temporarily reveals every compatible property, while **+ Property**
+  reveals/selects a static property so its first authored key can be added without permanent clutter.
 - Timeline `∞` badges identify the Step where each layer-local loop activates, on both the global
   lifecycle marker and the matching layer key diamond.
 - Data fields with multiple independent property bindings per layer for text, images, colors, and
@@ -92,17 +93,39 @@ boundaries.
 
 ## File types
 
-| File                      | Purpose                            | How to open it                                                                                  |
-| ------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `.ogeproj`                | Editable OGraf Studio source       | **Open Project**                                                                                |
-| `.ograf.zip`              | Certified playout package          | **Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
-| Loose OGraf package files | Manifest, `main.js`, and resources | Select them together with **Import OGraf**                                                      |
-| SVG and raster images     | Reusable image assets              | **Resources → Import Image**                                                                    |
-| Lottie `.json`            | Looping vector animation layer     | **+ Lottie JSON** above the canvas                                                              |
+| File                      | Purpose                             | How to open it                                                                                  |
+| ------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `.ogs`                    | Editable OGraf Studio source        | **Open Project**                                                                                |
+| Remote `.ogs` URL         | Public/CORS-enabled editable source | **Open URL**                                                                                    |
+| `.ograf.zip`              | Certified playout package           | **Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
+| Loose OGraf package files | Manifest, `main.js`, and resources  | Select them together with **Import OGraf**                                                      |
+| SVG and raster images     | Reusable image assets               | **Resources → Import Image**                                                                    |
+| Lottie `.json`            | Looping vector animation layer      | **+ Lottie JSON** above the canvas                                                              |
 
-An `.ogeproj` file is not an OGraf manifest and should not be opened directly in an OGraf playout
+An `.ogs` file is not an OGraf manifest and should not be opened directly in an OGraf playout
 tool. A `.ograf.zip` is the deployable output, but arbitrary third-party JavaScript cannot always be
 reconstructed as editable layers. The import report lists everything recovered, defaulted, or lost.
+
+Opening remains backward-compatible with legacy `.ogeproj` and `.ogeproj.json` source files. New
+browser downloads, picker saves, reference templates, and MCP saves use `.ogs` exclusively.
+
+### Remote project URLs
+
+Use **Open URL** to download editable `.ogs` source from an absolute HTTP or HTTPS URL. OGraf
+Studio sends no credentials, follows only HTTP(S) redirects, limits the response to 32 MiB, parses
+and validates the source before loading, and asks before replacing the current project. The remote
+server must allow browser CORS access.
+
+A public GitHub repository is suitable storage. Use the raw-file URL, not the normal `/blob/` page:
+
+```text
+https://raw.githubusercontent.com/OWNER/REPOSITORY/main/path/project.ogs
+```
+
+Use a commit SHA instead of `main` when the URL must identify an immutable project revision. Public
+repositories expose the complete `.ogs`, including embedded image/font data and field defaults;
+do not store private content or credentials in them. Private GitHub raw URLs are not supported by
+the credential-free browser loader, although a CORS-enabled time-limited signed URL can work.
 
 ### SVG and Photoshop exports
 
@@ -207,7 +230,7 @@ Optional server-only settings are `OGRAF_AGENT_CHEAP_MODEL` for routine rename/p
 `OGRAF_AGENT_EFFORT` (`low`, `medium`, or `high`), `OGRAF_AGENT_ORGANIZATION`,
 `OGRAF_AGENT_PROJECT`, and `OGRAF_AGENT_CREDENTIAL_TARGET`. Restart the server after changing them.
 The panel reports per-message, per-session, and cumulative-per-project token usage; cumulative usage
-is browser-local metadata keyed by project ID and is deliberately excluded from `.ogeproj`.
+is browser-local metadata keyed by project ID and is deliberately excluded from `.ogs`.
 It also reports recent external MCP activity. An optional session-local exclusive toggle prevents
 the in-app and external agents from authoring at the same time; optimistic revision checks remain
 the normal default when that toggle is off.
@@ -267,7 +290,7 @@ Invoke it explicitly in Codex with a prompt such as:
 
 ```text
 $ograf-authoring create an editable 90-frame lower third with name and role fields,
-inspect its entrance and exit animation, certify it, and save the .ogeproj source.
+inspect its entrance and exit animation, certify it, and save the .ogs source.
 ```
 
 The expected workflow is:
@@ -297,7 +320,7 @@ result instead of manually constructing every layer, field, and keyframe.
 | Visual checking     | Often stops after code generation, a build, or one subjective browser view.                               | Uses operation previews, design/motion QA, frame strips, measurement, and representative data values.         |
 | Human control       | A visually consequential agent edit may be applied before anyone sees it.                                 | Can present a rendered, revision-checked proposal in OGraf Studio for explicit Accept or Reject.              |
 | OGraf compatibility | A valid-looking project or successful build may be mistaken for compliant output.                         | Treats validation and exact manifest/module/lifecycle certification as separate mandatory gates.              |
-| Save and export     | The agent may write raw JSON or assemble a ZIP outside the editor's safety boundary.                      | Uses certified `.ogeproj` save and `.ograf.zip` export tools only when the user requests file output.         |
+| Save and export     | The agent may write raw JSON or assemble a ZIP outside the editor's safety boundary.                      | Uses certified `.ogs` save and `.ograf.zip` export tools only when the user requests file output.             |
 | Undo and recovery   | Changes may require manual cleanup when a long prompt partly succeeds.                                    | Coherent atomic batches become meaningful agent undo units, with dry runs for risky changes.                  |
 | Speed profile       | Fast for rough experiments, but more prompt detail and rework are usually needed for production graphics. | Adds a short inspect/verify overhead, then reduces rediscovery, inconsistent edits, and compliance rework.    |
 | Best fit            | Exploring ideas, changing editor source code, or using an unsupported one-off workflow.                   | Repeatable, editable, data-driven OGraf authoring intended for certification and playout.                     |
@@ -309,7 +332,7 @@ OGraf result more deterministic.
 ## Can the editor run without a backend?
 
 Yes. The visual editor is a client-side application and can author, preview, import, certify, save
-`.ogeproj`, and export `.ograf.zip` files without the MCP server. Autosave uses browser storage, and
+`.ogs`, and export `.ograf.zip` files without the MCP server. Autosave uses browser storage, and
 explicit saves use the browser file picker or downloads.
 
 Without the MCP server you lose:
@@ -355,6 +378,13 @@ bundle so tests work in a fresh clone.
 See [docs/STATUS.md](docs/STATUS.md) for the current capability inventory,
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design invariants, and
 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) for active limitations.
+
+## License
+
+OGraf Studio is licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(`AGPL-3.0-only`). If you modify and operate it over a network, the AGPL requires offering the
+corresponding source code to users of that service. Review the full license text for the precise
+terms.
 
 ## Current limitations
 

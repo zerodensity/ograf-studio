@@ -555,6 +555,7 @@ export interface CompositionLayout {
   showRulers: boolean;
   showActionSafe: boolean;
   showTitleSafe: boolean;
+  showCenterMarker: boolean;
   dimOutsideCanvas: boolean;
   snappingEnabled: boolean;
   snapToGrid: boolean;

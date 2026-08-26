@@ -109,6 +109,8 @@ describe('migrateProject', () => {
     delete (textLayer as Omit<typeof textLayer, 'semantics'> & { semantics?: unknown }).semantics;
     delete (project.compositions[0]!.layout as Partial<(typeof project.compositions)[0]['layout']>)
       .dimOutsideCanvas;
+    delete (project.compositions[0]!.layout as Partial<(typeof project.compositions)[0]['layout']>)
+      .showCenterMarker;
     project.compositions[0]!.layers = [textLayer];
     project.documentVersion = 3;
 
@@ -125,7 +127,7 @@ describe('migrateProject', () => {
     });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(21);
+    expect(migrated.documentVersion).toBe(22);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -138,6 +140,7 @@ describe('migrateProject', () => {
     });
     expect(migrated.compositions[0]!.layout).toMatchObject({
       showRulers: true,
+      showCenterMarker: false,
       dimOutsideCanvas: false,
       snappingEnabled: true,
       boundsMode: 'allow',
@@ -179,7 +182,7 @@ describe('migrateProject', () => {
     expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
       { fieldId: 'headline-field', targetProperty: 'content', sourcePath: [] },
     ]);
-    expect(migrated.documentVersion).toBe(21);
+    expect(migrated.documentVersion).toBe(22);
   });
 
   it('backfills document-v13 typography without changing the authored font size', () => {
@@ -216,7 +219,7 @@ describe('migrateProject', () => {
       minFontSize: 20,
       overflowPolicy: 'visible',
     });
-    expect(migrated.documentVersion).toBe(21);
+    expect(migrated.documentVersion).toBe(22);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {
@@ -256,7 +259,7 @@ describe('migrateProject', () => {
     project.documentVersion = 16;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(21);
+    expect(migrated.documentVersion).toBe(22);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       key: 'headline',
       defaultValue: 'News',
@@ -275,7 +278,7 @@ describe('migrateProject', () => {
     project.documentVersion = 17;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(21);
+    expect(migrated.documentVersion).toBe(22);
     expect(migrated.compositions[0]!.layers[0]!.blendMode).toBe('normal');
   });
 
@@ -293,7 +296,7 @@ describe('migrateProject', () => {
     project.documentVersion = 18;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(21);
+    expect(migrated.documentVersion).toBe(22);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       properties: [],
       items: null,
@@ -331,7 +334,7 @@ describe('migrateProject', () => {
     const migratedLayer = migrated.compositions[0]!.layers[0]!;
     const migratedComponentLayer = migrated.compositions[0]!.components[0]!.layers[0]!;
 
-    expect(migrated.documentVersion).toBe(21);
+    expect(migrated.documentVersion).toBe(22);
     expect(migratedLayer.element).toMatchObject({
       type: 'text',
       strokeColor: 'transparent',

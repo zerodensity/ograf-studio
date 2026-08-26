@@ -1,6 +1,6 @@
 ---
 name: ograf-authoring
-description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, .ogeproj source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
+description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, .ogs source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
 ---
 
 # OGraf Authoring
@@ -79,7 +79,8 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 
 ## File and import boundaries
 
-- `.ogeproj` is editable source for this editor. It is not an OGraf manifest or a playout package.
+- `.ogs` is editable source for this editor. Legacy `.ogeproj` sources remain readable, but new
+  saves use `.ogs`. Project source is not an OGraf manifest or a playout package.
 - `.ograf.zip` is certified playout output. Existing packages can be converted through the visible
   editor's **Import OGraf** workflow, but arbitrary third-party JavaScript is opaque and conversion
   may be lossy. Preserve and report the editor's recovery/loss summary.
@@ -200,6 +201,8 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 - Treat `set_transition` warnings as actionable: duration changes can strand property keys at a
   moved lifecycle frame or outside the new duration. Retiming is never implicit.
 - Use `linear` when the user requests no easing.
+- Omitted easing on newly authored generic keys and transitions is linear. Recipes must specify any
+  intentional non-linear entrance, exit, update, or loop motion explicitly.
 - Preserve Start and End lifecycle states. Only Step states are pausable OGraf steps.
 - Do not encode editor-only automation or cross-timeline triggers into output. Compile only deterministic OGraf lifecycle, schedule, data, and animation behavior.
 - Use `ograf_undo` to reverse the last agent transaction. Direct browser edits retain their own browser history.

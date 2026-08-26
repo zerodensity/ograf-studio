@@ -33,6 +33,8 @@ import { EasingCurveEditor } from './EasingCurveEditor';
 import { buildTimelineEntries } from './timelineFolders';
 import { buildTimelineLoopBadges } from './timelineLoopBadges';
 import { isTimelineKeyDrag } from './timelinePointerIntent';
+import { meaningfulTimelineProperties } from './timelinePropertyVisibility';
+import { TIMELINE_LAYER_TRACK_COLOR, timelineTrackColorForProperty } from './timelineTrackColors';
 import './TimelinePanel.css';
 
 const DEFAULT_PX_PER_FRAME = 12;
@@ -72,12 +74,6 @@ function TransportIcon({ name }: { name: TransportIconName }) {
       )}
     </svg>
   );
-}
-
-function timelineColorForLayer(layerId: string): string {
-  let hash = 0;
-  for (const character of layerId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  return `hsl(${hash % 360} 78% 62%)`;
 }
 
 export function TimelinePanel({ style }: { style?: CSSProperties }) {
@@ -139,6 +135,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const [pixelsPerFrame, setPixelsPerFrame] = useState(DEFAULT_PX_PER_FRAME);
   const [trackScalePercent, setTrackScalePercent] = useState(100);
   const [expandedLayerIds, setExpandedLayerIds] = useState<Set<string>>(() => new Set());
+  const [showAllPropertyLayerIds, setShowAllPropertyLayerIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [revealedPropertyTracks, setRevealedPropertyTracks] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
   const [lifecycleDragPreview, setLifecycleDragPreview] = useState<{
     keyframeId: string;
@@ -151,6 +153,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const rulerLabelInterval = pixelsPerFrame >= 10 ? 5 : pixelsPerFrame >= 6 ? 10 : 20;
 
   const keyframeFrames = computeKeyframeFrames(composition);
+  const lifecycleFrameSet = new Set(keyframeFrames.map((item) => item.frame));
   const loopBadges = buildTimelineLoopBadges(composition);
   const loopBadgeByLayerId = new Map(loopBadges.map((badge) => [badge.layerId, badge]));
   const displayedKeyframeFrames = keyframeFrames.map((item) =>
@@ -180,6 +183,36 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const folderLayerIds = new Set(
     composition.layout.timelineFolders.flatMap((folder) => folder.layerIds),
   );
+
+  const propertyTrackKey = (layerId: string, property: AnimatableLayerProperty) =>
+    `${layerId}:${property}`;
+  const visiblePropertiesForLayer = (layer: (typeof composition.layers)[number]) => {
+    const allProperties = getLayerAnimatableProperties(layer);
+    if (showAllPropertyLayerIds.has(layer.id)) return allProperties;
+    const meaningful = new Set(meaningfulTimelineProperties(layer, lifecycleFrameSet));
+    return allProperties.filter(
+      (property) =>
+        meaningful.has(property) ||
+        revealedPropertyTracks.has(propertyTrackKey(layer.id, property)) ||
+        (selectedLayerId === layer.id && selectedLayerProperty === property),
+    );
+  };
+
+  const toggleAllProperties = (layerId: string) =>
+    setShowAllPropertyLayerIds((current) => {
+      const next = new Set(current);
+      if (next.has(layerId)) next.delete(layerId);
+      else next.add(layerId);
+      return next;
+    });
+
+  const addVisiblePropertyTrack = (layerId: string, property: AnimatableLayerProperty) => {
+    setRevealedPropertyTracks((current) =>
+      new Set(current).add(propertyTrackKey(layerId, property)),
+    );
+    const keyframeId = addLayerPropertyKeyframe(layerId, property, displayedFrame);
+    selectLayerKeyframe(layerId, keyframeId, property);
+  };
 
   const [editingKeyframeId, setEditingKeyframeId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -721,7 +754,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         aria-expanded={!collapsed}
                         onClick={() => toggleFolderCollapsed(folder.id)}
                       >
-                        {collapsed ? '▸' : '▾'}
+                        {collapsed ? '+' : '-'}
                       </button>
                       {editingFolderId === folder.id ? (
                         <input
@@ -759,8 +792,13 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 }
                 const { layer } = entry;
                 const expanded = expandedLayerIds.has(layer.id);
+                const allProperties = getLayerAnimatableProperties(layer);
+                const visibleProperties = visiblePropertiesForLayer(layer);
+                const hiddenProperties = allProperties.filter(
+                  (property) => !visibleProperties.includes(property),
+                );
                 const style = {
-                  '--layer-color': timelineColorForLayer(layer.id),
+                  '--layer-color': TIMELINE_LAYER_TRACK_COLOR,
                 } as LayerColorStyle;
                 return [
                   <div
@@ -776,7 +814,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       aria-expanded={expanded}
                       onClick={() => toggleLayerExpanded(layer.id)}
                     >
-                      {expanded ? '▾' : '▸'}
+                      {expanded ? '-' : '+'}
                     </button>
                     <button
                       type="button"
@@ -792,14 +830,58 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       <span className="timeline-layer-color" />
                       <span className="timeline-layer-name">{layer.name}</span>
                     </button>
+                    {expanded && (
+                      <div className="timeline-property-visibility-controls">
+                        <select
+                          className="timeline-property-add"
+                          aria-label={`Add property track for ${layer.name}`}
+                          title="Add property track"
+                          value=""
+                          disabled={layer.isLocked || hiddenProperties.length === 0}
+                          onChange={(event) =>
+                            addVisiblePropertyTrack(
+                              layer.id,
+                              event.target.value as AnimatableLayerProperty,
+                            )
+                          }
+                        >
+                          <option value="" disabled>
+                            +
+                          </option>
+                          {hiddenProperties.map((property) => (
+                            <option key={property} value={property}>
+                              {animatablePropertyLabel(property)}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="timeline-show-all-properties"
+                          aria-label={`${showAllPropertyLayerIds.has(layer.id) ? 'Show active' : 'Show all'} properties for ${layer.name}`}
+                          aria-pressed={showAllPropertyLayerIds.has(layer.id)}
+                          title={
+                            showAllPropertyLayerIds.has(layer.id)
+                              ? 'Show meaningful and added properties only'
+                              : 'Show all compatible properties'
+                          }
+                          onClick={() => toggleAllProperties(layer.id)}
+                        >
+                          {showAllPropertyLayerIds.has(layer.id) ? 'Active' : 'All'}
+                        </button>
+                      </div>
+                    )}
                   </div>,
                   ...(expanded
-                    ? getLayerAnimatableProperties(layer).map((property) => (
+                    ? visibleProperties.map((property) => (
                         <button
                           type="button"
                           className={`timeline-property-gutter-row${selectedLayerId === layer.id && selectedLayerProperty === property ? ' selected' : ''}`}
                           key={`${layer.id}:${property}`}
-                          style={style}
+                          style={
+                            {
+                              '--layer-color': timelineTrackColorForProperty(property),
+                            } as LayerColorStyle
+                          }
                           onClick={() => {
                             const keys = getResolvedLayerAnimationTracks(layer)[property] ?? [];
                             const nearest = [...keys].sort(
@@ -970,7 +1052,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 }
                 const { layer } = entry;
                 const layerColorStyle = {
-                  '--layer-color': timelineColorForLayer(layer.id),
+                  '--layer-color': TIMELINE_LAYER_TRACK_COLOR,
                 } as LayerColorStyle;
                 const layerLoopBadge = loopBadgeByLayerId.get(layer.id);
                 const orderedKeys = [...layer.keyframes].sort((a, b) => a.frame - b.frame);
@@ -1004,17 +1086,20 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           }}
                           title={`${layer.name} · ${fromKeyframe.frame}–${toKeyframe.frame} · ${spanFrames} frames · ${easingLabel(toKeyframe.easing)}`}
                         >
-                          {spanFrames >= 4 && (
-                            <span className="timeline-layer-span-label">{spanFrames}f</span>
-                          )}
-                          {toKeyframe.easing !== 'linear' && spanFrames * pixelsPerFrame >= 42 && (
-                            <span className="timeline-layer-span-easing">
-                              ∿
-                              {spanFrames * pixelsPerFrame >= 105
-                                ? ` ${easingLabel(toKeyframe.easing)}`
-                                : ''}
-                            </span>
-                          )}
+                          <span className="timeline-layer-span-metadata">
+                            {spanFrames >= 4 && (
+                              <span className="timeline-layer-span-label">{spanFrames}f</span>
+                            )}
+                            {toKeyframe.easing !== 'linear' &&
+                              spanFrames * pixelsPerFrame >= 42 && (
+                                <span className="timeline-layer-span-easing">
+                                  ∿
+                                  {spanFrames * pixelsPerFrame >= 105
+                                    ? ` ${easingLabel(toKeyframe.easing)}`
+                                    : ''}
+                                </span>
+                              )}
+                          </span>
                         </div>
                       );
                     })}
@@ -1078,7 +1163,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 );
                 if (!expandedLayerIds.has(layer.id)) return [layerRow];
                 const tracks = getResolvedLayerAnimationTracks(layer);
-                const propertyRows = getLayerAnimatableProperties(layer).map((property) => {
+                const propertyRows = visiblePropertiesForLayer(layer).map((property) => {
                   const propertyKeys = [...(tracks[property] ?? [])].sort(
                     (a, b) => a.frame - b.frame,
                   );
@@ -1093,7 +1178,11 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                     <div
                       className={`timeline-track timeline-property-track${selectedLayerId === layer.id && selectedLayerProperty === property ? ' selected' : ''}`}
                       key={`${layer.id}:${property}`}
-                      style={layerColorStyle}
+                      style={
+                        {
+                          '--layer-color': timelineTrackColorForProperty(property),
+                        } as LayerColorStyle
+                      }
                       onPointerDown={() => {
                         selectLayer(layer.id);
                       }}

@@ -39,7 +39,10 @@ let registrationCounter = 0;
  * called twice for the same name, and there's no way to update an already-defined element's class).
  */
 export function registerGraphicElement(descriptor: CompiledGraphicDescriptor): string {
-  const tagName = `ograf-preview-graphic-${registrationCounter++}`;
+  let tagName: string;
+  do {
+    tagName = `ograf-preview-graphic-${registrationCounter++}`;
+  } while (customElements.get(tagName));
   customElements.define(tagName, createGraphicClass(descriptor));
   return tagName;
 }

@@ -10,6 +10,7 @@ import {
   createTransition,
   defaultValueForFieldType,
   getResolvedLayerAnimationTracks,
+  isProjectSourcePath,
   type Element,
   type FieldDefinition,
   type FieldType,
@@ -608,7 +609,7 @@ function addManifestValidationWarnings(manifest: OGrafManifest, warnings: string
 }
 
 function importEmbeddedProject(entries: Map<string, Uint8Array>): Project | null {
-  const candidates = [...entries.keys()].filter((path) => /\.ogeproj(?:\.json)?$/i.test(path));
+  const candidates = [...entries.keys()].filter((path) => isProjectSourcePath(path));
   for (const path of candidates) {
     try {
       const parsed: unknown = JSON.parse(decodeText(entries.get(path)!));
@@ -890,7 +891,7 @@ async function importEntries(entries: Map<string, Uint8Array>): Promise<OgrafImp
   const embedded = importEmbeddedProject(entries);
   if (embedded) {
     warnings.push(
-      'The package contained editable .ogeproj source; it was preferred over reverse conversion.',
+      'The package contained editable .ogs source; it was preferred over reverse conversion.',
     );
     return finalizeImport({
       project: embedded,

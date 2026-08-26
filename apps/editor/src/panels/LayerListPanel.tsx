@@ -12,6 +12,19 @@ import {
 } from './layerListHierarchy';
 import './LayerListPanel.css';
 
+function LayerVisibilityIcon({ visible }: { visible: boolean }) {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      <path
+        className="layer-visibility-eye"
+        d="M1.7 9c1.45-2.55 4.05-4.25 7.3-4.25s5.85 1.7 7.3 4.25c-1.45 2.55-4.05 4.25-7.3 4.25S3.15 11.55 1.7 9Z"
+      />
+      <circle className="layer-visibility-pupil" cx="9" cy="9" r="2.35" />
+      {!visible && <path className="layer-visibility-slash" d="M3 3 15 15" />}
+    </svg>
+  );
+}
+
 export function LayerListPanel() {
   const composition = useActiveComposition();
   const toggleLayerVisibility = useProjectStore((s) => s.toggleLayerVisibility);
@@ -131,14 +144,15 @@ export function LayerListPanel() {
                   </span>
                   <button
                     type="button"
-                    className="layer-list-icon-btn"
+                    className={`layer-list-icon-btn layer-list-visibility-btn${layer.isVisible ? ' is-visible' : ''}`}
                     title={layer.isVisible ? 'Hide layer' : 'Show layer'}
+                    aria-label={layer.isVisible ? 'Hide layer' : 'Show layer'}
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleLayerVisibility(layer.id);
                     }}
                   >
-                    {layer.isVisible ? '◉' : '○'}
+                    <LayerVisibilityIcon visible={layer.isVisible} />
                   </button>
                   <span
                     className="layer-list-name"

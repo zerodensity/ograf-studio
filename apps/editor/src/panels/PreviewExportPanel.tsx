@@ -772,7 +772,7 @@ export function PreviewExportPanel() {
             </button>
           </div>
           <p className="panel-placeholder">
-            The .ogeproj file is editable source, not an OGraf manifest. Extract the .ograf.zip and
+            The .ogs file is editable source, not an OGraf manifest. Extract the .ograf.zip and
             select that folder in ograf-devtool.
           </p>
           {exportStatus && <p className="preview-export-status">{exportStatus}</p>}

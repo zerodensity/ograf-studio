@@ -25,4 +25,5 @@ export * from './designQa';
 export * from './motionPresets';
 export * from './blendModes';
 export * from './fieldSchema';
+export * from './projectSource';
 export { createId } from './id';

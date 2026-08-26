@@ -379,7 +379,7 @@ function upsertPropertyKeyframe(
   property: AnimatableLayerProperty,
   frame: number,
   value: number,
-  easing: EasingPreset = 'ease-in-out',
+  easing: EasingPreset = 'linear',
 ): LayerPropertyKeyframe {
   materializeAnimationTracks(layer);
   const track = layer.animationTracks[property] ?? [];
@@ -427,7 +427,7 @@ function writeLayerTransformAtFrame(
 ): void {
   const roundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
   let keyframe = findLayerKeyframeAtFrame(layer, roundedFrame);
-  const easing = keyframe?.easing ?? 'ease-in-out';
+  const easing = keyframe?.easing ?? 'linear';
   if (!keyframe) {
     keyframe = createLayerKeyframe(roundedFrame, getLayerTransformAtFrame(layer, roundedFrame));
     layer.keyframes.push(keyframe);
@@ -604,7 +604,7 @@ export const useProjectStore = create<ProjectStore>()(
                   easing:
                     composition.transitions.find(
                       (transition) => transition.toKeyframeId === keyframe.id,
-                    )?.easing ?? 'ease-in-out',
+                    )?.easing ?? 'linear',
                 },
               ),
             );
@@ -1788,7 +1788,7 @@ export const useProjectStore = create<ProjectStore>()(
             composition.transitions.push(
               createTransition(previousKeyframe.id, nextKeyframe.id, {
                 durationFrames: (inbound?.durationFrames ?? 0) + (outbound?.durationFrames ?? 0),
-                easing: outbound?.easing ?? inbound?.easing ?? 'ease-in-out',
+                easing: outbound?.easing ?? inbound?.easing ?? 'linear',
               }),
             );
           }

@@ -21,6 +21,10 @@ describe('project store independent layer timelines', () => {
     const first = composition.layers.find((layer) => layer.id === firstId)!;
     const second = composition.layers.find((layer) => layer.id === secondId)!;
     expect(first.keyframes.find((keyframe) => keyframe.id === keyframeId)?.transform.x).toBe(777);
+    expect(first.keyframes.find((keyframe) => keyframe.id === keyframeId)?.easing).toBe('linear');
+    expect(first.animationTracks.x?.find((keyframe) => keyframe.frame === 7)?.easing).toBe(
+      'linear',
+    );
     expect(getLayerTransformAtFrame(first, 7).x).toBe(777);
     expect(second.keyframes.map((keyframe) => keyframe.frame)).toEqual(secondFramesBefore);
   });
