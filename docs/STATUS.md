@@ -1,8 +1,8 @@
 # Current Status
 
-Last verified: 2026-08-26
+Last verified: 2026-08-27
 
-Current release: **OGraf Studio 0.07**
+Current release: **OGraf Studio 0.08**
 
 ## Current milestone
 
@@ -37,7 +37,20 @@ AI-first broadcast authoring and OGraf compliance hardening.
   out-of-process guidance, and the 9,000-token budget now fail verification.
   External MCP request activity is visible in Chat, and an optional session-local exclusive lock
   prevents either agent front door from starting while the other is active.
-- Layers, Chat, Resources, Inspector, Data, Preview & Export, and Timeline now participate in an
+  Active turns now expose an always-visible progress strip with phase, provider/model wait, tool
+  summary, model round, elapsed time, animated activity, and delayed-turn guidance. The server emits
+  progress at every provider round and enforces a configurable provider wait timeout (120 seconds by
+  default); timeout or bridge disconnect clears busy state with an actionable transcript error.
+  Conversation history is keyed by project ID, bounded to 96,000 characters of complete message/tool
+  units, and stores at most 16,000 characters per tool result. New/opened projects no longer inherit
+  another project's context; a first-round provider context-limit rejection automatically retries
+  once with only the current project turn.
+  Current canvas/Layers/Timeline selection automatically produces visible **selected** reference
+  chips in Chat, including primary property/key detail and live multi-selection updates. Layer rows
+  also expose a typed copy drag payload for adding removable references outside selection. Combined
+  references send stable IDs/names/element types in ambient context and override ordinary selection
+  for that prompt. Locked layers remain reference-draggable without becoming reorderable.
+- Layers, Chat, Resources, Properties, Data, Preview & Export, and Timeline now participate in an
   editor-local docking workspace around the fixed canvas. Pane tabs can be dragged onto visible
   left/right/top/bottom hints, dropped onto another tab bar to form a tab stack, or double-clicked
   into movable/resizable floating windows. Floating headers provide drag-to-dock and keyboard-safe
@@ -88,7 +101,7 @@ AI-first broadcast authoring and OGraf compliance hardening.
   composition offset from embedded plate assets, while unmatched images retain intrinsic dimensions
   instead of stretching to the full frame.
 - React/Vite visual editor with DOM-based canvas, timeline, data fields, preview, and ZIP export.
-- Document v11 supports multiple independent data bindings on one layer. The Inspector adds,
+- Document v11 supports multiple independent data bindings on one layer. Properties adds,
   retargets, and removes binding rows; compiler/runtime/capture apply the ordered list, validation
   rejects duplicate target properties, MCP exposes `set_layer_bindings`, and v10 sources migrate
   their singular binding automatically.
@@ -121,7 +134,7 @@ AI-first broadcast authoring and OGraf compliance hardening.
   typed MCP operations preserve it, and official-schema validation/certification remain mandatory.
   A disposable schema exercising text limits, select/select-multiple, duration, percentage, and
   file-path controls passed all five exact dual-mode certification gates.
-- Document v18 adds static layer blend modes across the Inspector, migration, validation,
+- Document v18 adds static layer blend modes across Properties, migration, validation,
   compiler/runtime, OGraf import, browser capture, approximate SVG review, authoring operations, and
   typed MCP discovery. The composition root is explicitly isolated: multiply, screen, overlay,
   darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, and exclusion blend
@@ -135,17 +148,28 @@ AI-first broadcast authoring and OGraf compliance hardening.
   `goToTime()` seeking.
 - Document v20 adds broadcast text outlines end to end. Text carries editable `strokeColor` and a
   non-negative independently animatable `strokeWidth`; migration backfills transparent/zero values
-  on normal layers and reusable-component snapshots. Inspector, Brand Kits, MCP operations,
+  on normal layers and reusable-component snapshots. Properties, Brand Kits, MCP operations,
   deterministic lifecycle/local-loop sampling, SVG diagnostics, browser capture, and exported
   runtime all share the same outline painted behind the glyph fill.
-- Document v21 adds the optional **Dim outside canvas (18%)** layout preference. Edit and main OGraf
-  Preview place a pointer-transparent `#121212` veil at 18% opacity outside the moving/zoomed
+- Document v21 adds the optional **Outside canvas · 20% gray** layout preference. Edit and main
+  OGraf Preview place a pointer-transparent, fully opaque `#333333` fill outside the moving/zoomed
   composition rectangle. The actual canvas, composition capture, runtime descriptor,
   certification, and exported transparency remain unchanged; migration defaults existing projects
   off.
 - Document v22 adds an optional **Center marker** Canvas Layout preference. Edit mode draws a
   zoom-stable cross at the exact composition centre; the marker is editor-only, defaults off, and
   remains excluded from capture, certification, runtime descriptors, and exported graphics.
+- New compositions default to an opaque `#000000` background with the solid 20% gray outside-canvas
+  fill enabled. Both controls remain editable, and migration/import continues preserving every
+  existing project's explicit background and dimmer values.
+- Document v23 adds `layout.presentationBackground`. Canvas Layout can select a muted, autoplaying,
+  looping Big Buck Bunny HTML video behind both Edit and OGraf Preview. The remote 30-second sample
+  appears only through transparent pixels and stays outside compilation, capture, certification, and
+  export. Migration defaults existing projects to `none`.
+- Document v25 adds a **Still image** presentation background. Canvas Layout accepts an image URL or
+  embeds a locally selected image up to 10 MiB in `.ogs`; both Edit and OGraf Preview render it with
+  cover fitting behind transparent composition pixels. The image source remains excluded from
+  compilation, capture, certification, and export, and older projects migrate with an empty source.
 - Semantic layer metadata supports meaningful roles, normalized tags, and intent descriptions. It
   drives compact MCP queries, deterministic QA, and authoring recipes while remaining excluded from
   compiled output. The lower-third recipe creates four grouped layers/two editable fields with a
@@ -171,7 +195,7 @@ AI-first broadcast authoring and OGraf compliance hardening.
 - Document v10 adds self-contained Lottie JSON layers rendered by a bundled light canvas player.
   Lottie frame phase is derived from absolute elapsed/composition time, so editor scrubbing,
   realtime playback, scheduled non-realtime playback, and `goToTime()` use one deterministic loop
-  rule. The canvas toolbar imports compatible JSON, the Inspector replaces it and controls speed,
+  rule. The canvas toolbar imports compatible JSON, Properties replaces it and controls speed,
   OGraf import reconstructs editor-generated Lottie layers, project/export validation rejects
   missing documents and external image/font paths, expressions are disabled, and MCP advertises
   the new element schema.
@@ -197,8 +221,12 @@ AI-first broadcast authoring and OGraf compliance hardening.
 - ZIP resource extraction/deduplication and truthful internet requirements.
 - Independent per-layer transform timelines on a shared frame ruler, with free add/move/remove,
   per-key easing, canvas auto-keying, and v2 → v3 migration.
-- Live Inspector transform values during canvas drag, resize, and rotation gestures, with a single
+- Live Properties transform values during canvas drag, resize, and rotation gestures, with a single
   authored/history commit when the pointer is released.
+- The top **Edit** menu now exposes Undo (`Ctrl/Cmd+Z`), Redo (`Ctrl/Cmd+Shift+Z` and `Ctrl+Y`), and
+  a scrollable 50-action history display. History is reactive even during the 500 ms edit debounce,
+  labels common layer/property/timeline/layout changes, and can jump backward or forward across
+  multiple actions without creating a second undo stack.
 - Timeline parent layers share one fixed neutral-gray summary colour instead of ID-hashed random hues. Expanded
   properties use a stable semantic palette: Position X/Y, Width, Height, Rotation, Alpha, origins,
   text stroke, blur, shadow values, and indexed gradient stops retain the same colour across every
@@ -263,10 +291,10 @@ AI-first broadcast authoring and OGraf compliance hardening.
   values resolve to browser-loadable data URIs before reaching a Graphic instance. Data-bound image
   defaults and gradient/color defaults therefore render identically across all three surfaces.
 - Authored X/Y/width/height values snap to whole composition pixels across canvas gestures,
-  Inspector edits, inserted keys, and project loading. Rotation, alpha, origins, and evaluated
-  between-key animation remain subpixel-precise; the Inspector labels evaluated values separately.
+  Properties edits, inserted keys, and project loading. Rotation, alpha, origins, and evaluated
+  between-key animation remain subpixel-precise; Properties labels evaluated values separately.
 - Timeline gutter layer names are keyboard-accessible selection buttons. Clicking a name selects the
-  matching canvas object and Inspector target while clearing a prior keyframe-only selection.
+  matching canvas object and Properties target while clearing a prior keyframe-only selection.
 - The Layers panel removes the parent-arrow prefix and indents names by full parent-chain depth while
   retaining true paint order. Native drag-and-drop uses the target row centre for parenting and its
   upper/lower quarters for before/after reordering, with distinct feedback and cycle rejection.
@@ -300,7 +328,7 @@ AI-first broadcast authoring and OGraf compliance hardening.
   animated-stroke, or font-load changes. Its measurement probe is isolated from canvas zoom and
   layer transforms, preventing editor-only oversizing while preserving runtime pixels.
 - Every layer supports deterministic CSS blur and drop-shadow styling shared by Stage, Preview, and
-  exported runtime. Shadow color, alpha, offsets, and softness are editable in the Inspector.
+  exported runtime. Shadow color, alpha, offsets, and softness are editable in Properties.
 - Timeline zoom changes only horizontal pixels per frame from 33% to 267%; track height stays fixed.
   Non-linear spans show a gradient and curve badge with the easing name, while linear interpolation
   is explicitly labeled `None (Linear)`.
@@ -391,7 +419,7 @@ AI-first broadcast authoring and OGraf compliance hardening.
   frame. Persistent groups survive save/load, can be created or dissolved from the canvas context
   menu, and select/move/resize/rotate through a distinct violet group overlay as one unit while
   remaining normal independent OGraf layers. Canvas, Layers, and timeline Ctrl/Command selection
-  consistently toggle a complete persistent group. Locked layers reject canvas, Inspector,
+  consistently toggle a complete persistent group. Locked layers reject canvas, Properties,
   timeline, and MCP edits.
 - Parent/child relationships cascade authored parent translations into descendant tracks, and
   horizontal/vertical responsive constraints are baked across every relevant animation key when
@@ -489,7 +517,7 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-08-26, including generated MCP contract and in-app prompt drift,
-  format, lint, all workspace typechecks, 363 tests across 75 files, the runtime bundle, and the editor production
+  format, lint, all workspace typechecks, 370 tests across 76 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
 - The 328-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,

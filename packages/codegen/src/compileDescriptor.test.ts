@@ -60,6 +60,10 @@ describe('compileDescriptor', () => {
     const composition = compositionWith([parent, child]);
     composition.layout.showTitleSafe = true;
     composition.layout.dimOutsideCanvas = true;
+    composition.layout.presentationBackground = 'still-image';
+    composition.layout.presentationBackgroundImageSource =
+      'data:image/png;base64,editor-only-presentation-image';
+    composition.layout.presentationBackgroundImageName = 'background.png';
     composition.layout.guides.push({ id: 'guide-v', axis: 'vertical', position: 960 });
     composition.layout.timelineFolders.push({
       id: 'folder-day-one',
@@ -82,6 +86,9 @@ describe('compileDescriptor', () => {
     expect(serialized).not.toContain('constraints');
     expect(serialized).not.toContain('showTitleSafe');
     expect(serialized).not.toContain('dimOutsideCanvas');
+    expect(serialized).not.toContain('presentationBackground');
+    expect(serialized).not.toContain('editor-only-presentation-image');
+    expect(serialized).not.toContain('background.png');
     expect(serialized).not.toContain('guide-v');
     expect(serialized).not.toContain('folder-day-one');
     expect(serialized).not.toContain('component-lower-third');

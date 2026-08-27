@@ -8,7 +8,15 @@ import {
 } from '@ograf-editor/agent-tools';
 import { loadAgentProviderConfig, redactProviderError } from './config';
 import { createProviderAdapter, supportsAmbientSystemMessage } from './providerAdapters';
-import type { AgentMessage, AgentUsage, ChatAmbientContext, ChatServerEvent } from './types';
+import type {
+  AgentMessage,
+  AgentUsage,
+  ChatAmbientContext,
+  ChatServerEvent,
+  ProviderAdapter,
+  ProviderCompletion,
+  ProviderRequest,
+} from './types';
 
 export interface ChatSendMessage {
   type: 'chat.send';
@@ -45,12 +53,104 @@ export function buildTurnMessages(
   return [{ role: 'user', content: `[Current OGraf Studio state: ${context}]\n\n${text}` }];
 }
 
-function toolResultContent(result: unknown): string {
+const MAX_TOOL_RESULT_CHARS = 16_000;
+const MAX_HISTORY_CHARS = 96_000;
+
+export function toolResultContent(result: unknown): string {
+  let content: string;
   if (result && typeof result === 'object') {
     const record = result as Record<string, unknown>;
-    if (record.structuredContent !== undefined) return JSON.stringify(record.structuredContent);
+    if (record.structuredContent !== undefined) content = JSON.stringify(record.structuredContent);
+    else content = JSON.stringify(result);
+  } else {
+    content = JSON.stringify(result ?? null);
   }
-  return JSON.stringify(result ?? null);
+  return content.length <= MAX_TOOL_RESULT_CHARS
+    ? content
+    : `${content.slice(0, MAX_TOOL_RESULT_CHARS)}\n[Tool result truncated for chat context safety]`;
+}
+
+function messageChars(message: AgentMessage): number {
+  return JSON.stringify(message).length;
+}
+
+function atomicHistoryUnits(messages: AgentMessage[]): AgentMessage[][] {
+  const units: AgentMessage[][] = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]!;
+    const unit = [message];
+    if (message.role === 'assistant' && message.toolCalls?.length) {
+      while (messages[index + 1]?.role === 'tool') unit.push(messages[++index]!);
+    }
+    units.push(unit);
+  }
+  return units;
+}
+
+function historyTurns(messages: AgentMessage[]): AgentMessage[][][] {
+  const turns: AgentMessage[][][] = [];
+  let current: AgentMessage[][] = [];
+  for (const unit of atomicHistoryUnits(messages)) {
+    const role = unit[0]!.role;
+    if (
+      (role === 'system' || role === 'user') &&
+      current.some((entry) => entry[0]!.role === 'user')
+    ) {
+      turns.push(current);
+      current = [];
+    }
+    current.push(unit);
+  }
+  if (current.length) turns.push(current);
+  return turns;
+}
+
+function unitChars(unit: AgentMessage[]): number {
+  return unit.reduce((total, message) => total + messageChars(message), 0);
+}
+
+function trimLatestTurn(units: AgentMessage[][], budget: number): AgentMessage[][] {
+  const required = new Set<number>();
+  const userIndex = units.findIndex((unit) => unit[0]!.role === 'user');
+  if (userIndex >= 0) {
+    required.add(userIndex);
+    if (userIndex > 0 && units[userIndex - 1]![0]!.role === 'system') required.add(userIndex - 1);
+  }
+  const selected = new Set(required);
+  let used = [...required].reduce((total, index) => total + unitChars(units[index]!), 0);
+  for (let index = units.length - 1; index >= 0; index -= 1) {
+    if (selected.has(index)) continue;
+    const size = unitChars(units[index]!);
+    if (used + size > budget) continue;
+    selected.add(index);
+    used += size;
+  }
+  return units.filter((_unit, index) => selected.has(index));
+}
+
+export function compactChatHistory(
+  messages: AgentMessage[],
+  budget = MAX_HISTORY_CHARS,
+): AgentMessage[] {
+  const turns = historyTurns(messages);
+  if (!turns.length) return [];
+  const latest = trimLatestTurn(turns.at(-1)!, budget);
+  const selected: AgentMessage[][][] = [latest];
+  let used = latest.reduce((total, unit) => total + unitChars(unit), 0);
+  for (let index = turns.length - 2; index >= 0; index -= 1) {
+    const turn = turns[index]!;
+    const size = turn.reduce((total, unit) => total + unitChars(unit), 0);
+    if (used + size > budget) continue;
+    selected.unshift(turn);
+    used += size;
+  }
+  return selected.flat(2);
+}
+
+function isPromptTooLongError(error: unknown): boolean {
+  return /prompt is too long|maximum context|context length/i.test(
+    error instanceof Error ? error.message : String(error),
+  );
 }
 
 function proposalId(result: unknown): string | null {
@@ -80,6 +180,44 @@ function isTrivialAuthoringRequest(text: string): boolean {
   return /^(?:please\s+)?(?:rename|set|change|move|resize|hide|show|lock|unlock|add (?:a )?key)\b/i.test(
     text.trim(),
   );
+}
+
+const DEFAULT_PROVIDER_TIMEOUT_MS = 120_000;
+
+function providerTimeoutMs(): number {
+  const configured = Number(process.env.OGRAF_AGENT_TIMEOUT_MS);
+  return Number.isFinite(configured)
+    ? Math.max(100, Math.min(600_000, Math.round(configured)))
+    : DEFAULT_PROVIDER_TIMEOUT_MS;
+}
+
+async function completeWithTimeout(
+  adapter: ProviderAdapter,
+  request: ProviderRequest,
+  timeoutMs: number,
+): Promise<ProviderCompletion> {
+  const requestController = new AbortController();
+  let timedOut = false;
+  const relayAbort = () => requestController.abort();
+  if (request.signal.aborted) relayAbort();
+  else request.signal.addEventListener('abort', relayAbort, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    requestController.abort();
+  }, timeoutMs);
+  try {
+    return await adapter.complete({ ...request, signal: requestController.signal });
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(
+        `The model provider did not respond within ${Math.round(timeoutMs / 1_000)} seconds. Check provider status/network access, then retry.`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    request.signal.removeEventListener('abort', relayAbort);
+  }
 }
 
 export class ChatAgentController {
@@ -181,20 +319,58 @@ export class ChatAgentController {
       config.cheapModel && isTrivialAuthoringRequest(message.text)
         ? config.cheapModel
         : config.model;
-    history.push(...buildTurnMessages(selectedModel, message.text.trim(), message.ambient));
+    const turnMessages = buildTurnMessages(selectedModel, message.text.trim(), message.ambient);
+    history.push(...turnMessages);
     const usage: AgentUsage = { input: 0, output: 0, cacheRead: 0 };
+    const requestTimeoutMs = providerTimeoutMs();
     let stopReason = 'stop';
     try {
       const adapter = createProviderAdapter(config);
       for (let round = 0; round < 12; round += 1) {
         if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-        const completion = await adapter.complete({
-          system: IN_APP_SYSTEM_PROMPT,
-          model: selectedModel,
-          messages: history,
-          tools: providerToolDefinitions(this.#tools),
-          signal: controller.signal,
+        this.emit({
+          type: 'chat.progress',
+          turnId: message.turnId,
+          phase: round === 0 ? 'waiting' : 'continuing',
+          message:
+            round === 0
+              ? `Waiting for ${config.provider} · ${selectedModel}`
+              : `Waiting for ${selectedModel} to review tool results`,
+          round: round + 1,
         });
+        const complete = () =>
+          completeWithTimeout(
+            adapter,
+            {
+              system: IN_APP_SYSTEM_PROMPT,
+              model: selectedModel,
+              messages: compactChatHistory(history),
+              tools: providerToolDefinitions(this.#tools),
+              signal: controller.signal,
+            },
+            requestTimeoutMs,
+          );
+        let completion: ProviderCompletion;
+        try {
+          completion = await complete();
+        } catch (error) {
+          if (
+            round !== 0 ||
+            !isPromptTooLongError(error) ||
+            history.length <= turnMessages.length
+          ) {
+            throw error;
+          }
+          history.splice(0, history.length, ...turnMessages);
+          this.emit({
+            type: 'chat.progress',
+            turnId: message.turnId,
+            phase: 'waiting',
+            message: 'Conversation context was full; retrying with a fresh project conversation',
+            round: 1,
+          });
+          completion = await complete();
+        }
         usage.input += completion.usage.input;
         usage.output += completion.usage.output;
         usage.cacheRead += completion.usage.cacheRead;
@@ -263,7 +439,13 @@ export class ChatAgentController {
           }
         }
       }
-      this.#histories.set(message.sessionId, history.slice(-80));
+      this.#histories.delete(message.sessionId);
+      this.#histories.set(message.sessionId, compactChatHistory(history));
+      while (this.#histories.size > 20) {
+        const oldest = this.#histories.keys().next().value;
+        if (oldest === undefined) break;
+        this.#histories.delete(oldest);
+      }
       this.emit({ type: 'chat.turn.end', turnId: message.turnId, stopReason, usage });
     } catch (error) {
       const cancelled =

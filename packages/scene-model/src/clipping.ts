@@ -1,4 +1,5 @@
 import type { LayerTransform } from './types';
+import { clampCornerRadii, type CornerRadiiInput } from './cornerRadii';
 
 export interface GeometryPoint {
   x: number;
@@ -58,24 +59,24 @@ function parentPointInChild(
 export function clipPathSvgForParentBounds(
   child: LayerTransform,
   parent: LayerTransform,
-  borderRadius = 0,
+  borderRadius: CornerRadiiInput = 0,
 ): string {
-  const radius = Math.max(0, Math.min(borderRadius, parent.width / 2, parent.height / 2));
+  const radius = clampCornerRadii(borderRadius, parent.width, parent.height);
   const convert = (x: number, y: number) => parentPointInChild({ x, y }, child, parent);
-  const topLeftStart = convert(radius, 0);
-  const topRightStart = convert(parent.width - radius, 0);
+  const topLeftStart = convert(radius.topLeft, 0);
+  const topRightStart = convert(parent.width - radius.topRight, 0);
   const topRightControl = convert(parent.width, 0);
-  const topRightEnd = convert(parent.width, radius);
-  const bottomRightStart = convert(parent.width, parent.height - radius);
+  const topRightEnd = convert(parent.width, radius.topRight);
+  const bottomRightStart = convert(parent.width, parent.height - radius.bottomRight);
   const bottomRightControl = convert(parent.width, parent.height);
-  const bottomRightEnd = convert(parent.width - radius, parent.height);
-  const bottomLeftStart = convert(radius, parent.height);
+  const bottomRightEnd = convert(parent.width - radius.bottomRight, parent.height);
+  const bottomLeftStart = convert(radius.bottomLeft, parent.height);
   const bottomLeftControl = convert(0, parent.height);
-  const bottomLeftEnd = convert(0, parent.height - radius);
-  const topLeftEdge = convert(0, radius);
+  const bottomLeftEnd = convert(0, parent.height - radius.bottomLeft);
+  const topLeftEdge = convert(0, radius.topLeft);
   const topLeftControl = convert(0, 0);
 
-  if (radius <= EPSILON) {
+  if (Object.values(radius).every((value) => value <= EPSILON)) {
     const corners = [
       convert(0, 0),
       convert(parent.width, 0),
@@ -102,7 +103,7 @@ export function clipPathSvgForParentBounds(
 export function clipPathForParentBounds(
   child: LayerTransform,
   parent: LayerTransform,
-  borderRadius = 0,
+  borderRadius: CornerRadiiInput = 0,
 ): string {
   return `path("${clipPathSvgForParentBounds(child, parent, borderRadius)}")`;
 }

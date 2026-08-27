@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createDefaultTransform,
+  createComposition,
   createLayerKeyframe,
   createLayerPropertyKeyframe,
   createTransition,
@@ -16,5 +17,14 @@ describe('authoring factory defaults', () => {
   it('preserves an explicitly requested easing', () => {
     expect(createLayerPropertyKeyframe(12, 100, { easing: 'cubic-out' }).easing).toBe('cubic-out');
     expect(createTransition('start', 'step', { easing: 'sine-in-out' }).easing).toBe('sine-in-out');
+  });
+
+  it('starts new compositions on black with the 20% gray outside-canvas fill enabled', () => {
+    const composition = createComposition();
+    expect(composition.backgroundColor).toBe('#000000');
+    expect(composition.layout.dimOutsideCanvas).toBe(true);
+    expect(composition.layout.presentationBackground).toBe('none');
+    expect(composition.layout.presentationBackgroundImageSource).toBe('');
+    expect(composition.layout.presentationBackgroundImageName).toBe('');
   });
 });

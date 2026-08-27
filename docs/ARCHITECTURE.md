@@ -127,7 +127,7 @@ Document v5's `layer.animationTracks` is authoritative for evaluation and compil
 descriptor carries those property tracks unchanged into the single runtime timeline used by Stage,
 Preview, certification, and export.
 
-Editor selection is a transient set with one primary layer for the Inspector. Ctrl/Command-click
+Editor selection is a transient set with one primary layer for Properties. Ctrl/Command-click
 toggles members; a group drag writes one position key at the shared current frame on every selected
 layer, preserving their offsets and independent tracks. Persistent `groupId` membership is stored
 separately: selecting one member selects the group and group transforms still author each member's
@@ -176,15 +176,35 @@ otherwise contains only the resulting layer transforms and standard OGraf behavi
 composition bounds remain clipped even when the editor pasteboard previews overflow as visible.
 
 Document v21 adds `layout.dimOutsideCanvas`, defaulting false. When enabled, Edit and the main OGraf
-Preview render four camera-aligned, pointer-transparent regions using `rgb(18 18 18 / 18%)` around
-the composition rectangle. The actual work area remains untouched and transparent; the dimmer is
+Preview render four camera-aligned, pointer-transparent regions using the fully opaque 20% gray
+`#333333` around the composition rectangle. The actual work area remains untouched; the surround is
 excluded from the runtime descriptor, browser composition capture, certification, and package
 output.
+
+Factory-created compositions now choose `#000000` and `layout.dimOutsideCanvas: true` as product
+defaults. These are ordinary explicit document values, not renderer fallbacks: users may switch back
+to transparent/undimmed authoring, and migration or import never replaces stored values.
 
 Document v22 adds `layout.showCenterMarker`, defaulting false. When enabled, the authoring Stage
 draws a pointer-transparent cross at the exact composition centre. The cross applies the inverse
 canvas zoom so its on-screen size stays legible, and remains outside the runtime descriptor,
 browser composition capture, certification, and package output.
+
+Document v23 adds `layout.presentationBackground`, with `none` and `big-buck-bunny` values. When the
+video option is selected, Edit and OGraf Preview mount one muted/autoplay/looping HTML video as a
+pasteboard sibling immediately behind the composition frame. The frame's real opaque background
+therefore still covers it, while transparent pixels reveal it accurately. The video never enters the
+runtime descriptor, browser certification/capture surface, or package output. Existing projects
+migrate to `none`; the sample streams from jsDelivr and is attributed to Blender Foundation under
+CC BY 3.0.
+
+Document v25 extends the authoring-only presentation background with `still-image` plus
+`presentationBackgroundImageSource` and `presentationBackgroundImageName`. Canvas Layout accepts an
+ordinary image URL or reads a local image up to 10 MiB into a persisted data URL; the display name
+keeps embedded files identifiable without exposing their payload in the URL field. Edit and OGraf
+Preview share the same cover-fit `<img>` sibling behind the composition frame. The complete still
+image configuration remains absent from compiled descriptors, capture, certification, and exported
+packages.
 
 Safe-area geometry is derived centrally from EBU R 95 for 16:9 production. Action safe uses a 3.5%
 inset independently on each axis and title/graphics safe uses 5%; each pixel inset is rounded to the
@@ -217,6 +237,27 @@ wheel sets an editor-only pointer-anchored scale, while Ctrl/Command plus/minus 
 around the viewport centre. Camera compensation keeps either anchor stable across recentering. The scale never enters the project
 document, runtime descriptor, or compiled output and never uses browser page zoom.
 
+The in-app agent loop emits explicit turn progress before every provider request and around each
+tool call. Browser state retains the turn start time, latest phase/round/tool summary, and ticks an
+elapsed display independently of transcript scrolling. Provider fetches inherit manual cancellation
+through a per-request controller and add a configurable bounded timeout (120 seconds by default).
+Timeouts become normal chat errors; a bridge disconnect similarly terminates any visible busy state
+instead of leaving an orphaned turn.
+
+Chat history keys combine the live editor session with the project ID. Server history retains at
+most 20 project conversations, compacts each to 96,000 characters at atomic user/assistant-tool-result
+boundaries, and truncates individual tool-result strings to 16,000 characters. This prevents large
+scene/tool payloads from silently consuming the provider context window. A first-round provider
+"prompt too long" response discards older history and retries the unchanged current turn once; later
+rounds fail rather than risk duplicating already-executed tools.
+
+Chat projects `selectedLayerIds` into automatic stable-ID/name/element-type chips on every selection
+change; primary timeline property/key detail is attached when present. Layer-to-Chat drag uses a
+dedicated `application/x-ograf-studio-layer-reference` copy payload—not the layer-list's internal
+move payload—to add removable references outside selection. Chat validates/bounds and merges both
+sources, then sends the combined references in ambient context in place of ordinary selection for
+that turn. No reference changes project state, layer order, lock state, or the saved `.ogs` document.
+
 The application shell owns an editor-local docking model independent from project state. Seven tool
 panes occupy validated left, right, top, and bottom groups around the fixed canvas; each group is a
 tab stack, and panes may move between edge groups or into bounded floating windows. Dragging exposes
@@ -248,7 +289,7 @@ Closed panes are explicit members of the local docking document rather than abse
 first removes the pane from its dock group or floating list and records its stable pane ID; parser
 repair therefore restores genuinely missing panes but preserves intentional closure. Reopening from
 the Window menu removes that closed marker and docks Layers/Chat/Resources left,
-Inspector/Data/Preview & Export right, and Timeline bottom. Close/reopen state follows the same
+Properties/Data/Preview & Export right, and Timeline bottom. Close/reopen state follows the same
 local-only persistence boundary as docking and split weights.
 
 The editor transport can optionally pause at the next lifecycle key whose role is `step`. This uses
@@ -291,6 +332,14 @@ than an editor timeline simulation; absolute goto is the standard zero-based
 Moveable, and test affordances cannot leak into the runtime surface. Preview lifecycle calls never
 mutate the project, revision, selection, or undo history. The detailed Preview & Export panel remains
 responsible for logs, non-realtime schedules, certification, and package output.
+
+The browser editor owns a separate bounded 50-action project-snapshot history for direct UI edits.
+Rapid Zustand/Immer project changes coalesce over 500 ms; the pending pre-edit snapshot is published
+immediately so menu availability never lags the edit. Each entry carries a derived user-facing label
+and timestamp. The Edit menu subscribes through `useSyncExternalStore`, shows pending/past/future
+actions, and multi-step selection reuses the same undo/redo traversal used by keyboard shortcuts.
+New/open/import resets this browser history, while agent-session history remains independently
+revisioned in `authoring-core`.
 
 All in-editor render surfaces share one preview-data rule. A bound property resolves from an explicit
 field-ID test value when present, otherwise from the field definition's declared default. Before a
@@ -348,7 +397,7 @@ authoring parents exist. A layer name is indented by its resolved parent-chain d
 re-sorting the tree. HTML drag-and-drop divides each target row into explicit intent zones: the
 upper/lower quarters reorder before/after in paint order, while the centre half changes only
 `parentId`. Self-parenting, descendant cycles, and already-cyclic targets are rejected before the
-store mutation; the Inspector remains the explicit path for clearing a parent.
+store mutation; Properties remains the explicit path for clearing a parent.
 
 Each property key owns its incoming easing. It can use a named dependency-free preset or an explicit
 cubic Bézier curve. The same pure samplers drive editor interpolation and are passed to GSAP as the
@@ -488,3 +537,6 @@ off, preserving existing editor appearance and all rendered/exported pixels.
 
 Document version 22 adds the authoring-only centre-marker preference. Migration defaults it off,
 preserving existing editor appearance and all rendered/exported pixels.
+
+Document version 23 adds the authoring-only presentation-background preference. Migration defaults
+it to `none`, preserving existing editor appearance and all rendered/exported pixels.

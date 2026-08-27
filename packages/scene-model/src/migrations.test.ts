@@ -12,6 +12,41 @@ import { migrateProject } from './migrations';
 import type { LayerTransform, Project } from './types';
 
 describe('migrateProject', () => {
+  it('preserves a still presentation image while upgrading its layout fields', () => {
+    const project = createProject();
+    project.documentVersion = 24;
+    project.compositions[0]!.layout.presentationBackground = 'still-image';
+    project.compositions[0]!.layout.presentationBackgroundImageSource =
+      'data:image/png;base64,cHJlc2VudGF0aW9u';
+    project.compositions[0]!.layout.presentationBackgroundImageName = 'studio-background.png';
+
+    const migrated = migrateProject(project);
+
+    expect(migrated.documentVersion).toBe(25);
+    expect(migrated.compositions[0]!.layout).toMatchObject({
+      presentationBackground: 'still-image',
+      presentationBackgroundImageSource: 'data:image/png;base64,cHJlc2VudGF0aW9u',
+      presentationBackgroundImageName: 'studio-background.png',
+    });
+  });
+
+  it('expands a legacy uniform rectangle radius into independent corners', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('rectangle');
+    if (layer.element.type !== 'rectangle') throw new Error('Expected a rectangle layer.');
+    (layer.element as unknown as { borderRadius: number }).borderRadius = 14;
+    project.compositions[0]!.layers.push(layer);
+    project.documentVersion = 23;
+
+    const migrated = migrateProject(project);
+
+    expect(migrated.compositions[0]!.layers[0]!.element).toMatchObject({
+      type: 'rectangle',
+      borderRadius: { topLeft: 14, topRight: 14, bottomRight: 14, bottomLeft: 14 },
+    });
+    expect(migrated.documentVersion).toBe(25);
+  });
+
   it('upgrades legacy intro/outro documents into start/step/end without mutating the source', () => {
     const intro = { id: 'legacy-intro', name: 'On air' };
     const outro = { id: 'legacy-outro', name: 'Outro', isOutro: true };
@@ -111,6 +146,12 @@ describe('migrateProject', () => {
       .dimOutsideCanvas;
     delete (project.compositions[0]!.layout as Partial<(typeof project.compositions)[0]['layout']>)
       .showCenterMarker;
+    delete (project.compositions[0]!.layout as Partial<(typeof project.compositions)[0]['layout']>)
+      .presentationBackground;
+    delete (project.compositions[0]!.layout as Partial<(typeof project.compositions)[0]['layout']>)
+      .presentationBackgroundImageSource;
+    delete (project.compositions[0]!.layout as Partial<(typeof project.compositions)[0]['layout']>)
+      .presentationBackgroundImageName;
     project.compositions[0]!.layers = [textLayer];
     project.documentVersion = 3;
 
@@ -127,7 +168,7 @@ describe('migrateProject', () => {
     });
     expect(layer.animationTracks.x?.length).toBeGreaterThan(0);
     expect(layer.animationTracks.blur?.[0]?.value).toBe(0);
-    expect(migrated.documentVersion).toBe(22);
+    expect(migrated.documentVersion).toBe(25);
     expect(layer.loop).toBeNull();
     expect(migrated.compositions[0]!.layers.every((layer) => layer.clipChildren === false)).toBe(
       true,
@@ -142,6 +183,9 @@ describe('migrateProject', () => {
       showRulers: true,
       showCenterMarker: false,
       dimOutsideCanvas: false,
+      presentationBackground: 'none',
+      presentationBackgroundImageSource: '',
+      presentationBackgroundImageName: '',
       snappingEnabled: true,
       boundsMode: 'allow',
       overflowPreview: 'visible',
@@ -182,7 +226,7 @@ describe('migrateProject', () => {
     expect(migrated.compositions[0]!.layers[0]!.bindings).toEqual([
       { fieldId: 'headline-field', targetProperty: 'content', sourcePath: [] },
     ]);
-    expect(migrated.documentVersion).toBe(22);
+    expect(migrated.documentVersion).toBe(25);
   });
 
   it('backfills document-v13 typography without changing the authored font size', () => {
@@ -219,7 +263,7 @@ describe('migrateProject', () => {
       minFontSize: 20,
       overflowPolicy: 'visible',
     });
-    expect(migrated.documentVersion).toBe(22);
+    expect(migrated.documentVersion).toBe(25);
   });
 
   it('backfills timeline folders and removes stale or duplicate members', () => {
@@ -259,7 +303,7 @@ describe('migrateProject', () => {
     project.documentVersion = 16;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(22);
+    expect(migrated.documentVersion).toBe(25);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       key: 'headline',
       defaultValue: 'News',
@@ -278,7 +322,7 @@ describe('migrateProject', () => {
     project.documentVersion = 17;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(22);
+    expect(migrated.documentVersion).toBe(25);
     expect(migrated.compositions[0]!.layers[0]!.blendMode).toBe('normal');
   });
 
@@ -296,7 +340,7 @@ describe('migrateProject', () => {
     project.documentVersion = 18;
 
     const migrated = migrateProject(project);
-    expect(migrated.documentVersion).toBe(22);
+    expect(migrated.documentVersion).toBe(25);
     expect(migrated.compositions[0]!.dataFields[0]).toMatchObject({
       properties: [],
       items: null,
@@ -334,7 +378,7 @@ describe('migrateProject', () => {
     const migratedLayer = migrated.compositions[0]!.layers[0]!;
     const migratedComponentLayer = migrated.compositions[0]!.components[0]!.layers[0]!;
 
-    expect(migrated.documentVersion).toBe(22);
+    expect(migrated.documentVersion).toBe(25);
     expect(migratedLayer.element).toMatchObject({
       type: 'text',
       strokeColor: 'transparent',

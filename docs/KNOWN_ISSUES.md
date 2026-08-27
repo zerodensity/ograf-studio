@@ -1,5 +1,10 @@
 # Known Issues
 
+- Remote presentation backgrounds are editor-only but remain dependent on their source host. Big
+  Buck Bunny streams from jsDelivr, and still-image URLs can fail offline or when facility network
+  policy blocks their host. Locally selected still images are embedded in `.ogs` and remain
+  available offline.
+
 ## Closed P0 foundation issues
 
 - Explicit lifecycle state, deterministic seeking, transition reconnection, shared timelines,

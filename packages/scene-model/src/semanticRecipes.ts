@@ -1,6 +1,7 @@
 import { createAnimationTracksFromLegacyLayer } from './layerAnimation';
 import { createFieldDefinition, createLayerOfKind, createLayerSemantics } from './factory';
 import { createId } from './id';
+import { createCornerRadii } from './cornerRadii';
 import {
   assertStaggerFits,
   buildLayerMotionKeyframes,
@@ -176,7 +177,7 @@ export function materializeLowerThird(
   if (panel.element.type === 'rectangle') {
     panel.element.fill =
       options.theme?.background ?? String(packValue(STYLE_TOKEN_KEYS.surface, '#152235'));
-    panel.element.borderRadius = Math.round(height * 0.08);
+    panel.element.borderRadius = createCornerRadii(Math.round(height * 0.08));
   }
 
   const accent = recipeLayer(
@@ -203,7 +204,7 @@ export function materializeLowerThird(
     accent.element.fill =
       options.theme?.accent ?? String(packValue(STYLE_TOKEN_KEYS.accent, '#31b7d4'));
     accent.element.borderRadius =
-      panel.element.type === 'rectangle' ? panel.element.borderRadius : 0;
+      panel.element.type === 'rectangle' ? { ...panel.element.borderRadius } : createCornerRadii();
   }
 
   const textX = x + accentWidth + horizontalPadding;

@@ -30,6 +30,7 @@ import type {
   EasingPreset,
 } from './types';
 import { normalizeAuthoredTransform } from './authoredTransform';
+import { normalizeCornerRadii } from './cornerRadii';
 
 const BASE_TRANSFORM: LayerTransform = {
   x: 100,
@@ -54,8 +55,8 @@ export function createRectangleElement(
     fill: '#3b3f4a',
     strokeColor: 'transparent',
     strokeWidth: 0,
-    borderRadius: 0,
     ...overrides,
+    borderRadius: normalizeCornerRadii(overrides.borderRadius),
   };
 }
 
@@ -450,7 +451,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
     name: 'Main',
     width: 1920,
     height: 1080,
-    backgroundColor: 'transparent',
+    backgroundColor: '#000000',
     frameRate: DEFAULT_FRAME_RATE,
     updateTransitionFrames: 0,
     layout: {
@@ -458,7 +459,10 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
       showActionSafe: false,
       showTitleSafe: false,
       showCenterMarker: false,
-      dimOutsideCanvas: false,
+      dimOutsideCanvas: true,
+      presentationBackground: 'none',
+      presentationBackgroundImageSource: '',
+      presentationBackgroundImageName: '',
       snappingEnabled: true,
       snapToGrid: false,
       snapToGuides: true,
@@ -483,7 +487,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 22;
+export const PROJECT_DOCUMENT_VERSION = 25;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

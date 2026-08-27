@@ -40,6 +40,20 @@ describe('transform-aware clipping', () => {
     expect(path.match(/ Q /g)).toHaveLength(4);
   });
 
+  it('uses each clipping-parent corner radius independently', () => {
+    const path = clipPathSvgForParentBounds(transform(), transform({ width: 100, height: 80 }), {
+      topLeft: 4,
+      topRight: 8,
+      bottomRight: 12,
+      bottomLeft: 16,
+    });
+
+    expect(path).toContain('M 4 0');
+    expect(path).toContain('L 92 0');
+    expect(path).toContain('L 16 80');
+    expect(path).toContain('L 0 4');
+  });
+
   it('moves the clip window through a translating wide child for ticker motion', () => {
     const parent = transform({ x: 100, y: 50, width: 160, height: 50 });
     const first = clipPathSvgForParentBounds(

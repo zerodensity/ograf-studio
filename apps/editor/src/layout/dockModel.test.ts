@@ -3,6 +3,7 @@ import {
   activateDockPane,
   closeDockPane,
   createDefaultDockLayout,
+  DOCK_PANE_LABELS,
   dockPaneAdjacentToTab,
   dockPaneToGroup,
   dockPaneToZone,
@@ -25,6 +26,7 @@ describe('dock layout model', () => {
     ]);
     expect(layout.zones.right[0]?.panes).toEqual(['inspector', 'data', 'export']);
     expect(layout.zones.bottom[0]?.panes).toEqual(['timeline']);
+    expect(DOCK_PANE_LABELS.inspector).toBe('Properties');
   });
 
   it('moves panes between edge zones without duplicating them', () => {

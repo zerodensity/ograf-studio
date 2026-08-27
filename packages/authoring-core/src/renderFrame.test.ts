@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createFieldDefinition,
+  createCornerRadii,
   createLayerKeyframe,
   createLayerOfKind,
   createLayerPropertyKeyframe,
@@ -105,7 +106,7 @@ describe('renderCompositionFrameSvg', () => {
     if (parent.element.type !== 'rectangle' || child.element.type !== 'rectangle') {
       throw new Error('Expected rectangle layers.');
     }
-    parent.element.borderRadius = 6;
+    parent.element.borderRadius = createCornerRadii(6);
     child.element.fill = {
       type: 'linear',
       angle: 90,

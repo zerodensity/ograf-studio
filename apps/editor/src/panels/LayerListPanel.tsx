@@ -10,6 +10,10 @@ import {
   reorderLayerDisplayOrder,
   type LayerDropIntent,
 } from './layerListHierarchy';
+import {
+  AGENT_LAYER_REFERENCE_MIME,
+  encodeAgentLayerReference,
+} from '../state/agentLayerReference';
 import './LayerListPanel.css';
 
 function LayerVisibilityIcon({ visible }: { visible: boolean }) {
@@ -67,7 +71,9 @@ export function LayerListPanel() {
         <p className="panel-placeholder">No layers yet. Add one from the canvas toolbar.</p>
       ) : (
         <>
-          <p className="layer-list-drag-hint">Drop in row centre to parent · edges reorder</p>
+          <p className="layer-list-drag-hint">
+            Row centre parents · edges reorder · drop in Chat to reference
+          </p>
           <ul className="layer-list">
             {layers.map((layer) => {
               const depth = layerIndentDepth(composition.layers, layer.id);
@@ -78,7 +84,7 @@ export function LayerListPanel() {
               return (
                 <li
                   key={layer.id}
-                  draggable={!layer.isLocked}
+                  draggable
                   className={[
                     selectedLayerIds.includes(layer.id) && 'active',
                     layer.id === draggedId && 'dragging',
@@ -92,9 +98,19 @@ export function LayerListPanel() {
                     else selectMany(selectionIds);
                   }}
                   onDragStart={(e: DragEvent<HTMLLIElement>) => {
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', layer.id);
-                    setDraggedId(layer.id);
+                    e.dataTransfer.effectAllowed = layer.isLocked ? 'copy' : 'copyMove';
+                    e.dataTransfer.setData(
+                      AGENT_LAYER_REFERENCE_MIME,
+                      encodeAgentLayerReference({
+                        layerId: layer.id,
+                        name: layer.name,
+                        elementType: layer.element.type,
+                      }),
+                    );
+                    if (!layer.isLocked) {
+                      e.dataTransfer.setData('text/plain', layer.id);
+                      setDraggedId(layer.id);
+                    }
                   }}
                   onDragOver={(e: DragEvent<HTMLLIElement>) => {
                     e.preventDefault();
@@ -138,7 +154,7 @@ export function LayerListPanel() {
                 >
                   <span
                     className="layer-list-drag-handle"
-                    title="Drag to parent on a row, or reorder at its upper/lower edge"
+                    title="Drag to parent/reorder, or drop in Chat to reference this layer"
                   >
                     {'⠿'}
                   </span>

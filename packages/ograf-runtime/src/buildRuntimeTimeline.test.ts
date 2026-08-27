@@ -1,7 +1,7 @@
 import gsap from 'gsap';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
-import { createTextElement } from '@ograf-editor/scene-model';
+import { createCornerRadii, createTextElement } from '@ograf-editor/scene-model';
 import { buildRuntimeTimeline } from './buildRuntimeTimeline';
 
 function descriptor(): CompiledGraphicDescriptor {
@@ -38,7 +38,7 @@ function descriptor(): CompiledGraphicDescriptor {
           fill: '#fff',
           strokeColor: 'transparent',
           strokeWidth: 0,
-          borderRadius: 0,
+          borderRadius: createCornerRadii(),
         },
         effects: {
           blur: 0,
@@ -118,7 +118,7 @@ describe('runtime timeline boundary seeking', () => {
       fill,
       strokeColor: 'transparent',
       strokeWidth: 0,
-      borderRadius: 0,
+      borderRadius: createCornerRadii(),
     };
     compiled.layers[0]!.animationTracks['fill.stops[0].offset'] = [
       { id: 'stop-0', frame: 0, value: 0, easing: 'linear' },

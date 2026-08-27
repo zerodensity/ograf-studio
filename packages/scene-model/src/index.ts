@@ -13,6 +13,7 @@ export * from './lottie';
 export * from './layerEffects';
 export * from './layout';
 export * from './paint';
+export * from './cornerRadii';
 export * from './clipping';
 export * from './migrations';
 export * from './semanticRecipes';

@@ -167,8 +167,9 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   fields are authoring-only except `clipChildren`: setting it on a parent compiles a deterministic
   animated rectangular mask for direct children. Constraint and ordinary parent translation edits
   still bake their visual results into regular property tracks. `dimOutsideCanvas` adds the Studio
-  viewport's fixed 18%-opacity dark-gray veil outside the composition only; never recreate that
-  authoring aid as an exported layer or background.
+  viewport's solid 20% gray surround outside the composition only. `presentationBackground` can
+  use the bundled video or an editor-only still-image URL; local still-image embedding is available
+  in Canvas Layout. Never recreate these authoring aids as exported layers or backgrounds.
 - Treat the exposed action/title safe bounds as EBU R 95 16:9 geometry: action safe is inset 3.5%
   per axis and title/graphics safe is inset 5% per axis, with pixel margins rounded to the nearest
   integer. At 1920x1080 this is 67/38 px and 96/54 px; at 3840x2160 it is 134/76 px and 192/108 px.

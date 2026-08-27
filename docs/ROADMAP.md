@@ -38,8 +38,11 @@
 - Pointer-anchored plain-wheel canvas zoom and Ctrl/Command-plus/minus keyboard shortcuts are
   implemented without invoking browser page zoom.
 - Selectable opaque backgrounds and editor-only transparency checkerboards (implemented).
-- Optional camera-aligned 18% dark-gray dimming outside the actual composition, persisted as an
+- Optional camera-aligned 20% gray fill outside the actual composition, persisted as an
   authoring-only layout preference and excluded from capture/export (implemented).
+- Editor-only presentation backgrounds support the bundled looping video plus still images from a
+  remote URL or an embedded local file; all remain behind transparent composition pixels and are
+  excluded from capture/export (implemented).
 - Integer-pixel key authoring with subpixel runtime interpolation (implemented).
 - Direct layer selection from timeline gutter names (implemented).
 - Ctrl/Command multi-selection, group movement, and Shift axis-constrained dragging (implemented).
@@ -145,6 +148,9 @@
 
 - The user-facing product rename from OGraf Editor to **OGraf Studio** is implemented without
   changing compatibility-sensitive package namespaces, project formats, or MCP tool names.
+- The top Edit menu exposes Undo/Redo plus a scrollable 50-action browser history. Debounced edit
+  bursts receive descriptive labels, keyboard shortcuts remain available, and selecting an older
+  undo or redo action jumps across the required number of states (implemented).
 - Main-canvas OGraf runtime preview is implemented as an Edit/Preview mode switch. It mounts an
   automatically refreshed compiled runtime in the normal zoomable/pannable viewport. Load,
   data updates, and disposal are automatic; the visible controls are Start/replay, Step
