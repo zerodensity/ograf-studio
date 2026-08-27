@@ -1,0 +1,19 @@
+{
+  "name": "@ograf-editor/authoring-core",
+  "private": true,
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ograf-editor/scene-model": "*",
+    "@ograf-editor/validation": "*"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  }
+}

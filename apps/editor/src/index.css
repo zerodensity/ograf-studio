@@ -1,0 +1,157 @@
+:root {
+  --bg-app: #1b1c20;
+  --bg-panel: #202126;
+  --bg-panel-raised: #26272d;
+  --bg-canvas: #101114;
+  --border: #34353c;
+  --text: #d6d6db;
+  --text-dim: #85868f;
+  --text-heading: #f3f3f5;
+  --accent: #7c8cff;
+
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, Consolas, monospace;
+  --ui-font-size: 12px;
+  --ui-font-size-compact: 10px;
+  --panel-divider-size: 3px;
+
+  color-scheme: dark;
+  color: var(--text);
+  background: var(--bg-app);
+  font-family: var(--sans);
+  font-size: var(--ui-font-size);
+  line-height: 1.4;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+body.is-resizing {
+  user-select: none;
+}
+
+body.is-resizing[data-resize-axis='col'] {
+  cursor: col-resize;
+}
+
+body.is-resizing[data-resize-axis='row'] {
+  cursor: row-resize;
+}
+
+#root {
+  height: 100vh;
+}
+
+/*
+ * Studio chrome has one deliberate type system. The authored graphic renderer writes its own
+ * inline typography, and the compiled preview is isolated in a shadow root, so this contract only
+ * normalizes editor UI. Specific compact and monospace roles below are the only exceptions.
+ */
+#root * {
+  font-family: var(--sans);
+  font-size: var(--ui-font-size);
+}
+
+#root *::before,
+#root *::after {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+#root
+  :is(
+    .agent-chat-concurrency,
+    .agent-chat-entry small,
+    .agent-chat-usage,
+    .agent-review-operations code,
+    .canvas-viewport-ruler .canvas-ruler-tick > span,
+    .canvas-guide-coordinate,
+    .data-json-preview,
+    .frame-duration-control label,
+    .frame-duration-warning,
+    .inspector-evaluated-pose,
+    .inspector-hint,
+    .layer-list-drag-hint,
+    .preview-log-entry,
+    .resources-tree-count,
+    .resources-tree-toolbar,
+    .resources-tree-item-name,
+    .resources-tree-item-meta,
+    .resources-tree-font-preview,
+    .resources-tree-actions,
+    .resources-asset-warning,
+    .resources-component-count,
+    .runtime-preview-state,
+    .timeline-step-playback-toggle,
+    .timeline-readout-separator,
+    .timeline-zoom-controls,
+    .timeline-lifecycle-toast,
+    .timeline-property-add,
+    .timeline-show-all-properties,
+    .timeline-key-editor-selection span,
+    .timeline-folder-count,
+    .timeline-ruler-tick,
+    .timeline-loop-danger > summary,
+    .timeline-track-actions button,
+    .timeline-track-scale,
+    .easing-curve-values label,
+    .timeline-layer-span-label,
+    .timeline-layer-span-easing,
+    .timeline-loop-grid label,
+    .timeline-loop-advanced label,
+    .timeline-loop-key.header
+  ) {
+  font-size: var(--ui-font-size-compact);
+}
+
+#root
+  :is(
+    .runtime-preview-state,
+    .canvas-viewport-ruler .canvas-ruler-tick > span,
+    .canvas-guide-coordinate,
+    .data-json-preview,
+    .inspector-evaluated-pose output,
+    .preview-step-indicator,
+    .preview-schedule-params,
+    .preview-log-entry,
+    .timeline-readout,
+    .timeline-zoom-controls output,
+    .timeline-key-editor-selection span,
+    .timeline-folder-count,
+    .timeline-ruler-tick,
+    .timeline-layer-span-label,
+    .timeline-layer-span-easing
+  ) {
+  font-family: var(--mono);
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  color: var(--text-heading);
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: var(--sans);
+  font-size: var(--ui-font-size);
+  line-height: inherit;
+  color: inherit;
+}

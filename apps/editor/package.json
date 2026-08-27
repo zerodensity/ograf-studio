@@ -1,0 +1,38 @@
+{
+  "name": "editor",
+  "private": true,
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "typecheck": "tsc -b",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ograf-editor/codegen": "*",
+    "@ograf-editor/ograf-runtime": "*",
+    "@ograf-editor/ograf-types": "*",
+    "@ograf-editor/scene-model": "*",
+    "@ograf-editor/validation": "*",
+    "gsap": "^3.15.0",
+    "html-to-image": "^1.11.13",
+    "immer": "^11.1.16",
+    "jszip": "^3.10.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-moveable": "^0.56.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "oxlint": "^1.75.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0"
+  }
+}

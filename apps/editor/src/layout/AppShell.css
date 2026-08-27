@@ -1,0 +1,14 @@
+.app-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-app);
+}
+
+.app-shell > .menubar {
+  flex: none;
+  position: relative;
+  z-index: 3;
+}

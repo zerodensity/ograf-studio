@@ -1,0 +1,296 @@
+import { describe, expect, it } from 'vitest';
+import { assembleManifest, compileDescriptor } from '@ograf-editor/codegen';
+import {
+  createComposition,
+  computeKeyframeFrames,
+  createFieldDefinition,
+  createLayerKeyframe,
+  createLayerOfKind,
+  createLayerPropertyKeyframe,
+  createProject,
+  createTransition,
+  defaultTransformForRole,
+} from '@ograf-editor/scene-model';
+import { validateManifest } from './validateManifest';
+import { validateProject } from './validateProject';
+
+describe('canonical OGraf validation', () => {
+  it('accepts an assembled project and rejects the legacy thumbnail shape', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const manifest = assembleManifest(project, composition, compileDescriptor(composition));
+    expect(validateManifest(manifest)).toEqual({ valid: true, errors: [] });
+    expect(validateManifest({ ...manifest, thumbnails: [{ url: 'thumb.png' }] }).valid).toBe(false);
+  });
+
+  it('accepts official enriched GDD scalar and select properties', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    composition.dataFields = [
+      createFieldDefinition('text', {
+        key: 'headline',
+        description: 'On-air headline',
+        constraints: { maxLength: 80 },
+      }),
+      createFieldDefinition('select', {
+        key: 'theme',
+        options: [
+          { value: 'news', label: 'News' },
+          { value: 'sport', label: 'Sport' },
+        ],
+        defaultValue: 'news',
+      }),
+      createFieldDefinition('select-multiple', {
+        key: 'regions',
+        options: [
+          { value: 'eu', label: 'Europe' },
+          { value: 'na', label: 'North America' },
+        ],
+        defaultValue: ['eu'],
+      }),
+      createFieldDefinition('duration-ms', {
+        key: 'duration',
+        defaultValue: 10000,
+        constraints: { minimum: 0, maximum: 60000, step: 1000 },
+      }),
+      createFieldDefinition('percentage', { key: 'progress', defaultValue: 50 }),
+      createFieldDefinition('file-path', {
+        key: 'document',
+        fileExtensions: ['pdf'],
+      }),
+    ];
+    const manifest = assembleManifest(project, composition, compileDescriptor(composition));
+    expect(validateProject(project).valid).toBe(true);
+    expect(validateManifest(manifest)).toEqual({ valid: true, errors: [] });
+  });
+
+  it('accepts official recursive object and array GDD properties', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const item = createFieldDefinition('object', {
+      key: 'item',
+      properties: [
+        createFieldDefinition('text', {
+          key: 'name',
+          required: true,
+          constraints: { maxLength: 40 },
+        }),
+        createFieldDefinition('integer', { key: 'score' }),
+      ],
+      defaultValue: { name: '', score: 0 },
+    });
+    composition.dataFields = [
+      createFieldDefinition('array', {
+        key: 'leaderboard',
+        items: item,
+        constraints: { minItems: 0, maxItems: 12 },
+        defaultValue: [{ name: 'Ada', score: 10 }],
+      }),
+    ];
+    const manifest = assembleManifest(project, composition, compileDescriptor(composition));
+    expect(validateProject(project).valid).toBe(true);
+    expect(validateManifest(manifest)).toEqual({ valid: true, errors: [] });
+  });
+});
+
+describe('project validation', () => {
+  it('requires an ordered lifecycle, adjacent transitions, and complete poses', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    expect(validateProject(project).valid).toBe(true);
+
+    composition.keyframes.reverse();
+    const result = validateProject(project);
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/Start state|End state|transition/);
+  });
+
+  it('reports a zero-step graphic as valid with an operator-facing warning', () => {
+    const project = createProject();
+    const composition = createComposition();
+    composition.keyframes = composition.keyframes.filter((keyframe) => keyframe.role !== 'step');
+    composition.transitions = [
+      createTransition(composition.keyframes[0]!.id, composition.keyframes[1]!.id),
+    ];
+    project.compositions = [composition];
+    project.mainCompositionId = composition.id;
+    const result = validateProject(project);
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toHaveLength(1);
+  });
+
+  it('accepts self-contained Lottie JSON and blocks missing or external animation resources', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('lottie');
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(
+        computeKeyframeFrames(composition)[index]!.frame,
+        defaultTransformForRole('lottie', keyframe.role),
+      ),
+    );
+    composition.layers.push(layer);
+    expect(validateProject(project).errors.join(' ')).toMatch(/has no animation JSON/);
+
+    if (layer.element.type !== 'lottie') throw new Error('Expected a Lottie layer.');
+    layer.element.animationData = {
+      fr: 25,
+      ip: 0,
+      op: 50,
+      w: 200,
+      h: 200,
+      layers: [],
+    };
+    expect(validateProject(project).valid).toBe(true);
+    layer.element.animationData.assets = [{ id: 'logo', p: 'images/logo.png' }];
+    expect(validateProject(project).errors.join(' ')).toMatch(/embed images in the JSON/);
+  });
+
+  it('rejects duplicate binding targets on one layer', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('text');
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(
+        computeKeyframeFrames(composition)[index]!.frame,
+        defaultTransformForRole('text', keyframe.role),
+      ),
+    );
+    const first = createFieldDefinition('text', { key: 'headline' });
+    const second = createFieldDefinition('text', { key: 'alternate_headline' });
+    layer.bindings = [
+      { fieldId: first.id, targetProperty: 'content' },
+      { fieldId: second.id, targetProperty: 'content' },
+    ];
+    composition.layers = [layer];
+    composition.dataFields = [first, second];
+
+    expect(validateProject(project).errors.join(' ')).toMatch(
+      /binds target property "content" more than once/,
+    );
+  });
+
+  it('rejects invalid GDD options, defaults, constraints, and patterns', () => {
+    const project = createProject();
+    project.compositions[0]!.dataFields = [
+      createFieldDefinition('select', {
+        key: 'theme',
+        options: [
+          { value: 'news', label: 'News' },
+          { value: 'news', label: 'Duplicate' },
+        ],
+        defaultValue: 'missing',
+        constraints: { minLength: 10, maxLength: 2, pattern: '[' },
+      }),
+    ];
+    const errors = validateProject(project).errors.join(' ');
+    expect(errors).toMatch(/repeats select option value/);
+    expect(errors).toMatch(/select default must match/);
+    expect(errors).toMatch(/minLength cannot exceed maxLength/);
+    expect(errors).toMatch(/pattern is not a valid regular expression/);
+  });
+
+  it('rejects an unsupported layer blend mode from untrusted project JSON', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('rectangle');
+    layer.blendMode = 'plus-lighter' as typeof layer.blendMode;
+    project.compositions[0]!.layers = [layer];
+    expect(validateProject(project).errors.join(' ')).toMatch(/unsupported blend mode/);
+  });
+
+  it('rejects negative text stroke widths and unsupported stroke tracks', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const text = createLayerOfKind('text');
+    const image = createLayerOfKind('image');
+    for (const layer of [text, image]) {
+      layer.keyframes = composition.keyframes.map((keyframe, index) =>
+        createLayerKeyframe(
+          computeKeyframeFrames(composition)[index]!.frame,
+          defaultTransformForRole(layer.element.type, keyframe.role),
+        ),
+      );
+    }
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.strokeWidth = -1;
+    text.animationTracks.strokeWidth = [createLayerPropertyKeyframe(0, -2)];
+    image.animationTracks.strokeWidth = [createLayerPropertyKeyframe(0, 2)];
+    composition.layers = [text, image];
+
+    const errors = validateProject(project).errors.join(' ');
+    expect(errors).toMatch(/text layer "Text" stroke width must be finite and non-negative/);
+    expect(errors).toMatch(/property "strokeWidth" values must be non-negative/);
+    expect(errors).toMatch(/cannot animate text stroke width on a image element/);
+  });
+
+  it('accepts fit-to-width and rejects unknown text sizing modes from untrusted JSON', () => {
+    const project = createProject();
+    const text = createLayerOfKind('text');
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.autoFit = 'fit-to-width';
+    project.compositions[0]!.layers = [text];
+    expect(validateProject(project).errors.join(' ')).not.toMatch(/unsupported text sizing mode/);
+
+    text.element.autoFit = 'stretch-glyphs' as typeof text.element.autoFit;
+    expect(validateProject(project).errors.join(' ')).toMatch(/unsupported text sizing mode/);
+  });
+
+  it('rejects invalid text stroke values inside reusable component snapshots', () => {
+    const project = createProject();
+    const text = createLayerOfKind('text');
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.strokeWidth = -2;
+    text.animationTracks.strokeWidth = [createLayerPropertyKeyframe(0, -2)];
+    project.compositions[0]!.components = [
+      { id: 'invalid-component', name: 'Invalid outline', layers: [text], dataFields: [] },
+    ];
+
+    const errors = validateProject(project).errors.join(' ');
+    expect(errors).toMatch(/component "Invalid outline" layer "Text" text stroke width/);
+    expect(errors).toMatch(/stroke-width track values must be finite and non-negative/);
+  });
+
+  it('validates deterministic runtime collection ownership, paths, and capacity', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const field = createFieldDefinition('array', {
+      key: 'leaderboard',
+      constraints: { minItems: 0, maxItems: 3 },
+      items: createFieldDefinition('object', {
+        key: 'item',
+        properties: [createFieldDefinition('text', { key: 'name', required: true })],
+        defaultValue: { name: '' },
+      }),
+      defaultValue: [{ name: 'Ada' }],
+    });
+    const layer = createLayerOfKind('text');
+    layer.groupId = 'leaderboard-item';
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'content', sourcePath: ['name'] }];
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(
+        computeKeyframeFrames(composition)[index]!.frame,
+        defaultTransformForRole('text', keyframe.role),
+      ),
+    );
+    composition.layers = [layer];
+    composition.dataFields = [field];
+    composition.runtimeCollections = [
+      {
+        id: 'collection-1',
+        name: 'Leaderboard',
+        fieldId: field.id,
+        prototypeLayerIds: [layer.id],
+        offsetPerItem: { x: 0, y: 72 },
+        capacity: 3,
+        overflow: 'truncate',
+      },
+    ];
+    expect(validateProject(project).valid).toBe(true);
+
+    layer.bindings[0]!.sourcePath = ['missing'];
+    expect(validateProject(project).errors.join(' ')).toMatch(/must resolve to a scalar leaf/);
+    layer.bindings[0]!.sourcePath = ['name'];
+    composition.runtimeCollections[0]!.capacity = 4;
+    expect(validateProject(project).errors.join(' ')).toMatch(/capacity must equal field maxItems/);
+  });
+});

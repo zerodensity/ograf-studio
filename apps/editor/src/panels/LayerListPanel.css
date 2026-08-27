@@ -1,0 +1,116 @@
+.layer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.layer-list-drag-hint {
+  margin: 0 0 5px;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.layer-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.layer-list li:hover {
+  background: var(--bg-panel-raised);
+}
+
+.layer-list li.active {
+  background: var(--accent-bg, rgba(124, 140, 255, 0.15));
+  outline: 1px solid var(--accent);
+}
+
+.layer-list li.dragging {
+  opacity: 0.4;
+}
+
+.layer-list li.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.layer-list li.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.layer-list li.drop-parent {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-panel-raised));
+  outline: 1px solid var(--accent);
+}
+
+.layer-list-drag-handle {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--text-dim);
+  cursor: grab;
+}
+
+.layer-list-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: calc(var(--layer-depth, 0) * 16px);
+  transition: padding-left 100ms ease;
+}
+
+.layer-list-icon-btn {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.layer-list-icon-btn:hover {
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.layer-list-icon-btn.active {
+  color: #ffb020;
+}
+
+.layer-list-visibility-btn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+}
+
+.layer-list-visibility-btn.is-visible {
+  color: var(--text);
+}
+
+.layer-visibility-eye,
+.layer-visibility-slash {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.layer-visibility-pupil {
+  fill: currentColor;
+}
+
+.layer-visibility-slash {
+  stroke-width: 1.6;
+}

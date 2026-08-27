@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ograf.ebu.io/v1/specification/json-schemas/graphics/schema.json",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://ograf.ebu.io/v1/specification/json-schemas/graphics/schema.json",
+      "description": "Reference to the JSON-schema for this manifest"
+    },
+    "id": {
+      "type": "string",
+      "description": "The id of the Graphic uniquely identifies it. It is recommended to use a reverse domain name notation. For example: com.my-company.my-lowerthird."
+    },
+    "version": {
+      "type": "string",
+      "description": "The version of the Graphic. The version SHOULD be alphabetically sortable. Examples: ['0', '1', '2'], ['1.0', '1.1', '1.2'], ['2024-07-01_final', '2024-07-01_final_final2']"
+    },
+    "main": {
+      "type": "string",
+      "description": "The main entry point, ie the path to the main javascript file of the Graphic."
+    },
+    "name": {
+      "type": "string",
+      "description": "Name of the Graphic"
+    },
+    "description": {
+      "type": "string",
+      "description": "(optional) A longer description of the Graphic"
+    },
+    "author": {
+      "type": "object",
+      "description": "(optional) About the author",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the author"
+        },
+        "email": {
+          "type": "string",
+          "description": "(optional) Email of the author"
+        },
+        "url": {
+          "type": "string",
+          "description": "(optional) URL of the author"
+        }
+      },
+      "required": ["name"],
+      "patternProperties": {
+        "^v_.*": {}
+      },
+      "additionalProperties": false
+    },
+    "customActions": {
+      "type": "array",
+      "description": "Custom Actions that can be invoked on the Graphic.",
+      "items": {
+        "$ref": "https://ograf.ebu.io/v1/specification/json-schemas/lib/action.json"
+      }
+    },
+    "actionDurations": {
+      "type": "array",
+      "description": "Static animation durations for actions, expressed in milliseconds.",
+      "items": {
+        "description": "Static animation duration metadata for an action.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "playAction"
+              },
+              "duration": {
+                "type": "integer",
+                "description": "The animation duration in milliseconds. A value of -1 indicates that the duration is dynamic or unknown.",
+                "minimum": -1
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "A step-specific playAction animation duration.",
+                  "properties": {
+                    "step": {
+                      "type": "integer",
+                      "description": "The zero-based target step number. When omitted, this duration applies to target steps not explicitly listed.",
+                      "minimum": 0
+                    },
+                    "duration": {
+                      "type": "integer",
+                      "description": "The animation duration in milliseconds. A value of -1 indicates that the duration is dynamic or unknown.",
+                      "minimum": -1
+                    }
+                  },
+                  "required": ["duration"],
+                  "patternProperties": {
+                    "^v_.*": {}
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["type", "duration"],
+            "patternProperties": {
+              "^v_.*": {}
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "updateAction"
+              },
+              "duration": {
+                "type": "integer",
+                "description": "The animation duration in milliseconds. A value of -1 indicates that the duration is dynamic or unknown.",
+                "minimum": -1
+              }
+            },
+            "required": ["type", "duration"],
+            "patternProperties": {
+              "^v_.*": {}
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "stopAction"
+              },
+              "duration": {
+                "type": "integer",
+                "description": "The animation duration in milliseconds. A value of -1 indicates that the duration is dynamic or unknown.",
+                "minimum": -1
+              }
+            },
+            "required": ["type", "duration"],
+            "patternProperties": {
+              "^v_.*": {}
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "customAction"
+              },
+              "customActionId": {
+                "type": "string",
+                "description": "The id of the custom action as defined in customActions."
+              },
+              "duration": {
+                "type": "integer",
+                "description": "The animation duration in milliseconds. A value of -1 indicates that the duration is dynamic or unknown.",
+                "minimum": -1
+              }
+            },
+            "required": ["type", "customActionId", "duration"],
+            "patternProperties": {
+              "^v_.*": {}
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "supportsRealTime": {
+      "type": "boolean",
+      "description": "Indicates if the Graphic supports real-time rendering"
+    },
+    "supportsNonRealTime": {
+      "type": "boolean",
+      "description": "Indicates if the Graphic supports non-real-time rendering. Note: If true, the Graphic must implement the 'goToTime()' and the 'setActionsSchedule()' methods."
+    },
+    "stepCount": {
+      "type": "number",
+      "description": "The number of steps a Graphic consists of. If the Graphic is simply triggered by a play, then a stop, this is considered a stepCount of 1 (which is the default behavior if left undefined). A value of -1 indicates that a Graphic as a dynamic/unknown number of steps.",
+      "default": 1,
+      "minimum": -1
+    },
+    "schema": {
+      "description": "The schema is used by a Graphic to define the data parameters of the 'update' method.",
+      "type": "object",
+      "$ref": "https://ograf.ebu.io/v1/specification/json-schemas/gdd/object.json"
+    },
+    "renderRequirements": {
+      "description": "A list of requirements that this Graphic has for the rendering environment. At least one of the requirements must be met for the graphic to be expected to work.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "resolution": {
+            "description": "If set, specifies requirements for the resolution of the Renderer.",
+            "type": "object",
+            "properties": {
+              "width": {
+                "$ref": "https://ograf.ebu.io/v1/specification/json-schemas/lib/constraints/number.json"
+              },
+              "height": {
+                "$ref": "https://ograf.ebu.io/v1/specification/json-schemas/lib/constraints/number.json"
+              }
+            }
+          },
+          "frameRate": {
+            "description": "If set, specifies requirements for frame rate of the Renderer. Example: 60 fps",
+            "$ref": "https://ograf.ebu.io/v1/specification/json-schemas/lib/constraints/number.json"
+          },
+          "accessToPublicInternet": {
+            "description": "If set, specifies requirement on whether the renderer has access to the public internet or not.",
+            "$ref": "https://ograf.ebu.io/v1/specification/json-schemas/lib/constraints/boolean.json"
+          },
+          "engine": {
+            "description": "Minimum required version(s) of the rendering engine. At least one listed engine requirement should be satisfied by the renderer (e.g. type CEF with version.min 139).",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Identifier of the rendering engine (e.g. CEF, Gecko). Vendor-specific types are allowed."
+                },
+                "version": {
+                  "type": "object",
+                  "description": "Minimum engine version",
+                  "properties": {
+                    "min": {
+                      "type": "string",
+                      "description": "Minimum required version. Format is engine-specific (e.g. CEF branch number as string \"139\", or semver \"120.0.5\")."
+                    }
+                  },
+                  "required": ["min"]
+                }
+              },
+              "required": ["type", "version"]
+            }
+          }
+        },
+        "patternProperties": {
+          "^v_.*": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "thumbnails": {
+      "description": "Optional list of thumbnail images for the Graphic. Each entry references an image file (PNG, JPG, GIF, or webp) and may specify its resolution so UIs can choose or scale appropriately.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Path to the image file, relative to the manifest or absolute. Allowed formats: PNG, JPG, GIF, webp."
+          },
+          "resolution": {
+            "type": "object",
+            "description": "Resolution of the image in pixels. When present, the UI can derive aspect ratio (e.g. width/height) and choose or scale the thumbnail appropriately.",
+            "properties": {
+              "width": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Width in pixels."
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Height in pixels."
+              }
+            },
+            "required": ["width", "height"]
+          }
+        },
+        "required": ["file"],
+        "patternProperties": {
+          "^v_.*": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["$schema", "id", "name", "main", "supportsRealTime", "supportsNonRealTime"],
+  "patternProperties": {
+    "^v_.*": {}
+  },
+  "additionalProperties": false
+}

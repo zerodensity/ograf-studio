@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // Tests read the vendored EBU schema fixtures off disk, so this package's *tests* (not its
+    // shipped code) use node: builtins.
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

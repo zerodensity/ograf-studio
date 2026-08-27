@@ -1,0 +1,12 @@
+interface:
+  display_name: 'OGraf Authoring'
+  short_description: 'Create and certify OGraf broadcast graphics'
+  default_prompt: 'Use $ograf-authoring to create or edit an OGraf graphic and certify it before saving.'
+
+dependencies:
+  tools:
+    - type: mcp
+      value: ograf-editor
+      description: 'Local revisioned OGraf authoring, PNG inspection, validation, certification, save, and export tools; requires the server and a responsive editor for browser-backed operations'
+      transport: streamable_http
+      url: 'http://127.0.0.1:4318/mcp'

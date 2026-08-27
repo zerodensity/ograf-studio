@@ -1,0 +1,345 @@
+.menubar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.menubar-brand {
+  font-weight: 600;
+  color: var(--text-heading);
+  font-size: 13px;
+}
+
+.menubar-project-name {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.menubar-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.menubar-edit-control,
+.menubar-window-control {
+  position: relative;
+}
+
+.menubar-edit-menu,
+.menubar-window-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 5px);
+  left: 0;
+  width: 190px;
+  display: grid;
+  gap: 2px;
+  padding: 5px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 42%);
+}
+
+.menubar-edit-menu {
+  width: min(370px, calc(100vw - 24px));
+}
+
+.menubar-actions .menubar-edit-menu > button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 9px;
+  color: var(--text);
+  text-align: left;
+}
+
+.menubar-edit-menu kbd {
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+}
+
+.menubar-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 3px;
+  padding: 7px 8px 5px;
+  border-top: 1px solid var(--border);
+  color: var(--text-heading);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.menubar-history-heading span {
+  color: var(--text-dim);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.menubar-history-list {
+  max-height: min(360px, calc(100vh - 160px));
+  overflow: auto;
+}
+
+.menubar-actions .menubar-edit-menu .menubar-history-item,
+.menubar-history-current {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+  text-align: left;
+}
+
+.menubar-actions .menubar-edit-menu .menubar-history-item > span:first-child,
+.menubar-history-current > span:first-child {
+  color: var(--accent);
+  text-align: center;
+}
+
+.menubar-actions .menubar-edit-menu .menubar-history-item time {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.menubar-actions .menubar-edit-menu .menubar-history-item.is-future {
+  color: var(--text-dim);
+}
+
+.menubar-history-current {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--text-heading);
+  font-weight: 600;
+}
+
+.menubar-actions .menubar-window-menu button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  color: var(--text);
+  text-align: left;
+}
+
+.menubar-window-menu button span {
+  color: var(--accent);
+  font-weight: 800;
+  text-align: center;
+}
+
+.menubar-status {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.menubar-agent-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menubar-agent-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #666b76;
+}
+
+.menubar-agent-status.is-connected .menubar-agent-dot {
+  background: #4bd78b;
+  box-shadow: 0 0 0 2px rgb(75 215 139 / 15%);
+}
+
+.menubar-actions button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.menubar-actions button:hover {
+  background: var(--bg-panel-raised);
+  border-color: var(--border);
+}
+
+.menubar-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.menubar-actions button:disabled:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+.ograf-import-report {
+  position: fixed;
+  z-index: 1000;
+  top: 56px;
+  left: 50%;
+  width: min(620px, calc(100vw - 32px));
+  max-height: calc(100vh - 88px);
+  padding: 18px;
+  overflow: auto;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 55%);
+  transform: translateX(-50%);
+}
+
+.ograf-import-report-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ograf-import-report-header div {
+  display: grid;
+  gap: 4px;
+}
+
+.ograf-import-report-header strong {
+  color: var(--text-heading);
+  font-size: 14px;
+}
+
+.ograf-import-report-header span,
+.ograf-import-report p,
+.ograf-import-report li,
+.ograf-import-report dd,
+.ograf-import-report dt {
+  font-size: 12px;
+}
+
+.ograf-import-report-header span,
+.ograf-import-report p,
+.ograf-import-report dt {
+  color: var(--text-dim);
+}
+
+.ograf-import-report-header button {
+  min-width: 28px;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel-raised);
+  cursor: pointer;
+}
+
+.ograf-import-report dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.ograf-import-report dl div {
+  padding: 8px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.ograf-import-report dt,
+.ograf-import-report dd {
+  margin: 0;
+}
+
+.ograf-import-report dd {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.ograf-import-report ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 12px 12px 12px 30px;
+  background: rgb(236 176 68 / 8%);
+  border: 1px solid rgb(236 176 68 / 28%);
+  border-radius: 4px;
+}
+
+.ograf-import-report-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.ograf-import-report-actions button {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.remote-project-dialog form {
+  display: grid;
+  gap: 12px;
+}
+
+.remote-project-dialog .ograf-import-report-actions {
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.remote-project-dialog .ograf-import-report-actions button:first-child {
+  background: var(--bg-panel-raised);
+  color: var(--text);
+}
+
+.remote-project-dialog button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.remote-project-url-field {
+  display: grid;
+  gap: 5px;
+  color: var(--text-dim);
+}
+
+.remote-project-url-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-canvas);
+  color: var(--text);
+}
+
+.remote-project-url-field input:focus {
+  border-color: var(--accent);
+  outline: none;
+}

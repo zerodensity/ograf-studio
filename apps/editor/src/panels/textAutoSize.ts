@@ -1,0 +1,38 @@
+import type { TextElement } from '@ograf-editor/scene-model';
+
+export function measureAutoSizedText(element: TextElement): { width: number; height: number } {
+  const probe = document.createElement('div');
+  Object.assign(probe.style, {
+    position: 'fixed',
+    left: '-100000px',
+    top: '0',
+    width: 'max-content',
+    height: 'max-content',
+    visibility: 'hidden',
+    pointerEvents: 'none',
+    whiteSpace: 'pre',
+    lineHeight: String(element.lineHeight),
+    letterSpacing: `${element.letterSpacing}px`,
+    textTransform: element.textTransform,
+    fontFamily: element.fontFamily,
+    fontSize: `${Math.max(1, element.fontSize)}px`,
+    fontWeight: String(element.fontWeight),
+    webkitTextStrokeColor: element.strokeColor,
+    webkitTextStrokeWidth: `${Math.max(0, element.strokeWidth)}px`,
+    paintOrder: 'stroke fill',
+  });
+  probe.textContent =
+    (element.textTransform === 'uppercase'
+      ? element.content.toUpperCase()
+      : element.textTransform === 'lowercase'
+        ? element.content.toLowerCase()
+        : element.content) || ' ';
+  document.body.appendChild(probe);
+  const bounds = probe.getBoundingClientRect();
+  probe.remove();
+  const strokeExpansion = Math.max(0, element.strokeWidth);
+  return {
+    width: Math.max(1, Math.ceil(bounds.width + strokeExpansion)),
+    height: Math.max(1, Math.ceil(bounds.height + strokeExpansion)),
+  };
+}

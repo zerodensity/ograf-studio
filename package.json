@@ -1,0 +1,34 @@
+{
+  "name": "zd-ograf-editor",
+  "private": true,
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run build --workspace @ograf-editor/ograf-runtime && npm run dev --workspace apps/editor",
+    "build": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build --workspaces --if-present",
+    "lint": "oxlint",
+    "pretest": "npm run build --workspace @ograf-editor/ograf-runtime",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "mcp:start": "npm run build --workspace @ograf-editor/ograf-runtime && npm run start --workspace @ograf-editor/mcp-server",
+    "contracts:generate": "tsx scripts/generateMcpContracts.ts",
+    "contracts:check": "tsx scripts/generateMcpContracts.ts --check",
+    "prompt:generate": "tsx scripts/generateInAppPrompt.ts",
+    "prompt:check": "tsx scripts/generateInAppPrompt.ts --check",
+    "agent:credential": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/configureAgentCredential.ps1",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "verify": "npm run contracts:check && npm run prompt:check && npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,73 @@
+.left-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.left-sidebar.collapsed {
+  align-items: stretch;
+}
+
+.left-sidebar-tabs {
+  display: flex;
+  flex: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+}
+
+.left-sidebar-tabs button {
+  flex: 1;
+  padding: 8px 10px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.left-sidebar-tabs button.active {
+  color: var(--text-heading);
+  border-bottom-color: var(--accent);
+}
+
+.left-sidebar-tabs button.collapse {
+  flex: none;
+  width: 34px;
+  font-size: 18px;
+}
+
+.left-sidebar-expand {
+  height: 100%;
+  padding: 0;
+  color: var(--text-dim);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.left-sidebar-layers {
+  flex: none;
+  min-height: 80px;
+  display: flex;
+}
+
+.left-sidebar-resources {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.left-sidebar-layers > .panel,
+.left-sidebar-resources > .panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.left-sidebar > .resize-handle-row {
+  flex: none;
+  height: var(--panel-divider-size);
+  margin: 1px 0;
+}

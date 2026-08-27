@@ -1,0 +1,277 @@
+.inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.paint-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.paint-stops {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.paint-stop {
+  display: grid;
+  grid-template-columns: 32px 56px auto 56px auto min-content;
+  gap: 5px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.inspector-section {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.inspector-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+
+.inspector-corner-grid {
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
+}
+
+.inspector-button-row {
+  display: flex;
+  gap: 6px;
+}
+
+.inspector-presentation-background-controls {
+  display: grid;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
+}
+
+.inspector-file-input {
+  display: none;
+}
+
+.inspector-error {
+  margin: 0;
+  color: #ff7b86;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.inspector-binding-list {
+  display: grid;
+  gap: 7px;
+}
+
+.inspector-binding {
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
+}
+
+.inspector-binding-remove {
+  justify-self: end;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.inspector-binding-remove:hover {
+  color: #ff7b86;
+}
+
+.inspector-button-row button,
+.inspector-row button {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel-raised);
+  color: var(--text);
+  padding: 3px 7px;
+  cursor: pointer;
+}
+
+.inspector-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.inspector-row-stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.inspector-row span {
+  color: var(--text-dim);
+  font-size: 11px;
+  flex: none;
+}
+
+.inspector-row input,
+.inspector-row select,
+.inspector-row textarea {
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 3px 6px;
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+}
+
+.inspector-row input[type='color'] {
+  padding: 1px 2px;
+  height: 24px;
+}
+
+.inspector-checkbox-row input[type='checkbox'] {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.inspector-effect-grid {
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
+}
+
+.inspector-font-preview {
+  padding: 9px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-canvas);
+  color: var(--text-heading);
+  font-size: 20px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.inspector-background-color input[type='color'] {
+  height: 32px;
+  cursor: pointer;
+}
+
+.inspector-alpha-control {
+  display: grid;
+  grid-template-columns: auto minmax(70px, 1fr) 68px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
+}
+
+.inspector-alpha-label,
+.inspector-alpha-number span {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.inspector-alpha-control > input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: ew-resize;
+}
+
+.inspector-alpha-number {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.inspector-alpha-number input {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-canvas);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.inspector-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #4dd0e1;
+}
+
+.inspector-evaluated-pose {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, #4dd0e1 35%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, #4dd0e1 7%, transparent);
+  font-size: 10px;
+}
+
+.inspector-evaluated-pose span,
+.inspector-evaluated-pose small {
+  color: var(--text-dim);
+}
+
+.inspector-evaluated-pose output {
+  color: var(--text);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.inspector-frame-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inspector-frame-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.inspector-frame-thumb {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}

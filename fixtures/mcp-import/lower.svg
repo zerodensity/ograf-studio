@@ -1,0 +1,5 @@
+<?xml-stylesheet href="lower.css"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="80">
+  <rect class="panel" width="320" height="80" />
+  <text class="title" x="24" y="48">News</text>
+</svg>

@@ -1,0 +1,442 @@
+.canvas-stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.canvas-stage-workspace {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.canvas-stage-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: scroll;
+  overscroll-behavior: none;
+  scrollbar-width: none;
+  background: var(--bg-canvas);
+}
+
+.canvas-stage-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.canvas-stage-viewport.is-panning,
+.canvas-stage-viewport.is-panning * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+.canvas-stage-measure {
+  position: relative;
+  flex: none;
+}
+
+.canvas-stage-pasteboard {
+  position: absolute;
+  transform-origin: top left;
+}
+
+.canvas-stage-frame {
+  position: absolute;
+  z-index: 1;
+  outline: 4px solid #686c76;
+  overflow: visible;
+}
+
+.canvas-presentation-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: #101114;
+  pointer-events: none;
+}
+
+.canvas-presentation-background video,
+.canvas-presentation-background img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.canvas-presentation-background-error {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  padding: 8px 12px;
+  border-radius: 5px;
+  background: rgb(0 0 0 / 72%);
+  color: #ff9da7;
+  font-size: 14px;
+  transform: translate(-50%, -50%);
+}
+
+.canvas-layout-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.canvas-safe-area {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.canvas-safe-area.action-safe {
+  border: 4px dashed rgba(42, 205, 76, 0.95);
+}
+
+.canvas-safe-area.title-safe {
+  border: 4px dotted rgba(255, 70, 70, 0.95);
+}
+
+.canvas-center-marker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  transform-origin: center;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 90%));
+}
+
+.canvas-center-marker::before,
+.canvas-center-marker::after {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  content: '';
+  background: #35d0ff;
+  border-radius: 1px;
+  transform: translate(-50%, -50%);
+}
+
+.canvas-center-marker::before {
+  width: 100%;
+  height: 2px;
+}
+
+.canvas-center-marker::after {
+  width: 2px;
+  height: 100%;
+}
+
+.canvas-outside-dimmer {
+  --stage-frame-left: calc(var(--stage-origin-x, 0px) - var(--stage-scroll-left, 0px));
+  --stage-frame-top: calc(var(--stage-origin-y, 0px) - var(--stage-scroll-top, 0px));
+  --stage-frame-right: calc(var(--stage-frame-left) + var(--stage-frame-width));
+  --stage-frame-bottom: calc(var(--stage-frame-top) + var(--stage-frame-height));
+  --stage-frame-left-clamped: clamp(0px, var(--stage-frame-left), 100%);
+  --stage-frame-top-clamped: clamp(0px, var(--stage-frame-top), 100%);
+  --stage-frame-right-clamped: clamp(0px, var(--stage-frame-right), 100%);
+  --stage-frame-bottom-clamped: clamp(0px, var(--stage-frame-bottom), 100%);
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.canvas-outside-dimmer > span {
+  position: absolute;
+  display: block;
+  background: #333333;
+}
+
+.canvas-outside-dimmer > .top {
+  inset: 0 0 auto;
+  height: var(--stage-frame-top-clamped);
+}
+
+.canvas-outside-dimmer > .bottom {
+  inset: var(--stage-frame-bottom-clamped) 0 0;
+}
+
+.canvas-outside-dimmer > .left,
+.canvas-outside-dimmer > .right {
+  top: var(--stage-frame-top-clamped);
+  height: calc(var(--stage-frame-bottom-clamped) - var(--stage-frame-top-clamped));
+}
+
+.canvas-outside-dimmer > .left {
+  left: 0;
+  width: var(--stage-frame-left-clamped);
+}
+
+.canvas-outside-dimmer > .right {
+  right: 0;
+  left: var(--stage-frame-right-clamped);
+}
+
+.canvas-rulers-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+  --ruler-size: 20px;
+}
+
+.canvas-viewport-ruler {
+  position: absolute;
+  z-index: 2;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: #303136;
+  color: #b8bbc2;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.canvas-viewport-ruler.horizontal {
+  top: 0;
+  right: 0;
+  left: var(--ruler-size);
+  height: var(--ruler-size);
+  border-bottom: 1px solid #15161a;
+  cursor: row-resize;
+}
+
+.canvas-viewport-ruler.vertical {
+  top: var(--ruler-size);
+  bottom: 0;
+  left: 0;
+  width: var(--ruler-size);
+  border-right: 1px solid #15161a;
+  cursor: col-resize;
+}
+
+.canvas-ruler-origin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  width: var(--ruler-size);
+  height: var(--ruler-size);
+  box-sizing: border-box;
+  border-right: 1px solid #15161a;
+  border-bottom: 1px solid #15161a;
+  background: #292a2e;
+  pointer-events: auto;
+}
+
+.canvas-ruler-origin span::before,
+.canvas-ruler-origin span::after {
+  content: '';
+  position: absolute;
+  background: #8b8e95;
+}
+
+.canvas-ruler-origin span::before {
+  top: 5px;
+  left: 9px;
+  width: 1px;
+  height: 10px;
+}
+
+.canvas-ruler-origin span::after {
+  top: 9px;
+  left: 5px;
+  width: 10px;
+  height: 1px;
+}
+
+.canvas-ruler-tick {
+  position: absolute;
+  color: #9699a0;
+  pointer-events: none;
+}
+
+.canvas-viewport-ruler.horizontal .canvas-ruler-tick {
+  left: var(--ruler-position);
+  bottom: 0;
+  width: 1px;
+  height: 4px;
+  border-left: 1px solid currentColor;
+}
+
+.canvas-viewport-ruler.horizontal .canvas-ruler-tick.medium {
+  height: 7px;
+}
+
+.canvas-viewport-ruler.horizontal .canvas-ruler-tick.major {
+  height: 10px;
+  color: #c2c5cb;
+}
+
+.canvas-viewport-ruler.horizontal .canvas-ruler-tick > span {
+  position: absolute;
+  bottom: 8px;
+  left: 3px;
+  color: #c2c5cb;
+  font-family: var(--mono);
+  font-size: 8px;
+  line-height: 8px;
+  white-space: nowrap;
+}
+
+.canvas-viewport-ruler.vertical .canvas-ruler-tick {
+  top: var(--ruler-position);
+  right: 0;
+  width: 4px;
+  height: 1px;
+  border-top: 1px solid currentColor;
+}
+
+.canvas-viewport-ruler.vertical .canvas-ruler-tick.medium {
+  width: 7px;
+}
+
+.canvas-viewport-ruler.vertical .canvas-ruler-tick.major {
+  width: 10px;
+  color: #c2c5cb;
+}
+
+.canvas-viewport-ruler.vertical .canvas-ruler-tick > span {
+  position: absolute;
+  top: 3px;
+  right: 8px;
+  color: #c2c5cb;
+  font-family: var(--mono);
+  font-size: 8px;
+  line-height: 8px;
+  white-space: nowrap;
+  transform: rotate(-90deg);
+  transform-origin: top right;
+}
+
+.canvas-viewport-guide {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #2aa8ff;
+  box-shadow: 0 0 0 1px rgba(0, 35, 65, 0.3);
+  pointer-events: auto;
+}
+
+.canvas-viewport-guide.vertical {
+  top: var(--ruler-size);
+  bottom: 0;
+  left: var(--ruler-position);
+  width: 1px;
+  cursor: col-resize;
+}
+
+.canvas-viewport-guide.horizontal {
+  top: var(--ruler-position);
+  right: 0;
+  left: var(--ruler-size);
+  height: 1px;
+  cursor: row-resize;
+}
+
+.canvas-viewport-guide.dragging {
+  z-index: 3;
+  background: #59bdff;
+}
+
+.canvas-guide-coordinate {
+  position: absolute;
+  padding: 2px 4px;
+  border: 1px solid #16171a;
+  border-radius: 2px;
+  background: #303136;
+  color: #f1f2f4;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 11px;
+  white-space: nowrap;
+}
+
+.canvas-viewport-guide.vertical .canvas-guide-coordinate {
+  top: 4px;
+  left: 4px;
+}
+
+.canvas-viewport-guide.horizontal .canvas-guide-coordinate {
+  top: 4px;
+  left: 4px;
+}
+
+/* Moveable calculates a single target in viewport-relative coordinates, but mounts its control
+ * box inside the viewport's scrolling content. Counter that scroll once so the box stays over the
+ * target instead of drifting toward the app's top-left. Group geometry has its own correction
+ * below because Moveable reports it in a different coordinate space. */
+.canvas-stage .moveable-control-box {
+  z-index: 3 !important;
+}
+
+.canvas-stage .moveable-control-box:not(.stage-moveable-group) {
+  translate: var(--stage-scroll-left, 0px) var(--stage-scroll-top, 0px);
+}
+
+/* Moveable's group geometry is reported in the scroll content's coordinates, unlike its
+ * single-target geometry. Counter the pasteboard scroll exactly once so the group box stays on
+ * top of the selected objects; the custom properties are refreshed on every viewport scroll. */
+.canvas-stage .stage-moveable-group {
+  translate: calc(-1 * var(--stage-scroll-left, 0px)) calc(-1 * var(--stage-scroll-top, 0px));
+}
+
+/* Persistent groups use violet controls so they read as one saved object rather than a transient
+ * Ctrl/Command multi-selection. */
+.canvas-stage .stage-moveable-persistent-group .moveable-line {
+  background: #b77aff !important;
+}
+
+.canvas-stage .stage-moveable-persistent-group .moveable-control {
+  border-color: white !important;
+  background: #b77aff !important;
+  box-shadow: 0 0 0 1px rgba(45, 20, 70, 0.85);
+}
+
+/* Keep the dedicated rotation affordance unmistakable, while Moveable's invisible outer corner
+ * rings (`rotateAroundControls`) let the user rotate near any corner and resize on the handle. */
+.canvas-stage .moveable-rotation-control {
+  width: 18px !important;
+  height: 18px !important;
+  margin-top: -2px;
+  margin-left: -2px;
+  border: 2px solid white !important;
+  background: var(--accent) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+  cursor: grab !important;
+}
+
+.canvas-stage .moveable-rotation-control::after {
+  content: '↻';
+  position: absolute;
+  inset: -1px;
+  display: grid;
+  place-items: center;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.canvas-stage .moveable-around-control {
+  cursor: grab !important;
+}
+
+.canvas-stage .moveable-rotation-control:active,
+.canvas-stage .moveable-around-control:active {
+  cursor: grabbing !important;
+}

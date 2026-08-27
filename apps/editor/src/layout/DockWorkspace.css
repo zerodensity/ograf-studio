@@ -1,0 +1,561 @@
+.dock-workspace {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  overflow: hidden;
+}
+
+.dock-center {
+  position: relative;
+  z-index: 1;
+  grid-column: 3;
+  grid-row: 3;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  isolation: isolate;
+}
+
+.dock-center > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dock-region {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.dock-region-left {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+.dock-region-right {
+  grid-column: 5;
+  grid-row: 3;
+}
+
+.dock-region-top {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.dock-region-bottom {
+  grid-column: 1 / -1;
+  grid-row: 5;
+}
+
+.dock-region.vertical {
+  flex-direction: column;
+}
+
+.dock-region.horizontal {
+  flex-direction: row;
+}
+
+.dock-group-resize-handle {
+  position: relative;
+  z-index: 7;
+  flex: none;
+  touch-action: none;
+}
+
+.dock-group-resize-handle::before,
+.dock-group-resize-handle::after {
+  position: absolute;
+  content: '';
+}
+
+.dock-group-resize-handle::after {
+  inset: 0;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.dock-group-resize-handle.row {
+  height: var(--panel-divider-size);
+  cursor: row-resize;
+}
+
+.dock-group-resize-handle.row::before {
+  inset: -4px 0;
+}
+
+.dock-group-resize-handle.col {
+  width: var(--panel-divider-size);
+  cursor: col-resize;
+}
+
+.dock-group-resize-handle.col::before {
+  inset: 0 -4px;
+}
+
+.dock-group-resize-handle:hover::after,
+body.is-resizing .dock-group-resize-handle::after {
+  background: var(--accent);
+}
+
+.dock-group {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.dock-tabs {
+  flex: none;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+  transition:
+    background 100ms ease,
+    box-shadow 100ms ease;
+}
+
+.dock-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.dock-tabs.dock-drop-into-tabs {
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-panel));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.dock-tabs button {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px 0 4px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: grab;
+  white-space: nowrap;
+}
+
+.dock-tabs button.dock-tab-drop-before {
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 7px 0 8px -8px var(--accent);
+}
+
+.dock-tabs button.dock-tab-drop-after {
+  box-shadow:
+    inset -3px 0 0 var(--accent),
+    inset -7px 0 8px -8px var(--accent);
+}
+
+.dock-tabs button:hover {
+  color: var(--text);
+  background: var(--bg-panel-raised);
+}
+
+.dock-tabs button.active {
+  color: var(--text-heading);
+  border-bottom-color: var(--accent);
+}
+
+.dock-tabs button:active {
+  cursor: grabbing;
+}
+
+.dock-tabs .dock-pane-close {
+  position: sticky;
+  right: 0;
+  flex: 0 0 28px;
+  margin-left: auto;
+  padding: 0;
+  justify-content: center;
+  color: var(--text-dim);
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  border-bottom: 0;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.dock-tabs .dock-pane-close:hover {
+  color: var(--text-heading);
+  background: var(--bg-panel-raised);
+}
+
+.dock-tabs .dock-pane-close:active {
+  cursor: pointer;
+}
+
+.dock-tab-grip {
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: grab;
+}
+
+.dock-tab-grip:active {
+  cursor: grabbing;
+}
+
+body.is-reordering-dock-tab,
+body.is-reordering-dock-tab * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+.dock-group-content,
+.dock-pane-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dock-group-content {
+  display: flex;
+}
+
+.dock-pane-content {
+  display: none;
+}
+
+.dock-pane-content.active {
+  display: flex;
+}
+
+.dock-pane-content > .panel,
+.dock-pane-content > .agent-chat-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.dock-pane-content > .panel > .panel-title {
+  display: none;
+}
+
+.dock-pane-content > .agent-chat-panel {
+  border-top: 0;
+}
+
+.dock-floating-pane {
+  position: absolute;
+  z-index: 20;
+  min-width: 240px;
+  min-height: 160px;
+  max-width: calc(100% - 12px);
+  max-height: calc(100% - 12px);
+  display: flex;
+  flex-direction: column;
+  resize: both;
+  overflow: hidden;
+  background: var(--bg-panel);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 6px;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 45%);
+}
+
+.dock-floating-title {
+  flex: none;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 0 10px;
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-panel));
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
+}
+
+.dock-floating-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-floating-title > div {
+  display: flex;
+  gap: 2px;
+}
+
+.dock-floating-title button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.dock-floating-title select {
+  width: 54px;
+  height: 24px;
+  padding: 0 2px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.dock-floating-title button:hover,
+.dock-floating-title select:hover {
+  color: var(--text);
+  background: var(--bg-panel-raised);
+}
+
+.dock-floating-content {
+  display: flex;
+}
+
+body.is-moving-dock-pane,
+body.is-moving-dock-pane * {
+  cursor: move !important;
+  user-select: none !important;
+}
+
+.dock-hints {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.dock-hint-cluster {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 142px;
+  height: 142px;
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  grid-template-rows: repeat(3, 44px);
+  gap: 5px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.dock-hint {
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-dim) 55%, transparent);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 30%);
+  pointer-events: auto;
+}
+
+.dock-hint:hover,
+.dock-hint.active {
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg-panel));
+  border-color: var(--accent);
+}
+
+.dock-hint-top {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.dock-hint-left {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dock-hint-float {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.dock-hint-right {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.dock-hint-bottom {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.dock-target-icon {
+  position: relative;
+  width: 25px;
+  height: 20px;
+  display: block;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.9;
+}
+
+.dock-target-icon i {
+  position: absolute;
+  display: block;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.dock-target-icon.left i {
+  inset: 0 auto 0 0;
+  width: 38%;
+}
+
+.dock-target-icon.right i {
+  inset: 0 0 0 auto;
+  width: 38%;
+}
+
+.dock-target-icon.top i {
+  inset: 0 0 auto;
+  height: 38%;
+}
+
+.dock-target-icon.bottom i {
+  inset: auto 0 0;
+  height: 38%;
+}
+
+.dock-target-icon.float {
+  width: 21px;
+  height: 17px;
+  transform: translate(-2px, -2px);
+  box-shadow:
+    4px 4px 0 -1px var(--bg-panel),
+    4px 4px 0 0 currentColor;
+}
+
+.dock-target-icon.float i {
+  display: none;
+}
+
+.dock-drop-preview {
+  position: absolute;
+  z-index: 0;
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  border: 2px solid color-mix(in srgb, var(--accent) 82%, transparent);
+  border-radius: 5px;
+  pointer-events: none;
+}
+
+.dock-drop-preview.left {
+  inset: 4px 75% 4px 4px;
+}
+
+.dock-drop-preview.right {
+  inset: 4px 4px 4px 75%;
+}
+
+.dock-drop-preview.top {
+  inset: 4px 4px 75%;
+}
+
+.dock-drop-preview.bottom {
+  inset: 75% 4px 4px;
+}
+
+.dock-workspace.has-bottom-dock .dock-drop-preview.bottom {
+  inset: calc(100% - var(--dock-bottom-size)) 4px var(--dock-bottom-preview-size);
+}
+
+.dock-drop-preview.float {
+  left: 50%;
+  top: 50%;
+  width: min(380px, 60%);
+  height: min(440px, 70%);
+  transform: translate(-50%, -50%);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
+}
+
+.dock-edge-hints {
+  background: rgb(6 9 14 / 18%);
+}
+
+.dock-edge-hint {
+  position: absolute;
+  z-index: 1;
+  width: 92px;
+  height: 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--accent) 28%, var(--bg-panel));
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  box-shadow:
+    0 5px 18px rgb(0 0 0 / 38%),
+    0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+  pointer-events: none;
+  animation: dock-edge-hint-in 100ms ease-out;
+}
+
+.dock-edge-hint > span:last-child {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.dock-edge-hint.left {
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.dock-edge-hint.right {
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.dock-edge-hint.top {
+  left: 50%;
+  top: 18px;
+  transform: translateX(-50%);
+}
+
+.dock-edge-hint.bottom {
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+}
+
+@keyframes dock-edge-hint-in {
+  from {
+    opacity: 0;
+    scale: 0.88;
+  }
+
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}

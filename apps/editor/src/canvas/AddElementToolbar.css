@@ -1,0 +1,77 @@
+.add-element-toolbar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+  flex: none;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.stage-mode-switch {
+  display: flex;
+  flex: none;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-canvas);
+}
+
+.add-element-toolbar .stage-mode-switch button {
+  border: 0;
+  padding: 3px 9px;
+  background: transparent;
+}
+
+.add-element-toolbar .stage-mode-switch button.active {
+  background: var(--accent);
+  color: white;
+}
+
+.toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 2px;
+  background: var(--border);
+}
+
+.layout-toolbar {
+  display: flex;
+  flex: none;
+  gap: 3px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.layout-toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 2px;
+  background: var(--border);
+}
+
+.layout-toolbar button {
+  padding-inline: 7px;
+}
+
+.add-element-toolbar button {
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.add-element-toolbar button:hover {
+  border-color: var(--accent);
+}
+
+.add-element-toolbar .recipe-select {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: var(--bg-panel-raised);
+  color: var(--text);
+}

@@ -1,0 +1,56 @@
+.frame-duration-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  gap: 5px 8px;
+}
+
+.frame-duration-control label {
+  display: grid;
+  gap: 3px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.frame-duration-control input {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-canvas);
+  color: var(--text);
+}
+
+.frame-duration-exact,
+.frame-duration-warning {
+  grid-column: 1 / -1;
+  font-size: 10px;
+}
+
+.frame-duration-exact {
+  color: var(--text-dim);
+}
+
+.frame-duration-warning {
+  color: #ffb86b;
+}
+
+.frame-duration-rounding {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 5px;
+}
+
+.frame-duration-rounding button {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.frame-duration-rounding button:hover,
+.frame-duration-rounding button:focus-visible {
+  border-color: var(--accent);
+}

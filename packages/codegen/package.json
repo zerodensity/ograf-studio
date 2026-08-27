@@ -1,0 +1,23 @@
+{
+  "name": "@ograf-editor/codegen",
+  "private": true,
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ograf-editor/ograf-runtime": "*",
+    "@ograf-editor/ograf-types": "*",
+    "@ograf-editor/scene-model": "*",
+    "@ograf-editor/validation": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "ajv": "^8.17.1",
+    "typescript": "~6.0.2"
+  }
+}
