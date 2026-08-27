@@ -9,6 +9,7 @@ import { useSelectionStore } from '../state/selectionStore';
 import { BINDABLE_PROPERTIES } from '../state/dataBinding';
 import type {
   BlendMode,
+  CornerRadii,
   DesignTokenTargetProperty,
   DesignTokenType,
   LayerTransform,
@@ -16,6 +17,7 @@ import type {
 } from '@ograf-editor/scene-model';
 import {
   BLEND_MODES,
+  createCornerRadii,
   findLayerKeyframeAtFrame,
   getLayerEffectsAtFrame,
   getLayerPropertyValueAtFrame,
@@ -73,6 +75,10 @@ const DESIGN_TOKEN_TARGETS: Record<
     { property: 'strokeColor', label: 'Stroke', tokenType: 'color' },
     { property: 'strokeWidth', label: 'Stroke width', tokenType: 'number' },
     { property: 'borderRadius', label: 'Corner radius', tokenType: 'number' },
+    { property: 'borderRadiusTopLeft', label: 'Radius · top left', tokenType: 'number' },
+    { property: 'borderRadiusTopRight', label: 'Radius · top right', tokenType: 'number' },
+    { property: 'borderRadiusBottomRight', label: 'Radius · bottom right', tokenType: 'number' },
+    { property: 'borderRadiusBottomLeft', label: 'Radius · bottom left', tokenType: 'number' },
   ],
   ellipse: [
     { property: 'fill', label: 'Fill', tokenType: 'color' },
@@ -93,6 +99,55 @@ const DESIGN_TOKEN_TARGETS: Record<
     { property: 'fontWeight', label: 'Font weight', tokenType: 'font-weight' },
   ],
 };
+
+function CornerRadiusEditor({
+  value,
+  onChange,
+}: {
+  value: CornerRadii;
+  onChange: (value: CornerRadii) => void;
+}) {
+  const isUniform = new Set(Object.values(value)).size === 1;
+  return (
+    <>
+      <label className="inspector-row">
+        <span>All corners</span>
+        <input
+          type="number"
+          min={0}
+          value={isUniform ? value.topLeft : ''}
+          placeholder="Mixed"
+          onChange={(event) => onChange(createCornerRadii(Number(event.target.value)))}
+        />
+      </label>
+      <div className="inspector-grid inspector-corner-grid">
+        {(
+          [
+            ['topLeft', 'Top left'],
+            ['topRight', 'Top right'],
+            ['bottomLeft', 'Bottom left'],
+            ['bottomRight', 'Bottom right'],
+          ] as const
+        ).map(([corner, label]) => (
+          <label className="inspector-row inspector-row-stacked" key={corner}>
+            <span>{label}</span>
+            <input
+              type="number"
+              min={0}
+              value={value[corner]}
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  [corner]: Math.max(0, Number(event.target.value)),
+                })
+              }
+            />
+          </label>
+        ))}
+      </div>
+    </>
+  );
+}
 
 export function InspectorPanel() {
   const composition = useActiveComposition();
@@ -118,11 +173,11 @@ export function InspectorPanel() {
 
   const layer = composition.layers.find((l) => l.id === selectedLayerId);
 
-  // Standard design-tool behavior: with nothing selected, the Inspector edits the document itself
+  // Standard design-tool behavior: with nothing selected, Properties edits the document itself
   // rather than showing a dead-end message.
   if (!layer) {
     return (
-      <Panel title="Inspector">
+      <Panel title="Properties">
         <CompositionSettings />
       </Panel>
     );
@@ -203,7 +258,7 @@ export function InspectorPanel() {
       : [];
 
   return (
-    <Panel title="Inspector">
+    <Panel title="Properties">
       <div className="inspector">
         <label className="inspector-row">
           <span>Name</span>
@@ -716,14 +771,10 @@ export function InspectorPanel() {
               value={evaluatedPaint ?? layer.element.fill}
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
-            <label className="inspector-row">
-              <span>Radius</span>
-              <input
-                type="number"
-                value={layer.element.borderRadius}
-                onChange={(e) => setElement({ borderRadius: Number(e.target.value) })}
-              />
-            </label>
+            <CornerRadiusEditor
+              value={layer.element.borderRadius}
+              onChange={(borderRadius) => setElement({ borderRadius })}
+            />
           </>
         )}
 

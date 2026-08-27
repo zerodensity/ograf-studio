@@ -42,9 +42,36 @@
   gap: 6px 10px;
 }
 
+.inspector-corner-grid {
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
+}
+
 .inspector-button-row {
   display: flex;
   gap: 6px;
+}
+
+.inspector-presentation-background-controls {
+  display: grid;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
+}
+
+.inspector-file-input {
+  display: none;
+}
+
+.inspector-error {
+  margin: 0;
+  color: #ff7b86;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .inspector-binding-list {

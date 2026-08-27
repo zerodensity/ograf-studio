@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import {
+  createCornerRadii,
   createLayerEffects,
   createLayerLoopClip,
   createTextElement,
@@ -20,7 +21,7 @@ function layer(): CompiledLayer {
       fill: '#fff',
       strokeColor: 'transparent',
       strokeWidth: 0,
-      borderRadius: 0,
+      borderRadius: createCornerRadii(),
     },
     effects: createLayerEffects(),
     keyframes: [

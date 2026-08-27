@@ -134,7 +134,7 @@ export function LayerNode({
       {layer.bindings.length > 0 && !isPlaying && (
         <span
           className="layer-binding-indicator"
-          title={`${layer.bindings.length} data binding${layer.bindings.length === 1 ? '' : 's'} — edit fields and properties in the Inspector`}
+          title={`${layer.bindings.length} data binding${layer.bindings.length === 1 ? '' : 's'} — edit fields and properties in Properties`}
           aria-label="Data-bound layer"
         />
       )}

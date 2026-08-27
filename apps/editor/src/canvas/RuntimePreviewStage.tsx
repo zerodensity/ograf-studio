@@ -37,6 +37,7 @@ import {
 } from './stageZoom';
 import { viewportScrollForPointer, type ViewportPanOrigin } from './viewportPan';
 import { CanvasOutsideDimmer } from './CanvasOutsideDimmer';
+import { CanvasPresentationBackground } from './CanvasPresentationBackground';
 import './RuntimePreviewStage.css';
 
 type RuntimeGraphic = HTMLElement & Graphic;
@@ -573,6 +574,7 @@ export function RuntimePreviewStage({ project, onExit, style }: RuntimePreviewSt
                 transform: `scale(${zoom})`,
               }}
             >
+              <CanvasPresentationBackground composition={composition} />
               <div
                 className="canvas-stage-frame runtime-preview-frame"
                 style={{

@@ -1,12 +1,32 @@
-import { useState, type CSSProperties, type FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type FormEvent,
+} from 'react';
 import { useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { openProjectFromFile, openProjectFromUrl, saveProjectToFile } from '../state/fileIO';
-import { resetHistory } from '../state/historyStore';
+import {
+  getHistorySnapshot,
+  redo,
+  resetHistory,
+  subscribeHistory,
+  undo,
+} from '../state/historyStore';
 import { useAgentBridgeStatus } from '../state/agentBridge';
 import { importEditableProjectFromOgraf, type OgrafImportResult } from '../state/importOgraf';
 import { DOCK_PANE_IDS, DOCK_PANE_LABELS, type DockPaneId } from '../layout/dockModel';
 import './Menubar.css';
+
+const historyTime = (timestamp: number) =>
+  new Date(timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 
 export function Menubar({
   style,
@@ -27,9 +47,48 @@ export function Menubar({
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState('');
   const [remoteBusy, setRemoteBusy] = useState(false);
+  const [editMenuOpen, setEditMenuOpen] = useState(false);
   const [windowMenuOpen, setWindowMenuOpen] = useState(false);
+  const editMenuRef = useRef<HTMLDivElement>(null);
+  const windowMenuRef = useRef<HTMLDivElement>(null);
+  const history = useSyncExternalStore(subscribeHistory, getHistorySnapshot, getHistorySnapshot);
   const agentConnected = useAgentBridgeStatus((state) => state.connected);
   const agentActivity = useAgentBridgeStatus((state) => state.activity);
+
+  useEffect(() => {
+    if (!editMenuOpen && !windowMenuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (editMenuRef.current?.contains(target) || windowMenuRef.current?.contains(target)) return;
+      setEditMenuOpen(false);
+      setWindowMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setEditMenuOpen(false);
+      setWindowMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [editMenuOpen, windowMenuOpen]);
+
+  const applyUndo = (steps = 1) => {
+    const label = history.past.at(-1)?.label;
+    undo(steps);
+    setEditMenuOpen(false);
+    setStatus(steps === 1 && label ? `Undid: ${label}` : `Undid ${steps} changes`);
+  };
+
+  const applyRedo = (steps = 1) => {
+    const label = history.future[0]?.label;
+    redo(steps);
+    setEditMenuOpen(false);
+    setStatus(steps === 1 && label ? `Redid: ${label}` : `Redid ${steps} changes`);
+  };
 
   const handleNew = () => {
     if (!confirm('Start a new project? Unsaved changes in the current project will be lost.'))
@@ -155,12 +214,88 @@ export function Menubar({
         >
           Save Project
         </button>
-        <div className="menubar-window-control">
+        <div className="menubar-edit-control" ref={editMenuRef}>
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={editMenuOpen}
+            onClick={() => {
+              setEditMenuOpen((open) => !open);
+              setWindowMenuOpen(false);
+            }}
+          >
+            Edit
+          </button>
+          {editMenuOpen ? (
+            <div className="menubar-edit-menu" role="menu" aria-label="Edit and history">
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!history.canUndo}
+                onClick={() => applyUndo()}
+              >
+                <span>{history.canUndo ? `Undo ${history.past.at(-1)?.label}` : 'Undo'}</span>
+                <kbd>Ctrl+Z</kbd>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!history.canRedo}
+                onClick={() => applyRedo()}
+              >
+                <span>{history.canRedo ? `Redo ${history.future[0]?.label}` : 'Redo'}</span>
+                <kbd>Ctrl+Y</kbd>
+              </button>
+              <div className="menubar-history-heading" role="presentation">
+                History
+                <span>{history.past.length + history.future.length} actions</span>
+              </div>
+              <div className="menubar-history-list" role="group" aria-label="Recent history">
+                {[...history.past].reverse().map((item, index) => (
+                  <button
+                    key={`undo-${item.id}`}
+                    type="button"
+                    className="menubar-history-item"
+                    role="menuitem"
+                    title={`Undo ${index + 1} ${index === 0 ? 'action' : 'actions'}`}
+                    onClick={() => applyUndo(index + 1)}
+                  >
+                    <span aria-hidden="true">↶</span>
+                    <span>{item.label}</span>
+                    <time>{historyTime(item.timestamp)}</time>
+                  </button>
+                ))}
+                <div className="menubar-history-current" aria-current="step">
+                  <span aria-hidden="true">●</span>
+                  <span>Current state</span>
+                </div>
+                {history.future.map((item, index) => (
+                  <button
+                    key={`redo-${item.id}`}
+                    type="button"
+                    className="menubar-history-item is-future"
+                    role="menuitem"
+                    title={`Redo ${index + 1} ${index === 0 ? 'action' : 'actions'}`}
+                    onClick={() => applyRedo(index + 1)}
+                  >
+                    <span aria-hidden="true">↷</span>
+                    <span>{item.label}</span>
+                    <time>{historyTime(item.timestamp)}</time>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="menubar-window-control" ref={windowMenuRef}>
           <button
             type="button"
             aria-haspopup="menu"
             aria-expanded={windowMenuOpen}
-            onClick={() => setWindowMenuOpen((open) => !open)}
+            onClick={() => {
+              setWindowMenuOpen((open) => !open);
+              setEditMenuOpen(false);
+            }}
           >
             Window
           </button>

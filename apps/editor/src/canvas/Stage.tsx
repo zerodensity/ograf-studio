@@ -51,6 +51,7 @@ import { snapLayerPosition } from './layoutGeometry';
 import { CanvasLayoutOverlay } from './CanvasLayoutOverlay';
 import { CanvasRulers } from './CanvasRulers';
 import { CanvasOutsideDimmer } from './CanvasOutsideDimmer';
+import { CanvasPresentationBackground } from './CanvasPresentationBackground';
 import { isPersistentGroupSelection, selectionIdsForLayer } from './groupSelection';
 import {
   captureStageZoomAnchor,
@@ -796,6 +797,7 @@ export function Stage({
                 transform: `scale(${zoom})`,
               }}
             >
+              <CanvasPresentationBackground composition={composition} />
               <div
                 className="canvas-stage-frame"
                 style={{

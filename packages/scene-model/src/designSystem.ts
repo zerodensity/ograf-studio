@@ -7,6 +7,15 @@ import type {
   DesignTokenValue,
   Layer,
 } from './types';
+import { createCornerRadii } from './cornerRadii';
+
+const CORNER_RADIUS_PROPERTIES = [
+  'borderRadius',
+  'borderRadiusTopLeft',
+  'borderRadiusTopRight',
+  'borderRadiusBottomRight',
+  'borderRadiusBottomLeft',
+] as const;
 
 function assertTokenValue(type: DesignTokenType, value: DesignTokenValue): void {
   if ((type === 'number' || type === 'font-weight') && typeof value !== 'number') {
@@ -50,12 +59,12 @@ function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: Desi
     }
     return;
   }
-  if (property === 'borderRadius') {
+  if ((CORNER_RADIUS_PROPERTIES as readonly string[]).includes(property)) {
     if (layer.element.type !== 'rectangle') {
-      throw new Error(`Property borderRadius is not supported by ${layer.element.type} layers.`);
+      throw new Error(`Property ${property} is not supported by ${layer.element.type} layers.`);
     }
     if (token.type !== 'number') {
-      throw new Error('Property borderRadius requires a number design token.');
+      throw new Error(`Property ${property} requires a number design token.`);
     }
     return;
   }
@@ -107,7 +116,15 @@ export function applyDesignTokenBinding(
       track[0]!.value = layer.element.strokeWidth;
     }
   } else if (property === 'borderRadius' && layer.element.type === 'rectangle') {
-    layer.element.borderRadius = Math.max(0, Number(value));
+    layer.element.borderRadius = createCornerRadii(Number(value));
+  } else if (property === 'borderRadiusTopLeft' && layer.element.type === 'rectangle') {
+    layer.element.borderRadius.topLeft = Math.max(0, Number(value));
+  } else if (property === 'borderRadiusTopRight' && layer.element.type === 'rectangle') {
+    layer.element.borderRadius.topRight = Math.max(0, Number(value));
+  } else if (property === 'borderRadiusBottomRight' && layer.element.type === 'rectangle') {
+    layer.element.borderRadius.bottomRight = Math.max(0, Number(value));
+  } else if (property === 'borderRadiusBottomLeft' && layer.element.type === 'rectangle') {
+    layer.element.borderRadius.bottomLeft = Math.max(0, Number(value));
   } else if (property === 'color' && layer.element.type === 'text') {
     layer.element.color = String(value);
   } else if (property === 'fontFamily' && layer.element.type === 'text') {

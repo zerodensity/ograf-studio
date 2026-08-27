@@ -1,6 +1,7 @@
 import {
   getPaintAtFrame,
   getTrackValueAtFrame,
+  cornerRadiiToCss,
   lottieFrameAtTime,
   paintToCss,
   type Element,
@@ -165,7 +166,7 @@ export function renderElementContent(
       applyContentBaseStyle(content);
       content.style.background = paintToCss(element.fill);
       rememberPaint(container, element.fill);
-      content.style.borderRadius = `${element.borderRadius}px`;
+      content.style.borderRadius = cornerRadiiToCss(element.borderRadius);
       if (element.strokeWidth > 0) {
         content.style.border = `${element.strokeWidth}px solid ${element.strokeColor}`;
       }

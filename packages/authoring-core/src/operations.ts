@@ -28,6 +28,7 @@ import {
   getTotalFrames,
   gradientStopIndexForProperty,
   normalizeAuthoredTransformPatch,
+  normalizeCornerRadii,
   normalizeLayerEffects,
   instantiateComponentDefinition,
   materializeBug,
@@ -362,7 +363,13 @@ function addLayer(
       }),
     );
   }
-  if (operation.element) Object.assign(layer.element, operation.element);
+  if (operation.element) {
+    const elementPatch = { ...operation.element };
+    if (layer.element.type === 'rectangle' && elementPatch.borderRadius !== undefined) {
+      elementPatch.borderRadius = normalizeCornerRadii(elementPatch.borderRadius as never);
+    }
+    Object.assign(layer.element, elementPatch);
+  }
   if (operation.effects)
     layer.effects = normalizeLayerEffects({ ...layer.effects, ...operation.effects });
   materializeTracks(layer);
@@ -1461,7 +1468,16 @@ export function applyAuthoringOperations(
           }
           assertPropertyApplicable(layer, 'strokeWidth', strokeWidth);
         }
-        Object.assign(layer.element, operation.patch);
+        const elementPatch = { ...operation.patch };
+        if (layer.element.type === 'rectangle' && elementPatch.borderRadius !== undefined) {
+          const radiusPatch = elementPatch.borderRadius;
+          elementPatch.borderRadius = normalizeCornerRadii(
+            radiusPatch && typeof radiusPatch === 'object'
+              ? { ...layer.element.borderRadius, ...radiusPatch }
+              : (radiusPatch as never),
+          );
+        }
+        Object.assign(layer.element, elementPatch);
         if (layer.element.type === 'text' && operation.patch.strokeWidth !== undefined) {
           const track = layer.animationTracks.strokeWidth;
           if (!track?.length) materializeTracks(layer);

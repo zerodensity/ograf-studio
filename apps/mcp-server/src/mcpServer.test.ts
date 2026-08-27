@@ -104,7 +104,11 @@ describe('OGraf MCP authoring host', () => {
     expect(result.structuredContent).toMatchObject({
       editor: { certificationReady: false, certificationLikelyCause: expect.any(String) },
       elementSchemas: {
-        rectangle: { borderRadius: { default: 0 } },
+        rectangle: {
+          borderRadius: {
+            default: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+          },
+        },
         ellipse: { strokeWidth: { default: 0 } },
         text: {
           textAlign: { values: ['left', 'center', 'right'] },
@@ -184,8 +188,10 @@ describe('OGraf MCP authoring host', () => {
         overflowPreview: ['visible', 'clip'],
         outsideCanvasDimmer: {
           property: 'dimOutsideCanvas',
-          color: '#121212',
-          opacity: 0.18,
+          color: '#333333',
+          opacity: 1,
+          grayLevel: 0.2,
+          transparent: false,
           authoringOnly: true,
         },
         safeAreas: {

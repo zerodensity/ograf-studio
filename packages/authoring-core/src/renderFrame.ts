@@ -6,7 +6,9 @@ import {
   getLayerTransformAtFrame,
   getTotalFrames,
   paintToCss,
+  cornerRadiiToCss,
   clipPathSvgForParentBounds,
+  roundedRectangleSvgPath,
   resolveElementAssetReferences,
   valueAtSourcePath,
   type Composition,
@@ -34,8 +36,8 @@ function elementSvg(
   switch (element.type) {
     case 'rectangle':
       return typeof element.fill === 'string'
-        ? `<rect width="${width}" height="${height}" rx="${element.borderRadius}" fill="${escapeXml(element.fill)}" stroke="${escapeXml(element.strokeColor)}" stroke-width="${element.strokeWidth}"/>`
-        : `<foreignObject width="${width}" height="${height}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:100%;height:100%;box-sizing:border-box;background:${escapeXml(paintToCss(element.fill))};border:${element.strokeWidth}px solid ${escapeXml(element.strokeColor)};border-radius:${element.borderRadius}px"></div></foreignObject>`;
+        ? `<path d="${roundedRectangleSvgPath(width, height, element.borderRadius)}" fill="${escapeXml(element.fill)}" stroke="${escapeXml(element.strokeColor)}" stroke-width="${element.strokeWidth}"/>`
+        : `<foreignObject width="${width}" height="${height}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:100%;height:100%;box-sizing:border-box;background:${escapeXml(paintToCss(element.fill))};border:${element.strokeWidth}px solid ${escapeXml(element.strokeColor)};border-radius:${cornerRadiiToCss(element.borderRadius)}"></div></foreignObject>`;
     case 'ellipse':
       return typeof element.fill === 'string'
         ? `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${escapeXml(element.fill)}" stroke="${escapeXml(element.strokeColor)}" stroke-width="${element.strokeWidth}"/>`

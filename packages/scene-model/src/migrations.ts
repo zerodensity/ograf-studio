@@ -17,6 +17,7 @@ import {
 } from './layerAnimation';
 import { normalizeAuthoredTransform } from './authoredTransform';
 import { normalizeLayerEffects } from './layerEffects';
+import { normalizeCornerRadii } from './cornerRadii';
 import type {
   Composition,
   Element,
@@ -135,6 +136,13 @@ function normalizeFieldDefinition(field: LegacyFieldDefinition): FieldDefinition
 }
 
 function normalizeElement(element: Element): Element {
+  if (element.type === 'rectangle') {
+    const legacy = element as Element & { borderRadius?: number | Record<string, unknown> };
+    return {
+      ...element,
+      borderRadius: normalizeCornerRadii(legacy.borderRadius),
+    };
+  }
   if (element.type !== 'text') return element;
   return {
     ...element,
@@ -395,6 +403,10 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       showTitleSafe: composition.layout?.showTitleSafe ?? false,
       showCenterMarker: composition.layout?.showCenterMarker ?? false,
       dimOutsideCanvas: composition.layout?.dimOutsideCanvas ?? false,
+      presentationBackground: composition.layout?.presentationBackground ?? 'none',
+      presentationBackgroundImageSource:
+        composition.layout?.presentationBackgroundImageSource ?? '',
+      presentationBackgroundImageName: composition.layout?.presentationBackgroundImageName ?? '',
       snappingEnabled: composition.layout?.snappingEnabled ?? true,
       snapToGrid: composition.layout?.snapToGrid ?? false,
       snapToGuides: composition.layout?.snapToGuides ?? true,

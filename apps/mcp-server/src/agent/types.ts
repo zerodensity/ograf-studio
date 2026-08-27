@@ -2,6 +2,13 @@ import type { ProviderToolDefinition } from '@ograf-editor/agent-tools';
 
 export interface ChatAmbientContext {
   selection?: { layerIds: string[]; primaryLayerId?: string | null };
+  references?: Array<{
+    layerId: string;
+    name: string;
+    elementType: string;
+    selectedProperty?: string;
+    selectedKeyframeId?: string;
+  }>;
   frame?: number;
   viewport?: { width: number; height: number; zoom?: number };
   recentEdits?: string[];
@@ -54,6 +61,13 @@ export type ChatServerEvent =
     }
   | { type: 'chat.external'; active: boolean }
   | { type: 'chat.turn.start'; turnId: string }
+  | {
+      type: 'chat.progress';
+      turnId: string;
+      phase: 'waiting' | 'continuing';
+      message: string;
+      round: number;
+    }
   | { type: 'chat.text'; turnId: string; text: string }
   | {
       type: 'chat.tool';

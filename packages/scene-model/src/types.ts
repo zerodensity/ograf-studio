@@ -25,12 +25,19 @@ export interface GradientPaint {
 
 export type Paint = string | GradientPaint;
 
+export interface CornerRadii {
+  topLeft: number;
+  topRight: number;
+  bottomRight: number;
+  bottomLeft: number;
+}
+
 export interface RectangleElement {
   type: 'rectangle';
   fill: Paint;
   strokeColor: string;
   strokeWidth: number;
-  borderRadius: number;
+  borderRadius: CornerRadii;
 }
 
 export interface EllipseElement {
@@ -211,6 +218,10 @@ export type DesignTokenTargetProperty =
   | 'strokeColor'
   | 'strokeWidth'
   | 'borderRadius'
+  | 'borderRadiusTopLeft'
+  | 'borderRadiusTopRight'
+  | 'borderRadiusBottomRight'
+  | 'borderRadiusBottomLeft'
   | 'color'
   | 'fontFamily'
   | 'fontSize'
@@ -551,12 +562,19 @@ export interface ComponentDefinition {
   dataFields: FieldDefinition[];
 }
 
+export type CanvasPresentationBackground = 'none' | 'big-buck-bunny' | 'still-image';
+
 export interface CompositionLayout {
   showRulers: boolean;
   showActionSafe: boolean;
   showTitleSafe: boolean;
   showCenterMarker: boolean;
   dimOutsideCanvas: boolean;
+  presentationBackground: CanvasPresentationBackground;
+  /** Editor-only remote URL or embedded image data URL. Never compiled into playout output. */
+  presentationBackgroundImageSource: string;
+  /** Display name retained for an embedded local image. */
+  presentationBackgroundImageName: string;
   snappingEnabled: boolean;
   snapToGrid: boolean;
   snapToGuides: boolean;

@@ -24,10 +24,12 @@
   gap: 4px;
 }
 
+.menubar-edit-control,
 .menubar-window-control {
   position: relative;
 }
 
+.menubar-edit-menu,
 .menubar-window-menu {
   position: absolute;
   z-index: 50;
@@ -41,6 +43,87 @@
   border: 1px solid var(--border);
   border-radius: 5px;
   box-shadow: 0 10px 28px rgb(0 0 0 / 42%);
+}
+
+.menubar-edit-menu {
+  width: min(370px, calc(100vw - 24px));
+}
+
+.menubar-actions .menubar-edit-menu > button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 9px;
+  color: var(--text);
+  text-align: left;
+}
+
+.menubar-edit-menu kbd {
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+}
+
+.menubar-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 3px;
+  padding: 7px 8px 5px;
+  border-top: 1px solid var(--border);
+  color: var(--text-heading);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.menubar-history-heading span {
+  color: var(--text-dim);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.menubar-history-list {
+  max-height: min(360px, calc(100vh - 160px));
+  overflow: auto;
+}
+
+.menubar-actions .menubar-edit-menu .menubar-history-item,
+.menubar-history-current {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+  text-align: left;
+}
+
+.menubar-actions .menubar-edit-menu .menubar-history-item > span:first-child,
+.menubar-history-current > span:first-child {
+  color: var(--accent);
+  text-align: center;
+}
+
+.menubar-actions .menubar-edit-menu .menubar-history-item time {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.menubar-actions .menubar-edit-menu .menubar-history-item.is-future {
+  color: var(--text-dim);
+}
+
+.menubar-history-current {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--text-heading);
+  font-weight: 600;
 }
 
 .menubar-actions .menubar-window-menu button {
@@ -102,6 +185,16 @@
 .menubar-actions button:hover {
   background: var(--bg-panel-raised);
   border-color: var(--border);
+}
+
+.menubar-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.menubar-actions button:disabled:hover {
+  background: transparent;
+  border-color: transparent;
 }
 
 .ograf-import-report {

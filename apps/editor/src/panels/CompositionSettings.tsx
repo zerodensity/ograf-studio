@@ -1,9 +1,24 @@
+import { useRef, useState } from 'react';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { colorPickerValue } from '../canvas/compositionBackground';
 import { COMPOSITION_PRESETS, matchesCompositionPreset } from './compositionPresets';
 import { FrameDurationControl } from './FrameDurationControl';
+import type { CanvasPresentationBackground } from '@ograf-editor/scene-model';
+
+const MAX_PRESENTATION_IMAGE_BYTES = 10 * 1024 * 1024;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read the selected image.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 export function CompositionSettings() {
+  const presentationImageInputRef = useRef<HTMLInputElement>(null);
+  const [presentationImageError, setPresentationImageError] = useState('');
   const composition = useActiveComposition();
   const project = useProjectStore((s) => s.project);
   const setProjectMeta = useProjectStore((s) => s.setProjectMeta);
@@ -18,6 +33,32 @@ export function CompositionSettings() {
   );
   const isTransparent = composition.backgroundColor === 'transparent';
   const pickerColor = colorPickerValue(composition.backgroundColor);
+  const presentationImageSource = composition.layout.presentationBackgroundImageSource;
+  const presentationImageIsEmbedded = presentationImageSource.startsWith('data:image/');
+
+  const importPresentationImage = async (file: File | undefined) => {
+    if (!file) return;
+    setPresentationImageError('');
+    if (!file.type.startsWith('image/')) {
+      setPresentationImageError('Choose a supported image file.');
+      return;
+    }
+    if (file.size > MAX_PRESENTATION_IMAGE_BYTES) {
+      setPresentationImageError('The presentation image must be 10 MB or smaller.');
+      return;
+    }
+    try {
+      updateLayout({
+        presentationBackground: 'still-image',
+        presentationBackgroundImageSource: await readFileAsDataUrl(file),
+        presentationBackgroundImageName: file.name,
+      });
+    } catch (error) {
+      setPresentationImageError(
+        error instanceof Error ? error.message : 'Failed to read the selected image.',
+      );
+    }
+  };
 
   return (
     <div className="inspector">
@@ -142,7 +183,7 @@ export function CompositionSettings() {
           ['showActionSafe', 'Action safe · EBU R 95 (3.5%)'],
           ['showTitleSafe', 'Title safe · EBU R 95 (5%)'],
           ['showCenterMarker', 'Center marker'],
-          ['dimOutsideCanvas', 'Dim outside canvas (18%)'],
+          ['dimOutsideCanvas', 'Outside canvas · 20% gray'],
           ['snappingEnabled', 'Snapping'],
           ['snapToGrid', 'Snap to grid'],
           ['snapToGuides', 'Snap to guides'],
@@ -158,6 +199,91 @@ export function CompositionSettings() {
           />
         </label>
       ))}
+      <label className="inspector-row">
+        <span>Presentation background</span>
+        <select
+          value={composition.layout.presentationBackground}
+          onChange={(event) =>
+            updateLayout({
+              presentationBackground: event.target.value as CanvasPresentationBackground,
+            })
+          }
+        >
+          <option value="none">None</option>
+          <option value="big-buck-bunny">Big Buck Bunny · looping video</option>
+          <option value="still-image">Still image</option>
+        </select>
+      </label>
+      {composition.layout.presentationBackground === 'big-buck-bunny' ? (
+        <p className="inspector-hint">
+          Editor-only video bed; use Transparent output to see it through the composition. Big Buck
+          Bunny © 2008 Blender Foundation,{' '}
+          <a href="https://peach.blender.org/about/" target="_blank" rel="noreferrer">
+            CC BY 3.0
+          </a>
+          .
+        </p>
+      ) : null}
+      {composition.layout.presentationBackground === 'still-image' ? (
+        <div className="inspector-presentation-background-controls">
+          <label className="inspector-row inspector-row-stacked">
+            <span>Image URL</span>
+            <input
+              type="url"
+              value={presentationImageIsEmbedded ? '' : presentationImageSource}
+              placeholder="https://example.com/background.jpg"
+              onChange={(event) => {
+                setPresentationImageError('');
+                updateLayout({
+                  presentationBackgroundImageSource: event.target.value,
+                  presentationBackgroundImageName: '',
+                });
+              }}
+            />
+          </label>
+          <div className="inspector-button-row">
+            <button type="button" onClick={() => presentationImageInputRef.current?.click()}>
+              Choose local image…
+            </button>
+            {presentationImageSource ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPresentationImageError('');
+                  updateLayout({
+                    presentationBackgroundImageSource: '',
+                    presentationBackgroundImageName: '',
+                  });
+                }}
+              >
+                Clear
+              </button>
+            ) : null}
+            <input
+              ref={presentationImageInputRef}
+              className="inspector-file-input"
+              type="file"
+              accept="image/*"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                void importPresentationImage(file);
+              }}
+            />
+          </div>
+          <p className="inspector-hint">
+            {presentationImageIsEmbedded
+              ? `${composition.layout.presentationBackgroundImageName || 'Local image'} is embedded in this .ogs project.`
+              : presentationImageSource
+                ? 'Using the image URL above.'
+                : 'Enter an image URL or choose a local image up to 10 MB.'}{' '}
+            This background is editor-only and is not exported.
+          </p>
+          {presentationImageError ? (
+            <p className="inspector-error">{presentationImageError}</p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="inspector-grid">
         <label className="inspector-row">
           <span>Grid</span>

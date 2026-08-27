@@ -16,7 +16,7 @@ export const DOCK_PANE_LABELS: Record<DockPaneId, string> = {
   layers: 'Layers',
   chat: 'Chat',
   resources: 'Resources',
-  inspector: 'Inspector',
+  inspector: 'Properties',
   data: 'Data',
   export: 'Preview & Export',
   timeline: 'Timeline',

@@ -1,5 +1,6 @@
 import {
   createComposition,
+  createCornerRadii,
   createDefaultTransform,
   createFieldDefinition,
   createKeyframe,
@@ -49,7 +50,7 @@ export function createLowerThirdExampleProject(): Project {
   panel.name = 'Glass Panel';
   if (panel.element.type === 'rectangle') {
     panel.element.fill = '#151a27';
-    panel.element.borderRadius = 12;
+    panel.element.borderRadius = createCornerRadii(12);
     panel.element.strokeColor = '#39445f';
     panel.element.strokeWidth = 2;
   }
@@ -73,7 +74,7 @@ export function createLowerThirdExampleProject(): Project {
   accent.name = 'Accent Sweep';
   if (accent.element.type === 'rectangle') {
     accent.element.fill = '#29b6f6';
-    accent.element.borderRadius = 6;
+    accent.element.borderRadius = createCornerRadii(6);
   }
   accent.effects = { ...accent.effects, blur: 0.5 };
   keyLayer(accent, createDefaultTransform({ y: 790, width: 18, height: 190 }), [

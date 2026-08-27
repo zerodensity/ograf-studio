@@ -217,12 +217,17 @@ Fixed animatable properties are `x`, `y`, `width`, `height`, `rotation`, `opacit
 `fill.stops[N].offset` for every zero-based stop index. Offset keys must remain in 0..1 and use the
 same independent incoming-easing semantics as other numeric property tracks.
 
-`set_composition_layout` configures rulers, action/title-safe overlays, snapping, grid/threshold,
-authoring bounds, and overflow preview. Canvas guides are `{axis: "vertical"|"horizontal",
+`set_composition_layout` configures rulers, action/title-safe overlays, the editor-only
+`presentationBackground` (`none`, `big-buck-bunny`, or `still-image`), snapping, grid/threshold,
+authoring bounds, and overflow preview. For a still image, set
+`presentationBackgroundImageSource` to an image URL; local file selection and embedding are
+available in the visible Studio Canvas Layout settings. Canvas guides are `{axis: "vertical"|"horizontal",
 position}` and receive stable generated IDs. `set_layer_layout` accepts `isLocked`, `groupId`,
 `parentId`, `clipChildren`, and horizontal/vertical constraints. When `clipChildren: true`, direct
 children pointing at that layer are clipped to its animated transformed bounds; parent rotation and
 transform origin produce diagonal masks, and rectangle `borderRadius` rounds the transformed mask.
+Use `{ topLeft, topRight, bottomRight, bottomLeft }` for independent corners; a number remains a
+supported shorthand that applies one radius to every corner.
 Children retain their independent world-space rotation. This relation compiles deterministically
 and is remapped by `duplicate_group`. Parent translation and composition resize otherwise bake into
 regular tracks.

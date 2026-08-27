@@ -1380,7 +1380,13 @@ export function createOGrafToolRecords(
             },
             strokeColor: { type: 'color', default: 'transparent' },
             strokeWidth: { type: 'number', default: 0, minimum: 0 },
-            borderRadius: { type: 'number', default: 0, minimum: 0 },
+            borderRadius: {
+              type: 'corner-radii',
+              shape: '{ topLeft, topRight, bottomRight, bottomLeft }',
+              shorthand: 'A non-negative number applies the same radius to all four corners.',
+              default: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+              minimum: 0,
+            },
           },
           ellipse: {
             fill: {
@@ -1493,7 +1499,7 @@ export function createOGrafToolRecords(
           transformOrigin:
             'Rotation origin uses normalized transformOriginX/transformOriginY within top-left-positioned layer bounds.',
           childClipping:
-            'set_layer_layout clipChildren=true makes that layer an animated, rotation-aware rectangular mask for direct children whose parentId points to it. Rectangle borderRadius rounds the transformed mask. Children keep their own world-space rotation; rotate the parent mask to create a diagonal wipe. Clipping is deterministic and compiled; ordinary parent translation remains baked.',
+            'set_layer_layout clipChildren=true makes that layer an animated, rotation-aware rectangular mask for direct children whose parentId points to it. Rectangle borderRadius rounds the transformed mask and accepts independent topLeft, topRight, bottomRight, and bottomLeft values; a number applies uniformly. Children keep their own world-space rotation; rotate the parent mask to create a diagonal wipe. Clipping is deterministic and compiled; ordinary parent translation remains baked.',
           layerBlending:
             'blendMode is static and composition-local. Editor, capture, SVG diagnostics, and runtime isolate the composition so layers blend only with earlier OGraf layers, never the external video bed or editor checkerboard.',
           runtimeCollections:
@@ -1562,6 +1568,10 @@ export function createOGrafToolRecords(
             'strokeColor',
             'strokeWidth',
             'borderRadius',
+            'borderRadiusTopLeft',
+            'borderRadiusTopRight',
+            'borderRadiusBottomRight',
+            'borderRadiusBottomLeft',
             'color',
             'fontFamily',
             'fontSize',
@@ -1676,9 +1686,22 @@ export function createOGrafToolRecords(
           overflowPreview: ['visible', 'clip'],
           outsideCanvasDimmer: {
             property: 'dimOutsideCanvas',
-            color: '#121212',
-            opacity: 0.18,
+            color: '#333333',
+            opacity: 1,
+            grayLevel: 0.2,
+            transparent: false,
             authoringOnly: true,
+          },
+          presentationBackgrounds: {
+            values: ['none', 'big-buck-bunny', 'still-image'],
+            property: 'presentationBackground',
+            stillImage: {
+              urlProperty: 'presentationBackgroundImageSource',
+              localFileSelection: 'Available in the visible Studio Canvas Layout settings.',
+              localFilesAreEmbeddedInProject: true,
+            },
+            authoringOnly: true,
+            exported: false,
           },
           timelineGroups: {
             operations: [

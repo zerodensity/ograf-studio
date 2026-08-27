@@ -6,22 +6,20 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.07
+## New in OGraf Studio 0.08
 
-- Added a persistent Visual Studio-style docking workspace: panes can reorder, tab together, float,
-  dock at all four edges/corners, resize internally, close, and reopen through the Window menu.
-- Changed the canonical editable project extension to `.ogs` while retaining legacy `.ogeproj`
-  reads; browser and MCP saves now require `.ogs` and packaged `.ograf.zip` output is unchanged.
-- Added remote CORS-bounded project loading, a zoom-stable canvas center marker, Photoshop-style
-  layer visibility icons, and persistent editor-only layout preferences.
-- Made top-level timeline tracks neutral gray, assigned stable semantic property colors, hid inactive
-  compatibility tracks by default, and prevented frame-count/easing-label collisions.
-- Switched newly authored generic keys and lifecycle transitions to neutral Linear easing while
-  preserving explicit recipe/user/MCP easing and all migrated legacy motion.
-- Relicensed the complete project under the GNU Affero General Public License v3.0.
-- Raised the verified baseline to 363 tests across 75 files.
+- Added a top Edit menu with Undo, Redo, descriptive timestamps, and clickable multi-step history.
+- Added automatic AI Chat references for current canvas/Layers/Timeline selection, stronger active
+  turn feedback, bounded project-specific context, and safe context-limit recovery.
+- Added editor-only video and URL/local still-image presentation backgrounds behind transparent
+  composition pixels, plus black/20%-gray new-composition defaults.
+- Added independent top-left, top-right, bottom-right, and bottom-left rectangle corner radii across
+  Properties, runtime rendering, clipping, diagnostics, Brand Kit tokens, and MCP operations.
+- Renamed Inspector to Properties and replaced the browser/project icon with the supplied OGraf
+  Studio artwork.
+- Raised the verified baseline to 380 tests across 79 files.
 
-See [the complete 0.07 release notes](docs/releases/0.07.md) for validation evidence and current
+See [the complete 0.08 release notes](docs/releases/0.08.md) for validation evidence and current
 boundaries.
 
 ## Highlights
@@ -36,8 +34,12 @@ boundaries.
   before or after without conflating hierarchy and z-order.
 - EBU R 95 16:9 action-safe and title/graphics-safe overlays with exact 3.5% and 5% per-axis
   margins for HD and UHD rasters, shared by canvas guides, broadcast QA, and MCP inspection/lint.
-- Optional **Dim outside canvas (18%)** layout aid adds a transparent dark-gray veil around the
-  composition in Edit and OGraf Preview without changing the canvas alpha or exported graphic.
+- New compositions start with an opaque black background and **Outside canvas · 20% gray**
+  enabled. The solid editor-only `#333333` surround never enters captures or exported graphics;
+  both background transparency and the outside fill remain editable Canvas Layout choices.
+- Canvas Layout also offers an editor-only **Big Buck Bunny** presentation video. The muted 30-second
+  HTML video loops behind Edit and OGraf Preview, appears only through transparent composition
+  pixels, and never enters capture/certification/export. It requires internet access to the CDN.
 - Independent per-property animation tracks, per-key easing and curves, local loops, and freely
   movable OGraf lifecycle Steps.
 - Timeline parent layers use one fixed summary colour, while Position X/Y, Width, Height, Rotation,
@@ -143,7 +145,7 @@ limits before committing one revision-checked asset transaction.
 ### Lottie animations
 
 Use **+ Lottie JSON** above the canvas, or replace the JSON from a selected Lottie layer's
-Inspector. The first supported profile is intentionally deterministic and portable:
+Properties. The first supported profile is intentionally deterministic and portable:
 
 - the Bodymovin/Lottie JSON is embedded in the editable project and exported OGraf module;
 - playback loops continuously, with an editable non-negative speed multiplier;
@@ -228,12 +230,29 @@ OpenAI-compatible endpoint. It may be an API root ending in `/v1` or a complete 
 
 Optional server-only settings are `OGRAF_AGENT_CHEAP_MODEL` for routine rename/property/key work,
 `OGRAF_AGENT_EFFORT` (`low`, `medium`, or `high`), `OGRAF_AGENT_ORGANIZATION`,
-`OGRAF_AGENT_PROJECT`, and `OGRAF_AGENT_CREDENTIAL_TARGET`. Restart the server after changing them.
+`OGRAF_AGENT_PROJECT`, `OGRAF_AGENT_CREDENTIAL_TARGET`, and `OGRAF_AGENT_TIMEOUT_MS` (provider wait
+timeout, default 120000 ms). Restart the server after changing them.
 The panel reports per-message, per-session, and cumulative-per-project token usage; cumulative usage
 is browser-local metadata keyed by project ID and is deliberately excluded from `.ogs`.
 It also reports recent external MCP activity. An optional session-local exclusive toggle prevents
 the in-app and external agents from authoring at the same time; optimistic revision checks remain
 the normal default when that toggle is off.
+
+While a turn is active, Chat keeps an always-visible progress strip above the transcript with an
+animated activity indicator, provider/model wait phase, tool summary, model round, and elapsed time.
+Long waits escalate to explicit "still working" guidance. Disconnects and provider timeouts end the
+busy state with an actionable error instead of leaving Cancel visible indefinitely.
+
+Chat conversations are isolated by project ID, retain at most 96,000 characters of recent atomic
+history, and cap individual tool-result payloads at 16,000 characters. Opening or creating another
+project therefore starts a fresh conversation. If Anthropic still rejects the first request as too
+long, Studio automatically retries that turn once with fresh project conversation history.
+
+Current canvas, Layers-pane, and Timeline selection automatically appears in Chat as one or more
+**selected** reference chips. The primary layer's selected property/key is included when applicable,
+and those references update immediately as selection changes. Layers may still be dragged into Chat
+to add removable references outside the current selection. Explicit chips supply stable IDs, names,
+and element types for prompts such as “change the color to green.”
 
 The in-app model receives a reduced 14-tool authoring surface. Save, export, certification, project
 reset/open, and imports remain explicit Studio UI actions. Visually consequential tool batches still
@@ -404,3 +423,5 @@ terms.
   segments/markers, one-shot playback, and dynamic Lottie content are not yet authored.
 - The editor production bundle currently triggers Vite's large-chunk advisory; it is a performance
   warning, not a build failure.
+- The optional Big Buck Bunny presentation background streams from jsDelivr and therefore requires
+  network access; Big Buck Bunny is © 2008 Blender Foundation and licensed CC BY 3.0.
