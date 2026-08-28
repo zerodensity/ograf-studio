@@ -1,5 +1,7 @@
 # OGraf Studio
 
+![OGraf Studio editing the Atlas News Package](docs/images/ograf-studio-editor.png)
+
 A browser-based visual editor for creating EBU OGraf-compatible HTML5 broadcast graphics such as
 lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-driven templates.
 
