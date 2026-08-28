@@ -19,6 +19,7 @@ import {
 import { useAgentBridgeStatus } from '../state/agentBridge';
 import { importEditableProjectFromOgraf, type OgrafImportResult } from '../state/importOgraf';
 import { DOCK_PANE_IDS, DOCK_PANE_LABELS, type DockPaneId } from '../layout/dockModel';
+import { selectableLayerIds } from '../state/selectAllLayers';
 import './Menubar.css';
 
 const historyTime = (timestamp: number) =>
@@ -41,7 +42,9 @@ export function Menubar({
   const newProject = useProjectStore((s) => s.newProject);
   const loadProject = useProjectStore((s) => s.loadProject);
   const project = useProjectStore((s) => s.project);
+  const activeCompositionId = useProjectStore((s) => s.activeCompositionId);
   const select = useSelectionStore((s) => s.select);
+  const selectMany = useSelectionStore((s) => s.selectMany);
   const [status, setStatus] = useState('');
   const [importReport, setImportReport] = useState<OgrafImportResult | null>(null);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
@@ -88,6 +91,17 @@ export function Menubar({
     redo(steps);
     setEditMenuOpen(false);
     setStatus(steps === 1 && label ? `Redid: ${label}` : `Redid ${steps} changes`);
+  };
+
+  const selectAllLayers = () => {
+    const composition = project.compositions.find(
+      (candidate) => candidate.id === activeCompositionId,
+    );
+    const layerIds = composition ? selectableLayerIds(composition) : [];
+    window.getSelection()?.removeAllRanges();
+    selectMany(layerIds);
+    setEditMenuOpen(false);
+    setStatus(`Selected ${layerIds.length} layer${layerIds.length === 1 ? '' : 's'}`);
   };
 
   const handleNew = () => {
@@ -245,6 +259,10 @@ export function Menubar({
               >
                 <span>{history.canRedo ? `Redo ${history.future[0]?.label}` : 'Redo'}</span>
                 <kbd>Ctrl+Y</kbd>
+              </button>
+              <button type="button" role="menuitem" onClick={selectAllLayers}>
+                <span>Select all layers</span>
+                <kbd>Ctrl+A</kbd>
               </button>
               <div className="menubar-history-heading" role="presentation">
                 History

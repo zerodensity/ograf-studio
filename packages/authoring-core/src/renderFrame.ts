@@ -57,6 +57,22 @@ function elementSvg(
       const x =
         element.textAlign === 'center' ? width / 2 : element.textAlign === 'right' ? width : 0;
       const blockHeight = Math.max(1, lines.length) * element.fontSize * element.lineHeight;
+      if (element.autoFit === 'squeeze') {
+        const naturalWidth = Math.max(
+          1,
+          ...lines.map((line) => {
+            const characters = Array.from(line).length;
+            return (
+              characters * element.fontSize * 0.6 +
+              Math.max(0, characters - 1) * element.letterSpacing +
+              element.strokeWidth
+            );
+          }),
+        );
+        const scaleX = width / naturalWidth;
+        const scaleY = height / Math.max(1, blockHeight + element.strokeWidth);
+        return `<g transform="scale(${scaleX} ${scaleY})"><text x="0" y="${element.fontSize + element.baselineShift}" fill="${escapeXml(element.color)}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="start">${lines.map((line, index) => `<tspan x="0" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text></g>`;
+      }
       const verticalOffset =
         element.verticalAlign === 'middle'
           ? Math.max(0, (height - blockHeight) / 2)

@@ -16,17 +16,17 @@
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 
 .layer-list li:hover {
-  background: var(--bg-panel-raised);
+  background: var(--bg-hover);
 }
 
 .layer-list li.active {
-  background: var(--accent-bg, rgba(124, 140, 255, 0.15));
-  outline: 1px solid var(--accent);
+  background: var(--bg-selected);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .layer-list li.dragging {
@@ -42,7 +42,7 @@
 }
 
 .layer-list li.drop-parent {
-  background: color-mix(in srgb, var(--accent) 20%, var(--bg-panel-raised));
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg-panel-raised));
   outline: 1px solid var(--accent);
 }
 
@@ -72,7 +72,7 @@
   justify-content: center;
   background: transparent;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text-dim);
   cursor: pointer;
   font-size: 11px;

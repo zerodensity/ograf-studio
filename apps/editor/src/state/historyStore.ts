@@ -100,8 +100,23 @@ useProjectStore.subscribe((state) => {
 
 /** After restoring a past/future project snapshot, the active keyframe may no longer exist. */
 function reconcileActiveKeyframe(): void {
-  const state = useProjectStore.getState();
-  const composition = getActiveComposition(state.project, state.activeCompositionId);
+  let state = useProjectStore.getState();
+  let composition = state.project.compositions.find(
+    (candidate) => candidate.id === state.activeCompositionId,
+  );
+  if (!composition) {
+    composition =
+      state.project.compositions.find(
+        (candidate) => candidate.id === state.project.mainCompositionId,
+      ) ?? state.project.compositions[0];
+    if (!composition) return;
+    useProjectStore.setState({
+      activeCompositionId: composition.id,
+      activeKeyframeId: composition.keyframes[0]?.id ?? '',
+    });
+    state = useProjectStore.getState();
+  }
+  composition = getActiveComposition(state.project, state.activeCompositionId);
   const exists = composition.keyframes.some((k) => k.id === state.activeKeyframeId);
   if (!exists && composition.keyframes[0]) {
     state.setActiveKeyframe(composition.keyframes[0].id);

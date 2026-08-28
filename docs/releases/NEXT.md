@@ -1,6 +1,6 @@
 # OGraf Studio — Next release
 
-No unreleased changes have been recorded after 0.08 yet.
+No unreleased changes after OGraf Studio 0.09.
 
 This file is the unreleased changelog. Add completed, verified changes here before assigning the
 next version and tag.

@@ -1,4 +1,4 @@
-import type { ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import {
   getLayerTransformAtFrame,
   useActiveComposition,
@@ -37,6 +37,7 @@ import { EASING_OPTION_GROUPS } from './easingOptions';
 import { FONT_OPTIONS } from './fontOptions';
 import { measureAutoSizedText } from './textAutoSize';
 import { PaintEditor } from './PaintEditor';
+import { moveLayerToZOrder } from '../state/layerZOrder';
 import './InspectorPanel.css';
 
 const TRANSFORM_FIELDS: { key: keyof LayerTransform; label: string; step?: number }[] = [
@@ -100,6 +101,58 @@ const DESIGN_TOKEN_TARGETS: Record<
   ],
 };
 
+function ZOrderControl({
+  value,
+  maximum,
+  onChange,
+}: {
+  value: number;
+  maximum: number;
+  onChange: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+
+    const normalized = Math.max(1, Math.min(maximum, Math.round(parsed)));
+    setDraft(String(normalized));
+    onChange(normalized);
+  };
+
+  return (
+    <label className="inspector-row">
+      <span>Z order</span>
+      <div className="inspector-z-order-control">
+        <input
+          aria-label="Z order"
+          type="number"
+          min={1}
+          max={maximum}
+          step={1}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+            if (event.key === 'Escape') {
+              setDraft(String(value));
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <small>of {maximum}</small>
+      </div>
+    </label>
+  );
+}
+
 function CornerRadiusEditor({
   value,
   onChange,
@@ -155,6 +208,7 @@ export function InspectorPanel() {
   const selectedLayerId = useSelectionStore((s) => s.selectedLayerId);
   const liveTransform = useSelectionStore((s) => s.liveTransform);
   const renameLayer = useProjectStore((s) => s.renameLayer);
+  const reorderLayers = useProjectStore((s) => s.reorderLayers);
   const updateLayerTransform = useProjectStore((s) => s.updateLayerTransform);
   const updateLayerKeyframeEasing = useProjectStore((s) => s.updateLayerKeyframeEasing);
   const updateLayerElement = useProjectStore((s) => s.updateLayerElement);
@@ -256,6 +310,7 @@ export function InspectorPanel() {
     layer.element.type in DESIGN_TOKEN_TARGETS
       ? DESIGN_TOKEN_TARGETS[layer.element.type as keyof typeof DESIGN_TOKEN_TARGETS]
       : [];
+  const zOrder = composition.layers.findIndex((candidate) => candidate.id === layer.id) + 1;
 
   return (
     <Panel title="Properties">
@@ -268,6 +323,20 @@ export function InspectorPanel() {
             onChange={(e: ChangeEvent<HTMLInputElement>) => renameLayer(layer.id, e.target.value)}
           />
         </label>
+        <ZOrderControl
+          value={zOrder}
+          maximum={composition.layers.length}
+          onChange={(nextZOrder) =>
+            reorderLayers(
+              moveLayerToZOrder(
+                composition.layers.map((candidate) => candidate.id),
+                layer.id,
+                nextZOrder,
+              ),
+            )
+          }
+        />
+        <p className="inspector-hint">1 is back; {composition.layers.length} is front.</p>
         <h3 className="inspector-section">Semantic intent</h3>
         <label className="inspector-row">
           <span>Role</span>
@@ -1000,6 +1069,7 @@ export function InspectorPanel() {
                 <option value="auto-size">Auto size box</option>
                 <option value="shrink-to-fit">Shrink text to box</option>
                 <option value="fit-to-width">Fit to width</option>
+                <option value="squeeze">Squeeze</option>
                 <option value="fixed">Fixed box</option>
               </select>
             </label>
@@ -1020,7 +1090,8 @@ export function InspectorPanel() {
             </label>
             <p className="inspector-hint">
               Auto size changes the authored box. Shrink only reduces text to its minimum-size
-              floor. Fit to width grows or shrinks text to fill the fixed box without overflow.
+              floor. Fit to width scales proportionally. Squeeze fills the box by deforming glyph
+              width and height independently.
             </p>
           </>
         )}

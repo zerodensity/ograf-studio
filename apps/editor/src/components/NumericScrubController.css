@@ -1,0 +1,38 @@
+input[type='number']:not(:disabled):not([readonly]) {
+  appearance: textfield;
+  cursor: ew-resize;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+body.is-scrubbing-number,
+body.is-scrubbing-number * {
+  cursor: ew-resize !important;
+  user-select: none !important;
+}
+
+.numeric-scrub-hint {
+  position: fixed;
+  z-index: 20000;
+  max-width: min(470px, calc(100vw - 12px));
+  display: grid;
+  gap: 1px;
+  padding: 5px 8px;
+  border: 1px solid #aaa;
+  border-radius: 0;
+  background: #1c1c1c;
+  color: #eee;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 48%);
+  line-height: 1.35;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.numeric-scrub-hint span:last-child {
+  color: #bbb;
+}

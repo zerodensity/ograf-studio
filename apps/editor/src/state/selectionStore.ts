@@ -6,11 +6,18 @@ interface LiveTransform {
   patch: Partial<LayerTransform>;
 }
 
+export interface SelectedLayerKeyframe {
+  layerId: string;
+  keyframeId: string;
+  property: AnimatableLayerProperty | null;
+}
+
 interface SelectionState {
   selectedLayerId: string | null;
   selectedLayerIds: string[];
   selectedLayerKeyframeId: string | null;
   selectedLayerProperty: AnimatableLayerProperty | null;
+  selectedLayerKeyframes: SelectedLayerKeyframe[];
   liveTransform: LiveTransform | null;
   select: (layerId: string | null) => void;
   selectMany: (layerIds: string[]) => void;
@@ -22,6 +29,10 @@ interface SelectionState {
     keyframeId: string,
     property?: AnimatableLayerProperty | null,
   ) => void;
+  selectLayerKeyframes: (
+    keyframes: SelectedLayerKeyframe[],
+    primary?: SelectedLayerKeyframe | null,
+  ) => void;
   clearLayerKeyframe: () => void;
   setLiveTransform: (layerId: string, patch: Partial<LayerTransform>) => void;
   clearLiveTransform: () => void;
@@ -32,6 +43,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
   selectedLayerIds: [],
   selectedLayerKeyframeId: null,
   selectedLayerProperty: null,
+  selectedLayerKeyframes: [],
   liveTransform: null,
   select: (layerId) =>
     set({
@@ -39,6 +51,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       selectedLayerIds: layerId ? [layerId] : [],
       selectedLayerKeyframeId: null,
       selectedLayerProperty: null,
+      selectedLayerKeyframes: [],
       liveTransform: null,
     }),
   selectMany: (layerIds) => {
@@ -48,6 +61,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       selectedLayerId: selectedLayerIds.at(-1) ?? null,
       selectedLayerKeyframeId: null,
       selectedLayerProperty: null,
+      selectedLayerKeyframes: [],
       liveTransform: null,
     });
   },
@@ -62,6 +76,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
         selectedLayerId: isSelected ? (selectedLayerIds.at(-1) ?? null) : layerId,
         selectedLayerKeyframeId: null,
         selectedLayerProperty: null,
+        selectedLayerKeyframes: [],
         liveTransform: null,
       };
     }),
@@ -79,6 +94,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
           : (candidates.at(-1) ?? state.selectedLayerId),
         selectedLayerKeyframeId: null,
         selectedLayerProperty: null,
+        selectedLayerKeyframes: [],
         liveTransform: null,
       };
     }),
@@ -94,18 +110,56 @@ export const useSelectionStore = create<SelectionState>((set) => ({
             : state.selectedLayerId,
         selectedLayerKeyframeId: null,
         selectedLayerProperty: null,
+        selectedLayerKeyframes: [],
         liveTransform: null,
       };
     }),
-  selectLayerKeyframe: (layerId, keyframeId, property = null) =>
+  selectLayerKeyframe: (layerId, keyframeId, property = null) => {
+    const selection = { layerId, keyframeId, property };
     set({
       selectedLayerId: layerId,
       selectedLayerIds: [layerId],
       selectedLayerKeyframeId: keyframeId,
       selectedLayerProperty: property,
+      selectedLayerKeyframes: [selection],
       liveTransform: null,
+    });
+  },
+  selectLayerKeyframes: (keyframes, primary = keyframes.at(-1) ?? null) => {
+    const unique = [
+      ...new Map(
+        keyframes.map((keyframe) => [
+          `${keyframe.layerId}:${keyframe.property ?? 'layer'}:${keyframe.keyframeId}`,
+          keyframe,
+        ]),
+      ).values(),
+    ];
+    const resolvedPrimary =
+      (primary &&
+        unique.find(
+          (candidate) =>
+            candidate.layerId === primary.layerId &&
+            candidate.keyframeId === primary.keyframeId &&
+            candidate.property === primary.property,
+        )) ??
+      unique.at(-1) ??
+      null;
+    const selectedLayerIds = [...new Set(unique.map((keyframe) => keyframe.layerId))];
+    set({
+      selectedLayerId: resolvedPrimary?.layerId ?? selectedLayerIds.at(-1) ?? null,
+      selectedLayerIds,
+      selectedLayerKeyframeId: resolvedPrimary?.keyframeId ?? null,
+      selectedLayerProperty: resolvedPrimary?.property ?? null,
+      selectedLayerKeyframes: unique,
+      liveTransform: null,
+    });
+  },
+  clearLayerKeyframe: () =>
+    set({
+      selectedLayerKeyframeId: null,
+      selectedLayerProperty: null,
+      selectedLayerKeyframes: [],
     }),
-  clearLayerKeyframe: () => set({ selectedLayerKeyframeId: null, selectedLayerProperty: null }),
   setLiveTransform: (layerId, patch) => set({ liveTransform: { layerId, patch } }),
   clearLiveTransform: () => set({ liveTransform: null }),
 }));

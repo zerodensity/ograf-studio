@@ -11,7 +11,7 @@
   height: 160px;
   background: var(--bg-canvas);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   overflow: auto;
 }
 
@@ -51,7 +51,7 @@
 .preview-data-form button {
   background: var(--bg-panel-raised);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 4px 8px;
   cursor: pointer;
   font-size: 11px;
@@ -86,7 +86,7 @@
 .preview-schedule-row select {
   background: var(--bg-panel-raised);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 3px 6px;
   color: var(--text);
   font-size: 11px;
@@ -97,7 +97,7 @@
   flex: none;
   background: var(--bg-canvas);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text);
   padding: 3px 6px;
   font: inherit;
@@ -109,7 +109,7 @@
   min-width: 0;
   background: var(--bg-canvas);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text);
   padding: 3px 6px;
   font: inherit;
@@ -146,7 +146,7 @@
   min-width: 0;
   background: var(--bg-canvas);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text);
   padding: 3px 6px;
   font: inherit;
@@ -169,7 +169,7 @@
   font-family: var(--mono);
   font-size: 10px;
   padding: 2px 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text-dim);
 }
 
@@ -243,4 +243,32 @@
 
 .preview-qa-results .warning {
   color: #ffb86b;
+}
+
+/* Data overrides follow the shared two-column configuration-row contract. */
+.preview-data-form {
+  gap: 0;
+}
+
+.preview-data-row {
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(118px, 42%) minmax(0, 1fr);
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-data-row > span {
+  width: auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-right: 1px solid var(--border);
+  color: var(--text);
+}
+
+.preview-data-row > input {
+  width: calc(100% - 12px);
+  margin: 3px 6px;
 }

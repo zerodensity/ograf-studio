@@ -1,8 +1,8 @@
 # Current Status
 
-Last verified: 2026-08-27
+Last verified: 2026-08-28
 
-Current release: **OGraf Studio 0.08**
+Current release: **OGraf Studio 0.09**
 
 ## Current milestone
 
@@ -74,8 +74,8 @@ AI-first broadcast authoring and OGraf compliance hardening.
   Every dock group exposes an × action for its active pane, and floating headers expose the same
   close action. Closed pane IDs are persisted as an explicit docking state so validation does not
   mistake them for missing/corrupt panes. The top-bar **Window** menu lists all seven panes with
-  checked open states; selecting an open pane closes it and selecting a closed pane reopens it in its
-  default left/right/bottom region.
+  checked open states; selecting an open pane closes it and selecting a closed pane reopens it as a
+  centered, cascaded floating window. It can then be repositioned or docked normally.
 - Browser certification is isolated in a disposable iframe/custom-element registry. Certification,
   PNG capture, contact sheets, and text measurement run through one serialized browser-work queue;
   packaged-font waits remain bounded and bridge health continues to expose responsiveness/latency.
@@ -86,14 +86,21 @@ AI-first broadcast authoring and OGraf compliance hardening.
   Source attachment branches collapse independently; each resource/token/component is another
   compact disclosure row whose existing metadata and actions appear only when expanded. Expansion
   is local UI state and does not alter `.ogs`.
-- Studio chrome now uses one system sans family and one monospace diagnostics family at exactly two
-  text sizes: 12 px for controls/content and 10 px for dense metadata. Buttons, inputs, selects, and
-  textareas follow the same contract; font pickers identify template fonts without restyling the
-  editor, while authored canvas/runtime typography remains untouched.
+- Studio chrome now projects the shared Zero Density/RealityHub visual system: locally bundled
+  Nunito and one monospace diagnostics family at exactly 14 px primary and 13 px compact sizes,
+  charcoal `#1c1c1c`/`#232323`/`#2e2e2e` surfaces, `#dadada`/`#aaaaaa` text, `#399ed4` active tabs,
+  `#60d0ff` focus, and flat 0/2 px geometry. Buttons, inputs, selects, textareas, scrollbars, menus,
+  toolbars, dock tabs/groups, selections, and floating panes follow the contract; authored
+  canvas/runtime typography and pixels remain untouched.
 - Preview & Export offers immutable built-in real-time, non-real-time, and dual-mode profiles. Each
   derives output capability flags and a collision-safe graphic ID without changing project state.
 - Timeline and update-crossfade controls pair integer frames with milliseconds, detect fractional
   frame durations, and require an explicit down/nearest/up rounding choice.
+- Every enabled numeric field now supports the shared RealityHub interaction: an east/west cursor
+  and instruction popup on hover, horizontal step-based scrubbing after a three-pixel threshold,
+  Shift 10× and Alt 0.1× modifiers, min/max clamping, and click-to-select for typing. One delegated
+  controller publishes normal input/change events, so existing React/store/history behavior remains
+  authoritative across docked and floating panes.
 - Document v13 adds line height, tracking, text transform, vertical alignment, baseline shift,
   minimum shrink size, and overflow policy. Preview provides source-image overlay plus advisory
   broadcast QA and real-browser Latin/Turkish/Arabic replacement-text stress tests. Source overlays
@@ -101,6 +108,12 @@ AI-first broadcast authoring and OGraf compliance hardening.
   composition offset from embedded plate assets, while unmatched images retain intrinsic dimensions
   instead of stretching to the full frame.
 - React/Vite visual editor with DOM-based canvas, timeline, data fields, preview, and ZIP export.
+- The canvas toolbar uses a coherent icon-only SVG toolset for Rectangle, Ellipse, Text, Image,
+  Path, Image Sequence, and Lottie creation. Every control retains an accessible name, native title,
+  immediate custom tooltip, and high-contrast hover/focus state.
+- Ordinary toolbar/MCP-created rectangle, ellipse, text, image, path, sequence, and Lottie layers now
+  default to alpha 1 at every Start/Step/End key, making them visible immediately at frame zero.
+  Recipe-generated graphics retain their explicitly authored hidden entrance/exit poses.
 - Document v11 supports multiple independent data bindings on one layer. Properties adds,
   retargets, and removes binding rows; compiler/runtime/capture apply the ordered list, validation
   rejects duplicate target properties, MCP exposes `set_layer_bindings`, and v10 sources migrate
@@ -151,8 +164,8 @@ AI-first broadcast authoring and OGraf compliance hardening.
   on normal layers and reusable-component snapshots. Properties, Brand Kits, MCP operations,
   deterministic lifecycle/local-loop sampling, SVG diagnostics, browser capture, and exported
   runtime all share the same outline painted behind the glyph fill.
-- Document v21 adds the optional **Outside canvas · 20% gray** layout preference. Edit and main
-  OGraf Preview place a pointer-transparent, fully opaque `#333333` fill outside the moving/zoomed
+- Document v21 adds the optional **Outside canvas · 20% gray** layout preference. The authoring
+  canvas places a pointer-transparent, fully opaque `#333333` fill outside the moving/zoomed
   composition rectangle. The actual canvas, composition capture, runtime descriptor,
   certification, and exported transparency remain unchanged; migration defaults existing projects
   off.
@@ -163,11 +176,11 @@ AI-first broadcast authoring and OGraf compliance hardening.
   fill enabled. Both controls remain editable, and migration/import continues preserving every
   existing project's explicit background and dimmer values.
 - Document v23 adds `layout.presentationBackground`. Canvas Layout can select a muted, autoplaying,
-  looping Big Buck Bunny HTML video behind both Edit and OGraf Preview. The remote 30-second sample
+  looping Big Buck Bunny HTML video behind the authoring canvas. The remote 30-second sample
   appears only through transparent pixels and stays outside compilation, capture, certification, and
   export. Migration defaults existing projects to `none`.
 - Document v25 adds a **Still image** presentation background. Canvas Layout accepts an image URL or
-  embeds a locally selected image up to 10 MiB in `.ogs`; both Edit and OGraf Preview render it with
+  embeds a locally selected image up to 10 MiB in `.ogs`; the authoring canvas renders it with
   cover fitting behind transparent composition pixels. The image source remains excluded from
   compilation, capture, certification, and export, and older projects migrate with an empty source.
 - Semantic layer metadata supports meaningful roles, normalized tags, and intent descriptions. It
@@ -233,13 +246,30 @@ AI-first broadcast authoring and OGraf compliance hardening.
   object/project. Matching enlarged diamonds, full-height bordered key-to-key blocks, duration
   labels, gutter swatches, and five-frame ruler labels use that contract; child rows retain the same
   row, block, label, and diamond sizes as their parent layer.
+- Lifecycle, layer, and property key diamonds are 11 px. Loop badges and selection/focus outlines
+  scale with them; frame centers and row geometry remain unchanged.
+- Timeline Group names enter inline rename mode reliably on double-click; the complete name is
+  selected for immediate replacement. F2 provides the same keyboard path, while single-click still
+  selects the group's layers.
 - Persistent playback transport with previous/next-frame stepping, play/pause, stop-to-zero,
   end-of-timeline replay, and one compact current-frame/total-frame/elapsed-duration readout.
+- Timeline playback suppresses selected-layer outlines, group/child bounds, and Moveable handles on
+  the authoring canvas. Selection state remains intact and the same overlay returns immediately when
+  playback pauses or stops.
+- Ctrl/Cmd+A outside editable controls prevents browser page-text selection and selects every layer
+  in the active composition, including hidden, locked, and guide layers that remain addressable in
+  Layers/Timeline. Inputs and content-editable controls retain native Select All behavior; the same
+  layer action is available from the top Edit menu.
 - Mouse scrubbing remains explicit on the playhead head/full vertical line and ruler. Single-clicking
   lifecycle, layer, or property keys selects them without changing the playhead; double-click seeks
   to the selected key, and a three-pixel threshold separates actual key dragging from click jitter.
   Empty layer/property tracks select their layer without seeking; double-click still authors a key
   at that frame and seeks there.
+- Layer and property timeline rows support multi-key selection: Ctrl/Cmd-click toggles keys across
+  rows, Shift-click selects a same-row range, and dragging or arrow-nudging any selected key moves
+  the complete set atomically. Relative spacing is preserved and movement clamps at composition
+  bounds or the nearest unselected key on every affected track; lifecycle markers retain their
+  separate transition-retime rules.
 - The main canvas keeps fit-to-view as its default and uses the plain mouse wheel for
   pointer-anchored template zoom. Ctrl/Command+plus/minus keyboard shortcuts remain available around
   the viewport centre. These gestures resize only the canvas camera—not the editor interface—and
@@ -266,7 +296,7 @@ AI-first broadcast authoring and OGraf compliance hardening.
   surrounding area to rotate; the dedicated rotation handle is larger and visibly marked.
 - Object opacity is exposed as an animatable Alpha control with a 0–100% slider and precise numeric
   percentage entry, clamped to valid values and authored on the selected layer's current frame.
-- The editor canvas and main OGraf Preview now use an infinite node-graph-style camera with no
+- The editor canvas uses an infinite node-graph-style camera with no
   visible bottom/right scroll controls. A large internal plane transparently recenters after
   scrolling or panning while shifting the virtual composition origin by the inverse delta, so no
   boundary is reachable. Off-frame objects remain visible/selectable and Moveable, rulers, guides,
@@ -278,18 +308,14 @@ AI-first broadcast authoring and OGraf compliance hardening.
 - Composition background color remains selectable beside the transparent-output toggle. The entire
   Stage pasteboard uses an editor-only checkerboard, continuous through a transparent composition;
   Preview uses the same zoom-stable pattern while runtime and export remain genuinely transparent.
-- The main canvas now has explicit Edit and OGraf Preview modes. Preview replaces the authoring DOM
-  with the latest compiled runtime in the same zoomable/pannable viewport. It automatically rebuilds
-  and loads when the template changes, applies preview-data changes through a debounced
-  `updateAction`, and exposes Start, previous/next/goto Step, Take Out, render-type, and custom-action
-  controls. Start reloads the same data/render configuration from any lifecycle state and
-  immediately plays the entrance to the first Step, so End is never a navigation dead end. Internal
-  replacement and cleanup still call `dispose`, while preview calls stay outside project revision
-  and undo history.
-- Edit, main-canvas OGraf Preview, and Preview & Export now share the same effective preview-data
-  semantics: explicit test values override declared field defaults, and local `asset:<id>` image
-  values resolve to browser-loadable data URIs before reaching a Graphic instance. Data-bound image
-  defaults and gradient/color defaults therefore render identically across all three surfaces.
+- Normal Timeline Play now applies every compiled local loop together through the shared runtime
+  sampler. Lifecycle and Step activation windows, ticker crawls, pulses, paint/stroke loops, clipping,
+  and loops parked at a Step remain visible in the editable canvas. The redundant top-level
+  Edit/OGraf Preview switch and separate runtime-canvas component were removed; Preview & Export
+  remains the detailed surface for runtime actions, logs, schedules, certification, and packages.
+- Edit playback and Preview & Export share the same effective preview-data semantics: explicit test
+  values override declared field defaults, and local `asset:<id>` image values resolve to
+  browser-loadable data URIs before reaching a Graphic instance.
 - Authored X/Y/width/height values snap to whole composition pixels across canvas gestures,
   Properties edits, inserted keys, and project loading. Rotation, alpha, origins, and evaluated
   between-key animation remain subpixel-precise; Properties labels evaluated values separately.
@@ -299,6 +325,12 @@ AI-first broadcast authoring and OGraf compliance hardening.
   retaining true paint order. Native drag-and-drop uses the target row centre for parenting and its
   upper/lower quarters for before/after reordering, with distinct feedback and cycle rejection.
   Parenting never silently reorders; reordering never silently changes `parentId`.
+- Properties exposes canonical layer paint order as an editable one-based Z order. `1` is back and
+  the active composition's layer count is front; typed values are rounded and clamped before moving
+  the selected layer within `composition.layers`.
+- The canvas toolbar exposes standard stacked-layer icon buttons for Send to Back, Send Backward,
+  Bring Forward, and Bring to Front. Single and multi-layer selections share the canonical reorder
+  path, preserve their internal order, and disable commands already at their applicable boundary.
 - Hiding and showing a layer remounts and repopulates its shared runtime content host, so every
   element kind returns visibly at the unchanged playhead pose rather than leaving an empty box.
 - Ctrl/Command-click builds a transient multi-layer selection from the canvas, Layers panel, or
@@ -320,18 +352,25 @@ AI-first broadcast authoring and OGraf compliance hardening.
   user/MCP values win, and legacy migrations retain historical easing so existing projects do not
   change motion when opened.
 - Text layers offer a previewed system-font dropdown and Auto size, Shrink text to box, Fit to
-  width, or Fixed sizing. Auto size immediately authors the measured text bounds, keeping Moveable
+  width, Squeeze, or Fixed sizing. Auto size immediately authors the measured text bounds, keeping Moveable
   synchronized after content, face, or font-size edits; shrink-to-fit responds to runtime data and
   box animation while preserving the authored pixel line-height and vertical line positions. Fit
   to width keeps the authored box fixed and grows or shrinks proportional glyphs to the largest
   font size that fits both axes, with explicit-line-break multiline support and refitting after box,
   animated-stroke, or font-load changes. Its measurement probe is isolated from canvas zoom and
   layer transforms, preventing editor-only oversizing while preserving runtime pixels.
+  Squeeze instead fills the authored box with independent horizontal and vertical glyph scaling,
+  allowing deliberate proportional deformation during free layer resizing while sharing the exact
+  DOM path used by editor preview, capture, and exported runtime.
 - Every layer supports deterministic CSS blur and drop-shadow styling shared by Stage, Preview, and
   exported runtime. Shadow color, alpha, offsets, and softness are editable in Properties.
 - Timeline zoom changes only horizontal pixels per frame from 33% to 267%; track height stays fixed.
   Non-linear spans show a gradient and curve badge with the easing name, while linear interpolation
   is explicitly labeled `None (Linear)`.
+- The vertical divider between Timeline layer/property names and keyframe tracks is a real splitter.
+  Dragging resizes the 120–520 px gutter, arrows adjust by 10 px (Shift+arrow by 1 px), Home/End use
+  bounds, and double-click restores 170 px. Width persists locally and clamps to preserve at least
+  140 px of track space.
 - Document v5 provides expandable, independent tracks for position, size, rotation, alpha,
   transform origin, blur, and numeric drop-shadow parameters. Editing or inserting a key affects
   only that property at that freely chosen frame; v4 full-pose timelines migrate losslessly.
@@ -516,10 +555,10 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 
 ## Verification baseline
 
-- `npm run verify`: passed on 2026-08-26, including generated MCP contract and in-app prompt drift,
-  format, lint, all workspace typechecks, 370 tests across 76 files, the runtime bundle, and the editor production
+- `npm run verify`: passed on 2026-08-28, including generated MCP contract and in-app prompt drift,
+  format, lint, all workspace typechecks, 410 tests across 84 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 328-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- The 410-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,

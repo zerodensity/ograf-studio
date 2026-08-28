@@ -115,9 +115,11 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   static.
 - Choose text sizing deliberately. `auto-size` changes the authored box around the authored font;
   `shrink-to-fit` only reduces glyphs and stops at `minFontSize`; `fit-to-width` keeps the authored
-  box fixed and grows or shrinks glyphs to the largest uniform size that fits both box axes; `fixed`
-  performs no fitting. Fit-to-width keeps the typeface proportional and treats only explicit line
-  breaks as multiple lines. Verify data-bound extremes with `ograf_measure_text`.
+  box fixed and grows or shrinks glyphs to the largest uniform size that fits both box axes;
+  `squeeze` deliberately scales glyph width and height independently to fill the authored box;
+  `fixed` performs no fitting. Fit-to-width keeps the typeface proportional and treats only explicit
+  line breaks as multiple lines. Use squeeze only when deformation is intentional, and verify
+  data-bound extremes with `ograf_measure_text`.
 - Use `save_component` plus `instantiate_component` with `linked: false` for permanent independent
   instances. Use `linked: true` only when explicit later refresh is valuable; update a component
   from selected layers and call `refresh_component_instances` deliberately because refresh replaces
@@ -132,6 +134,9 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   array updates replace by index and remain deterministic under scheduled `goToTime()` seeking.
   Scalar arrays are schema-only, and scroll/pagination/keyed move animation are not supported.
 - Use property tracks independently. Changing `x` must not create or retime `opacity`, `rotation`, or another layer's keys.
+- Ordinary `add_layer` output starts at opacity 1 on every default lifecycle key. Author hidden
+  Start/End opacity explicitly when an entrance or exit is intended; semantic recipes continue to
+  create their own deliberate motion states.
 - Prefer `set_property_track` for a complete track and `stagger_property_track` for repeated
   multi-layer timing; both remain operations inside the same revision-checked atomic batch.
 - Use `set_layer_loop` plus `set_loop_property_track` for ambient motion while a Graphic is on-air

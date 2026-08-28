@@ -8,7 +8,7 @@
   min-height: 24px;
   padding: 3px 7px;
   border: 1px solid color-mix(in srgb, var(--text-dim) 45%, var(--border));
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   background: var(--bg-panel-raised);
   color: var(--text-heading);
   cursor: pointer;
@@ -16,8 +16,8 @@
 
 .resources-panel button:hover:not(:disabled),
 .resources-panel button:focus-visible {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-panel-raised));
+  border-color: var(--accent-focus);
+  background: var(--bg-hover);
 }
 
 .resources-panel button:disabled {
@@ -43,8 +43,8 @@
 
 .resources-tree-branch {
   border: 1px solid var(--border);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--bg-panel-raised) 45%, transparent);
+  border-radius: var(--radius-control);
+  background: #2b2b2b;
 }
 
 .resources-tree-branch > summary,
@@ -82,7 +82,7 @@
 
 .resources-tree-branch > summary:hover,
 .resources-tree-item > summary:hover {
-  background: var(--bg-panel-raised);
+  background: var(--bg-hover);
 }
 
 .resources-tree-label {
@@ -139,7 +139,7 @@
   gap: 5px;
   min-height: 27px;
   padding: 2px 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
 }
 
 .resources-tree-item-copy {
@@ -175,7 +175,7 @@
   place-items: center;
   box-sizing: border-box;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   background: var(--bg-canvas);
   color: var(--text-dim);
   font-size: 9px;
@@ -195,7 +195,7 @@
   margin: 2px 3px 5px 16px;
   padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   background: var(--bg-panel);
 }
 
@@ -244,7 +244,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 .resources-asset-fields {
@@ -301,7 +301,7 @@
   width: 22px;
   height: 22px;
   object-fit: cover;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--bg-canvas);
 }

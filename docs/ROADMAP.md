@@ -30,10 +30,12 @@
 
 - Independent per-property tracks for transform and numeric effects, plus a deterministic
   31-trajectory easing catalog and visual cubic Bézier editor (implemented).
+- Multi-key selection and atomic group movement across layer/property timeline rows, with Ctrl/Cmd
+  additive selection, same-row Shift ranges, bounds, and collision clamping (implemented).
 - Collision-safe property-key nudging, track offset, proportional scaling, reversal, and even
   distribution retiming tools (implemented); range selection and multi-track retiming remain queued.
 - Infinite off-canvas camera for authoring entrance/exit animations, with hidden scrollbars and no
-  user-reachable boundary in Edit or OGraf Preview (implemented).
+  user-reachable boundary in the editor canvas (implemented).
 - Middle-button, pointer-captured canvas panning with transparent camera recentering (implemented).
 - Pointer-anchored plain-wheel canvas zoom and Ctrl/Command-plus/minus keyboard shortcuts are
   implemented without invoking browser page zoom.
@@ -45,11 +47,21 @@
   excluded from capture/export (implemented).
 - Integer-pixel key authoring with subpixel runtime interpolation (implemented).
 - Direct layer selection from timeline gutter names (implemented).
+- The Timeline name/track divider is an accessible draggable and keyboard-adjustable splitter with
+  local width persistence and track-space clamping (implemented).
+- The add-element toolbar uses distinct accessible SVG icons and tooltips instead of text-only
+  Rectangle/Ellipse/Text/Image/Path/Sequence/Lottie buttons (implemented).
+- Ordinary element creation defaults every lifecycle pose to full alpha; hidden boundaries are now
+  explicit authoring/recipe choices (implemented).
 - Ctrl/Command multi-selection, group movement, and Shift axis-constrained dragging (implemented).
+- Ctrl/Cmd+A selects all authored layers instead of webpage text while preserving native Select All
+  inside editable controls; Edit menu parity is implemented.
 - Canvas and layer-timeline context menus for clipboard, deletion, held-frame, and sampled-key
   editing (implemented).
 - Optional OGraf Step-aware editor playback and Spacebar Play/Pause outside editable controls are
   implemented.
+- Timeline playback temporarily hides canvas selection and Moveable overlays while retaining the
+  selection for immediate restoration on pause/stop (implemented).
 - Bounded OGraf lifecycle-marker retiming is implemented with full-height drag targets, keyboard
   nudging, preview-only pointer movement, atomic adjacent-transition balancing, and stranded layer-
   key warnings. Start stays fixed and lifecycle reordering remains an explicit future operation.
@@ -74,11 +86,16 @@
 - Layer parenting is directly visible through depth-based name indentation in the flat paint-order
   Layers list. Row-centre drops assign a parent, row-edge drops retain before/after reordering, and
   cycle-invalid targets are refused without changing hierarchy or z-order.
+- Canonical layer paint order is also directly editable in Properties as a one-based Z order, without
+  introducing a separate 3D-depth field or changing parent relationships.
+- Standard Send to Back, Send Backward, Bring Forward, and Bring to Front toolbar actions use the
+  same canonical order for single and multi-layer selections (implemented).
 - System/packaged-font selection with live preview, weight, line height, tracking, baseline shift,
   vertical alignment, case transforms, minimum shrink size, and visible/clip/ellipsis overflow is
   implemented. Text sizing includes auto-sized boxes, floor-bounded shrink-to-fit, fixed sizing, and
   Fit to width, which grows or shrinks proportional glyphs to the largest size contained by both
-  fixed box axes. Full localization and authored RTL direction remain queued.
+  fixed box axes. Squeeze sizing also fills both axes through intentional independent X/Y glyph
+  scaling. Full localization and authored RTL direction remain queued.
 - W8 text outlines are implemented as document v20: editable stroke colour, independently animated
   non-negative stroke width, Brand Kit targets, and shared editor/runtime/SVG rendering with the
   outline painted behind the glyph fill.
@@ -148,15 +165,15 @@
 
 - The user-facing product rename from OGraf Editor to **OGraf Studio** is implemented without
   changing compatibility-sensitive package namespaces, project formats, or MCP tool names.
+- Window-menu pane reopening now creates a centered floating window first instead of immediately
+  docking it back into a default edge region (implemented).
 - The top Edit menu exposes Undo/Redo plus a scrollable 50-action browser history. Debounced edit
   bursts receive descriptive labels, keyboard shortcuts remain available, and selecting an older
   undo or redo action jumps across the required number of states (implemented).
-- Main-canvas OGraf runtime preview is implemented as an Edit/Preview mode switch. It mounts an
-  automatically refreshed compiled runtime in the normal zoomable/pannable viewport. Load,
-  data updates, and disposal are automatic; the visible controls are Start/replay, Step
-  navigation/goto, Take Out, render type, and custom actions. Start reloads the current data/render
-  configuration from End or any Step and immediately plays the entrance to Step 1. Advanced
-  schedules, logs, certification, and export remain in Preview & Export.
+- Normal Timeline Play uses the compiled runtime sampler for all lifecycle/Step-activated loops,
+  including scrolling tickers and motion parked at a Step. The redundant main-canvas Edit/OGraf
+  Preview mode switch was removed; advanced actions, schedules, logs, certification, and export
+  remain in Preview & Export (implemented).
 - Local AI-agent authoring is implemented through a revisioned MCP server, live editor bridge,
   exact-artifact certification tools, workspace-confined save/export, and a reusable
   `ograf-authoring` Skill. Browser-rendered PNG composition/viewport capture, diagnostic mattes,
@@ -204,9 +221,13 @@
 - Accessibility, onboarding, keyboard workflow, and documentation polish.
 - The Resources pane now scales to large projects through counted category branches and nested
   per-item disclosure editors in an ARIA tree (implemented).
-- Editor typography is consolidated to two families (system UI and monospace diagnostics) and two
-  sizes (12 px and 10 px), including every editable form control. Template typography remains a
-  separate authored-content concern (implemented).
+- Editor chrome uses the shared Zero Density/RealityHub contract: locally bundled Nunito plus one
+  monospace diagnostics family, 14 px/13 px text tiers, charcoal surfaces, cyan active/focus accents,
+  and flat panel/control geometry across docking, menus, toolbars, forms, and scrollbars. Template
+  typography remains a separate authored-content concern (implemented).
+- Numeric inputs share RealityHub-style horizontal scrubbing, Shift/Alt coarse/fine modifiers,
+  bounded step-aware values, an instruction popup, and click-to-select typing through one delegated
+  controller (implemented).
 - The Preview & Export panel includes non-gating broadcast QA for Step-frame title-safe placement,
   text size/floors, packaged-font fallback, backing contrast, interlaced thin rules, long
   Latin/Turkish/Arabic replacement values, and source-image overlay comparison. Comparison overlays

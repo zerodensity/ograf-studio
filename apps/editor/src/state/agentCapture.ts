@@ -605,14 +605,16 @@ export async function measureAgentText(
     const layout = renderedTextMetrics(content);
     const strokeExpansion = Math.max(0, element.strokeWidth);
     const overflowsParent =
-      content.scrollWidth + strokeExpansion > host.clientWidth + 0.5 ||
-      content.scrollHeight + strokeExpansion > host.clientHeight + 0.5;
+      element.autoFit === 'squeeze'
+        ? false
+        : content.scrollWidth + strokeExpansion > host.clientWidth + 0.5 ||
+          content.scrollHeight + strokeExpansion > host.clientHeight + 0.5;
     const appliedFontSize = Number(content.dataset.ografAppliedFontSize ?? element.fontSize);
     const appliedFitRatio = Number(content.dataset.ografFitRatio ?? 1);
     const appliedShrinkRatio =
       element.autoFit === 'shrink-to-fit' ? Number(content.dataset.ografShrinkRatio ?? 1) : 1;
     const degenerate =
-      element.autoFit === 'fit-to-width'
+      element.autoFit === 'fit-to-width' || element.autoFit === 'squeeze'
         ? content.dataset.ografFitDegenerate === 'true'
         : content.dataset.ografShrinkDegenerate === 'true';
     const clippingParent = layer.parentId

@@ -191,7 +191,7 @@ canvas zoom so its on-screen size stays legible, and remains outside the runtime
 browser composition capture, certification, and package output.
 
 Document v23 adds `layout.presentationBackground`, with `none` and `big-buck-bunny` values. When the
-video option is selected, Edit and OGraf Preview mount one muted/autoplay/looping HTML video as a
+video option is selected, the authoring canvas mounts one muted/autoplay/looping HTML video as a
 pasteboard sibling immediately behind the composition frame. The frame's real opaque background
 therefore still covers it, while transparent pixels reveal it accurately. The video never enters the
 runtime descriptor, browser certification/capture surface, or package output. Existing projects
@@ -201,8 +201,8 @@ CC BY 3.0.
 Document v25 extends the authoring-only presentation background with `still-image` plus
 `presentationBackgroundImageSource` and `presentationBackgroundImageName`. Canvas Layout accepts an
 ordinary image URL or reads a local image up to 10 MiB into a persisted data URL; the display name
-keeps embedded files identifiable without exposing their payload in the URL field. Edit and OGraf
-Preview share the same cover-fit `<img>` sibling behind the composition frame. The complete still
+keeps embedded files identifiable without exposing their payload in the URL field. The authoring
+canvas uses a cover-fit `<img>` sibling behind the composition frame. The complete still
 image configuration remains absent from compiled descriptors, capture, certification, and exported
 packages.
 
@@ -226,7 +226,7 @@ a 20px position offset. Timeline `Insert Frame` adds a hold key using the preced
 whereas `Insert Keyframe` samples the evaluated pose at that frame. Neither command retimes global
 OGraf lifecycle markers or any other layer.
 
-Canvas viewport panning is also transient editor interaction state. Edit and OGraf Preview share a
+Canvas viewport panning is also transient editor interaction state. The editor uses a
 large hidden-scrollbar camera plane. Every auto-scroll or completed middle-button pan shifts the
 virtual composition origin by the inverse delta and recenters native `scrollLeft`/`scrollTop`,
 preserving the exact visible pixels while making the user-facing plane unbounded. Composition
@@ -272,6 +272,22 @@ membership, active tabs, floating geometry, and region sizes persist only in loc
 never enter `.ogs`, history, MCP revisions, runtime descriptors, certification, capture, or exported
 packages.
 
+Editor chrome consumes one centralized Zero Density visual contract sampled from the live
+RealityHub interface: locally bundled Nunito, 14 px primary and 13 px compact text, charcoal
+`#1c1c1c`/`#232323`/`#2e2e2e` surfaces, `#dadada`/`#aaaaaa` text, `#399ed4` active accents,
+`#60d0ff` focus, and flat 0/2 px panel/control geometry. Dock tabs, menus, toolbars, scrollbars,
+inputs, selections, panels, and floating panes project those tokens. The `#root` chrome boundary
+does not enter runtime shadow roots or override authored layer typography, composition pixels,
+capture, certification, or export.
+
+One document-level `NumericScrubController` delegates pointer interaction to enabled
+`input[type=number]` controls across every dock/floating pane. A three-pixel threshold separates a
+click (focus/select for typing) from horizontal scrubbing; every two pixels apply one declared
+`step`, Shift multiplies by 10, Alt by 0.1, and parsed `min`/`max` clamp the published value. The
+controller uses the native input value setter plus bubbling `input`/`change` events, so React/store
+ownership remains authoritative instead of bypassing pane actions. The tooltip and body cursor are
+editor chrome only and never enter project state or rendered output.
+
 Tab ordering is part of that same local docking model. Pointer-dragging a tab divides each target at
 its horizontal midpoint, renders a before/after insertion marker, removes the pane from its prior
 group, and inserts it at the exact requested index. That same pointer gesture enters the global
@@ -288,15 +304,26 @@ inside the validated local docking document and never cross into project state.
 Closed panes are explicit members of the local docking document rather than absent data. Closing
 first removes the pane from its dock group or floating list and records its stable pane ID; parser
 repair therefore restores genuinely missing panes but preserves intentional closure. Reopening from
-the Window menu removes that closed marker and docks Layers/Chat/Resources left,
-Properties/Data/Preview & Export right, and Timeline bottom. Close/reopen state follows the same
-local-only persistence boundary as docking and split weights.
+the Window menu removes that closed marker and creates a centered, bounded floating pane using a
+pane-appropriate size. Additional reopened panes cascade slightly so their headers remain reachable;
+the user may then reposition or dock them through the ordinary floating-window paths. Close/reopen
+state follows the same local-only persistence boundary as docking and split weights.
 
 The editor transport can optionally pause at the next lifecycle key whose role is `step`. This uses
 the same cumulative keyframe timing as compilation but remains preview state: it does not rewrite
 transitions, property tracks, or OGraf actions. From a Step, the next Play targets the following Step;
 after the last Step, it plays through End. Space invokes the same controller unless focus belongs to
 a form or editable control.
+
+Stage subscribes directly to Timeline `isPlaying` for authoring chrome. While true, selected-layer
+outline classes and the React Moveable overlay are not rendered; the selection store itself is never
+cleared. Pausing or stopping therefore remounts the controls against the same target without adding
+project/history changes or contaminating playback/capture pixels.
+
+The global keyboard boundary intercepts Ctrl/Cmd+A only when focus is outside inputs, textareas,
+selects, and content-editable controls. It prevents the browser page-selection default, clears any
+DOM text range, and sends every active-composition layer ID to the ordinary selection store in paint
+order. Hidden, locked, and guide flags do not remove a layer from Layers/Timeline selectability.
 
 Lifecycle-marker retiming is planned in `packages/scene-model` and consumed by both OGraf Studio
 and `authoring-core`. Browser gestures and MCP operations therefore enforce identical duration
@@ -319,19 +346,15 @@ they create normal layers, fields, groups, semantics, and lifecycle tracks and r
 ID mappings. The ticker's crawl is the deliberate local-loop case: a clipped text child owns one
 absolute-time X loop while its finite lifecycle X track remains static.
 
-The main canvas has mutually exclusive authoring and OGraf-runtime surfaces. Entering OGraf Preview
-compiles the current composition through `compileDescriptor` and mounts a freshly registered
-`GraphicElement` in the same pasteboard viewport. Template edits rebuild, dispose, and automatically
-load the runtime instance from the latest project, so the visible preview does not retain a stale
-snapshot. Its toolbar calls the real `load`, `playAction`, `updateAction`, `stopAction`,
-`customAction`, and `dispose` methods. `load` runs automatically when the surface mounts,
-`updateAction` follows preview-data edits after a short debounce, and `dispose` remains automatic
-cleanup. Previous, next, and goto controls are presentations of OGraf `playAction` parameters rather
-than an editor timeline simulation; absolute goto is the standard zero-based
-`playAction({ goto })` contract. The authoring Stage is unmounted, so selections, guides, rulers,
-Moveable, and test affordances cannot leak into the runtime surface. Preview lifecycle calls never
-mutate the project, revision, selection, or undo history. The detailed Preview & Export panel remains
-responsible for logs, non-realtime schedules, certification, and package output.
+The main canvas remains one authoring surface. Its finite transforms/effects/paint tracks are driven
+by `buildRuntimeTimeline` from the compiled descriptor. During Play, a shared runtime helper resolves
+each loop's lifecycle/Step activation window and the Stage RAF samples every active loop through
+`sampleCompiledLayerVisualState`; scrolling tickers, pulses, stroke/paint loops, and clipping therefore
+run together. When playback parks exactly at a Step, local loop time continues from a wall-clock hold
+epoch. Stop, End, manual mid-transition pause, or leaving a Step restores the finite authored sample.
+The former separate main-canvas OGraf Preview surface was removed to avoid stale duplicate controls.
+Preview & Export retains real `GraphicElement` lifecycle actions, schedules, logs, certification, and
+package output.
 
 The browser editor owns a separate bounded 50-action project-snapshot history for direct UI edits.
 Rapid Zustand/Immer project changes coalesce over 500 ms; the pending pre-edit snapshot is published
@@ -340,6 +363,21 @@ and timestamp. The Edit menu subscribes through `useSyncExternalStore`, shows pe
 actions, and multi-step selection reuses the same undo/redo traversal used by keyboard shortcuts.
 New/open/import resets this browser history, while agent-session history remains independently
 revisioned in `authoring-core`.
+
+Timeline key selection distinguishes one primary key (for the existing easing/curve editor) from an
+array of selected aggregate or property keys across layers/tracks. Ctrl/Cmd toggles membership and
+Shift expands from a same-track anchor. Group movement is one Immer transaction: it derives a shared
+integer frame delta, intersects composition bounds with every affected track's nearest unselected
+neighbours, and moves aggregate/property keys together before rebuilding sorted tracks. This
+preserves relative spacing, prevents crossings/collisions, and keeps one browser undo entry.
+Lifecycle markers are not part of this selection because their movement retimes adjacent OGraf
+transitions.
+
+The Timeline body owns a local-only gutter width separating its vertically synchronized layer-name
+list from the horizontally scrolling key tracks. A 7 px accessible separator updates the gutter
+through pointer or keyboard input, clamps it to 120–520 px while reserving 140 px for tracks, and
+persists the result in local storage. ResizeObserver reapplies the clamp when the outer Timeline pane
+changes size; no gutter width enters `.ogs`, undo history, or compiled output.
 
 All in-editor render surfaces share one preview-data rule. A bound property resolves from an explicit
 field-ID test value when present, otherwise from the field definition's declared default. Before a
@@ -399,6 +437,16 @@ upper/lower quarters reorder before/after in paint order, while the centre half 
 `parentId`. Self-parenting, descendant cycles, and already-cyclic targets are rejected before the
 store mutation; Properties remains the explicit path for clearing a parent.
 
+Objects do not store a separate 3D Z coordinate. Properties projects canonical paint order as a
+one-based **Z order** (`1` = back, `composition.layers.length` = front). Editing it moves the layer
+within `composition.layers`, so editor rendering, timeline/layer lists, MCP IDs, and compiled output
+cannot disagree with a second depth system.
+
+The canvas Arrange toolbar drives the same `reorderLayers` mutation. Send/Bring-to-end partitions
+the paint-order array while preserving selected and unselected relative order; one-step
+Backward/Forward moves each contiguous selected run past one adjacent unselected layer. Commands
+disable when that transformation would leave the order unchanged.
+
 Each property key owns its incoming easing. It can use a named dependency-free preset or an explicit
 cubic Bézier curve. The same pure samplers drive editor interpolation and are passed to GSAP as the
 exported runtime easing function, keeping linear, polynomial, Sine, Expo, Circ, Back, Bounce,
@@ -434,17 +482,24 @@ references produce no badge and remain validation concerns.
 Layer effects are authored as structured blur/drop-shadow values. Blur, shadow alpha, X/Y offsets,
 and softness are numeric animation tracks; shadow enabled state and color remain discrete/static.
 A shared serializer produces the same CSS filter in Stage and GraphicElement at every frame.
+The generic layer factory initializes every ordinary Start/Step/End pose at opacity 1, so toolbar
+and MCP `add_layer` output is immediately visible at frame zero and stays visible until alpha is
+authored. Semantic/broadcast recipes bypass that generic visibility policy with explicit motion
+builders, retaining deliberate hidden entrance and exit states.
 Text elements store a sizing policy. `auto-size` measures system-font content while authoring and
 writes integer layer bounds; `shrink-to-fit` uses the shared DOM renderer plus ResizeObserver so
 data-bound text remains inside animated runtime bounds without exceeding the authored font size;
 `fit-to-width` keeps the authored box fixed and finds the largest uniform font size that contains
-the complete text and stroke in both dimensions, allowing growth or shrinkage; `fixed` preserves
-both box and authored font size. Fit-to-width uses explicit line breaks rather than implicit wrapping
-and re-evaluates on box, animated-stroke, and font-load changes. The same DOM renderer is shared by
-Stage, browser measurement/capture, realtime playback, and non-realtime seeking. Browser-free SVG
-diagnostics retain the authored font size because they cannot measure the target browser font.
-Fit-to-width measures through an offscreen untransformed probe so canvas zoom and layer/ancestor
-transforms cannot contaminate composition-pixel font sizing.
+the complete text and stroke in both dimensions, allowing growth or shrinkage; `squeeze` measures the
+text's intrinsic unwrapped DOM bounds and applies independent X/Y scales so the glyphs fill the
+authored box exactly; `fixed` preserves both box and authored font size. Fit-to-width uses explicit
+line breaks rather than implicit wrapping and re-evaluates on box, animated-stroke, and font-load
+changes. Squeeze uses the same ResizeObserver/font-load callbacks and deforms stroke with the glyphs.
+The same DOM renderer is shared by Stage, browser measurement/capture, realtime playback, and
+non-realtime seeking. Browser-free SVG diagnostics use an approximate intrinsic-width scale because
+they cannot measure the target browser font. Fit-to-width measures through an offscreen
+untransformed probe so canvas zoom and layer/ancestor transforms cannot contaminate
+composition-pixel font sizing.
 
 ## Compliance gates
 

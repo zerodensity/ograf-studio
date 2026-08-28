@@ -6,42 +6,58 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.08
+## New in OGraf Studio 0.09
 
-- Added a top Edit menu with Undo, Redo, descriptive timestamps, and clickable multi-step history.
-- Added automatic AI Chat references for current canvas/Layers/Timeline selection, stronger active
-  turn feedback, bounded project-specific context, and safe context-limit recovery.
-- Added editor-only video and URL/local still-image presentation backgrounds behind transparent
-  composition pixels, plus black/20%-gray new-composition defaults.
-- Added independent top-left, top-right, bottom-right, and bottom-left rectangle corner radii across
-  Properties, runtime rendering, clipping, diagnostics, Brand Kit tokens, and MCP operations.
-- Renamed Inspector to Properties and replaced the browser/project icon with the supplied OGraf
-  Studio artwork.
-- Raised the verified baseline to 380 tests across 79 files.
+- Added multi-key Timeline selection and range editing, a resizable name/track divider, editable
+  group names, and full compiled local-loop playback from the normal Play control.
+- Added canonical **Z order** editing, four arrange commands, Select All Layers, and safer browser
+  Undo reconciliation across bridge-synchronized projects.
+- Added **Squeeze** text sizing, full-alpha defaults for ordinary new elements, and a compact,
+  accessible icon toolbar for adding elements.
+- Aligned the editor chrome with the Zero Density/RealityHub visual system using locally bundled
+  Nunito, flat charcoal surfaces, cyan focus states, and compact 14 px/13 px type tiers without
+  changing authored graphic pixels.
+- Reworked Properties, Data, and Preview overrides into clean label/value configuration tables and
+  added RealityHub-style drag scrubbing to every enabled numeric field.
+- Raised the verified baseline to 410 tests across 84 files.
 
-See [the complete 0.08 release notes](docs/releases/0.08.md) for validation evidence and current
+See [the complete 0.09 release notes](docs/releases/0.09.md) for validation evidence and current
 boundaries.
 
 ## Highlights
 
 - WYSIWYG canvas with layers, grouping, guides, rulers, snapping, clipping, and responsive layout
   aids.
+- Compact SVG element tools provide distinct Rectangle, Ellipse, Text, Image, Path, Image Sequence,
+  and Lottie icons with accessible labels and tooltips.
+- Ordinary newly added rectangles, ellipses, text, images, paths, sequences, and Lottie layers start
+  at full alpha across Start, Step, and End until the author explicitly animates opacity.
 - Infinite node-graph-style canvas camera with hidden native scrollbars, unbounded middle-button
   panning, plain-wheel pointer-anchored zoom, and camera-aware rulers/guides in Edit and OGraf
   Preview.
 - Layers retain their true paint-order list while child names indent by complete parent depth.
   Dragging over a row centre assigns its parent; upper and lower row-edge zones continue to reorder
   before or after without conflating hierarchy and z-order.
+- Properties exposes that same canonical paint order as an editable, one-based **Z order** value:
+  `1` is back and the current layer count is front. Typing a value reorders the real layer rather
+  than creating a separate 3D depth property.
+- The canvas toolbar adds icon actions for Send to Back, Send Backward, Bring Forward, and Bring to
+  Front. They support single or multi-layer selections and preserve selected-layer relative order.
 - EBU R 95 16:9 action-safe and title/graphics-safe overlays with exact 3.5% and 5% per-axis
   margins for HD and UHD rasters, shared by canvas guides, broadcast QA, and MCP inspection/lint.
 - New compositions start with an opaque black background and **Outside canvas · 20% gray**
   enabled. The solid editor-only `#333333` surround never enters captures or exported graphics;
   both background transparency and the outside fill remain editable Canvas Layout choices.
 - Canvas Layout also offers an editor-only **Big Buck Bunny** presentation video. The muted 30-second
-  HTML video loops behind Edit and OGraf Preview, appears only through transparent composition
+  HTML video loops behind the authoring canvas, appears only through transparent composition
   pixels, and never enters capture/certification/export. It requires internet access to the CDN.
 - Independent per-property animation tracks, per-key easing and curves, local loops, and freely
   movable OGraf lifecycle Steps.
+- Ctrl/Cmd-click selects layer/property keys across timeline rows and Shift-click selects a same-row
+  range; dragging or nudging any selected key moves the complete selection while preserving spacing
+  and collisions.
+- The Timeline divider between layer/property names and keyframe tracks is draggable, keyboard
+  adjustable, double-click resettable, and persisted locally.
 - Timeline parent layers use one fixed summary colour, while Position X/Y, Width, Height, Rotation,
   Alpha, origins, text stroke, blur, shadow values, and gradient-stop tracks use a stable semantic
   colour palette across every object and project.
@@ -65,9 +81,12 @@ boundaries.
   dependency.
 - Compact Resources tree with counted, collapsible Brand Kit, Components, Images, Fonts, and Source
   branches; individual item editors expand only when needed.
-- Unified Studio typography with one system UI family, one monospace diagnostics family, and only
-  12 px / 10 px editor text tiers across buttons, labels, and editable controls. Authored graphic
-  typography remains independent and unchanged.
+- Shared Zero Density/RealityHub chrome with locally bundled Nunito plus one monospace diagnostics
+  family, 14 px / 13 px editor text tiers, charcoal surfaces, cyan focus/active accents, and flat
+  0/2 px geometry. Authored graphic typography and pixels remain independent and unchanged.
+- RealityHub-style numeric scrubbing on every enabled number field: hover for the instruction popup,
+  drag left/right by the field step, hold Shift for 10× or Alt for 0.1×, and click to select the
+  value for ordinary typing.
 - Brand Kits with typed color, typography, and geometry tokens plus News, Sports, Entertainment,
   and Documentary style packs; copied token values remain editable and materialize into standard
   properties so exported graphics never require OGraf Studio at playout time.
@@ -76,12 +95,19 @@ boundaries.
 - Text **Fit to width** sizing grows or shrinks glyphs to the largest proportional font size that
   fills a fixed text box without overflowing either axis, and responds to data, animated box size,
   stroke width, and packaged-font loading in editor preview and exported runtime.
+- Text **Squeeze** sizing deliberately scales glyph width and height independently to fill the
+  authored box, so non-proportional layer resizing can create condensed, expanded, tall, or flattened
+  typography consistently in preview and export.
 - Semantic lower-third, bug/DOG, clipped ticker, scoreboard, clock, and repeater recipes for fast
   AI/human authoring while keeping every result editable through normal layers, fields, groups, and
   tracks.
 - Self-contained Lottie JSON layers with deterministic loop playback in editor preview, OGraf
   realtime playback, and non-realtime `goToTime()` seeking.
 - Start, pausable Step, and End lifecycle preview using the same compiled timeline as export.
+- Canvas selection outlines and Moveable controls hide during Timeline playback without clearing the
+  selection, then return when playback pauses or stops.
+- Ctrl/Cmd+A selects every authored layer in the active composition instead of selecting webpage
+  text; editable inputs retain their native Select All behavior.
 - Exact pre-save and pre-export OGraf certification against the packaged manifest, module, API, and
   realtime/non-realtime lifecycle behavior.
 - Best-effort conversion of existing OGraf packages into editable projects with an explicit recovery

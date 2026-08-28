@@ -108,6 +108,19 @@ describe('compileDescriptor', () => {
     });
   });
 
+  it('preserves squeeze text sizing in the compiled runtime descriptor', () => {
+    const text = createLayerOfKind('text');
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.autoFit = 'squeeze';
+
+    const descriptor = compileDescriptor(compositionWith([text]));
+
+    expect(descriptor.layers[0]!.element).toMatchObject({
+      type: 'text',
+      autoFit: 'squeeze',
+    });
+  });
+
   it('compiles only clipping parent relationships and preserves gradient paint', () => {
     const parent = createLayerOfKind('rectangle');
     const child = createLayerOfKind('rectangle');

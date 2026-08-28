@@ -35,7 +35,7 @@ export function FrameDurationControl({
   return (
     <div className="frame-duration-control">
       <label>
-        {label} frames
+        <span>{label} frames</span>
         <input
           aria-label={`${label} frames`}
           type="number"
@@ -46,7 +46,7 @@ export function FrameDurationControl({
         />
       </label>
       <label className="frame-duration-milliseconds">
-        milliseconds
+        <span>milliseconds</span>
         <input
           aria-label={`${label} milliseconds`}
           type="number"

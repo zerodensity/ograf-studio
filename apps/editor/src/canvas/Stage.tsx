@@ -32,6 +32,7 @@ import { compileDescriptor } from '@ograf-editor/codegen';
 import {
   applyCompiledClipPaths,
   applyCompiledLayerVisualState,
+  compiledLoopElapsedFrames,
   sampleCompiledLayerVisualState,
 } from '@ograf-editor/ograf-runtime';
 import { LayerNode } from './LayerNode';
@@ -64,13 +65,7 @@ import { nextOgrafStepFrame } from './ografStepPlayback';
 import { isInteractiveShortcutTarget } from '../state/keyboardShortcuts';
 import './Stage.css';
 
-export function Stage({
-  style,
-  onEnterOgrafPreview,
-}: {
-  style?: CSSProperties;
-  onEnterOgrafPreview?: () => void;
-}) {
+export function Stage({ style }: { style?: CSSProperties }) {
   const composition = useActiveComposition();
   const previewLoopLayerId = useTimelineStore((state) => state.previewLoopLayerId);
   const updateLayerTransform = useProjectStore((s) => s.updateLayerTransform);
@@ -92,6 +87,7 @@ export function Stage({
   const copyLayers = useLayerClipboardStore((s) => s.copy);
 
   const setCurrentFrame = useTimelineStore((s) => s.setCurrentFrame);
+  const isPlaying = useTimelineStore((s) => s.isPlaying);
   const setPlaying = useTimelineStore((s) => s.setPlaying);
   const setDurationFrames = useTimelineStore((s) => s.setDurationFrames);
   const setController = useTimelineStore((s) => s.setController);
@@ -671,32 +667,40 @@ export function Stage({
     };
   }, [composition, setController, setCurrentFrame, setDurationFrames, setPlaying]);
 
-  // Loop clips have a local clock that must never be encoded as composition/lifecycle frames.
-  // This editor-only preview samples that clock absolutely while leaving the shared playhead and
-  // authored project untouched. Preview/export use the same compiled sampler below.
+  // Normal Timeline playback uses the compiled runtime sampler for every active local loop, not
+  // only the manually previewed layer. This keeps ticker crawls, pulses, and other ambient motion
+  // aligned with exported playout while preserving the editable Stage DOM and visible Timeline.
   useEffect(() => {
-    if (!previewLoopLayerId) return;
     const descriptor = compileDescriptor(composition, { includeGuides: true });
-    if (!descriptor.layers.find((layer) => layer.id === previewLoopLayerId)?.loop) return;
+    const loopLayers = descriptor.layers.filter((layer) => layer.loop);
+    if (loopLayers.length === 0) return;
+    const parkedFrame = useTimelineStore.getState().currentFrame;
+    const parkedAtStep = descriptor.keyframes.some(
+      (keyframe) => keyframe.role === 'step' && Math.abs(keyframe.frame - parkedFrame) < 0.01,
+    );
+    if (!isPlaying && !previewLoopLayerId && !parkedAtStep) return;
     const previewTimeline = timelineRef.current;
     const previewMoveable = moveableRef.current;
     const epoch = performance.now();
     let animationFrame = 0;
     const render = (now: number) => {
       const baseFrame = (previewTimeline?.time() ?? 0) * descriptor.frameRate;
+      const timelineIsPlaying = useTimelineStore.getState().isPlaying;
+      const heldFrames =
+        !timelineIsPlaying && parkedAtStep ? ((now - epoch) / 1000) * descriptor.frameRate : 0;
       const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
       for (const layer of descriptor.layers) {
         const elapsed =
-          layer.id === previewLoopLayerId
+          layer.id === previewLoopLayerId && !timelineIsPlaying
             ? ((now - epoch) / 1000) * descriptor.frameRate
-            : undefined;
+            : compiledLoopElapsedFrames(descriptor, layer, baseFrame, heldFrames);
         const state = sampleCompiledLayerVisualState(layer, baseFrame, elapsed);
         states.set(layer.id, state);
         const element = layerRefs.current.get(layer.id);
         if (element) applyCompiledLayerVisualState(element, state);
       }
       applyCompiledClipPaths(descriptor, layerRefs.current, states);
-      if (selectedLayerIds.includes(previewLoopLayerId)) previewMoveable?.updateTarget();
+      if (selectedLayerIds.length > 0) previewMoveable?.updateTarget();
       animationFrame = requestAnimationFrame(render);
     };
     animationFrame = requestAnimationFrame(render);
@@ -706,7 +710,7 @@ export function Stage({
       previewTimeline?.seek(frame / composition.frameRate, true);
       previewMoveable?.updateTarget();
     };
-  }, [composition, previewLoopLayerId, selectedLayerIds]);
+  }, [composition, isPlaying, previewLoopLayerId, selectedLayerIds]);
 
   // The timeline effect above normalizes percentage transform origins back to pixel values. Its DOM
   // work must finish before Moveable measures the committed target, particularly after north/west
@@ -751,7 +755,7 @@ export function Stage({
 
   return (
     <section className="canvas-stage" style={style}>
-      <AddElementToolbar onEnterOgrafPreview={onEnterOgrafPreview} />
+      <AddElementToolbar />
       <div className="canvas-stage-workspace" ref={workspaceRef}>
         <div
           className={`canvas-stage-viewport${isPanning ? ' is-panning' : ''}`}
@@ -833,7 +837,9 @@ export function Stage({
                       key={layer.id}
                       layer={layer}
                       pose={pose}
-                      isSelected={interactionLayerIds.includes(layer.id) && !isPersistentGroup}
+                      isSelected={
+                        !isPlaying && interactionLayerIds.includes(layer.id) && !isPersistentGroup
+                      }
                       onSelect={(additive) => {
                         const selectionIds = selectionIdsForLayer(composition, layer.id);
                         if (additive) {
@@ -854,7 +860,7 @@ export function Stage({
               </div>
             </div>
           </div>
-          {moveableTarget && (
+          {moveableTarget && !isPlaying && (
             <Moveable
               key={isGroupSelection ? 'group-selection' : 'single-selection'}
               ref={moveableRef}

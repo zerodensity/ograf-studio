@@ -99,7 +99,7 @@ describe('dock layout model', () => {
     expect(parseDockLayout(resized).zones.left.map((group) => group.weight)).toEqual([320, 120]);
   });
 
-  it('closes panes without repair reopening them and reopens them in their default region', () => {
+  it('closes panes without repair reopening them and reopens them as floating windows', () => {
     const closed = closeDockPane(createDefaultDockLayout(), 'inspector');
     expect(closed.closed).toEqual(['inspector']);
     expect(findDockGroup(closed, 'inspector')).toBeNull();
@@ -108,10 +108,21 @@ describe('dock layout model', () => {
     expect(restored.closed).toEqual(['inspector']);
     expect(findDockGroup(restored, 'inspector')).toBeNull();
 
-    const reopened = reopenDockPane(restored, 'inspector');
+    const reopened = reopenDockPane(restored, 'inspector', {
+      x: 220,
+      y: 140,
+      width: 420,
+      height: 360,
+    });
     expect(reopened.closed).toEqual([]);
-    expect(reopened.zones.right[0]?.panes).toEqual(['inspector', 'data', 'export']);
-    expect(reopened.zones.right[0]?.activePane).toBe('inspector');
+    expect(findDockGroup(reopened, 'inspector')).toBeNull();
+    expect(reopened.floating).toContainEqual({
+      pane: 'inspector',
+      x: 220,
+      y: 140,
+      width: 420,
+      height: 360,
+    });
   });
 
   it('repairs incomplete persisted layouts with every missing pane exactly once', () => {

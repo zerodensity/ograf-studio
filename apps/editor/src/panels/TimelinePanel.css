@@ -1,4 +1,5 @@
 .timeline-panel {
+  --timeline-diamond-size: 11px;
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -27,7 +28,7 @@
 .timeline-key-editor button {
   background: var(--bg-panel-raised);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 4px 10px;
   cursor: pointer;
   font-size: 12px;
@@ -49,7 +50,7 @@
   align-items: center;
   flex: none;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   overflow: hidden;
   background: var(--bg-panel-raised);
 }
@@ -126,7 +127,7 @@
   gap: 5px;
   flex: none;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: var(--bg-canvas);
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
@@ -212,7 +213,7 @@
   padding: 7px 9px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, #72d99b 55%, var(--border));
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, #173c28 88%, var(--bg-panel-raised));
   box-shadow: 0 5px 18px rgba(0, 0, 0, 0.35);
   color: #72d99b;
@@ -250,7 +251,7 @@
   width: 64px;
   background: var(--bg-panel-raised);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--text);
   padding: 3px 5px;
   font: inherit;
@@ -273,7 +274,7 @@
   flex: 1;
   min-height: 0;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   overflow: hidden;
 }
 
@@ -285,7 +286,7 @@
   padding: 10px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--bg-panel-raised) 78%, var(--bg-canvas));
 }
 
@@ -342,7 +343,7 @@
   min-width: 0;
   background: var(--bg-panel-raised);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--text);
   padding: 5px 6px;
   font: inherit;
@@ -352,8 +353,50 @@
   flex: none;
   width: 170px;
   overflow: hidden;
-  border-right: 1px solid var(--border);
   background: var(--bg-panel-raised);
+}
+
+.timeline-gutter-resize-handle {
+  position: relative;
+  z-index: 9;
+  width: 7px;
+  flex: 0 0 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.timeline-gutter-resize-handle::before {
+  position: absolute;
+  inset: 0 auto 0 3px;
+  width: 1px;
+  content: '';
+  background: var(--border);
+  transition:
+    width 100ms ease,
+    background 100ms ease,
+    box-shadow 100ms ease;
+}
+
+.timeline-gutter-resize-handle:hover::before,
+.timeline-gutter-resize-handle:focus-visible::before,
+.timeline-body.resizing-gutter .timeline-gutter-resize-handle::before {
+  width: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.timeline-gutter-resize-handle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.timeline-body.resizing-gutter,
+.timeline-body.resizing-gutter * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .timeline-gutter-spacer {
@@ -438,13 +481,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: text;
 }
 
 .timeline-folder-count {
   flex: none;
   min-width: 16px;
   padding: 1px 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--folder-color) 30%, var(--bg-canvas));
   color: var(--text-dim);
   font-family: var(--mono);
@@ -458,7 +502,7 @@
   height: 20px;
   padding: 1px 4px;
   border: 1px solid var(--folder-color);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   background: var(--bg-canvas);
   color: var(--text-heading);
   font: inherit;
@@ -568,7 +612,7 @@
   height: 21px;
   padding: 0 4px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   background: var(--bg-canvas);
   color: var(--text-dim);
   cursor: pointer;
@@ -719,7 +763,7 @@
   padding: 0 4px 0 2px;
   cursor: ew-resize;
   white-space: nowrap;
-  transform: translateX(-11px);
+  transform: translateX(calc(-2px - var(--timeline-diamond-size) / 2));
 }
 
 .timeline-keyframe-marker.start {
@@ -728,8 +772,8 @@
 
 .timeline-keyframe-marker-flag {
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: var(--timeline-diamond-size);
+  height: var(--timeline-diamond-size);
   place-items: center;
   transform: rotate(45deg);
   background: var(--text-dim);
@@ -743,7 +787,7 @@
   place-items: center;
   transform: rotate(-45deg);
   color: white;
-  font-size: 12px;
+  font-size: 7.33px;
   font-weight: 800;
   line-height: 1;
   text-shadow: 0 1px 2px var(--bg-canvas);
@@ -771,7 +815,7 @@
   width: 70px;
   background: var(--bg-canvas);
   border: 1px solid var(--accent);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text);
   font: inherit;
   font-size: 11px;
@@ -824,8 +868,8 @@
 }
 
 .timeline-property-track .timeline-keyframe-dot {
-  width: 18px;
-  height: 18px;
+  width: var(--timeline-diamond-size);
+  height: var(--timeline-diamond-size);
 }
 
 .timeline-layer-span.property {
@@ -989,8 +1033,8 @@
 .timeline-keyframe-dot {
   position: absolute;
   top: 50%;
-  width: 18px;
-  height: 18px;
+  width: var(--timeline-diamond-size);
+  height: var(--timeline-diamond-size);
   transform: translate(-50%, -50%) rotate(45deg);
   background: var(--layer-color);
   border: 1px solid color-mix(in srgb, var(--layer-color) 70%, white);
@@ -1002,14 +1046,29 @@
 .timeline-keyframe-dot.active {
   border-color: white;
   box-shadow:
-    0 0 0 2px var(--bg-canvas),
-    0 0 0 3px var(--layer-color),
-    0 0 8px var(--layer-color);
+    0 0 0 1.22px var(--bg-canvas),
+    0 0 0 1.83px var(--layer-color),
+    0 0 4.89px var(--layer-color);
+}
+
+.timeline-multi-key-selection {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.timeline-multi-key-selection strong {
+  color: var(--text-heading);
 }
 
 .timeline-keyframe-dot:focus-visible {
-  outline: 2px solid white;
-  outline-offset: 3px;
+  outline: 1.22px solid white;
+  outline-offset: 1.83px;
 }
 
 .timeline-property-loop-activation {
@@ -1023,7 +1082,7 @@
   place-items: center;
   transform: rotate(-45deg);
   color: white;
-  font-size: 12px;
+  font-size: 7.33px;
   font-weight: 800;
   line-height: 1;
   text-shadow: 0 1px 2px var(--bg-canvas);

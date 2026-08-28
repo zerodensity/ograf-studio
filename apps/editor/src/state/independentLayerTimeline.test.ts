@@ -5,6 +5,17 @@ import { useSelectionStore } from './selectionStore';
 describe('project store independent layer timelines', () => {
   beforeEach(() => useProjectStore.getState().newProject());
 
+  it('adds ordinary layers fully visible at Start, Step, and End', () => {
+    for (const kind of ['rectangle', 'ellipse', 'text'] as const) {
+      const layerId = useProjectStore.getState().addLayer(kind);
+      const layer = useProjectStore
+        .getState()
+        .project.compositions[0]!.layers.find((candidate) => candidate.id === layerId)!;
+      expect(layer.keyframes.map((keyframe) => keyframe.transform.opacity)).toEqual([1, 1, 1]);
+      expect(layer.animationTracks.opacity?.map((keyframe) => keyframe.value)).toEqual([1, 1, 1]);
+    }
+  });
+
   it('adds and edits a key without changing any other layer track', () => {
     const firstId = useProjectStore.getState().addLayer('rectangle');
     const secondId = useProjectStore.getState().addLayer('rectangle');
@@ -71,6 +82,85 @@ describe('project store independent layer timelines', () => {
       .getState()
       .project.compositions[0]!.layers.find((candidate) => candidate.id === layerId)!;
     expect(layer.keyframes.find((keyframe) => keyframe.id === keyframeId)?.frame).toBe(8);
+  });
+
+  it('moves selected aggregate keys together and stops before an unselected key', () => {
+    const layerId = useProjectStore.getState().addLayer('rectangle');
+    const firstId = useProjectStore.getState().addLayerKeyframe(layerId, 4);
+    const secondId = useProjectStore.getState().addLayerKeyframe(layerId, 8);
+
+    const applied = useProjectStore.getState().moveTimelineKeyframesTogether(
+      [firstId, secondId].map((keyframeId) => ({
+        layerId,
+        property: null,
+        keyframeId,
+      })),
+      10,
+    );
+
+    const layer = useProjectStore
+      .getState()
+      .project.compositions[0]!.layers.find((candidate) => candidate.id === layerId)!;
+    expect(applied).toBe(3);
+    expect(
+      [firstId, secondId].map(
+        (keyframeId) => layer.keyframes.find((keyframe) => keyframe.id === keyframeId)?.frame,
+      ),
+    ).toEqual([7, 11]);
+    expect(layer.animationTracks.x?.some((keyframe) => keyframe.frame === 7)).toBe(true);
+    expect(layer.animationTracks.x?.some((keyframe) => keyframe.frame === 11)).toBe(true);
+  });
+
+  it('moves selected property keys together without changing their spacing', () => {
+    const layerId = useProjectStore.getState().addLayer('rectangle');
+    const firstId = useProjectStore.getState().addLayerPropertyKeyframe(layerId, 'x', 4);
+    const secondId = useProjectStore.getState().addLayerPropertyKeyframe(layerId, 'x', 8);
+
+    const applied = useProjectStore.getState().moveTimelineKeyframesTogether(
+      [firstId, secondId].map((keyframeId) => ({
+        layerId,
+        property: 'x' as const,
+        keyframeId,
+      })),
+      2,
+    );
+
+    const layer = useProjectStore
+      .getState()
+      .project.compositions[0]!.layers.find((candidate) => candidate.id === layerId)!;
+    expect(applied).toBe(2);
+    expect(
+      [firstId, secondId].map(
+        (keyframeId) =>
+          layer.animationTracks.x?.find((keyframe) => keyframe.id === keyframeId)?.frame,
+      ),
+    ).toEqual([6, 10]);
+  });
+
+  it('moves selected keys from different layers and property rows by one shared delta', () => {
+    const firstLayerId = useProjectStore.getState().addLayer('rectangle');
+    const secondLayerId = useProjectStore.getState().addLayer('rectangle');
+    const firstKeyId = useProjectStore.getState().addLayerPropertyKeyframe(firstLayerId, 'x', 4);
+    const secondKeyId = useProjectStore
+      .getState()
+      .addLayerPropertyKeyframe(secondLayerId, 'opacity', 7);
+
+    const applied = useProjectStore.getState().moveTimelineKeyframesTogether(
+      [
+        { layerId: firstLayerId, property: 'x', keyframeId: firstKeyId },
+        { layerId: secondLayerId, property: 'opacity', keyframeId: secondKeyId },
+      ],
+      3,
+    );
+
+    const composition = useProjectStore.getState().project.compositions[0]!;
+    const firstLayer = composition.layers.find((layer) => layer.id === firstLayerId)!;
+    const secondLayer = composition.layers.find((layer) => layer.id === secondLayerId)!;
+    expect(applied).toBe(3);
+    expect(firstLayer.animationTracks.x?.find((key) => key.id === firstKeyId)?.frame).toBe(7);
+    expect(secondLayer.animationTracks.opacity?.find((key) => key.id === secondKeyId)?.frame).toBe(
+      10,
+    );
   });
 
   it('publishes transient transform values without committing project data', () => {

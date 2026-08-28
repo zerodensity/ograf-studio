@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CompiledLayer } from '@ograf-editor/ograf-types';
+import type { CompiledGraphicDescriptor, CompiledLayer } from '@ograf-editor/ograf-types';
 import {
   createCornerRadii,
   createLayerEffects,
@@ -7,6 +7,7 @@ import {
   createTextElement,
 } from '@ograf-editor/scene-model';
 import {
+  compiledLoopElapsedFrames,
   interpolateCompiledLayerVisualState,
   sampleCompiledLayerVisualState,
 } from './loopRendering';
@@ -62,6 +63,27 @@ function layer(): CompiledLayer {
 }
 
 describe('compiled loop sampling', () => {
+  it('resolves lifecycle and Step loop activation windows', () => {
+    const compiled = layer();
+    const descriptor = {
+      keyframes: [
+        { id: 'start', frame: 0, role: 'start' },
+        { id: 'step-1', frame: 10, role: 'step' },
+        { id: 'step-2', frame: 20, role: 'step' },
+        { id: 'end', frame: 30, role: 'end' },
+      ],
+    } as CompiledGraphicDescriptor;
+
+    expect(compiledLoopElapsedFrames(descriptor, compiled, 9)).toBeUndefined();
+    expect(compiledLoopElapsedFrames(descriptor, compiled, 12, 3)).toBe(5);
+    expect(compiledLoopElapsedFrames(descriptor, compiled, 30)).toBeUndefined();
+
+    compiled.loop!.activation = { type: 'step', stepKeyframeId: 'step-2' };
+    expect(compiledLoopElapsedFrames(descriptor, compiled, 19)).toBeUndefined();
+    expect(compiledLoopElapsedFrames(descriptor, compiled, 24, 2)).toBe(6);
+    expect(compiledLoopElapsedFrames(descriptor, compiled, 30)).toBeUndefined();
+  });
+
   it('combines independent loop properties over the finite base pose', () => {
     const compiled = layer();
     const atPeak = sampleCompiledLayerVisualState(compiled, 0, 10);

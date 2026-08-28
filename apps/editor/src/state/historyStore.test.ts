@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useProjectStore } from './projectStore';
+import { createProject } from '@ograf-editor/scene-model';
 
 vi.useFakeTimers();
 vi.stubGlobal('window', {
@@ -52,5 +53,20 @@ describe('editor history store', () => {
     history.redo(2);
     expect(useProjectStore.getState().project.name).toBe('Second name');
     expect(history.getHistorySnapshot().past).toHaveLength(2);
+  });
+
+  it('reconciles the active composition when undo restores another project snapshot', () => {
+    const original = useProjectStore.getState().project;
+    const replacement = createProject();
+    useProjectStore.setState({
+      project: replacement,
+      activeCompositionId: replacement.mainCompositionId,
+      activeKeyframeId: replacement.compositions[0]!.keyframes[0]!.id,
+    });
+
+    history.undo();
+
+    expect(useProjectStore.getState().project.id).toBe(original.id);
+    expect(useProjectStore.getState().activeCompositionId).toBe(original.mainCompositionId);
   });
 });

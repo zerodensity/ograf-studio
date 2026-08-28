@@ -14,6 +14,7 @@ export { easingForGsap } from './easing';
 export {
   applyCompiledClipPaths,
   applyCompiledLayerVisualState,
+  compiledLoopElapsedFrames,
   sampleCompiledLayerVisualState,
   type CompiledLayerVisualState,
 } from './loopRendering';

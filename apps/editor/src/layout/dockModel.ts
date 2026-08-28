@@ -257,37 +257,13 @@ export function closeDockPane(layout: DockLayoutState, pane: DockPaneId): DockLa
   return next;
 }
 
-export function reopenDockPane(layout: DockLayoutState, pane: DockPaneId): DockLayoutState {
+export function reopenDockPane(
+  layout: DockLayoutState,
+  pane: DockPaneId,
+  position: Partial<Omit<FloatingPaneState, 'pane'>> = {},
+): DockLayoutState {
   if (!layout.closed.includes(pane)) return layout;
-  const next = withoutPane(layout, pane);
-  const defaults = createDefaultDockLayout();
-  for (const zone of ZONES) {
-    const defaultGroupIndex = defaults.zones[zone].findIndex((group) => group.panes.includes(pane));
-    if (defaultGroupIndex < 0) continue;
-    const defaultGroup = defaults.zones[zone][defaultGroupIndex]!;
-    const existingGroup = next.zones[zone].find((group) => group.id === defaultGroup.id);
-    if (existingGroup) {
-      const defaultPaneIndex = defaultGroup.panes.indexOf(pane);
-      let insertionIndex = existingGroup.panes.length;
-      for (const candidate of existingGroup.panes) {
-        if (defaultGroup.panes.indexOf(candidate) > defaultPaneIndex) {
-          insertionIndex = existingGroup.panes.indexOf(candidate);
-          break;
-        }
-      }
-      existingGroup.panes.splice(insertionIndex, 0, pane);
-      existingGroup.activePane = pane;
-    } else {
-      next.zones[zone].splice(Math.min(defaultGroupIndex, next.zones[zone].length), 0, {
-        id: defaultGroup.id,
-        panes: [pane],
-        activePane: pane,
-        weight: defaultGroup.weight,
-      });
-    }
-    return next;
-  }
-  return layout;
+  return floatDockPane(layout, pane, position);
 }
 
 export function dockZoneNearPointer(

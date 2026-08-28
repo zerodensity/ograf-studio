@@ -7,6 +7,8 @@ import { undo, redo } from './state/historyStore';
 import { useAgentBridge } from './state/agentBridge';
 import { useTimelineStore } from './state/timelineStore';
 import { isInteractiveShortcutTarget } from './state/keyboardShortcuts';
+import { useSelectionStore } from './state/selectionStore';
+import { selectableLayerIds } from './state/selectAllLayers';
 
 function App() {
   useAutosave();
@@ -34,6 +36,16 @@ function App() {
       }
       const isModifier = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      if (isModifier && !e.altKey && key === 'a') {
+        e.preventDefault();
+        window.getSelection()?.removeAllRanges();
+        const state = useProjectStore.getState();
+        const composition = state.project.compositions.find(
+          (candidate) => candidate.id === state.activeCompositionId,
+        );
+        useSelectionStore.getState().selectMany(composition ? selectableLayerIds(composition) : []);
+        return;
+      }
       if (!isModifier || (key !== 'z' && key !== 'y')) return;
       e.preventDefault();
       if (key === 'y' || e.shiftKey) redo();

@@ -3,38 +3,29 @@
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px;
+  gap: 4px;
+  padding: 5px 6px;
   flex: none;
-  background: var(--bg-panel);
+  background: #2f2f2f;
   border-bottom: 1px solid var(--border);
 }
 
-.stage-mode-switch {
+.element-tools {
   display: flex;
   flex: none;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--bg-canvas);
+  align-items: center;
+  gap: 3px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
 }
 
-.add-element-toolbar .stage-mode-switch button {
-  border: 0;
-  padding: 3px 9px;
-  background: transparent;
-}
-
-.add-element-toolbar .stage-mode-switch button.active {
-  background: var(--accent);
-  color: white;
-}
-
-.toolbar-divider {
-  width: 1px;
-  align-self: stretch;
-  margin: 0 2px;
-  background: var(--border);
+.arrange-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
 }
 
 .layout-toolbar {
@@ -57,21 +48,114 @@
 }
 
 .add-element-toolbar button {
-  background: var(--bg-panel-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  min-height: 30px;
+  background: #292929;
+  border: 1px solid #444;
+  border-radius: 2px;
   padding: 4px 10px;
   cursor: pointer;
 }
 
 .add-element-toolbar button:hover {
+  color: #fff;
+  background: #383838;
+  border-color: var(--accent-focus);
+}
+
+.add-element-toolbar .element-tool-button,
+.add-element-toolbar .arrange-tool-button {
+  position: relative;
+  width: 32px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--bg-panel-raised) 82%, transparent);
+}
+
+.add-element-toolbar .element-tool-button:hover,
+.add-element-toolbar .element-tool-button:focus-visible,
+.add-element-toolbar .arrange-tool-button:hover:not(:disabled),
+.add-element-toolbar .arrange-tool-button:focus-visible:not(:disabled) {
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-panel-raised));
   border-color: var(--accent);
+  outline: none;
+}
+
+.add-element-toolbar .arrange-tool-button:disabled {
+  color: color-mix(in srgb, var(--text-dim) 45%, transparent);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.element-tool-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.arrange-tool-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  fill: color-mix(in srgb, currentColor 13%, transparent);
+  stroke: currentColor;
+  stroke-width: 1.55;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.element-tool-icon .element-tool-guide {
+  opacity: 0.35;
+  stroke-dasharray: 1.5 1.5;
+}
+
+.element-tool-button::after,
+.arrange-tool-button::after {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 7px);
+  left: 50%;
+  padding: 4px 7px;
+  content: attr(data-tooltip);
+  color: var(--text-heading);
+  background: #111318;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: 0 5px 16px rgb(0 0 0 / 45%);
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -3px);
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+  white-space: nowrap;
+}
+
+.element-tool-button:hover::after,
+.element-tool-button:focus-visible::after,
+.arrange-tool-button:hover:not(:disabled)::after,
+.arrange-tool-button:focus-visible:not(:disabled)::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .add-element-toolbar .recipe-select {
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  min-height: 30px;
+  border: 1px solid #444;
+  border-radius: 2px;
   padding: 4px 8px;
-  background: var(--bg-panel-raised);
+  background: #292929;
   color: var(--text);
 }

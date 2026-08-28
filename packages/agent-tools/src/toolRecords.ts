@@ -1441,7 +1441,7 @@ export function createOGrafToolRecords(
             },
             autoFit: {
               type: 'enum',
-              values: ['auto-size', 'shrink-to-fit', 'fit-to-width', 'fixed'],
+              values: ['auto-size', 'shrink-to-fit', 'fit-to-width', 'squeeze', 'fixed'],
               default: 'auto-size',
             },
           },

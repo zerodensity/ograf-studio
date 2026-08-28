@@ -1,18 +1,29 @@
 :root {
-  --bg-app: #1b1c20;
-  --bg-panel: #202126;
-  --bg-panel-raised: #26272d;
-  --bg-canvas: #101114;
-  --border: #34353c;
-  --text: #d6d6db;
-  --text-dim: #85868f;
-  --text-heading: #f3f3f5;
-  --accent: #7c8cff;
+  /* Zero Density / RealityHub visual system, sampled from the live product UI. */
+  --bg-app: #1c1c1c;
+  --bg-header: #232323;
+  --bg-panel: #2e2e2e;
+  --bg-panel-raised: #353535;
+  --bg-control: #191919;
+  --bg-hover: #383838;
+  --bg-selected: #555;
+  --bg-canvas: #191919;
+  --border: #3c3c3c;
+  --border-strong: #4a4a4a;
+  --text: #dadada;
+  --text-dim: #aaa;
+  --text-heading: #fff;
+  --accent: #399ed4;
+  --accent-focus: #60d0ff;
+  --action: #26a69a;
+  --radius-control: 2px;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --sans:
+    'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+    'Helvetica Neue', sans-serif;
   --mono: ui-monospace, Consolas, monospace;
-  --ui-font-size: 12px;
-  --ui-font-size-compact: 10px;
+  --ui-font-size: 14px;
+  --ui-font-size-compact: 13px;
   --panel-divider-size: 3px;
 
   color-scheme: dark;
@@ -37,6 +48,7 @@ body {
   margin: 0;
   height: 100vh;
   overflow: hidden;
+  background: var(--bg-app);
 }
 
 body.is-resizing {
@@ -53,6 +65,30 @@ body.is-resizing[data-resize-axis='row'] {
 
 #root {
   height: 100vh;
+}
+
+* {
+  scrollbar-color: #555 #292929;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #292929;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #555;
+  border: 2px solid #292929;
+  border-radius: 0;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #666;
 }
 
 /*
@@ -94,7 +130,8 @@ body.is-resizing[data-resize-axis='row'] {
     .resources-tree-actions,
     .resources-asset-warning,
     .resources-component-count,
-    .runtime-preview-state,
+    .numeric-scrub-hint,
+    .numeric-scrub-hint *,
     .timeline-step-playback-toggle,
     .timeline-readout-separator,
     .timeline-zoom-controls,
@@ -119,7 +156,6 @@ body.is-resizing[data-resize-axis='row'] {
 
 #root
   :is(
-    .runtime-preview-state,
     .canvas-viewport-ruler .canvas-ruler-tick > span,
     .canvas-guide-coordinate,
     .data-json-preview,
@@ -154,4 +190,41 @@ textarea {
   font-size: var(--ui-font-size);
   line-height: inherit;
   color: inherit;
+}
+
+#root
+  :where(
+    input[type='text'],
+    input[type='number'],
+    input[type='password'],
+    input[type='url'],
+    select,
+    textarea
+  ) {
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--bg-control);
+  color: var(--text);
+  outline: none;
+}
+
+#root :where(input, select, textarea):focus {
+  border-color: var(--accent-focus);
+  box-shadow: 0 0 0 1px var(--accent-focus);
+}
+
+#root :where(input, textarea)::placeholder {
+  color: #888;
+  opacity: 1;
+}
+
+#root input[type='checkbox'],
+#root input[type='radio'],
+#root input[type='range'] {
+  accent-color: var(--accent-focus);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 58%, transparent);
+  color: #fff;
 }

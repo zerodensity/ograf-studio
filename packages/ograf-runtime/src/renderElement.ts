@@ -39,6 +39,29 @@ export interface FittedFontSizeResult {
   degenerate: boolean;
 }
 
+export interface TextSqueezeScale {
+  scaleX: number;
+  scaleY: number;
+  degenerate: boolean;
+}
+
+export function calculateTextSqueezeScale(options: {
+  boxWidth: number;
+  boxHeight: number;
+  naturalWidth: number;
+  naturalHeight: number;
+}): TextSqueezeScale {
+  const naturalWidth = Math.max(0.1, options.naturalWidth);
+  const naturalHeight = Math.max(0.1, options.naturalHeight);
+  const boxWidth = Math.max(0, options.boxWidth);
+  const boxHeight = Math.max(0, options.boxHeight);
+  return {
+    scaleX: boxWidth / naturalWidth,
+    scaleY: boxHeight / naturalHeight,
+    degenerate: boxWidth <= 0 || boxHeight <= 0,
+  };
+}
+
 export function findFittedFontSize(options: {
   mode: 'shrink-to-fit' | 'fit-to-width';
   authoredFontSize: number;
@@ -196,17 +219,21 @@ export function renderElementContent(
       content.style.textAlign = element.textAlign;
       content.style.letterSpacing = `${element.letterSpacing}px`;
       content.style.textTransform = element.textTransform;
-      content.style.display = 'flex';
-      content.style.flexDirection = 'column';
-      content.style.justifyContent =
-        element.verticalAlign === 'middle'
+      const squeeze = element.autoFit === 'squeeze';
+      content.style.display = squeeze ? 'block' : 'flex';
+      content.style.flexDirection = squeeze ? '' : 'column';
+      content.style.justifyContent = squeeze
+        ? ''
+        : element.verticalAlign === 'middle'
           ? 'center'
           : element.verticalAlign === 'bottom'
             ? 'flex-end'
             : 'flex-start';
-      content.style.transform = `translateY(${element.baselineShift}px)`;
+      content.style.transform = squeeze ? 'none' : `translateY(${element.baselineShift}px)`;
       content.style.whiteSpace =
-        element.autoFit === 'auto-size' || element.autoFit === 'fit-to-width'
+        element.autoFit === 'auto-size' ||
+        element.autoFit === 'fit-to-width' ||
+        element.autoFit === 'squeeze'
           ? 'pre'
           : element.overflowPolicy === 'ellipsis'
             ? 'nowrap'
@@ -221,13 +248,33 @@ export function renderElementContent(
       content.style.overflow =
         element.autoFit === 'shrink-to-fit' ||
         element.autoFit === 'fit-to-width' ||
+        element.autoFit === 'squeeze' ||
         element.overflowPolicy !== 'visible'
           ? 'hidden'
           : 'visible';
       content.style.textOverflow = element.overflowPolicy === 'ellipsis' ? 'ellipsis' : 'clip';
+      if (squeeze) {
+        Object.assign(content.style, {
+          position: 'absolute',
+          left: '0',
+          top: '0',
+          width: 'max-content',
+          height: 'max-content',
+          minWidth: '1px',
+          minHeight: '1px',
+          maxWidth: 'none',
+          maxHeight: 'none',
+          transformOrigin: '0 0',
+          overflow: 'visible',
+        });
+      }
       content.textContent = element.content;
       container.appendChild(content);
-      if (element.autoFit === 'shrink-to-fit' || element.autoFit === 'fit-to-width') {
+      if (
+        element.autoFit === 'shrink-to-fit' ||
+        element.autoFit === 'fit-to-width' ||
+        element.autoFit === 'squeeze'
+      ) {
         const fitMode = element.autoFit;
         const mounted: MountedTextFit = {};
         if (fitMode === 'fit-to-width') {
@@ -249,6 +296,7 @@ export function renderElementContent(
           if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
           if (element.content.length === 0) {
             content.style.fontSize = `${element.fontSize}px`;
+            content.style.transform = 'none';
             content.dataset.ografAppliedFontSize = String(element.fontSize);
             content.dataset.ografFitRatio = '1';
             content.dataset.ografFitDegenerate = 'false';
@@ -258,6 +306,22 @@ export function renderElementContent(
             0,
             Number.parseFloat(content.style.webkitTextStrokeWidth) || element.strokeWidth,
           );
+          if (fitMode === 'squeeze') {
+            content.style.transform = 'none';
+            const result = calculateTextSqueezeScale({
+              boxWidth: container.clientWidth,
+              boxHeight: container.clientHeight,
+              naturalWidth: content.scrollWidth + strokeExpansion,
+              naturalHeight: content.scrollHeight + strokeExpansion,
+            });
+            content.style.transform = `scale(${result.scaleX}, ${result.scaleY}) translateY(${element.baselineShift}px)`;
+            content.dataset.ografAppliedFontSize = String(element.fontSize);
+            content.dataset.ografFitRatio = String(Math.min(result.scaleX, result.scaleY));
+            content.dataset.ografFitDegenerate = String(result.degenerate);
+            content.dataset.ografSqueezeScaleX = String(result.scaleX);
+            content.dataset.ografSqueezeScaleY = String(result.scaleY);
+            return;
+          }
           const fits = (fontSize: number) => {
             if (fitMode === 'shrink-to-fit') {
               content.style.fontSize = `${fontSize}px`;

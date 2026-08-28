@@ -209,6 +209,21 @@ describe('migrateProject', () => {
     });
   });
 
+  it('preserves the squeeze text sizing mode at the project boundary', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw new Error('Expected a text layer.');
+    layer.element.autoFit = 'squeeze';
+    project.compositions[0]!.layers = [layer];
+
+    const migrated = migrateProject(project);
+
+    expect(migrated.compositions[0]!.layers[0]!.element).toMatchObject({
+      type: 'text',
+      autoFit: 'squeeze',
+    });
+  });
+
   it('migrates the legacy singular layer binding into the ordered binding list', () => {
     const project = createProject();
     const layer = createLayerOfKind('text');

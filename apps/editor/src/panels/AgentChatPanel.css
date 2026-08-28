@@ -27,7 +27,7 @@
   text-align: center;
   background: color-mix(in srgb, var(--accent) 24%, rgb(12 14 18 / 94%));
   border: 2px dashed var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   pointer-events: none;
 }
 
@@ -293,7 +293,7 @@
   color: var(--text);
   background: #17181c;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   font: inherit;
 }
 
@@ -302,7 +302,7 @@
   padding: 7px 11px;
   background: var(--accent);
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 

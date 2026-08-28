@@ -14,7 +14,7 @@
   gap: 6px;
   padding: 8px;
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 
 .paint-stop {
@@ -45,7 +45,7 @@
 .inspector-corner-grid {
   padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
 }
 
@@ -59,7 +59,7 @@
   gap: 7px;
   padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
 }
 
@@ -84,7 +84,7 @@
   gap: 5px;
   padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
 }
 
@@ -105,7 +105,7 @@
 .inspector-button-row button,
 .inspector-row button {
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--bg-panel-raised);
   color: var(--text);
   padding: 3px 7px;
@@ -135,7 +135,7 @@
 .inspector-row textarea {
   background: var(--bg-canvas);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--text);
   padding: 3px 6px;
   width: 100%;
@@ -148,6 +148,20 @@
   height: 24px;
 }
 
+.inspector-z-order-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.inspector-z-order-control small {
+  color: var(--text-dim);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .inspector-checkbox-row input[type='checkbox'] {
   width: auto;
   accent-color: var(--accent);
@@ -156,7 +170,7 @@
 .inspector-effect-grid {
   padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
 }
 
@@ -164,7 +178,7 @@
   padding: 9px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: var(--bg-canvas);
   color: var(--text-heading);
   font-size: 20px;
@@ -184,7 +198,7 @@
   gap: 8px;
   padding: 6px 8px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--bg-canvas) 65%, transparent);
 }
 
@@ -214,7 +228,7 @@
   min-width: 0;
   padding: 3px 5px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--bg-canvas);
   color: var(--text);
   font: inherit;
@@ -225,7 +239,7 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.4;
-  color: #4dd0e1;
+  color: var(--accent-focus);
 }
 
 .inspector-evaluated-pose {
@@ -233,9 +247,9 @@
   flex-direction: column;
   gap: 3px;
   padding: 6px 8px;
-  border: 1px solid color-mix(in srgb, #4dd0e1 35%, var(--border));
-  border-radius: 4px;
-  background: color-mix(in srgb, #4dd0e1 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-focus) 35%, var(--border));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--accent-focus) 7%, transparent);
   font-size: 10px;
 }
 
@@ -272,6 +286,130 @@
   width: 24px;
   height: 24px;
   object-fit: cover;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
+}
+
+/* RealityHub-style configuration table: one stable label column and one value column. */
+.inspector {
+  display: block;
+  margin: -8px -10px;
+}
+
+.inspector > .panel-placeholder,
+.inspector > .inspector-error,
+.inspector > .inspector-hint,
+.inspector > .inspector-evaluated-pose,
+.inspector > .inspector-font-preview,
+.inspector > .inspector-binding-list,
+.inspector > .inspector-frame-list,
+.inspector > .inspector-button-row,
+.inspector > .paint-editor {
+  margin: 0;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.inspector-section {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 8px;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+  background: #252525;
+  color: var(--text);
+  font-size: var(--ui-font-size);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.inspector-grid,
+.inspector-corner-grid,
+.inspector-effect-grid,
+.inspector-presentation-background-controls {
+  display: contents;
+}
+
+.inspector-row,
+.inspector-row-stacked {
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(118px, 42%) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.inspector-row:hover {
+  background: #303030;
+}
+
+.inspector-row > span:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector-row > :is(input, select, textarea, button, .inspector-z-order-control) {
+  width: calc(100% - 12px);
+  min-width: 0;
+  align-self: center;
+  justify-self: stretch;
+  margin: 3px 6px;
+}
+
+.inspector-row > textarea {
+  min-height: 54px;
+  resize: vertical;
+}
+
+.inspector-row input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  justify-self: start;
+  margin-left: 10px;
+}
+
+.inspector-row input[type='color'] {
+  width: 42px;
+  height: 24px;
+  justify-self: start;
+}
+
+.inspector-alpha-control {
+  min-height: 32px;
+  grid-template-columns: minmax(118px, 42%) minmax(70px, 1fr) 72px;
+  gap: 6px;
+  margin: 0;
+  padding: 0 6px 0 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-panel);
+}
+
+.inspector-alpha-label {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-right: 1px solid var(--border);
+  color: var(--text);
+}
+
+.inspector-binding,
+.paint-stops {
+  background: #292929;
+  border-color: var(--border-strong);
 }

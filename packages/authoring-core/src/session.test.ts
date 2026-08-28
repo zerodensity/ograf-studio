@@ -26,6 +26,11 @@ describe('AuthoringSession', () => {
       'Background',
       'Headline',
     ]);
+    expect(
+      result.project.compositions[0]!.layers.flatMap((layer) =>
+        layer.keyframes.map((keyframe) => keyframe.transform.opacity),
+      ),
+    ).toEqual([1, 1, 1, 1, 1, 1]);
 
     const undone = session.undo(1);
     expect(undone.revision).toBe(2);

@@ -613,11 +613,29 @@ export function DockWorkspace({
   useEffect(() => onClosedPanesChange?.(layout.closed), [layout.closed, onClosedPanesChange]);
   useEffect(() => {
     if (!paneCommand) return;
-    setLayout((current) =>
-      paneCommand.action === 'open'
-        ? reopenDockPane(current, paneCommand.pane)
-        : closeDockPane(current, paneCommand.pane),
-    );
+    setLayout((current) => {
+      if (paneCommand.action === 'close') return closeDockPane(current, paneCommand.pane);
+      const bounds = workspaceRef.current?.getBoundingClientRect();
+      if (!bounds) return reopenDockPane(current, paneCommand.pane);
+      const preferred =
+        paneCommand.pane === 'timeline'
+          ? { width: 720, height: 340 }
+          : paneCommand.pane === 'chat' || paneCommand.pane === 'export'
+            ? { width: 460, height: 520 }
+            : { width: 380, height: 460 };
+      const width = Math.max(240, Math.min(preferred.width, bounds.width - 24));
+      const height = Math.max(160, Math.min(preferred.height, bounds.height - 24));
+      const cascade = (current.floating.length % 5) * 18;
+      const x = Math.max(
+        6,
+        Math.min(bounds.width - width - 6, (bounds.width - width) / 2 + cascade),
+      );
+      const y = Math.max(
+        6,
+        Math.min(bounds.height - height - 6, (bounds.height - height) / 2 + cascade),
+      );
+      return reopenDockPane(current, paneCommand.pane, { x, y, width, height });
+    });
   }, [paneCommand]);
 
   const hasLeft = layout.zones.left.length > 0;
