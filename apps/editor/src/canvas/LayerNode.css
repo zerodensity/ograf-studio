@@ -27,9 +27,9 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #4dd0e1;
-  border: 1px solid color-mix(in srgb, #4dd0e1 45%, white);
-  box-shadow: 0 0 4px color-mix(in srgb, #4dd0e1 60%, transparent);
+  background: var(--accent-focus);
+  border: 1px solid color-mix(in srgb, var(--accent-focus) 45%, white);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--accent-focus) 60%, transparent);
   cursor: help;
   pointer-events: auto;
 }

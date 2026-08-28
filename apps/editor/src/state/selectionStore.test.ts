@@ -44,6 +44,20 @@ describe('layer selection', () => {
 
     expect(useSelectionStore.getState().selectedLayerIds).toEqual(['headline']);
     expect(useSelectionStore.getState().selectedLayerKeyframeId).toBe('headline-key-2');
+    expect(useSelectionStore.getState().selectedLayerKeyframes).toEqual([
+      { layerId: 'headline', keyframeId: 'headline-key-2', property: null },
+    ]);
+  });
+
+  it('keeps multiple keyframes with a distinct primary key', () => {
+    const first = { layerId: 'headline', keyframeId: 'key-1', property: 'x' as const };
+    const second = { layerId: 'headline', keyframeId: 'key-2', property: 'x' as const };
+
+    useSelectionStore.getState().selectLayerKeyframes([first, second, second], first);
+
+    expect(useSelectionStore.getState().selectedLayerKeyframes).toEqual([first, second]);
+    expect(useSelectionStore.getState().selectedLayerKeyframeId).toBe('key-1');
+    expect(useSelectionStore.getState().selectedLayerProperty).toBe('x');
   });
 
   it('selects a pasted set with the final layer as Inspector primary', () => {

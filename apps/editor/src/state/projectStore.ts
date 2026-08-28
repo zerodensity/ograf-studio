@@ -153,6 +153,14 @@ interface ProjectActions {
   addLayerKeyframe: (layerId: string, frame: number) => string;
   addLayerHoldFrame: (layerId: string, frame: number) => string;
   moveLayerKeyframe: (layerId: string, keyframeId: string, frame: number) => void;
+  moveTimelineKeyframesTogether: (
+    keyframes: Array<{
+      layerId: string;
+      property: AnimatableLayerProperty | null;
+      keyframeId: string;
+    }>,
+    deltaFrames: number,
+  ) => number;
   removeLayerKeyframe: (layerId: string, keyframeId: string) => void;
   updateLayerKeyframeEasing: (layerId: string, keyframeId: string, easing: EasingPreset) => void;
   addLayerPropertyKeyframe: (
@@ -417,6 +425,38 @@ function removeAggregateKeyframeIfOrphaned(layer: Layer, frame: number): void {
 
 function framesAreUnique(frames: number[]): boolean {
   return new Set(frames).size === frames.length;
+}
+
+function timelineKeyDeltaBounds(
+  keys: Array<{ id: string; frame: number }>,
+  selectedIds: Set<string>,
+  totalFrames: number,
+): { min: number; max: number } {
+  const selected = keys.filter((key) => selectedIds.has(key.id));
+  const unselected = keys.filter((key) => !selectedIds.has(key.id));
+  let min = -totalFrames;
+  let max = totalFrames;
+  for (const key of selected) {
+    min = Math.max(min, -key.frame);
+    max = Math.min(max, totalFrames - key.frame);
+    const previous = unselected
+      .filter((candidate) => candidate.frame < key.frame)
+      .reduce<number | null>(
+        (nearest, candidate) =>
+          nearest === null || candidate.frame > nearest ? candidate.frame : nearest,
+        null,
+      );
+    const next = unselected
+      .filter((candidate) => candidate.frame > key.frame)
+      .reduce<number | null>(
+        (nearest, candidate) =>
+          nearest === null || candidate.frame < nearest ? candidate.frame : nearest,
+        null,
+      );
+    if (previous !== null) min = Math.max(min, previous + 1 - key.frame);
+    if (next !== null) max = Math.min(max, next - 1 - key.frame);
+  }
+  return { min, max };
 }
 
 function writeLayerTransformAtFrame(
@@ -935,6 +975,136 @@ export const useProjectStore = create<ProjectStore>()(
             }
           }
         }),
+
+      moveTimelineKeyframesTogether: (keyframeSelections, deltaFrames) => {
+        let appliedDelta = 0;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const uniqueSelections = [
+            ...new Map(
+              keyframeSelections.map((selection) => [
+                `${selection.layerId}:${selection.property ?? 'layer'}:${selection.keyframeId}`,
+                selection,
+              ]),
+            ).values(),
+          ];
+          if (uniqueSelections.length === 0) return;
+          const requestedDelta = Math.round(deltaFrames);
+          if (requestedDelta === 0) return;
+          const totalFrames = getTotalFrames(composition);
+          let bounds = { min: -totalFrames, max: totalFrames };
+          const aggregateMoves: Array<{
+            layer: Layer;
+            keys: LayerKeyframe[];
+          }> = [];
+          const propertyMoveMap = new Map<
+            string,
+            {
+              layer: Layer;
+              property: AnimatableLayerProperty;
+              keys: Map<string, LayerPropertyKeyframe>;
+            }
+          >();
+          const propertyMoveFor = (layer: Layer, property: AnimatableLayerProperty) => {
+            const id = `${layer.id}:${property}`;
+            let move = propertyMoveMap.get(id);
+            if (!move) {
+              move = { layer, property, keys: new Map() };
+              propertyMoveMap.set(id, move);
+            }
+            return move;
+          };
+
+          for (const layerId of new Set(uniqueSelections.map((selection) => selection.layerId))) {
+            const layer = composition.layers.find((candidate) => candidate.id === layerId);
+            if (!layer || layer.isLocked) return;
+            materializeAnimationTracks(layer);
+            const layerSelections = uniqueSelections.filter(
+              (selection) => selection.layerId === layerId,
+            );
+            const aggregateIds = new Set(
+              layerSelections
+                .filter((selection) => selection.property === null)
+                .map((selection) => selection.keyframeId),
+            );
+            const aggregateKeys = layer.keyframes.filter((keyframe) =>
+              aggregateIds.has(keyframe.id),
+            );
+            if (aggregateKeys.length !== aggregateIds.size) return;
+            if (aggregateKeys.length > 0) {
+              const aggregateBounds = timelineKeyDeltaBounds(
+                layer.keyframes,
+                aggregateIds,
+                totalFrames,
+              );
+              bounds = {
+                min: Math.max(bounds.min, aggregateBounds.min),
+                max: Math.min(bounds.max, aggregateBounds.max),
+              };
+              aggregateMoves.push({ layer, keys: aggregateKeys });
+              const aggregateFrames = new Set(aggregateKeys.map((keyframe) => keyframe.frame));
+              for (const [property, keys] of Object.entries(layer.animationTracks) as [
+                AnimatableLayerProperty,
+                LayerPropertyKeyframe[] | undefined,
+              ][]) {
+                for (const keyframe of keys ?? []) {
+                  if (aggregateFrames.has(keyframe.frame)) {
+                    propertyMoveFor(layer, property).keys.set(keyframe.id, keyframe);
+                  }
+                }
+              }
+            }
+
+            for (const selection of layerSelections.filter(
+              (candidate) => candidate.property !== null,
+            )) {
+              const property = selection.property!;
+              const keyframe = layer.animationTracks[property]?.find(
+                (candidate) => candidate.id === selection.keyframeId,
+              );
+              if (!keyframe) return;
+              propertyMoveFor(layer, property).keys.set(keyframe.id, keyframe);
+            }
+          }
+
+          const propertyMoves: Array<{
+            layer: Layer;
+            property: AnimatableLayerProperty;
+            keys: LayerPropertyKeyframe[];
+          }> = [];
+          for (const move of propertyMoveMap.values()) {
+            const movedKeys = [...move.keys.values()];
+            const track = move.layer.animationTracks[move.property] ?? [];
+            const movedIds = new Set(move.keys.keys());
+            const trackBounds = timelineKeyDeltaBounds(track, movedIds, totalFrames);
+            bounds = {
+              min: Math.max(bounds.min, trackBounds.min),
+              max: Math.min(bounds.max, trackBounds.max),
+            };
+            propertyMoves.push({ layer: move.layer, property: move.property, keys: movedKeys });
+          }
+          appliedDelta = Math.max(bounds.min, Math.min(bounds.max, requestedDelta));
+          if (appliedDelta === 0) return;
+
+          for (const move of aggregateMoves) {
+            for (const keyframe of move.keys) keyframe.frame += appliedDelta;
+            move.layer.keyframes = sortLayerKeyframes(move.layer.keyframes);
+          }
+          for (const move of propertyMoves) {
+            const previousFrames = move.keys.map((keyframe) => keyframe.frame);
+            const track = move.layer.animationTracks[move.property] ?? [];
+            for (const keyframe of move.keys) keyframe.frame += appliedDelta;
+            move.layer.animationTracks[move.property] = sortLayerPropertyKeyframes(track);
+            for (const keyframe of move.keys) {
+              syncAggregateKeyframe(move.layer, keyframe.frame, keyframe.easing);
+            }
+            for (const frame of previousFrames) {
+              removeAggregateKeyframeIfOrphaned(move.layer, frame);
+            }
+          }
+        });
+        return appliedDelta;
+      },
 
       removeLayerKeyframe: (layerId, keyframeId) =>
         set((state) => {

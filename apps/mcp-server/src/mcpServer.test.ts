@@ -112,7 +112,9 @@ describe('OGraf MCP authoring host', () => {
         ellipse: { strokeWidth: { default: 0 } },
         text: {
           textAlign: { values: ['left', 'center', 'right'] },
-          autoFit: { values: ['auto-size', 'shrink-to-fit', 'fit-to-width', 'fixed'] },
+          autoFit: {
+            values: ['auto-size', 'shrink-to-fit', 'fit-to-width', 'squeeze', 'fixed'],
+          },
           strokeColor: { default: 'transparent' },
           strokeWidth: { default: 0, minimum: 0, animatable: true },
         },

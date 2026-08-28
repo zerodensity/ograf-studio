@@ -847,7 +847,7 @@ function validateComposition(composition: Composition, errors: string[], warning
       }
     } else if (layer.element.type === 'text') {
       if (
-        !(['auto-size', 'shrink-to-fit', 'fit-to-width', 'fixed'] as const).includes(
+        !(['auto-size', 'shrink-to-fit', 'fit-to-width', 'squeeze', 'fixed'] as const).includes(
           layer.element.autoFit,
         )
       ) {

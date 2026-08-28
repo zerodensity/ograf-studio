@@ -70,8 +70,8 @@ export interface TextElement {
   /** Absolute legibility floor used by shrink-to-fit. */
   minFontSize: number;
   overflowPolicy: 'visible' | 'clip' | 'ellipsis';
-  /** Auto size grows the box; shrink only reduces; fit-to-width grows or shrinks inside the box. */
-  autoFit: 'auto-size' | 'shrink-to-fit' | 'fit-to-width' | 'fixed';
+  /** Squeeze deliberately scales glyph width and height independently to fill the authored box. */
+  autoFit: 'auto-size' | 'shrink-to-fit' | 'fit-to-width' | 'squeeze' | 'fixed';
 }
 
 export interface ImageElement {

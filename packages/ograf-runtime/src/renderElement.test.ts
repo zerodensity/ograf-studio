@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { applyTextStrokeStyle, findFittedFontSize } from './renderElement';
+import {
+  applyTextStrokeStyle,
+  calculateTextSqueezeScale,
+  findFittedFontSize,
+} from './renderElement';
+
+describe('text squeeze scaling', () => {
+  it('calculates independent horizontal and vertical glyph scales', () => {
+    expect(
+      calculateTextSqueezeScale({
+        boxWidth: 600,
+        boxHeight: 120,
+        naturalWidth: 300,
+        naturalHeight: 80,
+      }),
+    ).toEqual({ scaleX: 2, scaleY: 1.5, degenerate: false });
+  });
+});
 
 describe('text stroke rendering', () => {
   it('paints the outline behind the glyph fill with portable authored values', () => {

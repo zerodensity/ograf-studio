@@ -2,8 +2,8 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
+  gap: 0;
+  padding: 0;
   background: var(--bg-app);
 }
 

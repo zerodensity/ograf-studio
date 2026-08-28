@@ -24,6 +24,31 @@ export interface CompiledLayerVisualState {
   paintFrame: number;
 }
 
+/** Resolves a layer loop's active composition-frame window from compiled lifecycle metadata. */
+export function compiledLoopElapsedFrames(
+  descriptor: CompiledGraphicDescriptor,
+  layer: CompiledLayer,
+  baseFrame: number,
+  heldFrames = 0,
+): number | undefined {
+  const activation = layer.loop?.activation;
+  if (!activation) return undefined;
+  const orderedLifecycle = [...descriptor.keyframes].sort(
+    (left, right) => left.frame - right.frame,
+  );
+  const activationKeyframe =
+    activation.type === 'lifecycle'
+      ? orderedLifecycle.find((keyframe) => keyframe.role === 'step')
+      : orderedLifecycle.find((keyframe) => keyframe.id === activation.stepKeyframeId);
+  if (!activationKeyframe || baseFrame < activationKeyframe.frame) return undefined;
+  const nextBoundary =
+    activation.type === 'step'
+      ? orderedLifecycle.find((keyframe) => keyframe.frame > activationKeyframe.frame)
+      : orderedLifecycle.find((keyframe) => keyframe.role === 'end');
+  if (nextBoundary && baseFrame >= nextBoundary.frame) return undefined;
+  return Math.max(0, baseFrame - activationKeyframe.frame + Math.max(0, heldFrames));
+}
+
 function incomingProgress(
   layer: CompiledLayer,
   property: AnimatableLayerProperty,

@@ -191,11 +191,9 @@ export function defaultTransformFor(kind: NewLayerKind): LayerTransform {
   return createDefaultTransform();
 }
 
-/** New layers default to off-air in lifecycle boundary states and visible in pausable steps. */
-export function defaultTransformForRole(kind: NewLayerKind, role: KeyframeRole): LayerTransform {
-  const transform = defaultTransformFor(kind);
-  if (role !== 'step') transform.opacity = 0;
-  return transform;
+/** Ordinary newly created layers remain visible until the author explicitly animates alpha. */
+export function defaultTransformForRole(kind: NewLayerKind, _role: KeyframeRole): LayerTransform {
+  return defaultTransformFor(kind);
 }
 
 export function createRectangleLayer(): Layer {

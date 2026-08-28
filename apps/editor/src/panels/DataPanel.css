@@ -21,7 +21,7 @@
 .data-panel-section-header button {
   background: var(--bg-panel-raised);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 3px 8px;
   cursor: pointer;
   font-size: 11px;
@@ -70,7 +70,7 @@
   min-width: 0;
   background: var(--bg-canvas);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text);
   padding: 2px 5px;
   font: inherit;
@@ -82,7 +82,7 @@
   height: 20px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   background: none;
 }
 
@@ -111,7 +111,7 @@
   gap: 6px;
   padding: 7px;
   background: color-mix(in srgb, var(--bg-canvas) 72%, transparent);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 .data-field-details label,
@@ -163,7 +163,7 @@
   min-width: 0;
   background: var(--bg-canvas);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text);
   padding: 3px 6px;
   font: inherit;
@@ -177,7 +177,7 @@
 .data-json-preview {
   background: var(--bg-canvas);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   padding: 8px;
   font-family: var(--mono);
   font-size: 10px;
@@ -199,7 +199,7 @@
   gap: 6px;
   padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 .data-field-schema-node {
@@ -210,6 +210,76 @@
   padding: 6px;
   border-left: 2px solid var(--accent);
   background: color-mix(in srgb, var(--bg-canvas) 78%, transparent);
+}
+
+/* RealityHub-style pane sections and tabular field rows. */
+.data-panel {
+  gap: 0;
+  margin: -8px -10px;
+}
+
+.data-panel-section + .data-panel-section {
+  border-top: 1px solid var(--border-strong);
+}
+
+.data-panel-section-header {
+  min-height: 34px;
+  margin: 0;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  background: #252525;
+}
+
+.data-panel-section-header h3 {
+  color: var(--text);
+  font-size: var(--ui-font-size);
+  font-weight: 400;
+}
+
+.data-panel-section > .panel-placeholder,
+.data-panel-section > .inspector-hint,
+.data-panel-section > .data-json-preview {
+  margin: 0;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table th,
+.data-table td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table th:last-child,
+.data-table td:last-child {
+  border-right: 0;
+}
+
+.test-data-form {
+  gap: 0;
+}
+
+.test-data-row {
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(118px, 42%) minmax(0, 1fr);
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.test-data-row > span {
+  width: auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-right: 1px solid var(--border);
+  color: var(--text);
+}
+
+.test-data-row > :is(input, select, textarea) {
+  width: calc(100% - 12px);
+  margin: 3px 6px;
 }
 
 .data-field-schema-node > .data-field-details {

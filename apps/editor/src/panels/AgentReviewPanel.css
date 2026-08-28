@@ -74,7 +74,7 @@
   padding: 3px 6px;
   color: #cdd3ff;
   background: #171922;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 10px;
 }
 
@@ -97,7 +97,7 @@
 .agent-review-panel footer button {
   padding: 7px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 
@@ -128,7 +128,7 @@
   padding: 10px 12px;
   background: var(--bg-panel-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   box-shadow: 0 12px 35px rgb(0 0 0 / 35%);
 }
 

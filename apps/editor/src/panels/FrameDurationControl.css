@@ -16,7 +16,7 @@
   min-width: 0;
   padding: 3px 6px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--bg-canvas);
   color: var(--text);
 }
@@ -44,7 +44,7 @@
 .frame-duration-rounding button {
   padding: 3px 7px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--bg-panel-raised);
   color: var(--text);
   cursor: pointer;
@@ -53,4 +53,42 @@
 .frame-duration-rounding button:hover,
 .frame-duration-rounding button:focus-visible {
   border-color: var(--accent);
+}
+
+.inspector > .frame-duration-control {
+  display: block;
+}
+
+.inspector > .frame-duration-control label {
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(118px, 42%) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.inspector > .frame-duration-control label > span {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-right: 1px solid var(--border);
+}
+
+.inspector > .frame-duration-control label > input {
+  width: calc(100% - 12px);
+  align-self: center;
+  margin: 3px 6px;
+}
+
+.inspector > .frame-duration-control > :is(.frame-duration-exact, .frame-duration-warning) {
+  display: block;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.inspector > .frame-duration-control .frame-duration-rounding {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
 }

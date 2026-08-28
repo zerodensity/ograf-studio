@@ -23,7 +23,7 @@ import { ContextMenu } from '../components/ContextMenu';
 import { selectionIdsForLayer } from '../canvas/groupSelection';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useTimelineStore } from '../state/timelineStore';
-import { useSelectionStore } from '../state/selectionStore';
+import { useSelectionStore, type SelectedLayerKeyframe } from '../state/selectionStore';
 import { lifecycleRetimeBounds, MIN_LIFECYCLE_TRANSITION_FRAMES } from '../state/lifecycleRetime';
 import { Panel } from './Panel';
 import { formatFrameDuration } from './timelineFormatting';
@@ -35,6 +35,12 @@ import { buildTimelineLoopBadges } from './timelineLoopBadges';
 import { isTimelineKeyDrag } from './timelinePointerIntent';
 import { meaningfulTimelineProperties } from './timelinePropertyVisibility';
 import { TIMELINE_LAYER_TRACK_COLOR, timelineTrackColorForProperty } from './timelineTrackColors';
+import {
+  clampTimelineGutterWidth,
+  DEFAULT_TIMELINE_GUTTER_WIDTH,
+  MAX_TIMELINE_GUTTER_WIDTH,
+  MIN_TIMELINE_GUTTER_WIDTH,
+} from './timelineGutterResize';
 import './TimelinePanel.css';
 
 const DEFAULT_PX_PER_FRAME = 12;
@@ -44,10 +50,27 @@ const PX_PER_FRAME_STEP = 2;
 const MIN_CONTENT_FRAMES = 60;
 const CONTENT_PADDING_PX = 80;
 const MIN_TRANSITION_FRAMES = MIN_LIFECYCLE_TRANSITION_FRAMES;
+const TIMELINE_GUTTER_STORAGE_KEY = 'ograf-studio:timeline-gutter-width';
+
+function loadTimelineGutterWidth(): number {
+  try {
+    const stored = Number(localStorage.getItem(TIMELINE_GUTTER_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored > 0) return stored;
+  } catch {
+    // Local persistence is optional; the default remains fully usable.
+  }
+  return DEFAULT_TIMELINE_GUTTER_WIDTH;
+}
 
 type LayerColorStyle = CSSProperties & { '--layer-color': string };
 
 type TransportIconName = 'previous' | 'play' | 'pause' | 'stop' | 'next';
+
+const isSameKeyTrack = (left: SelectedLayerKeyframe, right: SelectedLayerKeyframe) =>
+  left.layerId === right.layerId && left.property === right.property;
+
+const isSameSelectedKey = (left: SelectedLayerKeyframe, right: SelectedLayerKeyframe) =>
+  isSameKeyTrack(left, right) && left.keyframeId === right.keyframeId;
 
 function TransportIcon({ name }: { name: TransportIconName }) {
   return (
@@ -88,6 +111,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const addLayerKeyframe = useProjectStore((s) => s.addLayerKeyframe);
   const addLayerHoldFrame = useProjectStore((s) => s.addLayerHoldFrame);
   const moveLayerKeyframe = useProjectStore((s) => s.moveLayerKeyframe);
+  const moveTimelineKeyframesTogether = useProjectStore((s) => s.moveTimelineKeyframesTogether);
   const removeLayerKeyframe = useProjectStore((s) => s.removeLayerKeyframe);
   const updateLayerKeyframeEasing = useProjectStore((s) => s.updateLayerKeyframeEasing);
   const addLayerPropertyKeyframe = useProjectStore((s) => s.addLayerPropertyKeyframe);
@@ -115,10 +139,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const selectedLayerKeyframeId = useSelectionStore((s) => s.selectedLayerKeyframeId);
   const selectedLayerProperty = useSelectionStore((s) => s.selectedLayerProperty);
+  const selectedLayerKeyframes = useSelectionStore((s) => s.selectedLayerKeyframes);
   const selectLayer = useSelectionStore((s) => s.select);
   const selectManyLayers = useSelectionStore((s) => s.selectMany);
   const toggleManyLayerSelection = useSelectionStore((s) => s.toggleManyLayerSelection);
   const selectLayerKeyframe = useSelectionStore((s) => s.selectLayerKeyframe);
+  const selectLayerKeyframes = useSelectionStore((s) => s.selectLayerKeyframes);
   const clearLayerKeyframe = useSelectionStore((s) => s.clearLayerKeyframe);
 
   const currentFrame = useTimelineStore((s) => s.currentFrame);
@@ -133,6 +159,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const duration = formatFrameDuration(durationFrames, composition.frameRate);
 
   const [pixelsPerFrame, setPixelsPerFrame] = useState(DEFAULT_PX_PER_FRAME);
+  const [gutterWidth, setGutterWidth] = useState(loadTimelineGutterWidth);
+  const [isGutterResizing, setIsGutterResizing] = useState(false);
   const [trackScalePercent, setTrackScalePercent] = useState(100);
   const [expandedLayerIds, setExpandedLayerIds] = useState<Set<string>>(() => new Set());
   const [showAllPropertyLayerIds, setShowAllPropertyLayerIds] = useState<Set<string>>(
@@ -236,8 +264,10 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   } | null>(null);
 
   const gutterRef = useRef<HTMLDivElement>(null);
+  const timelineBodyRef = useRef<HTMLDivElement>(null);
   const tracksRef = useRef<HTMLDivElement>(null);
   const rulerRef = useRef<HTMLDivElement>(null);
+  const keySelectionAnchorRef = useRef<SelectedLayerKeyframe | null>(null);
 
   const activeKeyframeIndex = composition.keyframes.findIndex((k) => k.id === activeKeyframeId);
   const activeKeyframe = composition.keyframes[activeKeyframeIndex];
@@ -275,6 +305,32 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
       setPreviewLoopLayerId(null);
     }
   }, [composition.layers, previewLoopLayerId, setPreviewLoopLayerId]);
+
+  useEffect(() => {
+    if (selectedLayerKeyframes.length === 0) keySelectionAnchorRef.current = null;
+    else if (selectedLayerKeyframes.length === 1) {
+      keySelectionAnchorRef.current = selectedLayerKeyframes[0]!;
+    }
+  }, [selectedLayerKeyframes]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TIMELINE_GUTTER_STORAGE_KEY, String(gutterWidth));
+    } catch {
+      // Local persistence is optional.
+    }
+  }, [gutterWidth]);
+
+  useEffect(() => {
+    const body = timelineBodyRef.current;
+    if (!body || typeof ResizeObserver === 'undefined') return;
+    const clampToBody = () =>
+      setGutterWidth((current) => clampTimelineGutterWidth(current, body.clientWidth));
+    clampToBody();
+    const observer = new ResizeObserver(clampToBody);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!lifecycleRetimeNotice) return;
@@ -372,6 +428,51 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
       0,
       Math.min(durationFrames, Math.round((clientX - rect.left) / pixelsPerFrame)),
     );
+  };
+
+  const setClampedGutterWidth = (requested: number) => {
+    const bodyWidth = timelineBodyRef.current?.clientWidth ?? 1_200;
+    setGutterWidth(clampTimelineGutterWidth(requested, bodyWidth));
+  };
+
+  const handleGutterResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = gutterWidth;
+    const handle = event.currentTarget;
+    handle.setPointerCapture?.(event.pointerId);
+    setIsGutterResizing(true);
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', cleanup);
+      window.removeEventListener('pointercancel', cleanup);
+      if (handle.hasPointerCapture?.(event.pointerId))
+        handle.releasePointerCapture(event.pointerId);
+      setIsGutterResizing(false);
+    };
+    const onMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      setClampedGutterWidth(startWidth + moveEvent.clientX - startX);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', cleanup);
+    window.addEventListener('pointercancel', cleanup);
+  };
+
+  const handleGutterResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 1 : 10;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      setClampedGutterWidth(gutterWidth + (event.key === 'ArrowLeft' ? -step : step));
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      setClampedGutterWidth(MIN_TIMELINE_GUTTER_WIDTH);
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      setClampedGutterWidth(MAX_TIMELINE_GUTTER_WIDTH);
+    }
   };
 
   const handleScrubPointerDown = (e: ReactPointerEvent, clearKeySelection = true) => {
@@ -515,33 +616,78 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
     keyframeId: string,
     startFrame: number,
     property: AnimatableLayerProperty | null = null,
+    trackKeyframes: Array<{ id: string; frame: number }> = [],
   ) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    selectLayerKeyframe(layerId, keyframeId, property);
+    const clicked: SelectedLayerKeyframe = { layerId, keyframeId, property };
+    const currentSelection = useSelectionStore.getState().selectedLayerKeyframes;
+    const alreadySelected = currentSelection.some((selection) =>
+      isSameSelectedKey(selection, clicked),
+    );
+    const additive = e.ctrlKey || e.metaKey;
+    const anchor = keySelectionAnchorRef.current;
+    let nextSelection: SelectedLayerKeyframe[];
+
+    if (e.shiftKey && anchor && isSameKeyTrack(anchor, clicked)) {
+      const ordered = [...trackKeyframes].sort((left, right) => left.frame - right.frame);
+      const anchorIndex = ordered.findIndex((keyframe) => keyframe.id === anchor.keyframeId);
+      const clickedIndex = ordered.findIndex((keyframe) => keyframe.id === keyframeId);
+      const range =
+        anchorIndex >= 0 && clickedIndex >= 0
+          ? ordered
+              .slice(Math.min(anchorIndex, clickedIndex), Math.max(anchorIndex, clickedIndex) + 1)
+              .map((keyframe) => ({ layerId, keyframeId: keyframe.id, property }))
+          : [clicked];
+      nextSelection = additive ? [...currentSelection, ...range] : range;
+    } else if (additive) {
+      nextSelection = alreadySelected
+        ? currentSelection.filter((selection) => !isSameSelectedKey(selection, clicked))
+        : [...currentSelection, clicked];
+      keySelectionAnchorRef.current = clicked;
+    } else if (!additive && alreadySelected) {
+      // Preserve the complete selection on pointer-down so dragging any selected key moves all.
+      nextSelection = currentSelection;
+      keySelectionAnchorRef.current = clicked;
+    } else {
+      nextSelection = [clicked];
+      keySelectionAnchorRef.current = clicked;
+    }
+    selectLayerKeyframes(
+      nextSelection,
+      nextSelection.some((key) => isSameSelectedKey(key, clicked)) ? clicked : null,
+    );
+    if (!nextSelection.some((selection) => isSameSelectedKey(selection, clicked))) return;
     if (composition.layers.find((layer) => layer.id === layerId)?.isLocked) return;
     const startX = e.clientX;
     let isDragging = false;
+    let appliedDelta = 0;
+    const pointerTarget = e.currentTarget as HTMLElement;
+    pointerTarget.setPointerCapture?.(e.pointerId);
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', cleanup);
+      if (pointerTarget.hasPointerCapture?.(e.pointerId)) {
+        pointerTarget.releasePointerCapture(e.pointerId);
+      }
+    };
     const onMove = (event: PointerEvent) => {
       if (!isDragging && !isTimelineKeyDrag(startX, event.clientX)) return;
       isDragging = true;
-      const frame = Math.max(
-        0,
-        Math.min(
-          durationFrames,
-          startFrame + Math.round((event.clientX - startX) / pixelsPerFrame),
-        ),
-      );
-      if (property) moveLayerPropertyKeyframe(layerId, property, keyframeId, frame);
-      else moveLayerKeyframe(layerId, keyframeId, frame);
-      useTimelineStore.getState().controller?.seek(frame);
+      event.preventDefault();
+      const requestedDelta = Math.round((event.clientX - startX) / pixelsPerFrame);
+      const incrementalDelta = requestedDelta - appliedDelta;
+      const movedDelta = moveTimelineKeyframesTogether(nextSelection, incrementalDelta);
+      appliedDelta += movedDelta;
+      useTimelineStore.getState().controller?.seek(startFrame + appliedDelta);
     };
     const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+      cleanup();
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', cleanup);
   };
 
   const handleTrackContextMenu = (
@@ -724,8 +870,11 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
           </div>
         )}
 
-        <div className="timeline-body">
-          <div className="timeline-gutter" ref={gutterRef}>
+        <div
+          className={`timeline-body${isGutterResizing ? ' resizing-gutter' : ''}`}
+          ref={timelineBodyRef}
+        >
+          <div className="timeline-gutter" ref={gutterRef} style={{ width: gutterWidth }}>
             <div className="timeline-gutter-spacer" />
             {layers.length === 0 ? (
               <div className="timeline-gutter-empty">No layers</div>
@@ -760,7 +909,11 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         <input
                           autoFocus
                           className="timeline-folder-rename"
+                          aria-label={`Rename timeline group ${folder.name}`}
                           value={editingFolderName}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onDoubleClick={(event) => event.stopPropagation()}
                           onChange={(event) => setEditingFolderName(event.target.value)}
                           onBlur={commitFolderRename}
                           onKeyDown={(event) => {
@@ -772,16 +925,27 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         <button
                           type="button"
                           className="timeline-folder-select"
+                          aria-label={`Select timeline group ${folder.name}`}
                           aria-pressed={allSelected}
-                          title={`Select ${folder.name} layers`}
+                          title={`${folder.name} · Click selects layers · Double-click renames`}
                           onClick={(event) => {
+                            if (event.detail > 1) return;
                             if (event.ctrlKey || event.metaKey) {
                               toggleManyLayerSelection(folder.layerIds);
                             } else {
                               selectManyLayers(folder.layerIds);
                             }
                           }}
-                          onDoubleClick={() => beginFolderRename(folder.id, folder.name)}
+                          onDoubleClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            beginFolderRename(folder.id, folder.name);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'F2') return;
+                            event.preventDefault();
+                            beginFolderRename(folder.id, folder.name);
+                          }}
                         >
                           <span className="timeline-folder-name">{folder.name}</span>
                           <span className="timeline-folder-count">{folder.layerIds.length}</span>
@@ -902,6 +1066,21 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
               })
             )}
           </div>
+
+          <div
+            className="timeline-gutter-resize-handle"
+            role="separator"
+            aria-label="Resize timeline layer names and keyframe tracks"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_TIMELINE_GUTTER_WIDTH}
+            aria-valuemax={MAX_TIMELINE_GUTTER_WIDTH}
+            aria-valuenow={gutterWidth}
+            tabIndex={0}
+            title="Drag to resize layer names · Double-click to reset"
+            onPointerDown={handleGutterResizePointerDown}
+            onKeyDown={handleGutterResizeKeyDown}
+            onDoubleClick={() => setClampedGutterWidth(DEFAULT_TIMELINE_GUTTER_WIDTH)}
+          />
 
           <div
             className="timeline-tracks"
@@ -1105,6 +1284,14 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                     })}
                     {orderedKeys.map((keyframe) => {
                       const hasLoopBadge = layerLoopBadge?.frame === keyframe.frame;
+                      const keySelection = {
+                        layerId: layer.id,
+                        keyframeId: keyframe.id,
+                        property: null,
+                      };
+                      const keyIsSelected = selectedLayerKeyframes.some((selection) =>
+                        isSameSelectedKey(selection, keySelection),
+                      );
                       const loopTitle = hasLoopBadge
                         ? layerLoopBadge.activation === 'lifecycle'
                           ? ' · Loop begins here and remains active while on-air'
@@ -1113,13 +1300,23 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       return (
                         <div
                           key={keyframe.id}
-                          className={`timeline-keyframe-dot${keyframe.id === selectedLayerKeyframeId ? ' active' : ''}${hasLoopBadge ? ' has-loop' : ''}`}
+                          className={`timeline-keyframe-dot${keyIsSelected ? ' active' : ''}${hasLoopBadge ? ' has-loop' : ''}`}
                           style={{ left: keyframe.frame * pixelsPerFrame }}
                           role="button"
                           tabIndex={0}
                           aria-label={`${layer.name} key at frame ${keyframe.frame}${loopTitle}`}
-                          title={`${layer.name} · frame ${keyframe.frame} · Click selects · Double-click seeks · Drag moves${loopTitle}`}
-                          onFocus={() => selectLayerKeyframe(layer.id, keyframe.id)}
+                          title={`${layer.name} · frame ${keyframe.frame} · Ctrl/Cmd-click adds · Shift-click selects range · Drag moves selection${loopTitle}`}
+                          onFocus={() => {
+                            if (
+                              !useSelectionStore
+                                .getState()
+                                .selectedLayerKeyframes.some((selection) =>
+                                  isSameSelectedKey(selection, keySelection),
+                                )
+                            ) {
+                              selectLayerKeyframe(layer.id, keyframe.id);
+                            }
+                          }}
                           onDoubleClick={(event) => {
                             event.stopPropagation();
                             controller?.seek(keyframe.frame);
@@ -1128,11 +1325,27 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             if (layer.isLocked) return;
                             if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
                               event.preventDefault();
-                              moveLayerKeyframe(
-                                layer.id,
-                                keyframe.id,
-                                keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
-                              );
+                              const selected = useSelectionStore
+                                .getState()
+                                .selectedLayerKeyframes.filter((selection) =>
+                                  isSameKeyTrack(selection, keySelection),
+                                );
+                              if (
+                                selected.some((selection) =>
+                                  isSameSelectedKey(selection, keySelection),
+                                )
+                              ) {
+                                moveTimelineKeyframesTogether(
+                                  useSelectionStore.getState().selectedLayerKeyframes,
+                                  event.key === 'ArrowLeft' ? -1 : 1,
+                                );
+                              } else {
+                                moveLayerKeyframe(
+                                  layer.id,
+                                  keyframe.id,
+                                  keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
+                                );
+                              }
                             } else if (
                               (event.key === 'Delete' || event.key === 'Backspace') &&
                               orderedKeys.length > 1
@@ -1148,6 +1361,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                               layer.id,
                               keyframe.id,
                               keyframe.frame,
+                              null,
+                              orderedKeys,
                             )
                           }
                         >
@@ -1217,16 +1432,34 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       })}
                       {propertyKeys.map((keyframe) => {
                         const hasLoopBadge = propertyLoopBadgeFrame === keyframe.frame;
+                        const keySelection = {
+                          layerId: layer.id,
+                          keyframeId: keyframe.id,
+                          property,
+                        };
+                        const keyIsSelected = selectedLayerKeyframes.some((selection) =>
+                          isSameSelectedKey(selection, keySelection),
+                        );
                         return (
                           <div
                             key={keyframe.id}
-                            className={`timeline-keyframe-dot property${keyframe.id === selectedLayerKeyframeId && selectedLayerProperty === property ? ' active' : ''}${hasLoopBadge ? ' has-loop' : ''}`}
+                            className={`timeline-keyframe-dot property${keyIsSelected ? ' active' : ''}${hasLoopBadge ? ' has-loop' : ''}`}
                             style={{ left: keyframe.frame * pixelsPerFrame }}
                             role="button"
                             tabIndex={0}
                             aria-label={`${animatablePropertyLabel(property)} key at frame ${keyframe.frame}${hasLoopBadge ? ' · Loop activates here' : ''}`}
-                            title={`${animatablePropertyLabel(property)} · frame ${keyframe.frame} · value ${keyframe.value.toFixed(3)} · Click selects · Double-click seeks · Drag moves${hasLoopBadge ? ' · Loop activates here' : ''}`}
-                            onFocus={() => selectLayerKeyframe(layer.id, keyframe.id, property)}
+                            title={`${animatablePropertyLabel(property)} · frame ${keyframe.frame} · value ${keyframe.value.toFixed(3)} · Ctrl/Cmd-click adds · Shift-click selects range · Drag moves selection${hasLoopBadge ? ' · Loop activates here' : ''}`}
+                            onFocus={() => {
+                              if (
+                                !useSelectionStore
+                                  .getState()
+                                  .selectedLayerKeyframes.some((selection) =>
+                                    isSameSelectedKey(selection, keySelection),
+                                  )
+                              ) {
+                                selectLayerKeyframe(layer.id, keyframe.id, property);
+                              }
+                            }}
                             onDoubleClick={(event) => {
                               event.stopPropagation();
                               controller?.seek(keyframe.frame);
@@ -1235,12 +1468,28 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                               if (layer.isLocked) return;
                               if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
                                 event.preventDefault();
-                                moveLayerPropertyKeyframe(
-                                  layer.id,
-                                  property,
-                                  keyframe.id,
-                                  keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
-                                );
+                                const selected = useSelectionStore
+                                  .getState()
+                                  .selectedLayerKeyframes.filter((selection) =>
+                                    isSameKeyTrack(selection, keySelection),
+                                  );
+                                if (
+                                  selected.some((selection) =>
+                                    isSameSelectedKey(selection, keySelection),
+                                  )
+                                ) {
+                                  moveTimelineKeyframesTogether(
+                                    useSelectionStore.getState().selectedLayerKeyframes,
+                                    event.key === 'ArrowLeft' ? -1 : 1,
+                                  );
+                                } else {
+                                  moveLayerPropertyKeyframe(
+                                    layer.id,
+                                    property,
+                                    keyframe.id,
+                                    keyframe.frame + (event.key === 'ArrowLeft' ? -1 : 1),
+                                  );
+                                }
                               } else if (
                                 (event.key === 'Delete' || event.key === 'Backspace') &&
                                 propertyKeys.length > 1
@@ -1257,6 +1506,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                                 keyframe.id,
                                 keyframe.frame,
                                 property,
+                                propertyKeys,
                               )
                             }
                           >
@@ -1337,6 +1587,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
         {showKeyEditor && (
           <aside className="timeline-key-editor" aria-label="Keyframe editor">
             <h3>Keyframe editor</h3>
+            {selectedLayerKeyframes.length > 1 && (
+              <div className="timeline-multi-key-selection" role="status">
+                <strong>{selectedLayerKeyframes.length} keys selected</strong>
+                <span>Drag any selected key or use ←/→ to move them together.</span>
+              </div>
+            )}
             {selectedLayer && (selectedPropertyKeyframe || selectedLayerKeyframe) && (
               <div className="timeline-layer-key-controls">
                 <div className="timeline-key-editor-selection">

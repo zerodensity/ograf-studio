@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createDefaultTransform,
   createComposition,
+  defaultTransformForRole,
   createLayerKeyframe,
   createLayerPropertyKeyframe,
   createTransition,
@@ -17,6 +18,22 @@ describe('authoring factory defaults', () => {
   it('preserves an explicitly requested easing', () => {
     expect(createLayerPropertyKeyframe(12, 100, { easing: 'cubic-out' }).easing).toBe('cubic-out');
     expect(createTransition('start', 'step', { easing: 'sine-in-out' }).easing).toBe('sine-in-out');
+  });
+
+  it('creates ordinary elements at full alpha in every lifecycle role', () => {
+    for (const kind of [
+      'rectangle',
+      'ellipse',
+      'text',
+      'image',
+      'path',
+      'image-sequence',
+      'lottie',
+    ] as const) {
+      for (const role of ['start', 'step', 'end'] as const) {
+        expect(defaultTransformForRole(kind, role).opacity).toBe(1);
+      }
+    }
   });
 
   it('starts new compositions on black with the 20% gray outside-canvas fill enabled', () => {
