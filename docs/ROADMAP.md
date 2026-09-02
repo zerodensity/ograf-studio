@@ -12,12 +12,13 @@
 ## 2. Reliability and packaging — in progress
 
 - Runtime/concurrency/cleanup tests, package smoke tests, migrations, browser E2E, and CI.
-- A single-file Windows server distribution is implemented as an additive path. It embeds the Vite
-  editor, MCP host, WebSocket bridge, fonts, icons, and npm dependencies in one Bun-compiled
-  executable while preserving the existing Node/Vite development commands. Source and executable
-  smoke tests cover static/SPA delivery, MCP discovery, browser rendering, same-origin bridge
-  connection, writable workspace selection, and clean shutdown. Signed releases and authenticated
-  non-loopback hosting remain queued.
+- Single-file Windows x64, macOS x64/ARM64, and Linux x64/ARM64 server distributions are implemented
+  as an additive path. They embed the Vite editor, MCP host, WebSocket bridge, fonts, icons, and npm
+  dependencies in one Bun-compiled executable per target while preserving the existing Node/Vite
+  development commands. Source and executable smoke tests cover static/SPA delivery, MCP discovery,
+  browser rendering, same-origin bridge connection, writable workspace selection, clean shutdown,
+  binary formats/architectures, and a real Linux x64 run under WSL. Native macOS/ARM64 runtime
+  runners, signing/notarization, and authenticated non-loopback hosting remain queued.
 - Browser-backed certification now runs in a disposable iframe realm, and certification, PNG
   capture, frame strips, and text measurement share one serialized browser-work queue.
 - Exact-artifact pre-save certification (official schema, package paths, module import/API, realtime

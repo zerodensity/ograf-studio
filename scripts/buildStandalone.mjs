@@ -1,16 +1,25 @@
 import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, extname, parse, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const standaloneEntrypoint = resolve(repositoryRoot, 'apps/mcp-server/src/standalone.ts');
 const editorRoot = resolve(repositoryRoot, 'apps/editor/dist');
 const windowsIcon = resolve(repositoryRoot, 'assets/ograf-studio.ico');
-const outfile = resolve(repositoryRoot, 'release/OGrafStudioServer.exe');
-const stagedOutfile = resolve(repositoryRoot, 'release/OGrafStudioServer.next.exe');
-const previousOutfile = resolve(repositoryRoot, 'release/OGrafStudioServer.previous.exe');
-const generatedEntrypoint = resolve(repositoryRoot, 'release/standalone-entry.ts');
 const target = process.env.OGRAF_STANDALONE_TARGET ?? 'bun-windows-x64-baseline';
+const windowsTarget = target.includes('windows');
+const requestedOutfile = process.env.OGRAF_STANDALONE_OUTFILE?.trim();
+const outfile = resolve(
+  repositoryRoot,
+  requestedOutfile || `release/OGrafStudioServer${windowsTarget ? '.exe' : ''}`,
+);
+if (windowsTarget && extname(outfile).toLowerCase() !== '.exe') {
+  throw new Error(`Windows standalone output must use the .exe extension: ${outfile}`);
+}
+const outputParts = parse(outfile);
+const stagedOutfile = resolve(outputParts.dir, `${outputParts.name}.next${outputParts.ext}`);
+const previousOutfile = resolve(outputParts.dir, `${outputParts.name}.previous${outputParts.ext}`);
+const generatedEntrypoint = resolve(repositoryRoot, 'release/standalone-entry.ts');
 const version = process.env.OGRAF_STUDIO_BUILD_VERSION ?? '0.10.0.0';
 
 await mkdir(dirname(outfile), { recursive: true });
@@ -56,15 +65,19 @@ try {
       autoloadDotenv: false,
       autoloadPackageJson: false,
       autoloadTsconfig: false,
-      windows: {
-        icon: windowsIcon,
-        title: 'OGraf Studio Server',
-        publisher: 'Zero Density',
-        version,
-        description: 'OGraf Studio editor and MCP authoring server',
-        copyright: 'Copyright Zero Density',
-        hideConsole: false,
-      },
+      ...(windowsTarget
+        ? {
+            windows: {
+              icon: windowsIcon,
+              title: 'OGraf Studio Server',
+              publisher: 'Zero Density',
+              version,
+              description: 'OGraf Studio editor and MCP authoring server',
+              copyright: 'Copyright Zero Density',
+              hideConsole: false,
+            },
+          }
+        : {}),
     },
   });
 } finally {

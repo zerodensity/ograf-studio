@@ -87,12 +87,16 @@ source runs use the editor `dist` directory; the compiled executable uses a gene
 embedded-file map with identical MIME and cache behavior plus an HTML SPA fallback.
 
 `scripts/buildStandalone.mjs` compiles that host, all server/workspace dependencies, and every Vite
-asset into `release/OGrafStudioServer.exe` through Bun's Windows baseline target. Bun is a build-time
-tool only. The produced executable requires neither Bun, Node.js, npm, nor the repository at runtime.
-Its workspace defaults to the user's `Documents/OGraf Studio/Projects`, while `--workspace` and
-`OGRAF_WORKSPACE_ROOT` remain explicit overrides. The first packaged release deliberately binds
-only to `127.0.0.1`; network exposure requires a future authenticated origin/upgrade contract rather
-than weakening the MCP SDK's localhost host validation.
+asset into one Bun executable for a requested target. `buildStandaloneMatrix.mjs` invokes it
+sequentially for Windows x64, macOS x64/ARM64, and Linux x64/ARM64; sequential execution prevents
+generated embedded-asset manifests from colliding. `verifyStandaloneArtifacts.mjs` checks PE,
+Mach-O, and ELF magic, exact architecture identifiers, embedded UI/banner content, size, and SHA-256
+for every artifact. Bun is a build-time tool only. The produced executables require neither Bun,
+Node.js, npm, nor the repository at runtime. Their workspace defaults to the user's
+`Documents/OGraf Studio/Projects`, while `--workspace` and `OGRAF_WORKSPACE_ROOT` remain explicit
+overrides. The first packaged release deliberately binds only to `127.0.0.1`; network exposure
+requires a future authenticated origin/upgrade contract rather than weakening the MCP SDK's
+localhost host validation.
 
 The editor bridge separates transport connection from application responsiveness. An app-level
 `setTimeout(0)` heartbeat is echoed through the WebSocket without depending on
