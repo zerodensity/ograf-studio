@@ -10,8 +10,8 @@ packages, and an optional local MCP authoring server for AI-assisted workflows.
 
 ## New in OGraf Studio 0.10
 
-- Added a self-contained Windows server executable that embeds the production editor, MCP server,
-  WebSocket bridge, fonts, icons, schemas, and runtime dependencies.
+- Added self-contained Windows, macOS, and Linux server executables that embed the production
+  editor, MCP server, WebSocket bridge, fonts, icons, schemas, and runtime dependencies.
 - Preserved `npm run dev`, `npm run mcp:start`, and `npm run start:all`; standalone packaging is an
   additive distribution path and destination machines require no Node.js, npm, Bun, or source tree.
 - Added standalone port, workspace, browser-open, and help options with a writable user Documents
@@ -20,7 +20,7 @@ packages, and an optional local MCP authoring server for AI-assisted workflows.
   multi-resolution Windows executable icon.
 - Locked new projects to an opaque black background with **Outside canvas · 20% gray** enabled while
   preserving settings in existing, imported, and autosaved projects.
-- Raised the verified baseline to 422 tests across 87 files.
+- Raised the verified baseline to 423 tests across 87 files.
 
 See [the complete 0.10 release notes](docs/releases/0.10.md) for validation evidence and current
 boundaries.
@@ -238,9 +238,10 @@ writes stdout/stderr logs under `.logs`.
 
 ### Single-executable server
 
-The optional standalone distribution serves the production editor, MCP endpoint, editor WebSocket,
-health endpoint, fonts, icons, and application assets from one headless executable. It does not
-replace or change the normal `npm run dev`, `npm run mcp:start`, or `npm run start:all` workflows.
+The optional standalone distributions serve the production editor, MCP endpoint, editor WebSocket,
+health endpoint, fonts, icons, and application assets from one headless executable per operating
+system and architecture. They do not replace or change the normal `npm run dev`,
+`npm run mcp:start`, or `npm run start:all` workflows.
 
 Install [Bun](https://bun.sh/) on the build machine, then run:
 
@@ -248,8 +249,24 @@ Install [Bun](https://bun.sh/) on the build machine, then run:
 npm run server:package
 ```
 
-The result is `release/OGrafStudioServer.exe`. Bun, Node.js, npm, and the source tree are not needed
-on the destination machine. Start it directly and open the reported URL in any normal browser:
+This creates the Windows x64 executable. Build the complete release matrix with:
+
+```powershell
+npm run server:package:all
+```
+
+The matrix produces:
+
+| Operating system | Architecture  | Artifact                        |
+| ---------------- | ------------- | ------------------------------- |
+| Windows          | x64           | `OGrafStudioServer.exe`         |
+| macOS            | Intel x64     | `OGrafStudioServer-macos-x64`   |
+| macOS            | Apple Silicon | `OGrafStudioServer-macos-arm64` |
+| Linux            | x64           | `OGrafStudioServer-linux-x64`   |
+| Linux            | ARM64         | `OGrafStudioServer-linux-arm64` |
+
+Bun, Node.js, npm, and the source tree are not needed on destination machines. Start the applicable
+file directly and open the reported URL in any normal browser:
 
 ```powershell
 OGrafStudioServer.exe
@@ -266,6 +283,11 @@ while the default remains suitable for a console or background process. Run
 For source-level testing of the same combined host, use `npm run server:start`. This command requires
 Bun because it runs the TypeScript entry point directly; only the generated executable is
 self-contained.
+
+Linux users must make the downloaded file executable with `chmod +x`. The macOS artifacts are raw,
+unsigned command-line executables; they require code signing and notarization before broad external
+distribution. The Windows executable contains Zero Density product/version metadata and the OGS
+icon; headless macOS/Linux executables do not have desktop application icons.
 
 The server binds only to loopback. Its default writable workspace is the repository root; set
 `OGRAF_WORKSPACE_ROOT` before starting it to use a different confined workspace. Set

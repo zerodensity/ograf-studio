@@ -45,6 +45,10 @@ export const ZERO_DENSITY_ASCII_ART = ZERO_DENSITY_OD_ASCII.map(
   (line, index) => `${line.padEnd(35)}    ${OGRAF_STUDIO_ASCII_ART.split('\n')[index]}`,
 ).join('\n');
 
+export function standaloneExecutableName(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? 'OGrafStudioServer.exe' : 'OGrafStudioServer';
+}
+
 function readValue(args: string[], index: number, flag: string): [string, number] {
   const inline = args[index]?.slice(flag.length + 1);
   if (inline) return [inline, index];
@@ -115,7 +119,7 @@ export function parseStandaloneServerOptions(
 
 export const STANDALONE_HELP = `OGraf Studio ${OGRAF_STUDIO_STANDALONE_VERSION} standalone server
 
-Usage: OGrafStudioServer.exe [options]
+Usage: ${standaloneExecutableName()} [options]
 
 Options:
   --port <number>       HTTP/MCP port (default: 4318)

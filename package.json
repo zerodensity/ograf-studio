@@ -13,6 +13,7 @@
     "start:all": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/startAll.ps1",
     "server:start": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build:standalone --workspace editor && bun run apps/mcp-server/src/standalone.ts",
     "server:package": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build:standalone --workspace editor && bun run scripts/buildStandalone.mjs",
+    "server:package:all": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build:standalone --workspace editor && bun run scripts/buildStandaloneMatrix.mjs && bun run scripts/verifyStandaloneArtifacts.mjs",
     "build": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build --workspaces --if-present",
     "lint": "oxlint",
     "pretest": "npm run build --workspace @ograf-editor/ograf-runtime",

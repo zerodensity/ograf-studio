@@ -5,6 +5,7 @@ import {
   OGRAF_STUDIO_REPOSITORY_URL,
   OGRAF_STUDIO_STANDALONE_VERSION,
   parseStandaloneServerOptions,
+  standaloneExecutableName,
   STANDALONE_HELP,
   ZERO_DENSITY_ASCII_ART,
 } from './standaloneConfig';
@@ -61,5 +62,11 @@ describe('standalone server configuration', () => {
       const centerColumn = line.length - visible.length + (visible.length - 1) / 2;
       expect(centerColumn).toBe(10);
     }
+  });
+
+  it('uses a platform-appropriate executable name in help output', () => {
+    expect(standaloneExecutableName('win32')).toBe('OGrafStudioServer.exe');
+    expect(standaloneExecutableName('darwin')).toBe('OGrafStudioServer');
+    expect(standaloneExecutableName('linux')).toBe('OGrafStudioServer');
   });
 });
