@@ -2,8 +2,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getLayerPropertyValueAtFrame } from '@ograf-editor/scene-model';
 import { getActiveComposition, useProjectStore } from './projectStore';
 
-describe('project store text stroke authoring', () => {
+describe('project store authoring', () => {
   beforeEach(() => useProjectStore.getState().newProject());
+
+  it('creates new projects with an opaque black canvas and 20% gray outside-canvas fill', () => {
+    const state = useProjectStore.getState();
+    const composition = getActiveComposition(state.project, state.activeCompositionId);
+
+    expect(composition.backgroundColor).toBe('#000000');
+    expect(composition.layout.dimOutsideCanvas).toBe(true);
+  });
 
   it('authors stroke colour statically and stroke width on the current frame', () => {
     const layerId = useProjectStore.getState().addLayer('text');

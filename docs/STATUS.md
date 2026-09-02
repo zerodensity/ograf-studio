@@ -1,8 +1,8 @@
 # Current Status
 
-Last verified: 2026-08-28
+Last verified: 2026-09-02
 
-Current release: **OGraf Studio 0.09**
+Current release: **OGraf Studio 0.10**
 
 ## Current milestone
 
@@ -108,6 +108,14 @@ AI-first broadcast authoring and OGraf compliance hardening.
   composition offset from embedded plate assets, while unmatched images retain intrinsic dimensions
   instead of stretching to the full frame.
 - React/Vite visual editor with DOM-based canvas, timeline, data fields, preview, and ZIP export.
+- An additive single-executable Windows server now packages the production React editor, localhost
+  Streamable HTTP MCP endpoint, WebSocket editor bridge, health/capture routes, fonts, icons, and all
+  server dependencies into `release/OGrafStudioServer.exe`. The destination needs no Node.js, npm,
+  Bun, or source checkout. Normal `npm run dev`, `npm run mcp:start`, and `npm run start:all`
+  behavior remains unchanged; only the dedicated standalone Vite mode derives `/editor` from the
+  page origin. The executable defaults to a writable `Documents/OGraf Studio/Projects` workspace,
+  supports port/workspace/browser-open CLI options, and deliberately remains loopback-only until an
+  authenticated network-hosting contract is implemented.
 - The canvas toolbar uses a coherent icon-only SVG toolset for Rectangle, Ellipse, Text, Image,
   Path, Image Sequence, and Lottie creation. Every control retains an accessible name, native title,
   immediate custom tooltip, and high-contrast hover/focus state.
@@ -555,10 +563,11 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 
 ## Verification baseline
 
-- `npm run verify`: passed on 2026-08-28, including generated MCP contract and in-app prompt drift,
-  format, lint, all workspace typechecks, 410 tests across 84 files, the runtime bundle, and the editor production
+- `npm run verify`: passed on 2026-09-02, including generated MCP contract and in-app prompt drift,
+  format, lint, all workspace typechecks, 422 tests across 87 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 410-test baseline includes timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
+- The 422-test baseline includes standalone static/embedded asset delivery, CLI/workspace parsing,
+  normal-versus-standalone bridge URL isolation, timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
   pasteboard, background-appearance, integer-authoring, multi-selection, axis-lock, easing,

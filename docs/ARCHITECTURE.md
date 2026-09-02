@@ -73,6 +73,27 @@ inline base64 strictly opt-in. Capture is never accepted as an export or certifi
 into one labelled PNG, and defaults to lifecycle frames plus transition midpoints. It is a visual
 inspection read only, never an alternate package or video export path.
 
+## Standalone server distribution
+
+The normal editor and MCP development processes remain independent. `npm run dev` retains the
+explicit `ws://127.0.0.1:4318/editor` bridge default, and `npm run mcp:start` continues through the
+dedicated `mcpMain.ts` entry point with the repository root as its historical workspace default.
+
+The additive standalone path builds the editor with Vite's `standalone` mode, which changes only the
+bridge URL to same-origin `/editor`. The combined host installs the production editor after the MCP,
+health, capture, and WebSocket routes, so one loopback HTTP server owns `/`, `/mcp`, `/health`,
+`/captures/*`, and `/editor` without changing their existing handlers or session model. Static
+source runs use the editor `dist` directory; the compiled executable uses a generated logical URL to
+embedded-file map with identical MIME and cache behavior plus an HTML SPA fallback.
+
+`scripts/buildStandalone.mjs` compiles that host, all server/workspace dependencies, and every Vite
+asset into `release/OGrafStudioServer.exe` through Bun's Windows baseline target. Bun is a build-time
+tool only. The produced executable requires neither Bun, Node.js, npm, nor the repository at runtime.
+Its workspace defaults to the user's `Documents/OGraf Studio/Projects`, while `--workspace` and
+`OGRAF_WORKSPACE_ROOT` remain explicit overrides. The first packaged release deliberately binds
+only to `127.0.0.1`; network exposure requires a future authenticated origin/upgrade contract rather
+than weakening the MCP SDK's localhost host validation.
+
 The editor bridge separates transport connection from application responsiveness. An app-level
 `setTimeout(0)` heartbeat is echoed through the WebSocket without depending on
 `requestAnimationFrame`; capabilities report connection, responsiveness, measured latency, last

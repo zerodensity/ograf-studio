@@ -1,7 +1,7 @@
 {
   "name": "zd-ograf-editor",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.10.0",
   "license": "AGPL-3.0-only",
   "type": "module",
   "workspaces": [
@@ -10,6 +10,9 @@
   ],
   "scripts": {
     "dev": "npm run build --workspace @ograf-editor/ograf-runtime && npm run dev --workspace apps/editor",
+    "start:all": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/startAll.ps1",
+    "server:start": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build:standalone --workspace editor && bun run apps/mcp-server/src/standalone.ts",
+    "server:package": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build:standalone --workspace editor && bun run scripts/buildStandalone.mjs",
     "build": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build --workspaces --if-present",
     "lint": "oxlint",
     "pretest": "npm run build --workspace @ograf-editor/ograf-runtime",

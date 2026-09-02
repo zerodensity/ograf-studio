@@ -8,22 +8,21 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.09
+## New in OGraf Studio 0.10
 
-- Added multi-key Timeline selection and range editing, a resizable name/track divider, editable
-  group names, and full compiled local-loop playback from the normal Play control.
-- Added canonical **Z order** editing, four arrange commands, Select All Layers, and safer browser
-  Undo reconciliation across bridge-synchronized projects.
-- Added **Squeeze** text sizing, full-alpha defaults for ordinary new elements, and a compact,
-  accessible icon toolbar for adding elements.
-- Aligned the editor chrome with the Zero Density/RealityHub visual system using locally bundled
-  Nunito, flat charcoal surfaces, cyan focus states, and compact 14 px/13 px type tiers without
-  changing authored graphic pixels.
-- Reworked Properties, Data, and Preview overrides into clean label/value configuration tables and
-  added RealityHub-style drag scrubbing to every enabled numeric field.
-- Raised the verified baseline to 410 tests across 84 files.
+- Added a self-contained Windows server executable that embeds the production editor, MCP server,
+  WebSocket bridge, fonts, icons, schemas, and runtime dependencies.
+- Preserved `npm run dev`, `npm run mcp:start`, and `npm run start:all`; standalone packaging is an
+  additive distribution path and destination machines require no Node.js, npm, Bun, or source tree.
+- Added standalone port, workspace, browser-open, and help options with a writable user Documents
+  workspace default and deliberate loopback-only networking.
+- Added versioned Zero Density/OGS console branding, the public repository URL, and a branded
+  multi-resolution Windows executable icon.
+- Locked new projects to an opaque black background with **Outside canvas · 20% gray** enabled while
+  preserving settings in existing, imported, and autosaved projects.
+- Raised the verified baseline to 422 tests across 87 files.
 
-See [the complete 0.09 release notes](docs/releases/0.09.md) for validation evidence and current
+See [the complete 0.10 release notes](docs/releases/0.10.md) for validation evidence and current
 boundaries.
 
 ## Highlights
@@ -227,6 +226,46 @@ Endpoints:
 - MCP: `http://127.0.0.1:4318/mcp`
 - Editor bridge: `ws://127.0.0.1:4318/editor`
 - Health: `http://127.0.0.1:4318/health`
+
+To start the editor and MCP server together as hidden background processes, run:
+
+```powershell
+npm run start:all
+```
+
+The command skips a service that is already online, waits up to 45 seconds for both endpoints, and
+writes stdout/stderr logs under `.logs`.
+
+### Single-executable server
+
+The optional standalone distribution serves the production editor, MCP endpoint, editor WebSocket,
+health endpoint, fonts, icons, and application assets from one headless executable. It does not
+replace or change the normal `npm run dev`, `npm run mcp:start`, or `npm run start:all` workflows.
+
+Install [Bun](https://bun.sh/) on the build machine, then run:
+
+```powershell
+npm run server:package
+```
+
+The result is `release/OGrafStudioServer.exe`. Bun, Node.js, npm, and the source tree are not needed
+on the destination machine. Start it directly and open the reported URL in any normal browser:
+
+```powershell
+OGrafStudioServer.exe
+OGrafStudioServer.exe --open
+OGrafStudioServer.exe --port 4400 --workspace "D:\OGraf Projects"
+```
+
+The standalone server binds to `127.0.0.1` only in this first release. Its default writable
+workspace is `Documents\OGraf Studio\Projects`; `--workspace` and the existing
+`OGRAF_WORKSPACE_ROOT` environment variable can override it. `--open` launches the system browser,
+while the default remains suitable for a console or background process. Run
+`OGrafStudioServer.exe --help` for the complete option list.
+
+For source-level testing of the same combined host, use `npm run server:start`. This command requires
+Bun because it runs the TypeScript entry point directly; only the generated executable is
+self-contained.
 
 The server binds only to loopback. Its default writable workspace is the repository root; set
 `OGRAF_WORKSPACE_ROOT` before starting it to use a different confined workspace. Set
