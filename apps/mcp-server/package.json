@@ -6,7 +6,8 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "start": "tsx src/index.ts",
+    "start": "tsx src/mcpMain.ts",
+    "start:standalone": "bun run src/standalone.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

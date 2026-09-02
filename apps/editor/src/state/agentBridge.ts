@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { resolveAgentBridgeUrl } from './agentBridgeUrl';
 import type { Project } from '@ograf-editor/scene-model';
 import type { ExportArtifacts } from '@ograf-editor/codegen';
 import { create } from 'zustand';
@@ -293,7 +294,10 @@ type BridgeMessage =
   | { type: 'chat.turn.end'; turnId: string; stopReason: string; usage: ChatUsage }
   | { type: 'chat.error'; turnId: string; message: string };
 
-const BRIDGE_URL = import.meta.env.VITE_OGRAF_AGENT_BRIDGE_URL ?? 'ws://127.0.0.1:4318/editor';
+const BRIDGE_URL = resolveAgentBridgeUrl(
+  import.meta.env.VITE_OGRAF_AGENT_BRIDGE_URL,
+  window.location,
+);
 
 /** Keeps the live browser document and the local MCP authoring session synchronized. */
 export function useAgentBridge(): void {

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 dist-ssr/
+release/
+*.bun-build
 *.local
 
 .vscode/*

@@ -1,5 +1,4 @@
 import { createServer } from 'node:http';
-import { pathToFileURL } from 'node:url';
 import { localhostHostValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express, { type Request, type Response } from 'express';
@@ -8,15 +7,22 @@ import { createOGrafMcpServer } from './mcpServer';
 import { AuthoringWorkspace } from './workspace';
 import { createOGrafToolRecords } from '@ograf-editor/agent-tools';
 import { ChatAgentController } from './agent/chatAgent';
+import { installEmbeddedEditor, installStaticEditor } from './staticEditor';
 
-export function createOGrafAuthoringHost() {
+export interface OGrafAuthoringHostOptions {
+  workspaceRoot?: string;
+  editorRoot?: string;
+  embeddedEditorAssets?: Readonly<Record<string, string>>;
+}
+
+export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}) {
   const app = express();
   // Editable projects can legitimately include packaged fonts, images, Lottie JSON, and source
   // references. Keep this bounded but comfortably above the 100 kB Express default.
   app.use(express.json({ limit: '16mb' }));
   app.use(localhostHostValidation());
   const httpServer = createServer(app);
-  const workspace = new AuthoringWorkspace();
+  const workspace = new AuthoringWorkspace(options.workspaceRoot);
   const bridge = new EditorBridge(httpServer, workspace);
   const chat = new ChatAgentController(createOGrafToolRecords(workspace, bridge), (event) =>
     bridge.sendChatEvent(event),
@@ -74,16 +80,7 @@ export function createOGrafAuthoringHost() {
     response.setHeader('Cache-Control', 'private, no-store, max-age=0');
     return response.send(asset.data);
   });
+  if (options.embeddedEditorAssets) installEmbeddedEditor(app, options.embeddedEditorAssets);
+  else if (options.editorRoot) installStaticEditor(app, options.editorRoot);
   return { app, httpServer, workspace, bridge, chat };
-}
-
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMain) {
-  const port = Number(process.env.OGRAF_MCP_PORT ?? 4318);
-  const { httpServer, workspace } = createOGrafAuthoringHost();
-  httpServer.listen(port, '127.0.0.1', () => {
-    console.log(`OGraf authoring MCP: http://127.0.0.1:${port}/mcp`);
-    console.log(`Editor bridge: ws://127.0.0.1:${port}/editor`);
-    console.log(`Workspace root: ${workspace.root}`);
-  });
 }
