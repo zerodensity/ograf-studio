@@ -54,6 +54,8 @@ export interface CompiledLayer {
   binding?: CompiledLayerBinding | null;
   /** Runtime-only clipping relation; general authoring parent metadata remains compiled away. */
   clipParentId?: string | null;
+  isMaskOnly?: boolean;
+  mask?: import('@ograf-editor/scene-model').LayerMask | null;
   /** Runtime-only visibility/data identity for one bounded collection slot. */
   collectionItem?: { collectionId: string; dataKey: string; index: number };
 }

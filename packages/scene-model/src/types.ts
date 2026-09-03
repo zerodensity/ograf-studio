@@ -87,11 +87,69 @@ export interface ImageElement {
 export interface PathElement {
   type: 'path';
   d: string;
-  fill: string;
+  fill: Paint;
+  fillRule: 'nonzero' | 'evenodd';
   strokeColor: string;
   strokeWidth: number;
   viewBoxWidth: number;
   viewBoxHeight: number;
+}
+
+/** Editable vector sources shared by every instance of a procedural pattern. */
+export interface PatternSymbol {
+  key: string;
+  d: string;
+  viewBoxWidth: number;
+  viewBoxHeight: number;
+  width: number;
+  height: number;
+  fillRule: 'nonzero' | 'evenodd';
+}
+export interface PatternEntry {
+  symbolKey: string;
+  gapScale: number;
+}
+export interface PatternRowOverride {
+  row: number;
+  direction?: 'left' | 'right';
+  cycles?: number;
+  phase?: number;
+  widthScale?: number;
+  blur?: number;
+  opacity?: number;
+}
+export interface TilingPattern {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  rows: number;
+  rowHeight: number;
+  fitRows: boolean;
+  rowGap: number;
+  gap: number;
+  spacingVariation: number;
+  seed: number;
+  offsetX: number;
+  offsetY: number;
+  direction: 'left' | 'right' | 'alternate';
+  cycleFrames: number;
+  cyclesPerLoop: number;
+  speedVariation: number;
+  phase: number;
+  rowPhaseStep: number;
+  symbols: PatternSymbol[];
+  sequence: PatternEntry[];
+  rowOverrides: PatternRowOverride[];
+}
+export interface PatternElement {
+  type: 'pattern';
+  patternId: string;
+  /** Resolved by the compiler/preview; never an independent authoring copy. */
+  definition?: TilingPattern;
+  fill: Paint;
+  strokeColor: string;
+  strokeWidth: number;
 }
 
 /**
@@ -137,6 +195,7 @@ export type Element =
   | TextElement
   | ImageElement
   | PathElement
+  | PatternElement
   | ImageSequenceElement
   | LottieElement;
 export type ElementType = Element['type'];
@@ -160,6 +219,8 @@ export interface LayerConstraints {
 }
 
 export interface LayerEffects {
+  /** Ordered filters; omitted legacy documents resolve blur then shadow. IDs survive reordering. */
+  stack?: LayerEffect[];
   blur: number;
   dropShadowEnabled: boolean;
   dropShadowColor: string;
@@ -168,6 +229,19 @@ export interface LayerEffects {
   dropShadowOffsetY: number;
   dropShadowBlur: number;
 }
+
+export type EffectType =
+  'blur' | 'drop-shadow' | 'glow' | 'brightness' | 'contrast' | 'saturate' | 'hue-rotate';
+export interface LayerEffect {
+  id: string;
+  name: string;
+  type: EffectType;
+  enabled: boolean;
+  params: Record<string, number | string>;
+  /** Compatibility adapter for pre-stack property tracks and color bindings. */
+  legacy?: 'blur' | 'drop-shadow';
+}
+export type EffectParameterProperty = `effects.${string}.${string}`;
 
 /** Static composition-local CSS blending; never blends against the external video bed. */
 export type BlendMode =
@@ -214,7 +288,10 @@ export interface LayerSemantics {
 export type DesignTokenType = 'color' | 'number' | 'text' | 'font-family' | 'font-weight';
 export type DesignTokenValue = string | number;
 export type DesignTokenTargetProperty =
+  | EffectParameterProperty
   | 'fill'
+  | `fill.stops[${number}].color`
+  | 'dropShadowColor'
   | 'strokeColor'
   | 'strokeWidth'
   | 'borderRadius'
@@ -259,6 +336,7 @@ export type GradientStopOffsetProperty = `fill.stops[${number}].offset`;
 
 /** Numeric properties that can own keys independently on a layer's shared frame ruler. */
 export type AnimatableLayerProperty =
+  | EffectParameterProperty
   | keyof LayerTransform
   | 'strokeWidth'
   | 'blur'
@@ -353,6 +431,13 @@ export interface LayerLoopClip {
   tracks: LayerAnimationTracks;
 }
 
+/** A same-composition matte. Path mode uses geometry; alpha mode uses painted transparency. */
+export interface LayerMask {
+  sourceLayerId: string;
+  mode: 'alpha' | 'path';
+  inverted: boolean;
+}
+
 export interface Layer {
   id: string;
   name: string;
@@ -368,6 +453,9 @@ export interface Layer {
   parentId: string | null;
   /** Clip direct children to this layer's animated, rotation-aware bounds and rectangle radius. */
   clipChildren: boolean;
+  /** A mask-only layer remains available to matte consumers without painting on air. */
+  isMaskOnly: boolean;
+  mask: LayerMask | null;
   /** Rules applied when the composition dimensions change; results are baked into layer tracks. */
   constraints: LayerConstraints;
   /** Independent animation keys on the composition frame ruler, sorted by frame. */
@@ -457,6 +545,8 @@ export interface FieldDefinition {
   description: string;
   type: FieldType;
   defaultValue: FieldValue;
+  /** Authoring-only link: a color Brand Kit token materializes this field's default. */
+  defaultTokenId?: string | null;
   required: boolean;
   /** Ordered values/labels for select and select-multiple controls. */
   options: FieldOption[];
@@ -605,6 +695,7 @@ export interface Composition {
   dataFields: FieldDefinition[];
   /** Runtime-expanded GDD array prototypes. */
   runtimeCollections: RuntimeCollectionDefinition[];
+  patterns: TilingPattern[];
   customActions: CustomActionDefinition[];
   assets: Asset[];
   /** Brand kit and reusable style decisions; omitted from compiled OGraf output. */

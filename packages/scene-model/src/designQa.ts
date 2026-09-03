@@ -86,13 +86,17 @@ function solidColours(layer: Layer, frame: number): string[] {
         : []),
     ];
   }
-  if (layer.element.type === 'rectangle' || layer.element.type === 'ellipse') {
+  if (
+    layer.element.type === 'rectangle' ||
+    layer.element.type === 'ellipse' ||
+    layer.element.type === 'path' ||
+    layer.element.type === 'pattern'
+  ) {
     return [
       ...(typeof layer.element.fill === 'string' ? [layer.element.fill] : []),
       layer.element.strokeColor,
     ];
   }
-  if (layer.element.type === 'path') return [layer.element.fill, layer.element.strokeColor];
   return [];
 }
 
@@ -209,6 +213,7 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
     (layer) =>
       layer.isVisible &&
       !layer.isGuide &&
+      !layer.isMaskOnly &&
       onCanvas(getLayerTransformAtFrame(layer, onAirFrame), composition),
   );
   const visibleText = visibleLayers.filter((layer) => layer.element.type === 'text');

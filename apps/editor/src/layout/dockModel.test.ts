@@ -24,7 +24,7 @@ describe('dock layout model', () => {
       ['layers', 'chat'],
       ['resources'],
     ]);
-    expect(layout.zones.right[0]?.panes).toEqual(['inspector', 'data', 'export']);
+    expect(layout.zones.right[0]?.panes).toEqual(['inspector', 'brand-kit', 'data', 'export']);
     expect(layout.zones.bottom[0]?.panes).toEqual(['timeline']);
     expect(DOCK_PANE_LABELS.inspector).toBe('Properties');
   });
@@ -42,7 +42,13 @@ describe('dock layout model', () => {
 
   it('merges panes into a tab group and activates the dropped pane', () => {
     const moved = dockPaneToGroup(createDefaultDockLayout(), 'timeline', 'right-properties');
-    expect(moved.zones.right[0]?.panes).toEqual(['inspector', 'data', 'export', 'timeline']);
+    expect(moved.zones.right[0]?.panes).toEqual([
+      'inspector',
+      'brand-kit',
+      'data',
+      'export',
+      'timeline',
+    ]);
     expect(moved.zones.right[0]?.activePane).toBe('timeline');
     expect(moved.zones.bottom).toEqual([]);
   });
@@ -56,11 +62,11 @@ describe('dock layout model', () => {
       'inspector',
       'before',
     );
-    expect(before.zones.right[0]?.panes).toEqual(['export', 'inspector', 'data']);
+    expect(before.zones.right[0]?.panes).toEqual(['export', 'inspector', 'brand-kit', 'data']);
     expect(before.zones.right[0]?.activePane).toBe('export');
 
     const after = dockPaneAdjacentToTab(before, 'export', 'right-properties', 'data', 'after');
-    expect(after.zones.right[0]?.panes).toEqual(['inspector', 'data', 'export']);
+    expect(after.zones.right[0]?.panes).toEqual(['inspector', 'brand-kit', 'data', 'export']);
   });
 
   it('inserts a pane from another dock group at the requested tab position', () => {
@@ -71,7 +77,13 @@ describe('dock layout model', () => {
       'data',
       'before',
     );
-    expect(moved.zones.right[0]?.panes).toEqual(['inspector', 'timeline', 'data', 'export']);
+    expect(moved.zones.right[0]?.panes).toEqual([
+      'inspector',
+      'brand-kit',
+      'timeline',
+      'data',
+      'export',
+    ]);
     expect(moved.zones.bottom).toEqual([]);
   });
 
@@ -140,8 +152,8 @@ describe('dock layout model', () => {
       ...Object.values(restored.zones).flatMap((groups) => groups.flatMap((group) => group.panes)),
       ...restored.floating.map((pane) => pane.pane),
     ];
-    expect(new Set(panes).size).toBe(7);
-    expect(panes).toHaveLength(7);
+    expect(new Set(panes).size).toBe(8);
+    expect(panes).toHaveLength(8);
     expect(restored.zones.left[0]?.activePane).toBe('layers');
   });
 

@@ -32,6 +32,7 @@ const SUPPORTED_ELEMENTS = new Set<Element['type']>([
   'path',
   'image-sequence',
   'lottie',
+  'pattern',
 ]);
 
 type UnknownRecord = Record<string, unknown>;
@@ -584,6 +585,8 @@ function projectFromManifest(
     customActions: importCustomActions(manifest),
     assets,
   });
+  for (const layer of composition.layers)
+    if (layer.element.type === 'pattern') delete layer.element.definition;
   return createProject({
     id: manifest.id,
     name: manifest.name,
@@ -749,6 +752,8 @@ function projectFromDescriptor(
     layer.id = compiled.id;
     layer.name = nameForLayer(raw, element, index);
     layer.isVisible = compiled.isVisible;
+    layer.isMaskOnly = compiled.isMaskOnly ?? false;
+    layer.mask = compiled.mask ? { ...compiled.mask } : null;
     layer.blendMode = compiled.blendMode ?? 'normal';
     if (entry.collectionId) {
       layer.groupId = entry.prototypeGroupId ?? `${entry.collectionId}-prototype`;
@@ -842,9 +847,20 @@ function projectFromDescriptor(
     transitions: lifecycle.transitions,
     dataFields,
     runtimeCollections,
+    patterns: [
+      ...new Map(
+        layers.flatMap((layer) =>
+          layer.element.type === 'pattern' && layer.element.definition
+            ? [[layer.element.definition.id, layer.element.definition] as const]
+            : [],
+        ),
+      ).values(),
+    ],
     customActions: importCustomActions(manifest),
     assets,
   });
+  for (const layer of composition.layers)
+    if (layer.element.type === 'pattern') delete layer.element.definition;
   return createProject({
     id: manifest.id,
     name: manifest.name,

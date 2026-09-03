@@ -11,6 +11,7 @@ import {
 import { LayerListPanel } from '../panels/LayerListPanel';
 import { AgentChatPanel } from '../panels/AgentChatPanel';
 import { ResourcesPanel } from '../panels/ResourcesPanel';
+import { BrandKitPanel } from '../panels/BrandKitPanel';
 import { InspectorPanel } from '../panels/InspectorPanel';
 import { DataPanel } from '../panels/DataPanel';
 import { PreviewExportPanel } from '../panels/PreviewExportPanel';
@@ -74,6 +75,8 @@ function PaneContent({ pane }: { pane: DockPaneId }) {
       return <AgentChatPanel />;
     case 'resources':
       return <ResourcesPanel />;
+    case 'brand-kit':
+      return <BrandKitPanel />;
     case 'inspector':
       return <InspectorPanel />;
     case 'data':

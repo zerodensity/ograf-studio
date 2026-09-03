@@ -1,3 +1,5 @@
+import { previewBindingData } from '../state/dataBinding';
+import { useTestDataStore } from '../state/testDataStore';
 import {
   useCallback,
   useEffect,
@@ -31,6 +33,7 @@ import { buildMasterTimeline } from './masterTimeline';
 import { compileDescriptor } from '@ograf-editor/codegen';
 import {
   applyCompiledClipPaths,
+  applyCompiledMasks,
   applyCompiledLayerVisualState,
   compiledLoopElapsedFrames,
   sampleCompiledLayerVisualState,
@@ -581,6 +584,26 @@ export function Stage({ style }: { style?: CSSProperties }) {
   // GSAP itself always works in seconds; frame <-> seconds conversion happens only at this
   // boundary, via the composition's frameRate, so the rest of the app can stay frame-based.
   const timelineRef = useRef<ReturnType<typeof buildMasterTimeline> | null>(null);
+  const maskTestValues = useTestDataStore((state) => state.values);
+  useEffect(() => {
+    const descriptor = compileDescriptor(composition, { includeGuides: true });
+    const frame = useTimelineStore.getState().currentFrame;
+    applyCompiledMasks(
+      descriptor,
+      layerRefs.current,
+      new Map(
+        descriptor.layers.map((layer) => [
+          layer.id,
+          sampleCompiledLayerVisualState(
+            layer,
+            frame,
+            undefined,
+            previewBindingData(composition.dataFields, useTestDataStore.getState().values),
+          ),
+        ]),
+      ),
+    );
+  }, [composition, maskTestValues]);
   useEffect(() => {
     const frameRate = composition.frameRate;
     const durationFrames = getTotalFrames(composition);
@@ -672,7 +695,9 @@ export function Stage({ style }: { style?: CSSProperties }) {
   // aligned with exported playout while preserving the editable Stage DOM and visible Timeline.
   useEffect(() => {
     const descriptor = compileDescriptor(composition, { includeGuides: true });
-    const loopLayers = descriptor.layers.filter((layer) => layer.loop);
+    const loopLayers = descriptor.layers.filter(
+      (layer) => layer.loop || layer.element.type === 'pattern',
+    );
     if (loopLayers.length === 0) return;
     const parkedFrame = useTimelineStore.getState().currentFrame;
     const parkedAtStep = descriptor.keyframes.some(
@@ -694,12 +719,18 @@ export function Stage({ style }: { style?: CSSProperties }) {
           layer.id === previewLoopLayerId && !timelineIsPlaying
             ? ((now - epoch) / 1000) * descriptor.frameRate
             : compiledLoopElapsedFrames(descriptor, layer, baseFrame, heldFrames);
-        const state = sampleCompiledLayerVisualState(layer, baseFrame, elapsed);
+        const state = sampleCompiledLayerVisualState(
+          layer,
+          baseFrame,
+          elapsed,
+          previewBindingData(composition.dataFields, useTestDataStore.getState().values),
+        );
         states.set(layer.id, state);
         const element = layerRefs.current.get(layer.id);
         if (element) applyCompiledLayerVisualState(element, state);
       }
       applyCompiledClipPaths(descriptor, layerRefs.current, states);
+      applyCompiledMasks(descriptor, layerRefs.current, states);
       if (selectedLayerIds.length > 0) previewMoveable?.updateTarget();
       animationFrame = requestAnimationFrame(render);
     };
@@ -853,6 +884,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
                       dataFields={composition.dataFields}
                       clipPath={clipPath}
                       compositionFrameRate={composition.frameRate}
+                      patterns={composition.patterns}
                     />
                   );
                 })}

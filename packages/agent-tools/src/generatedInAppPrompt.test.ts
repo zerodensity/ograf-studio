@@ -12,6 +12,11 @@ describe('generated in-app authoring prompt', () => {
     expect(first).toBe(second);
     expect(first).toBe(IN_APP_SYSTEM_PROMPT);
     expect(IN_APP_SYSTEM_PROMPT_ESTIMATED_TOKENS).toBeLessThanOrEqual(9_000);
+    expect(first).toContain('never bake tile copies');
+    expect(first).toContain('rowOverrides');
+    expect(first).toContain('patternRows');
+    expect(first).toContain('reorder_effects');
+    expect(first).toContain('effects.ID.PARAM');
   });
 
   it('does not reintroduce out-of-process or unavailable-tool guidance', () => {

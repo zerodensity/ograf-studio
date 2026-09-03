@@ -44,8 +44,8 @@ describe('standalone server configuration', () => {
   });
 
   it('includes the product version in standalone output', () => {
-    expect(OGRAF_STUDIO_STANDALONE_VERSION).toBe('0.10');
-    expect(STANDALONE_HELP).toContain('OGraf Studio 0.10 standalone server');
+    expect(OGRAF_STUDIO_STANDALONE_VERSION).toBe('0.11');
+    expect(STANDALONE_HELP).toContain('OGraf Studio 0.11 standalone server');
   });
 
   it('provides compact ASCII-only Zero Density and repository branding', () => {

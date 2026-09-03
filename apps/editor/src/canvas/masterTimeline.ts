@@ -1,6 +1,8 @@
 import type { Composition } from '@ograf-editor/scene-model';
 import { compileDescriptor } from '@ograf-editor/codegen';
 import { buildRuntimeTimeline } from '@ograf-editor/ograf-runtime';
+import { previewBindingData } from '../state/dataBinding';
+import { useTestDataStore } from '../state/testDataStore';
 
 /**
  * Builds one paused GSAP timeline spanning every Keyframe in sequence, with a label at each
@@ -18,5 +20,9 @@ export function buildMasterTimeline(
 ): ReturnType<typeof buildRuntimeTimeline> {
   // One compiler and one timeline interpreter now power both authoring and the exported graphic.
   // Guides are retained only for the editor canvas; export uses compileDescriptor's default.
-  return buildRuntimeTimeline(compileDescriptor(composition, { includeGuides: true }), layerRefs);
+  return buildRuntimeTimeline(
+    compileDescriptor(composition, { includeGuides: true }),
+    layerRefs,
+    () => previewBindingData(composition.dataFields, useTestDataStore.getState().values),
+  );
 }

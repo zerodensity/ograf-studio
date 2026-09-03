@@ -3,12 +3,15 @@ import { GraphicElement } from './GraphicElement';
 
 export { GraphicElement } from './GraphicElement';
 export { buildRuntimeTimeline } from './buildRuntimeTimeline';
+export { applyCompiledMasks } from './maskRendering';
+export { renderPatternAtElapsed } from './patternRendering';
 export {
   applyAnimatedPaint,
   disposeElementContent,
   renderElementContent,
   renderAnimatedElementAtTime,
   resolveBoundElement,
+  resolveBoundEffects,
 } from './renderElement';
 export { easingForGsap } from './easing';
 export {

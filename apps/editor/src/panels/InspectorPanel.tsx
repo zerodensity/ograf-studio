@@ -1,4 +1,8 @@
+import { EffectStackEditor } from './EffectStackEditor';
+import { getEffectStack, EFFECT_CATALOG, effectProperty } from '@ograf-editor/scene-model';
 import { useEffect, useState, type ChangeEvent } from 'react';
+import { LayerMaskEditor } from './LayerMaskEditor';
+import { TilingPatternEditor } from './TilingPatternEditor';
 import {
   getLayerTransformAtFrame,
   useActiveComposition,
@@ -6,7 +10,7 @@ import {
   type ElementFields,
 } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
-import { BINDABLE_PROPERTIES } from '../state/dataBinding';
+import { bindableProperties } from '../state/dataBinding';
 import type {
   BlendMode,
   CornerRadii,
@@ -19,7 +23,6 @@ import {
   BLEND_MODES,
   createCornerRadii,
   findLayerKeyframeAtFrame,
-  getLayerEffectsAtFrame,
   getLayerPropertyValueAtFrame,
   getPaintAtFrame,
   listFieldLeafPaths,
@@ -68,7 +71,7 @@ const SEMANTIC_ROLES: Array<{ value: SemanticLayerRole; label: string }> = [
 ];
 
 const DESIGN_TOKEN_TARGETS: Record<
-  'rectangle' | 'ellipse' | 'text' | 'path',
+  'rectangle' | 'ellipse' | 'text' | 'path' | 'pattern',
   Array<{ property: DesignTokenTargetProperty; label: string; tokenType: DesignTokenType }>
 > = {
   rectangle: [
@@ -87,6 +90,11 @@ const DESIGN_TOKEN_TARGETS: Record<
     { property: 'strokeWidth', label: 'Stroke width', tokenType: 'number' },
   ],
   path: [
+    { property: 'fill', label: 'Fill', tokenType: 'color' },
+    { property: 'strokeColor', label: 'Stroke', tokenType: 'color' },
+    { property: 'strokeWidth', label: 'Stroke width', tokenType: 'number' },
+  ],
+  pattern: [
     { property: 'fill', label: 'Fill', tokenType: 'color' },
     { property: 'strokeColor', label: 'Stroke', tokenType: 'color' },
     { property: 'strokeWidth', label: 'Stroke width', tokenType: 'number' },
@@ -214,7 +222,6 @@ export function InspectorPanel() {
   const updateLayerElement = useProjectStore((s) => s.updateLayerElement);
   const updateLayerTextStroke = useProjectStore((s) => s.updateLayerTextStroke);
   const updateLayerPaint = useProjectStore((s) => s.updateLayerPaint);
-  const updateLayerEffects = useProjectStore((s) => s.updateLayerEffects);
   const setLayerBindings = useProjectStore((s) => s.setLayerBindings);
   const toggleLayerLock = useProjectStore((s) => s.toggleLayerLock);
   const setLayerParent = useProjectStore((s) => s.setLayerParent);
@@ -246,9 +253,11 @@ export function InspectorPanel() {
       : authoredPose;
   const isLiveTransform = liveTransform?.layerId === layer.id;
   const alphaPercent = opacityToAlphaPercent(pose.opacity);
-  const evaluatedEffects = getLayerEffectsAtFrame(layer, currentFrame);
   const evaluatedPaint =
-    layer.element.type === 'rectangle' || layer.element.type === 'ellipse'
+    layer.element.type === 'rectangle' ||
+    layer.element.type === 'ellipse' ||
+    layer.element.type === 'path' ||
+    layer.element.type === 'pattern'
       ? getPaintAtFrame(layer.element.fill, getResolvedLayerAnimationTracks(layer), currentFrame)
       : null;
   const evaluatedTextStrokeWidth =
@@ -306,10 +315,32 @@ export function InspectorPanel() {
       value: asset.fontFamily || asset.name.replace(/\.[^.]+$/, ''),
     }));
   const availableFontOptions = [...importedFontOptions, ...FONT_OPTIONS];
-  const tokenTargets =
-    layer.element.type in DESIGN_TOKEN_TARGETS
+  const tokenTargets: Array<{
+    property: DesignTokenTargetProperty;
+    label: string;
+    tokenType: DesignTokenType;
+  }> = [
+    ...(layer.element.type in DESIGN_TOKEN_TARGETS
       ? DESIGN_TOKEN_TARGETS[layer.element.type as keyof typeof DESIGN_TOKEN_TARGETS]
-      : [];
+      : []),
+    { property: 'dropShadowColor', label: 'Shadow colour', tokenType: 'color' },
+  ];
+  if ('fill' in layer.element && typeof layer.element.fill !== 'string') {
+    tokenTargets.push(
+      ...layer.element.fill.stops.map((_, index) => ({
+        property: `fill.stops[${index}].color` as const,
+        label: `Gradient stop ${index + 1} colour`,
+        tokenType: 'color' as const,
+      })),
+    );
+  }
+  for (const effect of getEffectStack(layer.effects).filter((e) => !e.legacy))
+    for (const [key, spec] of Object.entries(EFFECT_CATALOG[effect.type].params))
+      tokenTargets.push({
+        property: effectProperty(effect, key) as DesignTokenTargetProperty,
+        label: `${effect.name} · ${spec.label}`,
+        tokenType: typeof spec.default === 'number' ? 'number' : 'color',
+      });
   const zOrder = composition.layers.findIndex((candidate) => candidate.id === layer.id) + 1;
 
   return (
@@ -437,6 +468,7 @@ export function InspectorPanel() {
           </select>
         </label>
 
+        <LayerMaskEditor composition={composition} layer={layer} key={layer.id} />
         <h3 className="inspector-section">Layout relationships</h3>
         <label className="inspector-row inspector-checkbox-row">
           <span>Locked</span>
@@ -578,7 +610,7 @@ export function InspectorPanel() {
                       setLayerBindings(layer.id, bindings);
                     }}
                   >
-                    {BINDABLE_PROPERTIES[layer.element.type]
+                    {bindableProperties(layer.element, layer.effects)
                       .filter(
                         (property) =>
                           property.value === binding.targetProperty ||
@@ -615,12 +647,12 @@ export function InspectorPanel() {
             type="button"
             disabled={
               composition.dataFields.length === 0 ||
-              BINDABLE_PROPERTIES[layer.element.type].every((property) =>
+              bindableProperties(layer.element, layer.effects).every((property) =>
                 layer.bindings.some((binding) => binding.targetProperty === property.value),
               )
             }
             onClick={() => {
-              const targetProperty = BINDABLE_PROPERTIES[layer.element.type].find(
+              const targetProperty = bindableProperties(layer.element, layer.effects).find(
                 (property) =>
                   !layer.bindings.some((binding) => binding.targetProperty === property.value),
               )?.value;
@@ -722,102 +754,7 @@ export function InspectorPanel() {
           </label>
         )}
 
-        <h3 className="inspector-section">Effects</h3>
-        <label className="inspector-row">
-          <span>Blur</span>
-          <input
-            type="number"
-            min={0}
-            step={0.5}
-            value={evaluatedEffects.blur}
-            onChange={(event) =>
-              updateLayerEffects(layer.id, roundedFrame, { blur: Number(event.target.value) })
-            }
-          />
-        </label>
-        <label className="inspector-row inspector-checkbox-row">
-          <span>Drop shadow</span>
-          <input
-            type="checkbox"
-            checked={layer.effects.dropShadowEnabled}
-            onChange={(event) =>
-              updateLayerEffects(layer.id, roundedFrame, {
-                dropShadowEnabled: event.target.checked,
-              })
-            }
-          />
-        </label>
-        {layer.effects.dropShadowEnabled && (
-          <div className="inspector-grid inspector-effect-grid">
-            <label className="inspector-row">
-              <span>Color</span>
-              <input
-                type="color"
-                value={layer.effects.dropShadowColor}
-                onChange={(event) =>
-                  updateLayerEffects(layer.id, roundedFrame, {
-                    dropShadowColor: event.target.value,
-                  })
-                }
-              />
-            </label>
-            <label className="inspector-row">
-              <span>Alpha %</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                value={Math.round(evaluatedEffects.dropShadowOpacity * 100)}
-                onChange={(event) =>
-                  updateLayerEffects(layer.id, roundedFrame, {
-                    dropShadowOpacity: Number(event.target.value) / 100,
-                  })
-                }
-              />
-            </label>
-            <label className="inspector-row">
-              <span>Offset X</span>
-              <input
-                type="number"
-                step={1}
-                value={evaluatedEffects.dropShadowOffsetX}
-                onChange={(event) =>
-                  updateLayerEffects(layer.id, roundedFrame, {
-                    dropShadowOffsetX: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <label className="inspector-row">
-              <span>Offset Y</span>
-              <input
-                type="number"
-                step={1}
-                value={evaluatedEffects.dropShadowOffsetY}
-                onChange={(event) =>
-                  updateLayerEffects(layer.id, roundedFrame, {
-                    dropShadowOffsetY: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <label className="inspector-row">
-              <span>Softness</span>
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                value={evaluatedEffects.dropShadowBlur}
-                onChange={(event) =>
-                  updateLayerEffects(layer.id, roundedFrame, {
-                    dropShadowBlur: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-          </div>
-        )}
+        <EffectStackEditor layer={layer} frame={roundedFrame} />
 
         <h3 className="inspector-section">{layer.element.type}</h3>
         {layer.bindings.length > 0 && (
@@ -825,7 +762,7 @@ export function InspectorPanel() {
             {layer.bindings
               .map(
                 (binding) =>
-                  BINDABLE_PROPERTIES[layer.element.type].find(
+                  bindableProperties(layer.element, layer.effects).find(
                     (property) => property.value === binding.targetProperty,
                   )?.label ?? binding.targetProperty,
               )
@@ -1109,13 +1046,20 @@ export function InspectorPanel() {
                 onChange={(e) => setElement({ d: e.target.value })}
               />
             </label>
+            <PaintEditor
+              value={evaluatedPaint ?? layer.element.fill}
+              onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+            />
             <label className="inspector-row">
-              <span>Fill</span>
-              <input
-                type="color"
-                value={layer.element.fill}
-                onChange={(e) => setElement({ fill: e.target.value })}
-              />
+              <span>Fill rule</span>
+              <select
+                aria-label="Path fill rule"
+                value={layer.element.fillRule}
+                onChange={(e) => setElement({ fillRule: e.target.value as 'nonzero' | 'evenodd' })}
+              >
+                <option value="nonzero">Nonzero winding</option>
+                <option value="evenodd">Even-odd holes</option>
+              </select>
             </label>
             <label className="inspector-row">
               <span>Stroke Color</span>
@@ -1153,6 +1097,54 @@ export function InspectorPanel() {
                 onChange={(e) => setElement({ viewBoxHeight: Number(e.target.value) })}
               />
             </label>
+          </>
+        )}
+        {layer.element.type === 'pattern' && (
+          <>
+            <label className="inspector-row">
+              <span>Shared pattern</span>
+              <select
+                aria-label="Shared pattern"
+                value={layer.element.patternId}
+                onChange={(e) => setElement({ patternId: e.target.value })}
+              >
+                {composition.patterns.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <PaintEditor
+              value={evaluatedPaint ?? layer.element.fill}
+              onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+            />
+            <label className="inspector-row">
+              <span>Outline color</span>
+              <input
+                type="color"
+                value={
+                  layer.element.strokeColor === 'transparent'
+                    ? '#000000'
+                    : layer.element.strokeColor
+                }
+                onChange={(e) => setElement({ strokeColor: e.target.value })}
+              />
+            </label>
+            <label className="inspector-row">
+              <span>Outline width</span>
+              <input
+                type="number"
+                min={0}
+                value={layer.element.strokeWidth}
+                onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
+              />
+            </label>
+            {composition.patterns
+              .filter((p) => layer.element.type === 'pattern' && p.id === layer.element.patternId)
+              .map((p) => (
+                <TilingPatternEditor key={p.id} pattern={p} frameRate={composition.frameRate} />
+              ))}
           </>
         )}
 

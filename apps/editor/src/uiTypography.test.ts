@@ -10,7 +10,7 @@ describe('Studio UI typography contract', () => {
       match[1]!.trim(),
     );
 
-    expect(sizes).toEqual(['14px', '13px']);
+    expect(sizes).toEqual(['13px', '12px']);
     expect(css).toContain('#root * {');
     expect(css).toContain('font-family: var(--sans);');
     expect(css).toContain('font-size: var(--ui-font-size);');

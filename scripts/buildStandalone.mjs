@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const standaloneEntrypoint = resolve(repositoryRoot, 'apps/mcp-server/src/standalone.ts');
 const editorRoot = resolve(repositoryRoot, 'apps/editor/dist');
+const runtimeFile = resolve(repositoryRoot, 'packages/ograf-runtime/dist/graphic-runtime.js');
 const windowsIcon = resolve(repositoryRoot, 'assets/ograf-studio.ico');
 const target = process.env.OGRAF_STANDALONE_TARGET ?? 'bun-windows-x64-baseline';
 const windowsTarget = target.includes('windows');
@@ -20,7 +21,7 @@ const outputParts = parse(outfile);
 const stagedOutfile = resolve(outputParts.dir, `${outputParts.name}.next${outputParts.ext}`);
 const previousOutfile = resolve(outputParts.dir, `${outputParts.name}.previous${outputParts.ext}`);
 const generatedEntrypoint = resolve(repositoryRoot, 'release/standalone-entry.ts');
-const version = process.env.OGRAF_STUDIO_BUILD_VERSION ?? '0.10.0.0';
+const version = process.env.OGRAF_STUDIO_BUILD_VERSION ?? '0.11.0.0';
 
 await mkdir(dirname(outfile), { recursive: true });
 await rm(stagedOutfile, { force: true });
@@ -48,6 +49,8 @@ const assetEntries = editorFiles.map((file, index) => {
 await writeFile(
   generatedEntrypoint,
   `${imports.join('\n')}\n` +
+    `import runtimeAsset from ${JSON.stringify(runtimeFile.replaceAll('\\', '/'))} with { type: 'file' };\n` +
+    `globalThis.__OGRAF_STANDALONE_RUNTIME__ = runtimeAsset;\n` +
     `globalThis.__OGRAF_STANDALONE_ASSETS__ = { ${assetEntries.join(', ')} };\n` +
     `await import(${JSON.stringify(standaloneEntrypoint.replaceAll('\\', '/'))});\n`,
 );

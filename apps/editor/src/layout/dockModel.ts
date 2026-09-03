@@ -2,6 +2,7 @@ export const DOCK_PANE_IDS = [
   'layers',
   'chat',
   'resources',
+  'brand-kit',
   'inspector',
   'data',
   'export',
@@ -16,6 +17,7 @@ export const DOCK_PANE_LABELS: Record<DockPaneId, string> = {
   layers: 'Layers',
   chat: 'Chat',
   resources: 'Resources',
+  'brand-kit': 'Brand Kit',
   inspector: 'Properties',
   data: 'Data',
   export: 'Preview & Export',
@@ -72,7 +74,7 @@ export function createDefaultDockLayout(): DockLayoutState {
       right: [
         {
           id: 'right-properties',
-          panes: ['inspector', 'data', 'export'],
+          panes: ['inspector', 'brand-kit', 'data', 'export'],
           activePane: 'inspector',
           weight: 1,
         },

@@ -9,6 +9,25 @@ import {
 import { AuthoringSession, RevisionConflictError } from './session';
 
 describe('AuthoringSession', () => {
+  it('removes an applied style pack without changing rendered values and restores it with undo', () => {
+    const session = new AuthoringSession(createProject(), 'remove-pack');
+    const applied = session.apply({
+      expectedRevision: 0,
+      operations: [
+        { type: 'add_layer', kind: 'rectangle' },
+        { type: 'apply_style_pack', stylePack: 'sports' },
+      ],
+    });
+    const removed = session.apply({
+      expectedRevision: 1,
+      operations: [{ type: 'remove_style_pack' }],
+    });
+    expect(removed.project.compositions[0]!.designSystem.tokens).toEqual([]);
+    expect(removed.project.compositions[0]!.layers[0]!.element).toEqual(
+      applied.project.compositions[0]!.layers[0]!.element,
+    );
+    expect(session.undo(2).project).toEqual(applied.project);
+  });
   it('applies a multi-operation edit atomically with generated ids and one undo', () => {
     const session = new AuthoringSession(createProject(), 'test-session');
     const result = session.apply({

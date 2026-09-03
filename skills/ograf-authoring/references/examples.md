@@ -1,3 +1,86 @@
+# Example: one controller for repeating O/D rows
+
+Create the definition and its first full-canvas layer in one revision-checked batch:
+
+```json
+[
+  {
+    "type": "set_tiling_pattern",
+    "patch": {
+      "name": "OD rows",
+      "rows": 7,
+      "seed": 42,
+      "sequence": [
+        { "symbolKey": "O", "gapScale": 0.5 },
+        { "symbolKey": "D", "gapScale": 2 },
+        { "symbolKey": "O", "gapScale": 1 }
+      ]
+    }
+  }
+]
+```
+
+At 50 fps this repeats exactly every 96 seconds. The built-in sources contain only O and D;
+replace `symbols` to supply other vector art. Apply paint/effects to the returned layer ID.
+For an outline or bloom, create another `pattern` layer with the returned `patternId` and matching
+transform bounds; change its paint/effects only. For moving light spanning the composition, mask
+a gradient rectangle with the pattern using `mode: "path"`, `hideSource: false`.
+
+Double all speeds without touching keys: `set_tiling_pattern` with `patternName: "OD rows"`,
+`patch: {cycleFrames: 2400}`. Add `rows: 9` to refit the layout; linked layer count stays unchanged.
+Use `rowOverrides: [{row: 1, cycles: 0, blur: 2}]` to pause only row two; this replaces the override
+array, so include existing overrides you want to retain. Omitted patch fields remain unchanged.
+
+# Example: illuminated path and independent matte
+
+Use ordinary `ograf_apply_operations` operations. The path carries its own paint; the ellipse is
+only needed when a separate moving reveal is intended. Assign semantics as appropriate afterward.
+
+```json
+[
+  {
+    "type": "add_layer",
+    "kind": "path",
+    "name": "Letter O",
+    "transform": { "x": 200, "y": 200, "width": 240, "height": 240 },
+    "element": {
+      "d": "M50 0 A50 50 0 1 1 49.99 0 Z M50 25 A25 25 0 1 1 49.99 25 Z",
+      "viewBoxWidth": 100,
+      "viewBoxHeight": 100,
+      "fillRule": "evenodd",
+      "fill": {
+        "type": "linear",
+        "angle": 90,
+        "stops": [
+          { "offset": 0, "color": "#17212b", "opacity": 1 },
+          { "offset": 0.5, "color": "#aec9dd", "opacity": 1 },
+          { "offset": 1, "color": "#17212b", "opacity": 1 }
+        ]
+      }
+    }
+  },
+  {
+    "type": "add_layer",
+    "kind": "ellipse",
+    "name": "Reveal matte",
+    "transform": { "x": 160, "y": 160, "width": 320, "height": 320 },
+    "element": { "fill": "#000000" },
+    "effects": { "blur": 12 }
+  },
+  {
+    "type": "set_layer_mask",
+    "layerName": "Letter O",
+    "sourceLayerName": "Reveal matte",
+    "mode": "alpha"
+  }
+]
+```
+
+Black paint remains opaque in alpha mode. Animate `Reveal matte` independently for a moving
+window; animate the O's `fill.stops[1].offset` for a light sweep. Use `mode: "path"` for a hard
+geometric matte, or `inverted: true` for a cutout. Read `mask`, `isMaskOnly`, and `maskConsumers`
+from scene queries before changing or deleting a shared source.
+
 # Example: animated lower third
 
 1. Read capabilities and the current revision, then call `create_lower_third` with the intended

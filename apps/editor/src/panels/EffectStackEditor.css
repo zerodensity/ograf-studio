@@ -1,0 +1,46 @@
+.effect-stack-toolbar,
+.effect-stack-header,
+.effect-stack-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.effect-stack-toolbar {
+  margin-bottom: 10px;
+}
+.effect-stack-toolbar select {
+  flex: 1;
+  min-width: 0;
+}
+.effect-stack-item {
+  padding: 9px;
+  margin-bottom: 9px;
+  border: 1px solid var(--border-color, #363b43);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.effect-stack-header input[type='text'],
+.effect-stack-header input:not([type]) {
+  min-width: 0;
+  flex: 1;
+}
+.effect-stack-header input[type='checkbox'] {
+  width: 14px;
+  flex: none;
+}
+.effect-stack-header span {
+  font-size: 10px;
+  color: #929eab;
+  white-space: nowrap;
+}
+.effect-stack-actions {
+  margin: 7px 0;
+  justify-content: flex-end;
+}
+.effect-stack-actions button {
+  font-size: 11px;
+  padding: 3px 7px;
+}
+.effect-stack-params.is-bypassed {
+  opacity: 0.5;
+}

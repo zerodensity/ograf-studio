@@ -15,6 +15,327 @@ describe('OGraf MCP authoring host', () => {
   const host = createOGrafAuthoringHost();
   const client = new Client({ name: 'ograf-mcp-test', version: '1.0.0' });
   let testEditorSocket: WebSocket | null = null;
+  it('authors ordered effect instances with stable animation paths and atomic failures', async () => {
+    const sessionId = 'effect-stack-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const session = host.workspace.get(sessionId);
+    const created = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'add_layer', kind: 'rectangle', name: 'Tile' },
+          {
+            type: 'add_effect',
+            layerName: 'Tile',
+            effectType: 'glow',
+            patch: { name: 'Bloom', params: { radius: 12 } },
+          },
+        ],
+      },
+    });
+    expect(created.isError).not.toBe(true);
+    const layer = session.snapshot().project.compositions[0]!.layers[0]!,
+      effect = layer.effects.stack!.at(-1)!,
+      property = `effects.${effect.id}.radius`;
+    expect(created.structuredContent).toHaveProperty(
+      'results',
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'add_effect',
+          id: effect.id,
+          properties: expect.objectContaining({ radius: property }),
+        }),
+      ]),
+    );
+    const edited = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: session.revision,
+        operations: [
+          {
+            type: 'set_property_track',
+            layerName: 'Tile',
+            property,
+            keys: [
+              { frame: 0, value: 2 },
+              { frame: 10, value: 22 },
+            ],
+          },
+          {
+            type: 'reorder_effects',
+            layerName: 'Tile',
+            effectIds: [effect.id, 'base-shadow', 'base-blur'],
+          },
+        ],
+      },
+    });
+    expect(edited.isError).not.toBe(true);
+    const sampled = await client.callTool({
+      name: 'ograf_sample_tracks',
+      arguments: { sessionId, frames: [5], properties: [property] },
+    });
+    expect(sampled.structuredContent).toHaveProperty(
+      'frames',
+      expect.arrayContaining([
+        expect.objectContaining({
+          layers: expect.arrayContaining([
+            expect.objectContaining({ properties: { [property]: 12 } }),
+          ]),
+        }),
+      ]),
+    );
+    const revision = session.revision;
+    const invalid = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: revision,
+        operations: [
+          {
+            type: 'update_effect',
+            layerName: 'Tile',
+            effectId: effect.id,
+            patch: { params: { unknown: 42 } },
+          },
+        ],
+      },
+    });
+    expect(invalid.isError).toBe(true);
+    expect(session.revision).toBe(revision);
+  });
+  it('creates and edits a shared pattern by name and samples generated row motion', async () => {
+    const sessionId = 'procedural-pattern-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const session = host.workspace.get(sessionId);
+    const created = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: session.revision,
+        operations: [
+          {
+            type: 'set_tiling_pattern',
+            patch: { name: 'Rows', rows: 3, cycleFrames: 2400, spacingVariation: 0 },
+          },
+          { type: 'set_tiling_pattern', patternName: 'Rows', patch: { gap: 40 } },
+        ],
+      },
+    });
+    expect(created.isError).not.toBe(true);
+    const c = session.snapshot().project.compositions[0]!;
+    expect(c.layers).toHaveLength(1);
+    expect(c.patterns[0]!.gap).toBe(40);
+    const sampled = await client.callTool({
+      name: 'ograf_sample_tracks',
+      arguments: { sessionId, frames: [12], loopElapsedFrame: 100 },
+    });
+    expect(sampled.structuredContent).toHaveProperty('frames.0.layers.0.patternRows');
+    const revision = session.revision;
+    const bad = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: revision,
+        operations: [
+          {
+            type: 'set_tiling_pattern',
+            patternName: 'Rows',
+            patch: { symbols: [{ key: 'O', d: 'M0 0', extra: true }] },
+          },
+        ],
+      },
+    });
+    expect(bad.isError).toBe(true);
+    expect(session.revision).toBe(revision);
+    const caps = await client.callTool({
+      name: 'ograf_get_capabilities',
+      arguments: { sections: ['elements'] },
+    });
+    expect(caps.structuredContent).toHaveProperty(
+      'elementSchemas.pattern.patternId.type',
+      'string',
+    );
+  });
+
+  it('links Brand Kit colors to gradient stops and shadows without flattening paint', async () => {
+    const sessionId = 'gradient-brand-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const session = host.workspace.get(sessionId);
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: session.revision,
+        operations: [
+          {
+            type: 'add_layer',
+            kind: 'rectangle',
+            name: 'Glint',
+            element: {
+              fill: {
+                type: 'linear',
+                angle: 110,
+                stops: [
+                  { offset: 0, color: '#ffffff', opacity: 0 },
+                  { offset: 1, color: '#ffffff', opacity: 1 },
+                ],
+              },
+            },
+          },
+          {
+            type: 'upsert_design_token',
+            key: 'brand.accent',
+            tokenType: 'color',
+            value: '#44bbcc',
+          },
+          {
+            type: 'bind_design_token',
+            layerName: 'Glint',
+            tokenKey: 'brand.accent',
+            targetProperty: 'fill.stops[1].color',
+          },
+          {
+            type: 'bind_design_token',
+            layerName: 'Glint',
+            tokenKey: 'brand.accent',
+            targetProperty: 'dropShadowColor',
+          },
+        ],
+      },
+    });
+    expect(result.isError).not.toBe(true);
+    const c = session.snapshot().project.compositions[0]!,
+      token = c.designSystem.tokens[0]!;
+    const fieldResult = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: session.revision,
+        operations: [
+          { type: 'add_data_field', fieldType: 'color', key: 'accent', defaultTokenId: token.id },
+        ],
+      },
+    });
+    expect(fieldResult.isError).not.toBe(true);
+    const changed = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: session.revision,
+        operations: [
+          {
+            type: 'upsert_design_token',
+            tokenId: token.id,
+            key: token.key,
+            tokenType: 'color',
+            value: '#cc8844',
+          },
+        ],
+      },
+    });
+    expect(changed.isError).not.toBe(true);
+    expect(session.snapshot().project.compositions[0]!.dataFields[0]!.defaultValue).toBe('#cc8844');
+    const layer = session.snapshot().project.compositions[0]!.layers[0]!;
+    expect(layer.element).toHaveProperty('fill.stops.0.opacity', 0);
+    expect(layer.element).toHaveProperty('fill.stops.1.color', '#cc8844');
+    expect(layer.effects.dropShadowColor).toBe('#cc8844');
+    const revision = session.revision;
+    const bad = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: revision,
+        operations: [
+          {
+            type: 'bind_design_token',
+            layerName: 'Glint',
+            tokenKey: 'brand.accent',
+            targetProperty: 'fill.stops[99].color',
+          },
+        ],
+      },
+    });
+    expect(bad.isError).toBe(true);
+    expect(session.revision).toBe(revision);
+  });
+
+  it('authors gradient paths and named mask sources atomically and exposes mask relationships', async () => {
+    const sessionId = 'named-mask-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const session = host.workspace.get(sessionId);
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: session.revision,
+        operations: [
+          {
+            type: 'add_layer',
+            kind: 'path',
+            name: 'Letters',
+            element: {
+              d: 'M0 0 H100 V100 H0 Z M25 25 H75 V75 H25 Z',
+              fillRule: 'evenodd',
+              fill: {
+                type: 'linear',
+                angle: 90,
+                stops: [
+                  { offset: 0, color: '#ff6600', opacity: 1 },
+                  { offset: 1, color: '#ffffff', opacity: 1 },
+                ],
+              },
+            },
+          },
+          { type: 'add_layer', kind: 'ellipse', name: 'Soft window', element: { fill: '#000000' } },
+          {
+            type: 'set_property_track',
+            layerName: 'Letters',
+            property: 'fill.stops[1].offset',
+            keys: [
+              { frame: 0, value: 0.3 },
+              { frame: 12, value: 1 },
+            ],
+          },
+          {
+            type: 'set_layer_mask',
+            layerName: 'Letters',
+            sourceLayerName: 'Soft window',
+            mode: 'alpha',
+          },
+        ],
+      },
+    });
+    expect(result.isError).not.toBe(true);
+    const layers = session.snapshot().project.compositions[0]!.layers;
+    expect(layers[0]!.mask!.sourceLayerId).toBe(layers[1]!.id);
+    expect(layers[1]!.isMaskOnly).toBe(true);
+    const query = await client.callTool({
+      name: 'ograf_query_scene',
+      arguments: { sessionId, nameContains: 'Letters' },
+    });
+    expect(JSON.stringify(query.structuredContent)).toContain(layers[1]!.id);
+    const capabilities = await client.callTool({
+      name: 'ograf_get_capabilities',
+      arguments: { sections: ['elements'] },
+    });
+    expect(capabilities.structuredContent).toHaveProperty('masking.operation', 'set_layer_mask');
+    const revision = session.revision;
+    const cycle = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: revision,
+        operations: [
+          { type: 'set_layer_mask', layerName: 'Soft window', sourceLayerName: 'Letters' },
+        ],
+      },
+    });
+    expect(cycle.isError).toBe(true);
+    expect(session.revision).toBe(revision);
+  });
 
   beforeAll(async () => {
     await new Promise<void>((resolve) => host.httpServer.listen(0, '127.0.0.1', resolve));
@@ -179,10 +500,10 @@ describe('OGraf MCP authoring host', () => {
         ]),
         gdd: expect.any(String),
         targetProperties: {
-          text: ['content', 'color'],
-          image: ['src'],
-          'image-sequence': [],
-          lottie: [],
+          text: ['content', 'color', 'strokeColor', 'dropShadowColor'],
+          image: ['src', 'dropShadowColor'],
+          'image-sequence': ['dropShadowColor'],
+          lottie: ['dropShadowColor'],
         },
       },
       canvasLayout: {

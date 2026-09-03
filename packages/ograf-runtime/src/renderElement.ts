@@ -1,5 +1,8 @@
 import {
   getPaintAtFrame,
+  applyElementDataValue,
+  parseEffectProperty,
+  withEffectParameter,
   getTrackValueAtFrame,
   cornerRadiiToCss,
   lottieFrameAtTime,
@@ -7,10 +10,12 @@ import {
   type Element,
   type LayerAnimationTracks,
   type Paint,
+  type LayerEffects,
 } from '@ograf-editor/scene-model';
 import { valueAtSourcePath } from '@ograf-editor/scene-model';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light_canvas.js';
+import { mountPattern, applyPatternPaint } from './patternRendering';
 
 interface MountedTextFit {
   observer?: ResizeObserver;
@@ -131,6 +136,7 @@ export function applyAnimatedPaint(
   tracks: LayerAnimationTracks,
   frame: number,
 ): void {
+  if (applyPatternPaint(container, tracks, frame)) return;
   const directChild = container.firstElementChild as HTMLElement | null;
   const renderHost = directChild?.classList?.contains('layer-content-host')
     ? directChild
@@ -140,7 +146,8 @@ export function applyAnimatedPaint(
   if (!content) return;
   if (serialized) {
     const paint = JSON.parse(serialized) as Paint;
-    content.style.background = paintToCss(getPaintAtFrame(paint, tracks, frame));
+    const fillHost = content.querySelector<HTMLElement>('[data-ograf-path-fill]') ?? content;
+    fillHost.style.background = paintToCss(getPaintAtFrame(paint, tracks, frame));
   }
   const strokeTrack = tracks.strokeWidth ?? [];
   if (strokeTrack.length > 0) {
@@ -183,7 +190,12 @@ export function renderElementContent(
   frameIndex = 0,
 ): void {
   disposeElementContent(container);
+  container.dataset.ografRenderedElement = JSON.stringify(element);
   switch (element.type) {
+    case 'pattern': {
+      mountPattern(container, element);
+      break;
+    }
     case 'rectangle': {
       const content = document.createElement('div');
       applyContentBaseStyle(content);
@@ -402,11 +414,34 @@ export function renderElementContent(
       svg.setAttribute('preserveAspectRatio', 'none');
       const path = document.createElementNS(SVG_NS, 'path');
       path.setAttribute('d', element.d);
-      path.setAttribute('fill', element.fill);
+      path.setAttribute('fill', typeof element.fill === 'string' ? element.fill : 'none');
+      path.setAttribute('fill-rule', element.fillRule ?? 'nonzero');
       path.setAttribute('stroke', element.strokeWidth > 0 ? element.strokeColor : 'none');
       path.setAttribute('stroke-width', String(element.strokeWidth));
       svg.appendChild(path);
-      container.appendChild(svg);
+      if (typeof element.fill === 'string') {
+        container.appendChild(svg);
+      } else {
+        const host = document.createElement('div');
+        applyContentBaseStyle(host);
+        host.style.position = 'relative';
+        const fill = document.createElement('div');
+        applyContentBaseStyle(fill);
+        fill.dataset.ografPathFill = 'true';
+        fill.style.background = paintToCss(element.fill);
+        const maskSvg = svg.cloneNode(true) as SVGSVGElement;
+        const maskPath = maskSvg.querySelector('path')!;
+        maskPath.setAttribute('fill', 'white');
+        maskPath.setAttribute('stroke', 'none');
+        maskSvg.setAttribute('xmlns', SVG_NS);
+        fill.style.maskImage = `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(maskSvg))}")`;
+        fill.style.maskSize = '100% 100%';
+        fill.style.maskRepeat = 'no-repeat';
+        Object.assign(svg.style, { position: 'absolute', inset: '0' });
+        host.append(fill, svg);
+        container.appendChild(host);
+        rememberPaint(container, element.fill);
+      }
       break;
     }
     case 'image-sequence': {
@@ -514,10 +549,37 @@ export function resolveBoundElement(layer: CompiledLayer, data: Record<string, u
     const value = valueAtSourcePath(itemValue, binding.sourcePath);
     if (value === undefined) return element;
     const mappedValue = binding.valueMap?.[String(value)] ?? value;
-    const resolvedValue =
-      binding.targetProperty === 'fill' && mappedValue && typeof mappedValue === 'object'
-        ? mappedValue
-        : String(mappedValue);
-    return { ...element, [binding.targetProperty]: resolvedValue } as Element;
+    return applyElementDataValue(element, binding.targetProperty, mappedValue);
   }, layer.element);
+}
+
+export function resolveBoundEffects(
+  layer: CompiledLayer,
+  data: Record<string, unknown>,
+  effects: LayerEffects = layer.effects,
+): LayerEffects {
+  let resolved = effects;
+  for (const binding of layer.bindings ?? (layer.binding ? [layer.binding] : [])) {
+    if (
+      binding.targetProperty !== 'dropShadowColor' &&
+      !parseEffectProperty(binding.targetProperty)
+    )
+      continue;
+    const root = data[binding.dataKey];
+    const item =
+      binding.itemIndex === undefined
+        ? root
+        : Array.isArray(root)
+          ? root[binding.itemIndex]
+          : undefined;
+    const value = valueAtSourcePath(item, binding.sourcePath);
+    if (value !== undefined) {
+      const mapped = binding.valueMap?.[String(value)] ?? value;
+      resolved =
+        binding.targetProperty === 'dropShadowColor'
+          ? { ...resolved, dropShadowColor: String(mapped) }
+          : withEffectParameter(resolved, binding.targetProperty, mapped);
+    }
+  }
+  return resolved;
 }

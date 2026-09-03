@@ -14,6 +14,7 @@ import {
   type UpdateActionParams,
 } from '@ograf-editor/ograf-types';
 import { buildRuntimeTimeline } from './buildRuntimeTimeline';
+import { applyCompiledMasks } from './maskRendering';
 import { resolvePlayTarget } from './lifecycle';
 import {
   applyAnimatedPaint,
@@ -21,10 +22,14 @@ import {
   renderAnimatedElementAtTime,
   renderElementContent,
   resolveBoundElement,
+  resolveBoundEffects,
 } from './renderElement';
 import { layerEffectsToCssFilter } from '@ograf-editor/scene-model';
 import {
   EFFECT_ANIMATION_PROPERTIES,
+  numericEffectProperties,
+  effectParameterValue,
+  withEffectParameter,
   isGradientStopOffsetProperty,
   TRANSFORM_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
@@ -54,6 +59,7 @@ interface LoopExitCorrection {
       transform: Partial<LayerTransform>;
       effects: Partial<Record<(typeof EFFECT_ANIMATION_PROPERTIES)[number], number>>;
       paint: Partial<Record<AnimatableLayerProperty, number>>;
+      stack: Record<string, number>;
     }
   >;
 }
@@ -264,6 +270,12 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         ][]) {
           state.effects[property] += delta * remaining;
         }
+        for (const [property, delta] of Object.entries(correction.stack))
+          state.effects = withEffectParameter(
+            state.effects,
+            property,
+            Number(effectParameterValue(state.effects, property)) + delta * remaining,
+          );
         for (const [property, delta] of Object.entries(correction.paint) as [
           AnimatableLayerProperty,
           number,
@@ -272,11 +284,13 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           if (sampled) sampled.value += delta * remaining;
         }
       }
+      state.effects = resolveBoundEffects(layer, this.#lastData, state.effects);
       states.set(layer.id, state);
       const element = this.#layerEls.get(layer.id);
       if (element) applyCompiledLayerVisualState(element, state);
     }
     applyCompiledClipPaths(this.activeDescriptor, this.#layerEls, states);
+    applyCompiledMasks(this.activeDescriptor, this.#layerEls, states, this.#lastData);
   }
 
   #createDirectLifecycleTransition(
@@ -315,11 +329,13 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         progress,
         transition.targetFrame,
       );
+      state.effects = resolveBoundEffects(layer, this.#lastData, state.effects);
       states.set(layer.id, state);
       const element = this.#layerEls.get(layer.id);
       if (element) applyCompiledLayerVisualState(element, state);
     }
     applyCompiledClipPaths(this.activeDescriptor, this.#layerEls, states);
+    applyCompiledMasks(this.activeDescriptor, this.#layerEls, states, this.#lastData);
   }
 
   #beginDirectLifecycleTransition(targetFrame: number, clockMs: number): void {
@@ -365,7 +381,13 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
             (base.paintTracks[property]?.[0]?.value ?? 0);
         }
       }
-      layers.set(layer.id, { transform, effects, paint });
+      const stack: Record<string, number> = {};
+      for (const property of numericEffectProperties(layer.effects))
+        if (layer.loop.tracks[property]?.length)
+          stack[property] =
+            Number(effectParameterValue(looped.effects, property)) -
+            Number(effectParameterValue(base.effects, property));
+      layers.set(layer.id, { transform, effects, paint, stack });
     }
     this.#loopExitCorrection =
       layers.size > 0 ? { startFrame: baseFrame, targetFrame, layers } : null;
@@ -392,7 +414,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #activateLoopsAtStep(step: number | undefined, epochMs: number, firstStep: boolean): void {
     const stepKeyframeId = step === undefined ? undefined : this.descriptor.stepKeyframeIds[step];
     for (const layer of this.activeDescriptor.layers) {
-      const activation = layer.loop?.activation;
+      const activation =
+        layer.element.type === 'pattern' ? { type: 'lifecycle' as const } : layer.loop?.activation;
       if (!activation) continue;
       if (activation.type === 'lifecycle') {
         if (firstStep || !this.#activeLoopEpochs.has(layer.id)) {
@@ -479,7 +502,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#syncCollectionVisibility();
 
     this.#timeline?.kill();
-    this.#timeline = buildRuntimeTimeline(renderDescriptor, this.#layerEls);
+    this.#timeline = buildRuntimeTimeline(renderDescriptor, this.#layerEls, () => this.#lastData);
   }
 
   #startContentPlayback(layer: CompiledGraphicDescriptor['layers'][number], el: HTMLElement): void {
@@ -538,6 +561,13 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       const el = this.#layerEls.get(layer.id);
       if (el) {
         renderElementContent(el, resolveBoundElement(layer, this.#lastData));
+        const state = sampleCompiledLayerVisualState(
+          layer,
+          (this.#timeline?.time() ?? 0) * this.descriptor.frameRate,
+          undefined,
+          this.#lastData,
+        );
+        el.style.filter = layerEffectsToCssFilter(state.effects);
         applyAnimatedPaint(
           el,
           layer.animationTracks,
@@ -561,6 +591,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     if (!data || typeof data !== 'object') return;
     this.#lastData = { ...this.#lastData, ...(data as Record<string, unknown>) };
     this.#refreshBoundLayers();
+    this.#renderLoopSnapshot(typeof performance !== 'undefined' ? performance.now() : Date.now());
   }
 
   #replaceData(data: unknown): void {
@@ -965,7 +996,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     const settled = animation === undefined;
     const stepKeyframeId = step === undefined ? undefined : this.descriptor.stepKeyframeIds[step];
     for (const layer of this.activeDescriptor.layers) {
-      const activation = layer.loop?.activation;
+      const activation =
+        layer.element.type === 'pattern' ? { type: 'lifecycle' as const } : layer.loop?.activation;
       if (!activation) continue;
       if (
         activation.type === 'lifecycle' &&

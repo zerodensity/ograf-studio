@@ -1,0 +1,24 @@
+.brand-kit-palette {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.brand-kit-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 7px;
+  border: 1px solid var(--border-color, #343434);
+  border-radius: 6px;
+}
+.brand-kit-color input {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}

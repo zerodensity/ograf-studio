@@ -23,6 +23,7 @@ import type {
   LayerSemantics,
   LayerTransform,
   PathElement,
+  PatternElement,
   Project,
   RectangleElement,
   TextElement,
@@ -129,6 +130,7 @@ export function createPathElement(overrides: Partial<PathElement> = {}): PathEle
     type: 'path',
     d: 'M50,0 L100,100 L0,100 Z',
     fill: '#3b3f4a',
+    fillRule: 'nonzero',
     strokeColor: 'transparent',
     strokeWidth: 0,
     viewBoxWidth: 100,
@@ -169,6 +171,8 @@ function createLayer(name: string, element: Element): Layer {
     groupId: null,
     parentId: null,
     clipChildren: false,
+    isMaskOnly: false,
+    mask: null,
     constraints: { horizontal: 'left', vertical: 'top' },
     keyframes: [],
     animationTracks: {},
@@ -183,7 +187,7 @@ function createLayer(name: string, element: Element): Layer {
 }
 
 export type NewLayerKind =
-  'rectangle' | 'ellipse' | 'text' | 'image' | 'path' | 'image-sequence' | 'lottie';
+  'rectangle' | 'ellipse' | 'text' | 'image' | 'path' | 'pattern' | 'image-sequence' | 'lottie';
 
 /** The starting pose for a freshly created layer of this kind — a fresh object every call. */
 export function defaultTransformFor(kind: NewLayerKind): LayerTransform {
@@ -236,6 +240,14 @@ export function createLayerOfKind(kind: NewLayerKind): Layer {
       return createImageLayer();
     case 'path':
       return createPathLayer();
+    case 'pattern':
+      return createLayer('Pattern', {
+        type: 'pattern',
+        patternId: '',
+        fill: '#252b32',
+        strokeColor: 'transparent',
+        strokeWidth: 0,
+      } satisfies PatternElement);
     case 'image-sequence':
       return createImageSequenceLayer();
     case 'lottie':
@@ -475,6 +487,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
     layers: [],
     dataFields: [],
     runtimeCollections: [],
+    patterns: [],
     customActions: [],
     assets: [],
     designSystem: { name: 'Brand Kit', tokens: [] },
@@ -485,7 +498,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 25;
+export const PROJECT_DOCUMENT_VERSION = 28;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

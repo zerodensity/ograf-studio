@@ -124,7 +124,7 @@ describe('runtime timeline boundary seeking', () => {
       { id: 'stop-0', frame: 0, value: 0, easing: 'linear' },
       { id: 'stop-10', frame: 10, value: 1, easing: 'linear' },
     ];
-    const content = { style: {} };
+    const content = { style: {}, querySelector: () => null };
     const element = {
       style: {},
       dataset: { ografBasePaint: JSON.stringify(fill) },

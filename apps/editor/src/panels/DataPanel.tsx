@@ -174,6 +174,29 @@ export function DataPanel() {
                           value={field.defaultValue}
                           onChange={(value) => updateDataField(field.id, { defaultValue: value })}
                         />
+                        {field.type === 'color' && (
+                          <label>
+                            <span>Default from Brand Kit</span>
+                            <select
+                              aria-label={`${field.label} Brand Kit default`}
+                              value={field.defaultTokenId ?? ''}
+                              onChange={(event) =>
+                                updateDataField(field.id, {
+                                  defaultTokenId: event.target.value || null,
+                                })
+                              }
+                            >
+                              <option value="">Custom default</option>
+                              {composition.designSystem.tokens
+                                .filter((token) => token.type === 'color')
+                                .map((token) => (
+                                  <option key={token.id} value={token.id}>
+                                    {token.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        )}
                       </td>
                       <td className="data-table-checkbox-cell">
                         <input

@@ -5,9 +5,17 @@ import type {
   DesignTokenTargetProperty,
   DesignTokenType,
   DesignTokenValue,
+  AnimatableLayerProperty,
+  FieldDefinition,
   Layer,
 } from './types';
 import { createCornerRadii } from './cornerRadii';
+import {
+  parseEffectProperty,
+  effectParameterSpec,
+  effectParameterValue,
+  withEffectParameter,
+} from './effectStack';
 
 const CORNER_RADIUS_PROPERTIES = [
   'borderRadius',
@@ -34,15 +42,46 @@ function assertTokenValue(type: DesignTokenType, value: DesignTokenValue): void 
 
 function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: DesignToken): void {
   const property = binding.targetProperty;
+  if (parseEffectProperty(property)) {
+    const spec = effectParameterSpec(layer.effects, property);
+    if (!spec) throw Error(`Effect parameter not found: ${property}`);
+    if (token.type !== (typeof spec.default === 'number' ? 'number' : 'color'))
+      throw Error(
+        `Effect parameter ${property} needs a ${typeof spec.default === 'number' ? 'number' : 'color'} token.`,
+      );
+    if (
+      typeof spec.default === 'number' &&
+      (Number(token.value) < spec.min! || Number(token.value) > spec.max!)
+    )
+      throw Error('Effect token value is outside its allowed range.');
+    return;
+  }
+  const stopIndex = gradientColorIndex(property);
+  if (stopIndex !== null) {
+    if (
+      !('fill' in layer.element) ||
+      typeof layer.element.fill === 'string' ||
+      !layer.element.fill.stops[stopIndex]
+    ) {
+      throw new Error(`Property ${property} requires an existing gradient stop.`);
+    }
+    if (token.type !== 'color')
+      throw new Error('Gradient stop colors require a color design token.');
+    return;
+  }
+  if (property === 'dropShadowColor') {
+    if (token.type !== 'color') throw new Error('Shadow color requires a color design token.');
+    return;
+  }
   if (property === 'fill') {
-    if (!['rectangle', 'ellipse', 'path'].includes(layer.element.type)) {
+    if (!['rectangle', 'ellipse', 'path', 'pattern'].includes(layer.element.type)) {
       throw new Error(`Property fill is not supported by ${layer.element.type} layers.`);
     }
     if (token.type !== 'color') throw new Error('Property fill requires a color design token.');
     return;
   }
   if (property === 'strokeColor') {
-    if (!['rectangle', 'ellipse', 'text', 'path'].includes(layer.element.type)) {
+    if (!['rectangle', 'ellipse', 'text', 'path', 'pattern'].includes(layer.element.type)) {
       throw new Error(`Property strokeColor is not supported by ${layer.element.type} layers.`);
     }
     if (token.type !== 'color') {
@@ -51,7 +90,7 @@ function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: Desi
     return;
   }
   if (property === 'strokeWidth') {
-    if (!['rectangle', 'ellipse', 'text', 'path'].includes(layer.element.type)) {
+    if (!['rectangle', 'ellipse', 'text', 'path', 'pattern'].includes(layer.element.type)) {
       throw new Error(`Property strokeWidth is not supported by ${layer.element.type} layers.`);
     }
     if (token.type !== 'number') {
@@ -97,6 +136,11 @@ export function normalizeDesignTokenValue(
   return Number(value);
 }
 
+function gradientColorIndex(property: string): number | null {
+  const match = /^fill\.stops\[(0|[1-9]\d*)\]\.color$/.exec(property);
+  return match ? Number(match[1]) : null;
+}
+
 export function applyDesignTokenBinding(
   layer: Layer,
   binding: DesignTokenBinding,
@@ -105,6 +149,23 @@ export function applyDesignTokenBinding(
   assertCompatible(layer, binding, token);
   const value = normalizeDesignTokenValue(token.type, token.value);
   const property: DesignTokenTargetProperty = binding.targetProperty;
+  if (parseEffectProperty(property)) {
+    const before = effectParameterValue(layer.effects, property);
+    layer.effects = withEffectParameter(layer.effects, property, value);
+    const track = layer.animationTracks[property as AnimatableLayerProperty];
+    if (typeof value === 'number' && track?.length === 1 && track[0]!.value === before)
+      track[0]!.value = value;
+    return;
+  }
+  const stopIndex = gradientColorIndex(property);
+  if (stopIndex !== null && 'fill' in layer.element && typeof layer.element.fill !== 'string') {
+    layer.element.fill.stops[stopIndex]!.color = String(value);
+    return;
+  }
+  if (property === 'dropShadowColor') {
+    layer.effects.dropShadowColor = String(value);
+    return;
+  }
   const previousStrokeWidth = 'strokeWidth' in layer.element ? layer.element.strokeWidth : null;
   if (property === 'fill' && 'fill' in layer.element) layer.element.fill = String(value);
   else if (property === 'strokeColor' && 'strokeColor' in layer.element) {
@@ -145,6 +206,7 @@ export function applyDesignTokenBinding(
 export function syncDesignToken(composition: Composition, tokenId: string): string[] {
   const token = composition.designSystem.tokens.find((candidate) => candidate.id === tokenId);
   if (!token) throw new Error(`Design token not found: ${tokenId}`);
+  syncDesignTokenFieldDefaults(composition, tokenId);
   const affected: string[] = [];
   for (const layer of composition.layers) {
     for (const binding of layer.designTokenBindings.filter((item) => item.tokenId === tokenId)) {
@@ -153,4 +215,25 @@ export function syncDesignToken(composition: Composition, tokenId: string): stri
     }
   }
   return [...new Set(affected)];
+}
+
+export function bindFieldDefaultToken(
+  composition: Composition,
+  field: FieldDefinition,
+  tokenId: string | null,
+): void {
+  if (tokenId === null) {
+    delete field.defaultTokenId;
+    return;
+  }
+  const token = composition.designSystem.tokens.find((t) => t.id === tokenId);
+  if (field.type !== 'color' || token?.type !== 'color')
+    throw new Error('A field default token must link a color field to a color Brand Kit token.');
+  field.defaultTokenId = token.id;
+  field.defaultValue = String(token.value);
+}
+
+export function syncDesignTokenFieldDefaults(composition: Composition, tokenId: string): void {
+  for (const field of composition.dataFields)
+    if (field.defaultTokenId === tokenId) bindFieldDefaultToken(composition, field, tokenId);
 }

@@ -41,6 +41,13 @@ function offsetLayer(
   layer.clipParentId = prototype.clipParentId
     ? (idByPrototypeId.get(prototype.clipParentId) ?? null)
     : null;
+  layer.mask = prototype.mask
+    ? {
+        ...prototype.mask,
+        sourceLayerId:
+          idByPrototypeId.get(prototype.mask.sourceLayerId) ?? prototype.mask.sourceLayerId,
+      }
+    : null;
   layer.bindings = layer.bindings.map((binding) => ({ ...binding, itemIndex: index }));
   layer.collectionItem = { collectionId: collection.id, dataKey: collection.dataKey, index };
   return layer;
