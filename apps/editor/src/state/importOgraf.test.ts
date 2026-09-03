@@ -6,6 +6,8 @@ import {
   createLayerKeyframe,
   createLayerOfKind,
   createProject,
+  createTilingPattern,
+  addTilingPatternLayer,
   defaultTransformFor,
 } from '@ograf-editor/scene-model';
 import { assembleManifest, compileDescriptor, generateMainJs } from '@ograf-editor/codegen';
@@ -73,6 +75,68 @@ function editableFixture() {
 }
 
 describe('best-effort OGraf import', () => {
+  it('restores one shared editable pattern from linked compiled instances', async () => {
+    const project = createProject(),
+      composition = project.compositions[0]!;
+    const pattern = createTilingPattern();
+    composition.patterns.push(pattern);
+    addTilingPatternLayer(composition, pattern.id);
+    addTilingPatternLayer(composition, pattern.id);
+    const descriptor = compileDescriptor(composition),
+      manifest = assembleManifest(project, composition, descriptor);
+    const imported = await importOgrafData(
+      'tiled.ograf.zip',
+      await packageBytes({
+        [`${manifest.id}.ograf.json`]: JSON.stringify(manifest),
+        'main.js': generateMainJs(descriptor, ''),
+      }),
+    );
+    expect(imported.project.compositions[0]!.patterns).toEqual([pattern]);
+    for (const layer of imported.project.compositions[0]!.layers) {
+      expect(layer.element).toMatchObject({ type: 'pattern', patternId: pattern.id });
+      expect(layer.element).not.toHaveProperty('definition');
+    }
+  });
+  it('round-trips gradient paths, fill-rule holes and source-only alpha masks', async () => {
+    const project = createProject(),
+      composition = project.compositions[0]!;
+    const source = createLayerOfKind('path'),
+      target = createLayerOfKind('text');
+    if (source.element.type !== 'path') throw Error('Expected path');
+    source.element.fill = {
+      type: 'linear',
+      angle: 90,
+      stops: [
+        { offset: 0, color: '#000', opacity: 0 },
+        { offset: 1, color: '#fff', opacity: 1 },
+      ],
+    };
+    source.element.fillRule = 'evenodd';
+    source.isMaskOnly = true;
+    target.mask = { sourceLayerId: source.id, mode: 'alpha', inverted: true };
+    for (const layer of [source, target])
+      layer.keyframes = [0, 12, 24].map((frame) =>
+        createLayerKeyframe(frame, defaultTransformFor(layer.element.type)),
+      );
+    composition.layers = [source, target];
+    const descriptor = compileDescriptor(composition),
+      manifest = assembleManifest(project, composition, descriptor);
+    const imported = await importOgrafData(
+      'masked.ograf.zip',
+      await packageBytes({
+        [`${manifest.id}.ograf.json`]: JSON.stringify(manifest),
+        'main.js': generateMainJs(descriptor, ''),
+      }),
+    );
+    const layers = imported.project.compositions[0]!.layers;
+    expect(layers[0]!.element).toMatchObject({
+      type: 'path',
+      fill: source.element.fill,
+      fillRule: 'evenodd',
+    });
+    expect(layers[0]!.isMaskOnly).toBe(true);
+    expect(layers[1]!.mask).toEqual(target.mask);
+  });
   it('reconstructs editable layers, lifecycle, schema, actions, and embedded image data', async () => {
     const { project, composition } = editableFixture();
     const descriptor = compileDescriptor(composition);

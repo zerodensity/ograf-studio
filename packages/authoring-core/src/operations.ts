@@ -1,8 +1,23 @@
 import {
   EFFECT_ANIMATION_PROPERTIES,
+  assertMaskSourcesRemovable,
+  layerMaskErrors,
   TRANSFORM_ANIMATION_PROPERTIES,
   applyDesignTokenBinding,
+  addEffect,
+  ensureLegacyEffects,
+  updateEffect,
+  removeEffect,
+  duplicateEffect,
+  reorderEffects,
+  effectProperty,
+  bindFieldDefaultToken,
+  syncDesignTokenFieldDefaults,
   applyStylePack,
+  setTilingPattern,
+  removeTilingPattern,
+  addTilingPatternLayer,
+  removeStylePack,
   computeKeyframeFrames,
   buildComponentDefinition,
   createCustomActionDefinition,
@@ -179,7 +194,10 @@ function assertPropertyApplicable(
   const stopIndex = gradientStopIndexForProperty(property);
   if (stopIndex === null) return;
   const fill =
-    layer.element.type === 'rectangle' || layer.element.type === 'ellipse'
+    layer.element.type === 'rectangle' ||
+    layer.element.type === 'ellipse' ||
+    layer.element.type === 'path' ||
+    layer.element.type === 'pattern'
       ? layer.element.fill
       : null;
   if (!fill || typeof fill === 'string' || !fill.stops[stopIndex]) {
@@ -515,6 +533,12 @@ function duplicateGroup(
           ? layerIds[source.parentId]!
           : source.parentId;
       const shiftedAggregateKeys = new Map<number, (typeof layer.keyframes)[number]>();
+      layer.mask = source.mask
+        ? {
+            ...source.mask,
+            sourceLayerId: layerIds[source.mask.sourceLayerId] ?? source.mask.sourceLayerId,
+          }
+        : null;
       const orderedAggregateKeys = [
         ...layer.keyframes.filter((key) => lifecycleFrames.has(key.frame)),
         ...layer.keyframes.filter((key) => !lifecycleFrames.has(key.frame)),
@@ -743,6 +767,7 @@ export function applyAuthoringOperations(
           existing.type = operation.tokenType;
           existing.value = value;
           existing.description = operation.description?.trim() ?? existing.description;
+          syncDesignTokenFieldDefaults(composition, existing.id);
           for (const layer of composition.layers) {
             for (const binding of layer.designTokenBindings.filter(
               (candidate) => candidate.tokenId === existing.id,
@@ -783,7 +808,10 @@ export function applyAuthoringOperations(
         const consumers = composition.layers.filter((layer) =>
           layer.designTokenBindings.some((binding) => binding.tokenId === token.id),
         );
-        if (consumers.length > 0 && !operation.force) {
+        const defaultConsumers = composition.dataFields.filter(
+          (field) => field.defaultTokenId === token.id,
+        );
+        if ((consumers.length > 0 || defaultConsumers.length > 0) && !operation.force) {
           throw new Error(
             `Design token "${token.key}" is bound by ${consumers.length} layer(s); use force=true to remove the links while preserving materialized values.`,
           );
@@ -794,6 +822,7 @@ export function applyAuthoringOperations(
           );
           summary.affectedLayerIds.push(layer.id);
         }
+        for (const field of defaultConsumers) delete field.defaultTokenId;
         composition.designSystem.tokens = composition.designSystem.tokens.filter(
           (candidate) => candidate.id !== token.id,
         );
@@ -1331,6 +1360,31 @@ export function applyAuthoringOperations(
         );
         break;
       }
+      case 'set_tiling_pattern': {
+        const pattern = setTilingPattern(
+          composition,
+          operation.patch,
+          operation.patternId,
+          operation.id,
+        );
+        summary.generatedIds.push({ operationIndex, kind: 'pattern', id: pattern.id });
+        if (!operation.patternId && operation.createLayer !== false) {
+          const id = addTilingPatternLayer(composition, pattern.id);
+          summary.generatedIds.push({ operationIndex, kind: 'layer', id });
+          summary.affectedLayerIds.push(id);
+        }
+        summary.affectedLayerIds.push(
+          ...composition.layers
+            .filter(
+              (layer) => layer.element.type === 'pattern' && layer.element.patternId === pattern.id,
+            )
+            .map((layer) => layer.id),
+        );
+        break;
+      }
+      case 'remove_tiling_pattern':
+        removeTilingPattern(composition, operation.patternId);
+        break;
       case 'set_layer_semantics': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
@@ -1361,6 +1415,11 @@ export function applyAuthoringOperations(
           tokenIds: applied.tokenIds,
           affectedLayerIds: applied.affectedLayerIds,
         });
+        break;
+      }
+      case 'remove_style_pack': {
+        const removed = removeStylePack(composition);
+        if (removed) summary.affectedLayerIds.push(...removed.affectedLayerIds);
         break;
       }
       case 'create_lower_third': {
@@ -1404,6 +1463,7 @@ export function applyAuthoringOperations(
         duplicateGroup(composition, operation, operationIndex, summary);
         break;
       case 'remove_layer':
+        assertMaskSourcesRemovable(composition, new Set([operation.layerId]));
         if (
           composition.runtimeCollections.some((collection) =>
             collection.prototypeLayerIds.includes(operation.layerId),
@@ -1426,6 +1486,7 @@ export function applyAuthoringOperations(
         const layer = layerFor(composition, operation.layerId);
         if (operation.isVisible !== undefined) layer.isVisible = operation.isVisible;
         if (operation.isGuide !== undefined) layer.isGuide = operation.isGuide;
+        if (operation.isMaskOnly !== undefined) layer.isMaskOnly = operation.isMaskOnly;
         if (operation.blendMode !== undefined) layer.blendMode = operation.blendMode;
         break;
       }
@@ -1451,6 +1512,28 @@ export function applyAuthoringOperations(
         if (operation.groupId !== undefined) layer.groupId = operation.groupId;
         if (operation.parentId !== undefined) layer.parentId = operation.parentId;
         if (operation.constraints) Object.assign(layer.constraints, operation.constraints);
+        break;
+      }
+      case 'set_layer_mask': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        if (operation.sourceLayerId === null) {
+          layer.mask = null;
+          break;
+        }
+        const source = layerFor(composition, operation.sourceLayerId);
+        layer.mask = {
+          sourceLayerId: source.id,
+          mode: operation.mode ?? 'alpha',
+          inverted: operation.inverted ?? false,
+        };
+        const errors = layerMaskErrors(composition);
+        if (errors.length) throw new Error(errors.join(' '));
+        if (operation.hideSource !== false) {
+          assertUnlocked(source);
+          source.isMaskOnly = true;
+        }
+        summary.affectedLayerIds.push(source.id);
         break;
       }
       case 'update_element': {
@@ -1517,10 +1600,50 @@ export function applyAuthoringOperations(
         warnForDegenerateShrinkToFit(summary, layer, frames, operationIndex);
         break;
       }
+      case 'add_effect':
+      case 'duplicate_effect': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        const effect =
+          operation.type === 'add_effect'
+            ? addEffect(layer, operation.effectType, operation.patch, operation.index, operation.id)
+            : duplicateEffect(layer, operation.effectId, operation.id);
+        summary.generatedIds.push({ operationIndex, kind: 'effect', id: effect.id });
+        summary.affectedLayerIds.push(layer.id);
+        break;
+      }
+      case 'update_effect': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        const effect = updateEffect(layer, operation.effectId, operation.patch);
+        for (const [param, value] of Object.entries(operation.patch.params ?? {}))
+          if (typeof value === 'number')
+            for (const frame of operationFrames(composition, operation.scope, operation.frame))
+              upsertPropertyKey(
+                layer,
+                effectProperty(effect, param) as AnimatableLayerProperty,
+                frame,
+                value,
+              );
+        summary.affectedLayerIds.push(layer.id);
+        break;
+      }
+      case 'remove_effect':
+      case 'reorder_effects': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        if (operation.type === 'remove_effect') removeEffect(layer, operation.effectId);
+        else reorderEffects(layer, operation.effectIds);
+        summary.affectedLayerIds.push(layer.id);
+        break;
+      }
       case 'update_effects': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
-        layer.effects = normalizeLayerEffects({ ...layer.effects, ...operation.patch });
+        layer.effects = ensureLegacyEffects(
+          normalizeLayerEffects({ ...layer.effects, ...operation.patch }),
+          operation.patch,
+        );
         for (const frame of operationFrames(composition, operation.scope, operation.frame)) {
           for (const property of EFFECT_ANIMATION_PROPERTIES) {
             if (operation.patch[property] !== undefined) {
@@ -1734,6 +1857,8 @@ export function applyAuthoringOperations(
           }
           field.id = operation.id;
         }
+        if (operation.defaultTokenId !== undefined)
+          bindFieldDefaultToken(composition, field, operation.defaultTokenId);
         composition.dataFields.push(field);
         summary.generatedIds.push({ operationIndex, kind: 'field', id: field.id });
         break;
@@ -1793,6 +1918,10 @@ export function applyAuthoringOperations(
           }
         }
         if (operation.required !== undefined) field.required = operation.required;
+        if (operation.defaultTokenId !== undefined)
+          bindFieldDefaultToken(composition, field, operation.defaultTokenId);
+        else if (operation.defaultValue !== undefined || operation.fieldType !== undefined)
+          delete field.defaultTokenId;
         if (runtimeCollection) {
           if (field.type !== 'array' || field.items?.type !== 'object') {
             throw new Error(

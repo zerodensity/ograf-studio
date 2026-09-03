@@ -35,6 +35,16 @@
 
 ## 3. Broadcast authoring — queued (complete inventory; do not silently drop items)
 
+- Procedural tiling with shared controls (implemented): composition-level vector pattern resources,
+  linked paint/effect/mask layers, seeded spacing, fitted rows, alternating direction and integral
+  row travel over a common seamless cycle. Includes Inspector/Resources editing, deterministic
+  runtime seeking, canonical MCP operations/discovery/sampling, and authoring skill examples.
+- Composable effects stack (implemented): ordered, independently enabled blur/shadow/glow and
+  color-adjustment instances with stable animation/binding targets and shared runtime rendering.
+- Next after the effects stack: unified Looping Pattern lighting controls for sweep timing/phase,
+  intensity and glow. Shared row motion and Brand Kit lighting colors already exist; the single
+  shared lighting controller is still queued. User confirmed this order on 2026-09-02.
+
 - Independent per-property tracks for transform and numeric effects, plus a deterministic
   31-trajectory easing catalog and visual cubic Bézier editor (implemented).
 - Multi-key selection and atomic group movement across layer/property timeline rows, with Ctrl/Cmd
@@ -125,6 +135,8 @@
   Sports, Entertainment, and Documentary style-pack definitions now copy editable palette, modular
   type, geometry/outline, and motion tokens into a composition. Cross-project kit libraries, token
   aliases, and import/export remain queued.
+- Removing the applied style pack is implemented in Resources and MCP. Removal detaches links and
+  pack tokens while preserving materialized layer values, timing, and unrelated custom tokens.
 
 ## 4. Advanced graphics — queued
 
@@ -146,11 +158,16 @@
   expanded at playout from nested GDD data with explicit stride, capacity, truncation, and
   deterministic index-based updates. Keyed move animation, grids, scroll/pagination, and nested
   repeated arrays remain queued.
+- Path gradient fills and arbitrary vector/image alpha masks are implemented (document v26):
+  linear/radial/conic path paints, even-odd/nonzero holes, fill bindings/stop tracks, source-only
+  layers, alpha/path mode, inversion, nested matte references, independent source motion, and
+  dependency-safe duplication/components/collections. Text, Lottie and image-sequence matte sources
+  remain outside this source profile. Inspector, MCP discovery/operations/queries and skills share
+  the same contract.
 - Deterministic clip-to-parent masking is implemented for animated rotation-aware parent bounds and
   rounded rectangle corners, including diagonal wipes. Composition-local blend modes are also
   implemented with an isolated transparent composition root across editor, capture, approximate
-  SVG review, and compiled runtime output. Arbitrary alpha/luma/path masks, video, and nested
-  compositions remain queued.
+  SVG review, and compiled runtime output. Luma masks, video, and nested compositions remain queued.
 - Basic Lottie support is implemented as a first-class self-contained layer: JSON import/re-import,
   bundled light canvas player, absolute-time loop sampling, editor scrubbing, realtime playback,
   deterministic non-realtime seeking, validation, export, and MCP schema support. Segments,
@@ -159,7 +176,8 @@
 - Rectangle and ellipse solid/linear/radial/conic paints are implemented, including whole-gradient
   data binding and independent animatable stop offsets. Per-stop data binding remains queued.
 - CSS blur and configurable drop shadow, including per-property animation of numeric effect values,
-  are implemented.
+  are implemented. The composable stack adds multiple instances, order/bypass/duplication controls,
+  color adjustments, stable per-effect tracks and live data/Brand Kit bindings.
 - Structured custom actions are implemented. Full recursive GDD authoring now covers enriched scalar
   controls, nested objects, arrays, required properties, item/length/range constraints, and bounded
   object-item runtime collections. Scalar arrays remain schema-only; collection rendering requires
@@ -229,7 +247,7 @@
 - The Resources pane now scales to large projects through counted category branches and nested
   per-item disclosure editors in an ARIA tree (implemented).
 - Editor chrome uses the shared Zero Density/RealityHub contract: locally bundled Nunito plus one
-  monospace diagnostics family, 14 px/13 px text tiers, charcoal surfaces, cyan active/focus accents,
+  monospace diagnostics family, 13 px/12 px text tiers, charcoal surfaces, cyan active/focus accents,
   and flat panel/control geometry across docking, menus, toolbars, forms, and scrollbars. Template
   typography remains a separate authored-content concern (implemented).
 - Numeric inputs share RealityHub-style horizontal scrubbing, Shift/Alt coarse/fine modifiers,

@@ -1,17 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
   findAssetConsumers,
   findMissingAssetReferences,
   isSafePackagePath,
-  STYLE_PACKS,
-  stylePackIdForComposition,
   type Asset,
-  type DesignTokenType,
-  type StylePackId,
 } from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
+import { ResourceTreeBranch, ResourceTreeItem } from './ResourceTreeComponents';
 import { Panel } from './Panel';
+import { TilingPatternEditor } from './TilingPatternEditor';
 import { partitionResourceAssets } from './resourceTree';
 import './ResourcesPanel.css';
 
@@ -21,55 +19,11 @@ const formatBytes = (bytes = 0) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-function ResourceTreeBranch({
-  label,
-  count,
-  children,
-}: {
-  label: string;
-  count: number;
-  children: ReactNode;
-}) {
-  return (
-    <details className="resources-tree-branch" role="treeitem">
-      <summary>
-        <span className="resources-tree-label">{label}</span>
-        <span className="resources-tree-count">{count}</span>
-      </summary>
-      <div className="resources-tree-group" role="group">
-        {children}
-      </div>
-    </details>
-  );
-}
-
-function ResourceTreeItem({
-  label,
-  meta,
-  preview,
-  children,
-}: {
-  label: string;
-  meta?: string;
-  preview?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <details className="resources-tree-item" role="treeitem">
-      <summary title={label}>
-        {preview ?? <span className="resources-tree-item-icon">R</span>}
-        <span className="resources-tree-item-copy">
-          <span className="resources-tree-item-name">{label}</span>
-          {meta && <span className="resources-tree-item-meta">{meta}</span>}
-        </span>
-      </summary>
-      <div className="resources-tree-item-editor">{children}</div>
-    </details>
-  );
-}
-
 export function ResourcesPanel() {
   const composition = useActiveComposition();
+  const addPattern = useProjectStore((s) => s.addLayer);
+  const addPatternInstance = useProjectStore((s) => s.addPatternInstance);
+  const removePattern = useProjectStore((s) => s.removeTilingPattern);
   const importAsset = useProjectStore((s) => s.importAsset);
   const importSvgBundle = useProjectStore((s) => s.importSvgBundle);
   const updateAsset = useProjectStore((s) => s.updateAsset);
@@ -80,17 +34,9 @@ export function ResourcesPanel() {
   const refreshLinkedComponentInstances = useProjectStore((s) => s.refreshLinkedComponentInstances);
   const renameComponent = useProjectStore((s) => s.renameComponent);
   const removeComponent = useProjectStore((s) => s.removeComponent);
-  const setDesignSystemName = useProjectStore((s) => s.setDesignSystemName);
-  const applyStylePack = useProjectStore((s) => s.applyStylePack);
-  const addDesignToken = useProjectStore((s) => s.addDesignToken);
-  const updateDesignToken = useProjectStore((s) => s.updateDesignToken);
-  const removeDesignToken = useProjectStore((s) => s.removeDesignToken);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const selectMany = useSelectionStore((s) => s.selectMany);
   const [svgImportStatus, setSvgImportStatus] = useState<string | null>(null);
-  const [selectedStylePack, setSelectedStylePack] = useState<StylePackId>(
-    stylePackIdForComposition(composition) ?? 'news',
-  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const sourceInputRef = useRef<HTMLInputElement>(null);
@@ -127,11 +73,6 @@ export function ResourcesPanel() {
     };
   }, [composition.assets]);
 
-  useEffect(() => {
-    const current = stylePackIdForComposition(composition);
-    if (current) setSelectedStylePack(current);
-  }, [composition]);
-
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const files = [...(e.target.files ?? [])];
     e.target.value = '';
@@ -163,17 +104,6 @@ export function ResourcesPanel() {
     const consumers = findAssetConsumers(composition, asset);
     return consumers.layerIds.length + consumers.fieldIds.length + consumers.fontLayerIds.length;
   };
-  const tokenUsageCount = (tokenId: string) =>
-    composition.layers.filter((layer) =>
-      layer.designTokenBindings.some((binding) => binding.tokenId === tokenId),
-    ).length;
-  const defaultTokenValue = (type: DesignTokenType): string | number => {
-    if (type === 'color') return '#ffffff';
-    if (type === 'number') return 16;
-    if (type === 'font-weight') return 700;
-    if (type === 'font-family') return 'Arial';
-    return '';
-  };
   const linkedInstanceCount = (componentId: string) =>
     new Set(
       composition.layers
@@ -185,137 +115,36 @@ export function ResourcesPanel() {
     <Panel title="Resources">
       <div className="resources-panel">
         <div className="resources-tree" role="tree" aria-label="Project resources">
-          <ResourceTreeBranch label="Brand kit" count={composition.designSystem.tokens.length}>
-            <div className="resources-tree-toolbar resources-style-pack-row">
-              <select
-                aria-label="Broadcast style pack"
-                value={selectedStylePack}
-                onChange={(event) => setSelectedStylePack(event.target.value as StylePackId)}
-              >
-                {STYLE_PACKS.map((pack) => (
-                  <option key={pack.id} value={pack.id}>
-                    {pack.name}
-                  </option>
-                ))}
-              </select>
-              <button type="button" onClick={() => applyStylePack(selectedStylePack)}>
-                Apply Pack
-              </button>
-            </div>
-            <div className="resources-tree-toolbar">
-              <input
-                aria-label="Brand kit name"
-                value={composition.designSystem.name}
-                onChange={(event) => setDesignSystemName(event.target.value)}
-              />
-              <button type="button" onClick={() => addDesignToken('color')}>
-                + Token
-              </button>
-            </div>
-            {composition.designSystem.tokens.length === 0 ? (
-              <p className="panel-placeholder">No design tokens.</p>
-            ) : (
-              <div className="resources-tree-items" role="group">
-                {composition.designSystem.tokens.map((token) => {
-                  const uses = tokenUsageCount(token.id);
-                  return (
-                    <ResourceTreeItem
-                      key={token.id}
-                      label={token.name || token.key}
-                      meta={`${token.type} · ${uses} linked`}
-                      preview={
-                        token.type === 'color' && typeof token.value === 'string' ? (
-                          <span
-                            className="resources-token-swatch"
-                            style={{ background: token.value }}
-                          />
-                        ) : (
-                          <span className="resources-tree-item-icon">T</span>
-                        )
-                      }
-                    >
-                      <div className="resources-asset-fields">
-                        {token.type === 'color' && typeof token.value === 'string' && (
-                          <input
-                            aria-label={`${token.name} colour`}
-                            type="color"
-                            value={token.value.slice(0, 7)}
-                            onChange={(event) =>
-                              updateDesignToken(token.id, { value: event.target.value })
-                            }
-                          />
-                        )}
-                        <div className="resources-asset-inline">
-                          <input
-                            aria-label="Token name"
-                            value={token.name}
-                            onChange={(event) =>
-                              updateDesignToken(token.id, { name: event.target.value })
-                            }
-                          />
-                          <input
-                            aria-label="Token key"
-                            value={token.key}
-                            onChange={(event) =>
-                              updateDesignToken(token.id, { key: event.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="resources-asset-inline">
-                          <select
-                            aria-label="Token type"
-                            value={token.type}
-                            onChange={(event) => {
-                              const type = event.target.value as DesignTokenType;
-                              updateDesignToken(token.id, {
-                                type,
-                                value: defaultTokenValue(type),
-                              });
-                            }}
-                          >
-                            <option value="color">Colour</option>
-                            <option value="number">Number</option>
-                            <option value="font-family">Font family</option>
-                            <option value="font-weight">Font weight</option>
-                            <option value="text">Text</option>
-                          </select>
-                          <input
-                            aria-label="Token value"
-                            type={
-                              token.type === 'number' || token.type === 'font-weight'
-                                ? 'number'
-                                : 'text'
-                            }
-                            value={token.value}
-                            onChange={(event) =>
-                              updateDesignToken(token.id, {
-                                value:
-                                  token.type === 'number' || token.type === 'font-weight'
-                                    ? Number(event.target.value)
-                                    : event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="resources-tree-actions">
-                          <span>
-                            {uses} linked layer{uses === 1 ? '' : 's'}
-                          </span>
-                          <button
-                            type="button"
-                            className="data-table-delete"
-                            disabled={uses > 0}
-                            onClick={() => removeDesignToken(token.id)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </ResourceTreeItem>
-                  );
-                })}
-              </div>
-            )}
+          <ResourceTreeBranch label="Patterns" count={composition.patterns.length}>
+            <button
+              onClick={() => {
+                const id = addPattern('pattern');
+                selectMany([id]);
+              }}
+            >
+              Add procedural pattern
+            </button>
+            {composition.patterns.map((pattern) => (
+              <ResourceTreeItem key={pattern.id} label={pattern.name} meta={`${pattern.rows} rows`}>
+                <div className="resources-tree-toolbar">
+                  <button onClick={() => selectMany([addPatternInstance(pattern.id)])}>
+                    Add linked layer
+                  </button>
+                  <button
+                    disabled={[
+                      ...composition.layers,
+                      ...composition.components.flatMap((c) => c.layers),
+                    ].some(
+                      (l) => l.element.type === 'pattern' && l.element.patternId === pattern.id,
+                    )}
+                    onClick={() => removePattern(pattern.id)}
+                  >
+                    Remove pattern
+                  </button>
+                </div>
+                <TilingPatternEditor pattern={pattern} frameRate={composition.frameRate} />
+              </ResourceTreeItem>
+            ))}
           </ResourceTreeBranch>
 
           <ResourceTreeBranch label="Components" count={composition.components.length}>

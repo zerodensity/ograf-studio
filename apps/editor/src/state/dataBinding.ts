@@ -1,5 +1,14 @@
 import {
   resolveElementAssetReferences,
+  resolvePatternElement,
+  applyElementDataValue,
+  parseEffectProperty,
+  withEffectParameter,
+  getEffectStack,
+  EFFECT_CATALOG,
+  effectProperty,
+  type LayerEffects,
+  type TilingPattern,
   valueAtSourcePath,
   type Asset,
   type Element,
@@ -23,7 +32,8 @@ export const BINDABLE_PROPERTIES: Record<ElementType, BindableProperty[]> = {
   image: [{ value: 'src', label: 'Image URL' }],
   rectangle: [{ value: 'fill', label: 'Fill Paint' }],
   ellipse: [{ value: 'fill', label: 'Fill Paint' }],
-  path: [{ value: 'fill', label: 'Fill Color' }],
+  path: [{ value: 'fill', label: 'Fill Paint' }],
+  pattern: [{ value: 'fill', label: 'Fill Paint' }],
   // An image sequence's frame list isn't a sensible single-value data-binding target (v1 scope).
   'image-sequence': [],
   lottie: [],
@@ -39,6 +49,7 @@ export function resolveEffectiveElement(
   testValues: Record<string, TestValue>,
   assets: Asset[] = [],
   dataFields: FieldDefinition[] = [],
+  patterns: TilingPattern[] = [],
 ): Element {
   const element = layer.bindings.reduce<Element>((resolved, binding) => {
     const hasTestValue = Object.prototype.hasOwnProperty.call(testValues, binding.fieldId);
@@ -51,11 +62,71 @@ export function resolveEffectiveElement(
     const value = valueAtSourcePath(itemValue, binding.sourcePath);
     if (value === undefined) return resolved;
     const mapped = binding.valueMap?.[String(value)] ?? value;
-    return {
-      ...resolved,
-      [binding.targetProperty]:
-        binding.targetProperty === 'fill' && typeof mapped === 'object' ? mapped : String(mapped),
-    } as Element;
+    return applyElementDataValue(resolved, binding.targetProperty, mapped);
   }, layer.element);
-  return resolveElementAssetReferences(element, assets);
+  return resolvePatternElement(resolveElementAssetReferences(element, assets), patterns);
+}
+
+export function bindableProperties(element: Element, effects?: LayerEffects): BindableProperty[] {
+  const result = [
+    ...BINDABLE_PROPERTIES[element.type],
+    { value: 'dropShadowColor', label: 'Shadow Color' },
+  ];
+  if (effects)
+    for (const effect of getEffectStack(effects).filter((e) => !e.legacy))
+      for (const [key, spec] of Object.entries(EFFECT_CATALOG[effect.type].params))
+        result.push({
+          value: effectProperty(effect, key),
+          label: `${effect.name} · ${spec.label}`,
+        });
+  if ('strokeColor' in element) result.push({ value: 'strokeColor', label: 'Outline Color' });
+  if ('fill' in element && typeof element.fill !== 'string')
+    result.push(
+      ...element.fill.stops.map((_, i) => ({
+        value: `fill.stops[${i}].color`,
+        label: `Gradient Stop ${i + 1} Color`,
+      })),
+    );
+  return result;
+}
+
+export function previewBindingData(
+  fields: FieldDefinition[],
+  values: Record<string, TestValue>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    fields.map((f) => [f.key, Object.hasOwn(values, f.id) ? values[f.id] : f.defaultValue]),
+  );
+}
+
+export function resolveEffectiveEffects(
+  layer: Layer,
+  effects: LayerEffects,
+  testValues: Record<string, TestValue>,
+  dataFields: FieldDefinition[],
+): LayerEffects {
+  let resolved = effects;
+  for (const binding of layer.bindings) {
+    if (
+      binding.targetProperty !== 'dropShadowColor' &&
+      !parseEffectProperty(binding.targetProperty)
+    )
+      continue;
+    const field = dataFields.find((f) => f.id === binding.fieldId);
+    const root = Object.hasOwn(testValues, binding.fieldId)
+      ? testValues[binding.fieldId]
+      : field?.defaultValue;
+    const value = valueAtSourcePath(
+      field?.type === 'array' && Array.isArray(root) ? root[0] : root,
+      binding.sourcePath,
+    );
+    if (value !== undefined) {
+      const mapped = binding.valueMap?.[String(value)] ?? value;
+      resolved =
+        binding.targetProperty === 'dropShadowColor'
+          ? { ...resolved, dropShadowColor: String(mapped) }
+          : withEffectParameter(resolved, binding.targetProperty, mapped);
+    }
+  }
+  return resolved;
 }

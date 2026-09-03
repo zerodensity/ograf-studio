@@ -138,7 +138,16 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const selectedLayerId = useSelectionStore((s) => s.selectedLayerId);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const selectedLayerKeyframeId = useSelectionStore((s) => s.selectedLayerKeyframeId);
-  const selectedLayerProperty = useSelectionStore((s) => s.selectedLayerProperty);
+  const storedLayerProperty = useSelectionStore((s) => s.selectedLayerProperty);
+  const selectedLayerProperty =
+    storedLayerProperty &&
+    composition.layers.some(
+      (layer) =>
+        layer.id === selectedLayerId &&
+        getLayerAnimatableProperties(layer).includes(storedLayerProperty),
+    )
+      ? storedLayerProperty
+      : null;
   const selectedLayerKeyframes = useSelectionStore((s) => s.selectedLayerKeyframes);
   const selectLayer = useSelectionStore((s) => s.select);
   const selectManyLayers = useSelectionStore((s) => s.selectMany);
@@ -1014,7 +1023,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           </option>
                           {hiddenProperties.map((property) => (
                             <option key={property} value={property}>
-                              {animatablePropertyLabel(property)}
+                              {animatablePropertyLabel(property, layer)}
                             </option>
                           ))}
                         </select>
@@ -1056,9 +1065,9 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             if (nearest) selectLayerKeyframe(layer.id, nearest.id, property);
                             else selectLayer(layer.id);
                           }}
-                          title={`${layer.name} ${animatablePropertyLabel(property)}`}
+                          title={`${layer.name} ${animatablePropertyLabel(property, layer)}`}
                         >
-                          <span>{animatablePropertyLabel(property)}</span>
+                          <span>{animatablePropertyLabel(property, layer)}</span>
                         </button>
                       ))
                     : []),
@@ -1388,7 +1397,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                   const propertyLoopTitle =
                     propertyLoopBadgeFrame === undefined
                       ? ''
-                      : `${animatablePropertyLabel(property)} loop activates at frame ${propertyLoopBadgeFrame}`;
+                      : `${animatablePropertyLabel(property, layer)} loop activates at frame ${propertyLoopBadgeFrame}`;
                   return (
                     <div
                       className={`timeline-track timeline-property-track${selectedLayerId === layer.id && selectedLayerProperty === property ? ' selected' : ''}`}
@@ -1421,7 +1430,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                               left: fromKeyframe.frame * pixelsPerFrame,
                               width: spanFrames * pixelsPerFrame,
                             }}
-                            title={`${animatablePropertyLabel(property)} · ${fromKeyframe.frame}–${toKeyframe.frame} · ${easingLabel(toKeyframe.easing)}`}
+                            title={`${animatablePropertyLabel(property, layer)} · ${fromKeyframe.frame}–${toKeyframe.frame} · ${easingLabel(toKeyframe.easing)}`}
                           >
                             {toKeyframe.easing !== 'linear' &&
                               spanFrames * pixelsPerFrame >= 42 && (
@@ -1447,8 +1456,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             style={{ left: keyframe.frame * pixelsPerFrame }}
                             role="button"
                             tabIndex={0}
-                            aria-label={`${animatablePropertyLabel(property)} key at frame ${keyframe.frame}${hasLoopBadge ? ' · Loop activates here' : ''}`}
-                            title={`${animatablePropertyLabel(property)} · frame ${keyframe.frame} · value ${keyframe.value.toFixed(3)} · Ctrl/Cmd-click adds · Shift-click selects range · Drag moves selection${hasLoopBadge ? ' · Loop activates here' : ''}`}
+                            aria-label={`${animatablePropertyLabel(property, layer)} key at frame ${keyframe.frame}${hasLoopBadge ? ' · Loop activates here' : ''}`}
+                            title={`${animatablePropertyLabel(property, layer)} · frame ${keyframe.frame} · value ${keyframe.value.toFixed(3)} · Ctrl/Cmd-click adds · Shift-click selects range · Drag moves selection${hasLoopBadge ? ' · Loop activates here' : ''}`}
                             onFocus={() => {
                               if (
                                 !useSelectionStore

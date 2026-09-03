@@ -4,6 +4,53 @@ import { getActiveComposition, useProjectStore } from './projectStore';
 
 describe('project store authoring', () => {
   beforeEach(() => useProjectStore.getState().newProject());
+  it('removes the applied Brand Kit pack through the Resources action', () => {
+    const store = useProjectStore.getState();
+    store.applyStylePack('news');
+    store.removeStylePack();
+    const state = useProjectStore.getState(),
+      c = getActiveComposition(state.project, state.activeCompositionId);
+    expect(c.designSystem.tokens.some((token) => token.key === 'brand.pack.id')).toBe(false);
+    expect(c.designSystem.name).toBe('Brand Kit');
+  });
+
+  it('authors path paints and prevents mask-source deletion or cyclic Inspector edits', () => {
+    const store = useProjectStore.getState(),
+      target = store.addLayer('path'),
+      source = store.addLayer('ellipse');
+    useProjectStore.getState().updateLayerPaint(target, 0, {
+      type: 'radial',
+      angle: 0,
+      stops: [
+        { offset: 0, color: '#fff', opacity: 1 },
+        { offset: 1, color: '#000', opacity: 0 },
+      ],
+    });
+    useProjectStore
+      .getState()
+      .setLayerMask(target, { sourceLayerId: source, mode: 'alpha', inverted: false });
+    const current = useProjectStore.getState(),
+      c = getActiveComposition(current.project, current.activeCompositionId);
+    expect(c.layers.find((l) => l.id === target)!.element).toMatchObject({
+      type: 'path',
+      fill: { type: 'radial' },
+    });
+    expect(c.layers.find((l) => l.id === source)!.isMaskOnly).toBe(true);
+    expect(() =>
+      useProjectStore
+        .getState()
+        .setLayerMask(source, { sourceLayerId: target, mode: 'alpha', inverted: false }),
+    ).toThrow('cyclic');
+    expect(() => useProjectStore.getState().removeLayer(source)).toThrow('Detach masks');
+    useProjectStore.getState().setLayerMask(target, null);
+    useProjectStore.getState().removeLayer(source);
+    expect(
+      getActiveComposition(
+        useProjectStore.getState().project,
+        current.activeCompositionId,
+      ).layers.find((l) => l.id === source),
+    ).toBeUndefined();
+  });
 
   it('creates new projects with an opaque black canvas and 20% gray outside-canvas fill', () => {
     const state = useProjectStore.getState();

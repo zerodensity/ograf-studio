@@ -1,4 +1,11 @@
 import {
+  effectStackErrors,
+  parseEffectProperty,
+  effectParameterSpec,
+} from '@ograf-editor/scene-model';
+import {
+  layerMaskErrors,
+  tilingPatternErrors,
   applyDesignTokenBinding,
   BLEND_MODES,
   inspectLottieAnimationData,
@@ -244,6 +251,27 @@ function validateFieldDefaultValue(
 
 function validateComposition(composition: Composition, errors: string[], warnings: string[]): void {
   const prefix = `Composition "${composition.name}"`;
+  const patternIds = new Set<string>();
+  for (const pattern of composition.patterns) {
+    if (patternIds.has(pattern.id)) errors.push(`${prefix}: duplicate pattern ID ${pattern.id}.`);
+    patternIds.add(pattern.id);
+    for (const problem of tilingPatternErrors(pattern))
+      errors.push(`${prefix}: pattern "${pattern.name}": ${problem}`);
+  }
+  for (const layer of [
+    ...composition.layers,
+    ...composition.components.flatMap((component) => component.layers),
+  ]) {
+    if (layer.element.type === 'pattern') {
+      if (!patternIds.has(layer.element.patternId))
+        errors.push(`${prefix}: layer "${layer.name}" references a missing pattern.`);
+      if (layer.loop?.activation.type === 'step')
+        errors.push(
+          `${prefix}: pattern layer "${layer.name}" requires lifecycle loop activation to preserve the shared clock.`,
+        );
+    }
+  }
+  for (const problem of layerMaskErrors(composition)) errors.push(`${prefix}: ${problem}`);
   if (!finitePositive(composition.width) || !finitePositive(composition.height)) {
     errors.push(`${prefix}: width and height must be finite positive numbers.`);
   }
@@ -304,6 +332,12 @@ function validateComposition(composition: Composition, errors: string[], warning
     }
   }
   for (const component of composition.components) {
+    for (const problem of layerMaskErrors({
+      ...composition,
+      layers: component.layers,
+      runtimeCollections: [],
+    }))
+      errors.push(`${prefix}: component "${component.name}": ${problem}`);
     if (!component.name.trim()) errors.push(`${prefix}: component names cannot be empty.`);
     if (component.layers.length === 0) {
       errors.push(`${prefix}: component "${component.name}" contains no layers.`);
@@ -425,13 +459,21 @@ function validateComposition(composition: Composition, errors: string[], warning
         `${prefix}: layer "${layer.name}" has unsupported blend mode "${layer.blendMode}".`,
       );
     }
-    if (layer.element.type === 'rectangle' || layer.element.type === 'ellipse') {
+    if (
+      layer.element.type === 'rectangle' ||
+      layer.element.type === 'ellipse' ||
+      layer.element.type === 'path' ||
+      layer.element.type === 'pattern'
+    ) {
       for (const problem of validatePaint(layer.element.fill)) {
         errors.push(`${prefix}: layer "${layer.name}" ${problem}.`);
       }
     }
     if (layer.parentId && !layerIds.has(layer.parentId)) {
       errors.push(`${prefix}: layer "${layer.name}" references a missing transform parent.`);
+    }
+    if (layer.element.type === 'path' && !['nonzero', 'evenodd'].includes(layer.element.fillRule)) {
+      errors.push(`${prefix}: layer "${layer.name}" has an invalid path fill rule.`);
     }
     if (layer.parentId === layer.id) {
       errors.push(`${prefix}: layer "${layer.name}" cannot parent itself.`);
@@ -467,6 +509,22 @@ function validateComposition(composition: Composition, errors: string[], warning
         errors.push(`${prefix}: layer "${layer.name}" has a non-finite transform value.`);
       }
     }
+    const stackErrors = effectStackErrors(layer.effects);
+    if (stackErrors.length) {
+      errors.push(...stackErrors.map((error) => `${prefix}: layer "${layer.name}": ${error}`));
+      continue;
+    }
+    for (const property of new Set([
+      ...Object.keys(layer.animationTracks),
+      ...Object.keys(layer.loop?.tracks ?? {}),
+    ]))
+      if (
+        parseEffectProperty(property) &&
+        typeof effectParameterSpec(layer.effects, property)?.default !== 'number'
+      )
+        errors.push(
+          `${prefix}: layer "${layer.name}" references a missing numeric effect parameter ${property}.`,
+        );
     const tracks = getResolvedLayerAnimationTracks(layer);
     if (layer.element.type !== 'text' && layer.animationTracks.strokeWidth?.length) {
       errors.push(
@@ -478,7 +536,10 @@ function validateComposition(composition: Composition, errors: string[], warning
       const stopIndex = gradientStopIndexForProperty(property);
       if (stopIndex !== null) {
         const fill =
-          layer.element.type === 'rectangle' || layer.element.type === 'ellipse'
+          layer.element.type === 'rectangle' ||
+          layer.element.type === 'ellipse' ||
+          layer.element.type === 'path' ||
+          layer.element.type === 'pattern'
             ? layer.element.fill
             : null;
         if (!fill || typeof fill === 'string' || !fill.stops[stopIndex]) {
@@ -496,6 +557,11 @@ function validateComposition(composition: Composition, errors: string[], warning
         );
       }
       for (const keyframe of propertyKeys) {
+        const spec = effectParameterSpec(layer.effects, property);
+        if (spec && (keyframe.value < spec.min! || keyframe.value > spec.max!))
+          errors.push(
+            `${prefix}: layer "${layer.name}" effect key ${property} must be ${spec.min}–${spec.max}.`,
+          );
         if (
           !Number.isInteger(keyframe.frame) ||
           keyframe.frame < 0 ||
@@ -568,6 +634,11 @@ function validateComposition(composition: Composition, errors: string[], warning
           );
         }
         for (const key of keys) {
+          const spec = effectParameterSpec(layer.effects, property);
+          if (spec && (key.value < spec.min! || key.value > spec.max!))
+            errors.push(
+              `${prefix}: layer "${layer.name}" loop effect ${property} must be ${spec.min}–${spec.max}.`,
+            );
           if (!Number.isInteger(key.frame) || key.frame < 0 || key.frame > loop.durationFrames) {
             errors.push(
               `${prefix}: layer "${layer.name}" loop property "${property}" keys must stay inside 0..${loop.durationFrames}.`,
@@ -614,6 +685,13 @@ function validateComposition(composition: Composition, errors: string[], warning
   }
   for (const field of composition.dataFields) {
     validateFieldDefinition(field, `${prefix}: data field "${field.key}"`, errors);
+    if (field.defaultTokenId) {
+      const token = composition.designSystem.tokens.find((t) => t.id === field.defaultTokenId);
+      if (field.type !== 'color' || token?.type !== 'color')
+        errors.push(`${prefix}: field "${field.key}" has an invalid Brand Kit default token.`);
+      else if (field.defaultValue !== token.value)
+        warnings.push(`${prefix}: field "${field.key}" Brand Kit default is out of sync.`);
+    }
   }
   for (const actionId of duplicates(composition.customActions.map((action) => action.actionId))) {
     errors.push(`${prefix}: duplicate custom action id "${actionId}".`);
@@ -783,7 +861,10 @@ function validateComposition(composition: Composition, errors: string[], warning
       const projected = structuredClone(layer);
       try {
         applyDesignTokenBinding(projected, binding, token);
-        if (JSON.stringify(projected.element) !== JSON.stringify(layer.element)) {
+        if (
+          JSON.stringify(projected.element) !== JSON.stringify(layer.element) ||
+          JSON.stringify(projected.effects) !== JSON.stringify(layer.effects)
+        ) {
           warnings.push(
             `${prefix}: layer "${layer.name}" design-token link for "${binding.targetProperty}" is out of sync with its materialized value.`,
           );
@@ -799,6 +880,19 @@ function validateComposition(composition: Composition, errors: string[], warning
         errors.push(`${prefix}: layer "${layer.name}" references a missing data field.`);
         continue;
       }
+      if (
+        parseEffectProperty(binding.targetProperty) &&
+        !effectParameterSpec(layer.effects, binding.targetProperty)
+      )
+        errors.push(`${prefix}: layer "${layer.name}" binds a missing effect parameter.`);
+      const gradientColor = /^fill\.stops\[(0|[1-9]\d*)\]\.color$/.exec(binding.targetProperty);
+      if (
+        gradientColor &&
+        (!('fill' in layer.element) ||
+          typeof layer.element.fill === 'string' ||
+          !layer.element.fill.stops[Number(gradientColor[1])])
+      )
+        errors.push(`${prefix}: layer "${layer.name}" binds a missing gradient color stop.`);
       const field = fieldById.get(binding.fieldId)!;
       const collection = collectionByPrototypeLayerId.get(layer.id);
       const fromArrayItem = field.type === 'array';

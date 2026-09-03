@@ -1,6 +1,6 @@
 ---
 name: ograf-authoring
-description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, .ogs source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
+description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, procedural tiling, composable effects stacks, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, .ogs source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
 ---
 
 # OGraf Authoring
@@ -93,6 +93,54 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   layer—arbitrary Photoshop raster/vector output is not semantically decomposed into editable
   objects.
 
+## Composable effects
+
+Use `add_effect`, `update_effect`, `duplicate_effect`, `remove_effect`, and `reorder_effects` inside
+revision-checked batches. Discover `elements` capabilities for the parameter catalog. Effects run
+top-to-bottom; repeated types are allowed. Returned effect IDs and `results.properties` are stable
+through reorder. Animate exact `effects.ID.PARAM` paths using normal tracks or local loops; bind
+color/number tokens or runtime fields to those paths. Runtime data overrides sampled parameters.
+`update_effect` accepts `patch: {name?,enabled?,params?}`; numeric edits default to authored lifecycle
+frames, or use `scope:"frame"` with `frame`. Bypass/reorder preserve keys. Duplicate copies only the
+selected effect's keys and links; remove deletes those keys/links while keeping fields. Old blur
+and shadow use reorderable compatibility slots and retain old tracks/bindings. Read
+[effects-stack.md](./references/effects-stack.md) for examples and limits.
+
+## Procedural tiling with shared controls
+
+Brand Kit is a standalone dockable pane (Window → Brand Kit), separate from Resources. Color
+fields can set `defaultTokenId` to a color token ID on add/update, so Brand Kit edits also update
+OGraf defaults. Playback `updateAction` data overrides defaults without changing the authored kit.
+Set `defaultTokenId: null` to detach; an explicit field default edit also detaches. Bind runtime
+color fields through `set_layer_bindings` to `fill.stops[N].color`, `strokeColor`, or
+`dropShadowColor`; whole `gradient` fields still target `fill`. Confirm live updates and scheduled
+reverse seeking in the exported graphic, preserving gradient alpha and the pattern clock.
+
+- Brand Kit stop-color links preserve gradient alpha and motion. Whole `fill` links replace the
+  gradient. Link all glint stops to one token; use separate letter highlight/shade tokens.
+- Use `set_tiling_pattern` for repeating vector backgrounds. `patch: {name: "OD rows"}` creates a
+  shared O/D definition and one linked pattern layer; `createLayer: false` creates only the resource.
+  Edit by `patternId` or exact `patternName`. Add `kind: "pattern"` layers with `element.patternId` and matching full-canvas transforms
+  for separate gradient faces, transparent-fill outlines, blurred bloom, and mask sources. Keep
+  geometry in `composition.patterns`; never bake tile copies into paths or author `element.definition`.
+- Pattern `symbols` are named SVG paths: `{key,d,viewBoxWidth,viewBoxHeight,width,height,fillRule}`;
+  `sequence` entries are `{symbolKey,gapScale}`. Sources are vector-only. Use `gap`, per-entry
+  `gapScale`, seeded `spacingVariation`, and `seed` for repeatable irregular spacing. `fitRows: true`
+  fits rows inside `height` using `rowGap` and `offsetY`; false uses explicit `rowHeight`.
+- Pattern `cycleFrames` is one common seamless period: shortening it speeds every row up without
+  retiming lifecycle/property keys. Whole-number `cyclesPerLoop` and seeded `speedVariation` give
+  different row speeds; `direction: "alternate"` switches directions. `phase` shifts all rows;
+  `rowPhaseStep` staggers them. `rowOverrides` replaces selected defaults with
+  `{row,direction?,cycles?,phase?,widthScale?,blur?,opacity?}` (zero-based row, zero cycles pauses).
+  Clear overrides to restore shared defaults; shrinking row count drops inactive overrides unless
+  explicitly supplied. Pattern layers share lifecycle activation, including deterministic scheduled
+  seeking; per-step loop activation is not supported. Additional paint/effect loops retain their
+  own duration and do not change the geometry clock.
+- Inspect `ograf_get_project include: ["patterns"]` or `ograf_inspect_scene` for shared definitions and
+  resolved row periods. `ograf_sample_tracks` with `loopElapsedFrame` returns `patternRows` offsets,
+  direction and integer cycles. Check offsets at 0 and `cycleFrames`, then capture intermediate
+  motion. Remove/relink all layer and component references before `remove_tiling_pattern`.
+
 ## Authoring rules
 
 - Prefer `sessionId: "editor"` when collaborating in the visible application.
@@ -108,6 +156,12 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   and motion-convention tokens remain editable starting points. Token links are authoring metadata;
   exported graphics have no style-pack runtime dependency. A recipe `stylePack` option applies the
   same vocabulary while explicit recipe theme/motion values remain deliberate overrides.
+- Use `remove_style_pack` when the user wants to remove the applied Brand Kit pack. It detaches
+  pack-token bindings from layers and component snapshots, removes the pack's named tokens, and
+  preserves materialized styles, animation, update timing and unrelated custom tokens. A default
+  pack kit name returns to `Brand Kit`; a custom kit name is retained. It does not restore the
+  appearance from before the pack was applied. The operation is undoable and available in the UI
+  under Brand Kit → Remove applied pack.
 - Text outlines use static `strokeColor` plus an independent, non-negative numeric `strokeWidth`
   track. Use them for legibility over unpredictable video, especially sports and score graphics.
   Keep `paint-order: stroke fill` semantics by authoring through Studio rather than simulating an
@@ -194,11 +248,28 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   against lower layers inside OGraf Studio's isolated transparent composition; they never blend
   against a controller's external video bed. Do not rely on the editor checkerboard as source
   imagery, and keep a normal-mode fallback when a target renderer has not been smoke-tested.
-- Rectangle and ellipse `fill` accepts a solid color string or a complete linear/radial/conic
-  gradient object. Bind the whole gradient through a `gradient` data field; individual stop paths
-  are not binding targets. Animate a stop position with the numeric property
+- Rectangle, ellipse, path, and pattern `fill` accept a solid color string or a complete linear/radial/conic
+  gradient object. Bind the whole gradient through a `gradient` data field; color fields can target `fill.stops[N].color`. Animate a stop position with the numeric property
   `fill.stops[N].offset`, using a zero-based stop index and values from 0 to 1. Prefer three-stop
   transparent/bright/transparent tracks for deterministic glint sweeps.
+- Use a gradient directly on a path for illuminated letterforms; `fillRule: "evenodd"` preserves
+  nested holes regardless of winding. Keep the original `d` and viewBox; avoid inverse stencils
+  or duplicated geometry merely to paint a gradient. Paths support the same fill bindings and
+  `fill.stops[N].offset` lifecycle/local-loop tracks as rectangles.
+- Use `set_layer_mask` for a separate matte. Select the target by `layerId` or `layerName` and the
+  source by `sourceLayerId` or `sourceLayerName`; earlier creations in the same batch resolve by
+  name. `mode: "alpha"` uses painted transparency, opacity, blur and shadows from rectangle,
+  ellipse, path, pattern or image sources. `mode: "path"` uses rectangle/ellipse/path/pattern geometry and fillRule,
+  ignoring source paint, stroke, opacity and effects. Any supported layer kind may be the target.
+  Set `inverted: true` to reveal the complement inside the target bounds. Text, sequences and
+  Lottie are not mask sources; use a vector path or alpha image for those mattes.
+- `hideSource` defaults to true and sets source `isMaskOnly`; it remains selectable in Layers and
+  usable by multiple targets. Do not hide it with `isVisible: false`, which disables its mask
+  contribution. `set_layer_flags isMaskOnly: false` shows its normal output again. Detach with
+  `sourceLayerId: null`; detaching does not unhide a shared source. Animate the source's own tracks
+  or local loop; do not duplicate its movement onto the target. Mask chains must be acyclic and
+  stay within one composition/runtime-collection prototype. Include mask sources in component
+  selections; duplication remaps included sources. Detach consumers before deleting a source.
 - Keep frames integral and within the composition duration. When a millisecond request is not an
   integer frame at the authored rate, report the exact fractional mapping and choose down, nearest,
   or up explicitly; do not silently round.
@@ -216,7 +287,8 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 - Use `ograf_reset_project` with explicit confirmation for a genuinely fresh visible session; the
   reset is an undoable agent transaction. Do not manually tear down every layer and field.
 - Never write project JSON or construct a package outside the MCP save/export tools; doing so bypasses certification.
-- If the editor is disconnected and you have browser control, open it at localhost:5173 yourself before reporting blocked
+- If the editor is disconnected and you have browser control, open the configured Studio URL:
+  the MCP origin for a standalone server, or localhost:5173 for the separate Vite development setup.
 
 ## References
 

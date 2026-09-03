@@ -40,5 +40,5 @@ export function timelineTrackColorForProperty(property: AnimatableLayerProperty)
   if (stopIndex !== null) {
     return GRADIENT_STOP_TRACK_COLORS[stopIndex % GRADIENT_STOP_TRACK_COLORS.length]!;
   }
-  return TIMELINE_PROPERTY_TRACK_COLORS[property as FixedTimelineProperty];
+  return TIMELINE_PROPERTY_TRACK_COLORS[property as FixedTimelineProperty] ?? '#8c9eff';
 }

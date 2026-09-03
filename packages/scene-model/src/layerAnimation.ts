@@ -1,4 +1,12 @@
 import { normalizeLayerEffects } from './layerEffects';
+import {
+  effectParameterSpec,
+  effectParameterValue,
+  numericEffectProperties,
+  parseEffectProperty,
+  sampleEffectStack,
+  getEffectStack,
+} from './effectStack';
 import type {
   AnimatableLayerProperty,
   CubicBezierCurve,
@@ -79,7 +87,8 @@ export function isGradientStopOffsetProperty(
 export function isAnimatableLayerProperty(property: string): property is AnimatableLayerProperty {
   return (
     ANIMATABLE_LAYER_PROPERTIES.includes(property as AnimatableLayerProperty) ||
-    isGradientStopOffsetProperty(property)
+    isGradientStopOffsetProperty(property) ||
+    (parseEffectProperty(property) !== null && !property.endsWith('.color'))
   );
 }
 
@@ -87,10 +96,20 @@ export function isAnimatableLayerPropertyApplicable(
   layer: Layer,
   property: AnimatableLayerProperty,
 ): boolean {
+  if (parseEffectProperty(property))
+    return typeof effectParameterSpec(layer.effects, property)?.default === 'number';
+  if (property === 'blur') return getEffectStack(layer.effects).some((e) => e.legacy === 'blur');
+  if (property.startsWith('dropShadow'))
+    return getEffectStack(layer.effects).some((e) => e.legacy === 'drop-shadow');
   return property !== 'strokeWidth' || layer.element.type === 'text';
 }
 
-export function animatablePropertyLabel(property: AnimatableLayerProperty): string {
+export function animatablePropertyLabel(property: AnimatableLayerProperty, layer?: Layer): string {
+  const effectPath = parseEffectProperty(property);
+  if (effectPath) {
+    const effect = layer?.effects.stack?.find((e) => e.id === effectPath.id);
+    return `${effect?.name ?? 'Effect ' + effectPath.id.slice(-6)} · ${layer ? (effectParameterSpec(layer.effects, property)?.label ?? effectPath.param) : effectPath.param}`;
+  }
   const stopIndex = gradientStopIndexForProperty(property);
   return stopIndex === null
     ? (ANIMATABLE_PROPERTY_LABELS[property] ?? property)
@@ -99,12 +118,16 @@ export function animatablePropertyLabel(property: AnimatableLayerProperty): stri
 
 export function getLayerAnimatableProperties(layer: Layer): AnimatableLayerProperty[] {
   const properties = new Set<AnimatableLayerProperty>(
-    ANIMATABLE_LAYER_PROPERTIES.filter(
-      (property) => property !== 'strokeWidth' || layer.element.type === 'text',
+    ANIMATABLE_LAYER_PROPERTIES.filter((property) =>
+      isAnimatableLayerPropertyApplicable(layer, property),
     ),
   );
+  for (const property of numericEffectProperties(layer.effects)) properties.add(property);
   const fill =
-    layer.element.type === 'rectangle' || layer.element.type === 'ellipse'
+    layer.element.type === 'rectangle' ||
+    layer.element.type === 'ellipse' ||
+    layer.element.type === 'path' ||
+    layer.element.type === 'pattern'
       ? layer.element.fill
       : null;
   if (fill && typeof fill !== 'string') {
@@ -132,7 +155,10 @@ export function getLayerAnimatableProperties(layer: Layer): AnimatableLayerPrope
 /** Removes stop tracks that no longer have a target after a paint kind/stop-count edit. */
 export function pruneInvalidGradientStopTracks(layer: Layer): void {
   const fill =
-    layer.element.type === 'rectangle' || layer.element.type === 'ellipse'
+    layer.element.type === 'rectangle' ||
+    layer.element.type === 'ellipse' ||
+    layer.element.type === 'path' ||
+    layer.element.type === 'pattern'
       ? layer.element.fill
       : null;
   for (const property of Object.keys(layer.animationTracks ?? {})) {
@@ -291,6 +317,12 @@ export function sortLayerPropertyKeyframes(
 }
 
 function staticPropertyValue(layer: Layer, property: AnimatableLayerProperty): number {
+  if (parseEffectProperty(property)) {
+    const value = effectParameterValue(layer.effects, property);
+    if (typeof value !== 'number')
+      throw Error(`Layer "${layer.name}" has no numeric effect parameter ${property}.`);
+    return value;
+  }
   if (TRANSFORM_ANIMATION_PROPERTIES.includes(property as keyof LayerTransform)) {
     const first = sortLayerKeyframes(layer.keyframes)[0];
     if (!first) throw new Error(`Layer "${layer.name}" has no animation keyframes.`);
@@ -299,7 +331,10 @@ function staticPropertyValue(layer: Layer, property: AnimatableLayerProperty): n
   const stopIndex = gradientStopIndexForProperty(property);
   if (stopIndex !== null) {
     const fill =
-      layer.element.type === 'rectangle' || layer.element.type === 'ellipse'
+      layer.element.type === 'rectangle' ||
+      layer.element.type === 'ellipse' ||
+      layer.element.type === 'path' ||
+      layer.element.type === 'pattern'
         ? layer.element.fill
         : null;
     if (!fill || typeof fill === 'string' || !fill.stops[stopIndex]) {
@@ -429,12 +464,15 @@ export function getLayerTransformAtFrame(layer: Layer, frame: number): LayerTran
 }
 
 export function getLayerEffectsAtFrame(layer: Layer, frame: number): LayerEffects {
-  return normalizeLayerEffects({
-    ...layer.effects,
-    blur: getLayerPropertyValueAtFrame(layer, 'blur', frame),
-    dropShadowOpacity: getLayerPropertyValueAtFrame(layer, 'dropShadowOpacity', frame),
-    dropShadowOffsetX: getLayerPropertyValueAtFrame(layer, 'dropShadowOffsetX', frame),
-    dropShadowOffsetY: getLayerPropertyValueAtFrame(layer, 'dropShadowOffsetY', frame),
-    dropShadowBlur: getLayerPropertyValueAtFrame(layer, 'dropShadowBlur', frame),
-  });
+  return sampleEffectStack(
+    normalizeLayerEffects({
+      ...layer.effects,
+      blur: getLayerPropertyValueAtFrame(layer, 'blur', frame),
+      dropShadowOpacity: getLayerPropertyValueAtFrame(layer, 'dropShadowOpacity', frame),
+      dropShadowOffsetX: getLayerPropertyValueAtFrame(layer, 'dropShadowOffsetX', frame),
+      dropShadowOffsetY: getLayerPropertyValueAtFrame(layer, 'dropShadowOffsetY', frame),
+      dropShadowBlur: getLayerPropertyValueAtFrame(layer, 'dropShadowBlur', frame),
+    }),
+    (property, value) => getTrackValueAtFrame(layer.animationTracks[property] ?? [], frame, value),
+  );
 }

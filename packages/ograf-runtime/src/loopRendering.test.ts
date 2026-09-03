@@ -5,13 +5,18 @@ import {
   createLayerEffects,
   createLayerLoopClip,
   createTextElement,
+  createLayerOfKind,
+  addEffect,
+  effectProperty,
+  effectParameterValue,
+  type EffectParameterProperty,
 } from '@ograf-editor/scene-model';
 import {
   compiledLoopElapsedFrames,
   interpolateCompiledLayerVisualState,
   sampleCompiledLayerVisualState,
 } from './loopRendering';
-import { resolveBoundElement } from './renderElement';
+import { resolveBoundElement, resolveBoundEffects } from './renderElement';
 
 function layer(): CompiledLayer {
   return {
@@ -63,6 +68,75 @@ function layer(): CompiledLayer {
 }
 
 describe('compiled loop sampling', () => {
+  it('samples stacked effect keys, loops, live overrides and direct exits deterministically', () => {
+    const authored = createLayerOfKind('rectangle'),
+      fx = addEffect(authored, 'glow'),
+      p = effectProperty(fx, 'radius') as EffectParameterProperty;
+    const compiled = layer();
+    compiled.effects = authored.effects;
+    compiled.animationTracks[p] = [
+      { id: 'a', frame: 0, value: 10, easing: 'linear' },
+      { id: 'b', frame: 20, value: 30, easing: 'linear' },
+    ];
+    compiled.loop!.tracks[p] = [
+      { id: 'la', frame: 0, value: 2, easing: 'linear' },
+      { id: 'lb', frame: 10, value: 20, easing: 'linear' },
+      { id: 'lc', frame: 20, value: 2, easing: 'linear' },
+    ];
+    const peak = sampleCompiledLayerVisualState(compiled, 0, 10),
+      repeat = sampleCompiledLayerVisualState(compiled, 0, 30);
+    expect(effectParameterValue(peak.effects, p)).toBe(20);
+    expect(repeat).toEqual(peak);
+    expect(effectParameterValue(sampleCompiledLayerVisualState(compiled, 0, 0).effects, p)).toBe(2);
+    const exit = interpolateCompiledLayerVisualState(
+      compiled,
+      peak,
+      sampleCompiledLayerVisualState(compiled, 20),
+      0.5,
+      20,
+    );
+    expect(effectParameterValue(exit.effects, p)).toBe(25);
+    compiled.bindings = [
+      { dataKey: 'softness', targetProperty: p },
+      { dataKey: 'accent', targetProperty: effectProperty(fx, 'color') },
+    ];
+    const live = sampleCompiledLayerVisualState(compiled, 0, 10, {
+      softness: 7,
+      accent: '#ff9900',
+    });
+    expect(effectParameterValue(live.effects, p)).toBe(7);
+    expect(effectParameterValue(live.effects, effectProperty(fx, 'color'))).toBe('#ff9900');
+  });
+  it('recolors gradient stops, outlines and animated shadows without modifying source data or loop time', () => {
+    const compiled = layer();
+    if (compiled.element.type !== 'rectangle') throw Error();
+    compiled.element.fill = {
+      type: 'linear',
+      angle: 110,
+      stops: [
+        { offset: 0, color: '#ffffff', opacity: 0 },
+        { offset: 1, color: '#ffffff', opacity: 1 },
+      ],
+    };
+    compiled.bindings = [
+      { dataKey: 'accent', targetProperty: 'fill.stops[1].color' },
+      { dataKey: 'accent', targetProperty: 'strokeColor' },
+      { dataKey: 'accent', targetProperty: 'dropShadowColor' },
+    ];
+    const before = structuredClone(compiled),
+      data = { accent: '#aabbcc' };
+    expect(resolveBoundElement(compiled, data)).toHaveProperty('fill.stops.1.color', '#aabbcc');
+    expect(resolveBoundElement(compiled, data)).toHaveProperty('fill.stops.0.opacity', 0);
+    expect(resolveBoundElement(compiled, data)).toHaveProperty('strokeColor', '#aabbcc');
+    expect(resolveBoundEffects(compiled, data).dropShadowColor).toBe('#aabbcc');
+    expect(sampleCompiledLayerVisualState(compiled, 0, 10, data).effects.dropShadowColor).toBe(
+      '#aabbcc',
+    );
+    expect(sampleCompiledLayerVisualState(compiled, 0, 10, data).transform).toEqual(
+      sampleCompiledLayerVisualState(compiled, 0, 10).transform,
+    );
+    expect(compiled).toEqual(before);
+  });
   it('resolves lifecycle and Step loop activation windows', () => {
     const compiled = layer();
     const descriptor = {

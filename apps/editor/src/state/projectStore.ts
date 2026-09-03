@@ -1,9 +1,27 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import {
+  assertMaskSourcesRemovable,
+  layerMaskErrors,
+  addEffect,
+  ensureLegacyEffects,
+  updateEffect,
+  removeEffect,
+  duplicateEffect,
+  reorderEffects,
+  effectProperty,
+  type EffectType,
+  type EffectPatch,
   createAsset,
   applyDesignTokenBinding,
+  bindFieldDefaultToken,
+  syncDesignTokenFieldDefaults,
   applyStylePack,
+  setTilingPattern,
+  removeTilingPattern,
+  addTilingPatternLayer,
+  type TilingPattern,
+  removeStylePack,
   dataUriByteSize,
   findAssetConsumers,
   buildComponentDefinition,
@@ -97,8 +115,9 @@ import { buildSvgBundle } from './svgBundleImport';
 
 export type { NewLayerKind } from '@ograf-editor/scene-model';
 
-export type ElementFields = { fill: Paint } & Omit<RectangleElement, 'type' | 'fill'> &
-  Omit<EllipseElement, 'type' | 'fill'> &
+export type ElementFields = { fill: Paint } & Omit<RectangleElement, 'type' | 'fill'> & {
+    patternId: string;
+  } & Omit<EllipseElement, 'type' | 'fill'> &
   Omit<TextElement, 'type'> &
   Omit<ImageElement, 'type'> &
   Omit<PathElement, 'type' | 'fill'> &
@@ -136,6 +155,9 @@ interface ProjectActions {
   removeCanvasGuide: (guideId: string) => void;
 
   addLayer: (kind: NewLayerKind) => string;
+  setTilingPattern: (patch: Partial<Omit<TilingPattern, 'id'>>, patternId?: string) => string;
+  removeTilingPattern: (patternId: string) => void;
+  addPatternInstance: (patternId: string) => string;
   addLowerThird: () => MaterializedLowerThird;
   addBug: () => MaterializedBroadcastRecipe;
   addTicker: () => MaterializedBroadcastRecipe;
@@ -227,6 +249,11 @@ interface ProjectActions {
   ) => void;
   updateLayerPaint: (layerId: string, frame: number, paint: Paint) => void;
   updateLayerEffects: (layerId: string, frame: number, patch: Partial<LayerEffects>) => void;
+  addLayerEffect: (layerId: string, type: EffectType) => void;
+  updateLayerEffect: (layerId: string, effectId: string, patch: EffectPatch, frame: number) => void;
+  removeLayerEffect: (layerId: string, effectId: string) => void;
+  duplicateLayerEffect: (layerId: string, effectId: string) => void;
+  reorderLayerEffects: (layerId: string, effectIds: string[]) => void;
   renameLayer: (layerId: string, name: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
   toggleLayerGuide: (layerId: string) => void;
@@ -236,10 +263,13 @@ interface ProjectActions {
   ungroupLayers: (layerIds: string[]) => void;
   setLayerParent: (layerId: string, parentId: string | null) => void;
   setLayerClipChildren: (layerId: string, clipChildren: boolean) => void;
+  setLayerMask: (layerId: string, mask: Layer['mask'], hideSource?: boolean) => void;
+  setLayerMaskOnly: (layerId: string, value: boolean) => void;
   setLayerConstraints: (layerId: string, constraints: Partial<LayerConstraints>) => void;
   setLayerSemantics: (layerId: string, patch: Partial<LayerSemantics>) => void;
   setDesignSystemName: (name: string) => void;
   applyStylePack: (stylePack: StylePackId) => AppliedStylePack;
+  removeStylePack: () => void;
   addDesignToken: (type?: DesignTokenType) => string;
   updateDesignToken: (tokenId: string, patch: Partial<Omit<DesignToken, 'id'>>) => void;
   removeDesignToken: (tokenId: string) => void;
@@ -279,6 +309,7 @@ interface ProjectActions {
         | 'description'
         | 'type'
         | 'defaultValue'
+        | 'defaultTokenId'
         | 'required'
         | 'options'
         | 'constraints'
@@ -631,6 +662,15 @@ export const useProjectStore = create<ProjectStore>()(
         }),
 
       addLayer: (kind) => {
+        if (kind === 'pattern') {
+          let id = '';
+          set((state) => {
+            const c = getActiveComposition(state.project, state.activeCompositionId);
+            const p = setTilingPattern(c, {});
+            id = addTilingPatternLayer(c, p.id);
+          });
+          return id;
+        }
         const layer = createLayerOfKind(kind);
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
@@ -662,6 +702,34 @@ export const useProjectStore = create<ProjectStore>()(
           result = materializeLowerThird(composition);
         });
         return result;
+      },
+      setTilingPattern: (patch, patternId) => {
+        let id = '';
+        set((state) => {
+          id = setTilingPattern(
+            getActiveComposition(state.project, state.activeCompositionId),
+            patch,
+            patternId,
+          ).id;
+        });
+        return id;
+      },
+      removeTilingPattern: (patternId) =>
+        set((state) => {
+          removeTilingPattern(
+            getActiveComposition(state.project, state.activeCompositionId),
+            patternId,
+          );
+        }),
+      addPatternInstance: (patternId) => {
+        let id = '';
+        set((state) => {
+          id = addTilingPatternLayer(
+            getActiveComposition(state.project, state.activeCompositionId),
+            patternId,
+          );
+        });
+        return id;
       },
 
       addBug: () => {
@@ -746,6 +814,13 @@ export const useProjectStore = create<ProjectStore>()(
               name,
               groupId: source.groupId ? (groupMap.get(source.groupId) ?? null) : null,
               parentId: source.parentId ? (idMap.get(source.parentId) ?? null) : null,
+              mask: source.mask
+                ? {
+                    ...source.mask,
+                    sourceLayerId:
+                      idMap.get(source.mask.sourceLayerId) ?? source.mask.sourceLayerId,
+                  }
+                : null,
               keyframes: source.keyframes.map((keyframe) =>
                 createLayerKeyframe(
                   keyframe.frame,
@@ -814,6 +889,7 @@ export const useProjectStore = create<ProjectStore>()(
             return;
           }
           if (composition.layers.find((layer) => layer.id === layerId)?.isLocked) return;
+          assertMaskSourcesRemovable(composition, new Set([layerId]));
           composition.layers = composition.layers.filter((l) => l.id !== layerId);
           for (const layer of composition.layers) {
             if (layer.parentId === layerId) layer.parentId = null;
@@ -1418,7 +1494,10 @@ export const useProjectStore = create<ProjectStore>()(
           if (
             !layer ||
             layer.isLocked ||
-            (layer.element.type !== 'rectangle' && layer.element.type !== 'ellipse')
+            (layer.element.type !== 'rectangle' &&
+              layer.element.type !== 'ellipse' &&
+              layer.element.type !== 'path' &&
+              layer.element.type !== 'pattern')
           ) {
             return;
           }
@@ -1459,6 +1538,50 @@ export const useProjectStore = create<ProjectStore>()(
           pruneInvalidGradientStopTracks(layer);
         }),
 
+      addLayerEffect: (layerId, type) =>
+        set((state) => {
+          const layer = getActiveComposition(state.project, state.activeCompositionId).layers.find(
+            (l) => l.id === layerId,
+          );
+          if (layer && !layer.isLocked) addEffect(layer, type);
+        }),
+      updateLayerEffect: (layerId, effectId, patch, frame) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId),
+            layer = composition.layers.find((l) => l.id === layerId);
+          if (!layer || layer.isLocked) return;
+          const effect = updateEffect(layer, effectId, patch),
+            boundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
+          for (const [param, value] of Object.entries(patch.params ?? {}))
+            if (typeof value === 'number')
+              upsertPropertyKeyframe(
+                layer,
+                effectProperty(effect, param) as AnimatableLayerProperty,
+                boundedFrame,
+                value,
+              );
+        }),
+      removeLayerEffect: (layerId, effectId) =>
+        set((state) => {
+          const layer = getActiveComposition(state.project, state.activeCompositionId).layers.find(
+            (l) => l.id === layerId,
+          );
+          if (layer && !layer.isLocked) removeEffect(layer, effectId);
+        }),
+      duplicateLayerEffect: (layerId, effectId) =>
+        set((state) => {
+          const layer = getActiveComposition(state.project, state.activeCompositionId).layers.find(
+            (l) => l.id === layerId,
+          );
+          if (layer && !layer.isLocked) duplicateEffect(layer, effectId);
+        }),
+      reorderLayerEffects: (layerId, effectIds) =>
+        set((state) => {
+          const layer = getActiveComposition(state.project, state.activeCompositionId).layers.find(
+            (l) => l.id === layerId,
+          );
+          if (layer && !layer.isLocked) reorderEffects(layer, effectIds);
+        }),
       updateLayerEffects: (layerId, frame, patch) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
@@ -1468,7 +1591,10 @@ export const useProjectStore = create<ProjectStore>()(
             0,
             Math.min(getTotalFrames(composition), Math.round(frame)),
           );
-          const normalized = normalizeLayerEffects({ ...layer.effects, ...patch });
+          const normalized = ensureLegacyEffects(
+            normalizeLayerEffects({ ...layer.effects, ...patch }),
+            patch,
+          );
           layer.effects = normalized;
           for (const property of EFFECT_ANIMATION_PROPERTIES) {
             if (patch[property] !== undefined) {
@@ -1719,6 +1845,28 @@ export const useProjectStore = create<ProjectStore>()(
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
           if (layer) layer.clipChildren = clipChildren;
         }),
+      setLayerMask: (layerId, mask, hideSource = true) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          layer.mask = mask;
+          const errors = layerMaskErrors(composition);
+          if (errors.length) throw new Error(errors.join(' '));
+          if (mask && hideSource) {
+            const source = composition.layers.find(
+              (candidate) => candidate.id === mask.sourceLayerId,
+            )!;
+            if (source.isLocked) throw new Error(`Unlock mask source "${source.name}" first.`);
+            source.isMaskOnly = true;
+          }
+        }),
+      setLayerMaskOnly: (layerId, value) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (layer && !layer.isLocked) layer.isMaskOnly = value;
+        }),
 
       setLayerConstraints: (layerId, constraints) =>
         set((state) => {
@@ -1760,6 +1908,10 @@ export const useProjectStore = create<ProjectStore>()(
         });
         return result;
       },
+      removeStylePack: () =>
+        set((state) => {
+          removeStylePack(getActiveComposition(state.project, state.activeCompositionId));
+        }),
 
       addDesignToken: (type = 'color') => {
         const tokenId = createId('design-token');
@@ -1800,6 +1952,7 @@ export const useProjectStore = create<ProjectStore>()(
           next.description = next.description.trim();
           next.value = normalizeDesignTokenValue(next.type, next.value);
           Object.assign(token, next);
+          syncDesignTokenFieldDefaults(composition, token.id);
           for (const layer of composition.layers) {
             for (const binding of layer.designTokenBindings.filter(
               (candidate) => candidate.tokenId === token.id,
@@ -1813,6 +1966,7 @@ export const useProjectStore = create<ProjectStore>()(
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           if (
+            composition.dataFields.some((field) => field.defaultTokenId === tokenId) ||
             composition.layers.some((layer) =>
               layer.designTokenBindings.some((binding) => binding.tokenId === tokenId),
             )
@@ -2045,6 +2199,10 @@ export const useProjectStore = create<ProjectStore>()(
             else nextPatch.key = trimmed;
           }
           Object.assign(field, nextPatch);
+          if (nextPatch.defaultTokenId !== undefined)
+            bindFieldDefaultToken(composition, field, nextPatch.defaultTokenId);
+          else if (nextPatch.defaultValue !== undefined || nextPatch.type !== undefined)
+            delete field.defaultTokenId;
           if (nextPatch.type !== undefined && nextPatch.type !== 'array') {
             composition.runtimeCollections = composition.runtimeCollections.filter(
               (collection) => collection.fieldId !== field.id,

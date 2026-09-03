@@ -1,14 +1,50 @@
 # Current Status
 
-Last verified: 2026-09-02
+Last verified: 2026-09-03
 
-Current release: **OGraf Studio 0.10**
+Current release: **OGraf Studio 0.11**
 
 ## Current milestone
 
 AI-first broadcast authoring and OGraf compliance hardening.
 
 ## Working
+
+- Interface text is one pixel smaller: 13 px primary, 12 px compact, and 11 px context-menu
+  labels. Authored/preview graphic typography is unchanged. The update is installed on port 4318;
+  see `handovers/2026-09-03-interface-text.md`.
+
+- Composable effects stack is implemented in document v28: ordered blur, drop-shadow, glow,
+  brightness, contrast, saturation and hue instances with add/edit/duplicate/bypass/remove/reorder
+  controls. Stable effect IDs address independent numeric tracks, loops, Brand Kit tokens and
+  runtime bindings. Existing blur/shadow tracks remain compatible; old graphics render unchanged.
+  UI/MCP and CSS/SVG-mask rendering share the same stack. Latest handover:
+  `handovers/2026-09-02-composable-effects-stack.md`.
+
+- Procedural tiling with shared controls is implemented in document v27. Named vector symbols,
+  seeded spacing, fitted row counts, alternating direction, whole-cycle row speeds, phase and
+  per-row overrides drive linked fill/outline/glow/mask layers. Resources → Patterns and the
+  Inspector edit the same definition. MCP creates/edits by ID or name, exposes definitions and
+  samples row motion. Skill examples and generated in-app instructions cover the full workflow.
+  Vector sources are supported; arbitrary image/text tile sources remain outside this feature.
+- Brand Kit color links can target individual gradient stop colors and shadow colors, preserving
+  transparent glints, shaded faces, blur and animation. Inspector and MCP expose the same targets.
+- Brand Kit is a standalone dockable pane, removed from the Resources tree, with direct palette
+  swatches and Window-menu recovery. Existing dock layouts add it without discarding saved panes.
+  Live OGraf bindings expose gradient-stop, outline and shadow colors. Color-field `defaultTokenId`
+  links materialize Brand Kit edits into GDD defaults while playback data overrides them. The current
+  transparent O/D graphic has ten linked color inputs; exported realtime updates and scheduled
+  rewind/replay preserve colors, gradient transparency and shared motion phase.
+
+- Native gradient path fills and vector/image alpha/path masks are implemented in document v26.
+  Path fills support linear/radial/conic paint, fill-rule holes, data binding and gradient-stop
+  tracks. Masks support source-only layers, inversion, chains, clipping, independent source
+  animation, and remapped duplication/components/collections. Inspector controls, canonical MCP
+  operations/capabilities/queries, and the authoring skill expose the same features. Text, Lottie
+  and image-sequence mask sources are explicitly unsupported in this profile.
+- Brand Kit shows the applied pack and an undoable **Remove applied pack** action.
+  The matching MCP `remove_style_pack` operation removes pack tokens and bindings, including
+  component snapshots, while retaining current appearance, timing, custom tokens and kit names.
 
 - The repository is licensed under GNU AGPL v3.0 only (`AGPL-3.0-only`); the root `LICENSE`, root
   package, and every private workspace manifest carry the same licensing declaration.
@@ -87,7 +123,7 @@ AI-first broadcast authoring and OGraf compliance hardening.
   compact disclosure row whose existing metadata and actions appear only when expanded. Expansion
   is local UI state and does not alter `.ogs`.
 - Studio chrome now projects the shared Zero Density/RealityHub visual system: locally bundled
-  Nunito and one monospace diagnostics family at exactly 14 px primary and 13 px compact sizes,
+  Nunito and one monospace diagnostics family at exactly 13 px primary and 12 px compact sizes,
   charcoal `#1c1c1c`/`#232323`/`#2e2e2e` surfaces, `#dadada`/`#aaaaaa` text, `#399ed4` active tabs,
   `#60d0ff` focus, and flat 0/2 px geometry. Buttons, inputs, selects, textareas, scrollbars, menus,
   toolbars, dock tabs/groups, selections, and floating panes follow the contract; authored
@@ -546,6 +582,11 @@ AI-first broadcast authoring and OGraf compliance hardening.
 
 ## Next milestone
 
+- Next after the effects stack: unified Looping Pattern lighting controls for sweep timing/phase,
+  intensity and glow. Native path gradients/masks, procedural row motion and shared lighting
+  colors are already implemented. The user requested this remaining controller as the next step;
+  the task follow-up `shared-pattern-lighting-next` waits for the effects-stack handover.
+
 - W4's certified golden template corpus and read-only template MCP tools remain the next major
   quality-content item and require explicit design direction/reference examples. Headless
   render/certify remains explicitly gated.
@@ -564,9 +605,9 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
 ## Verification baseline
 
 - `npm run verify`: passed on 2026-09-02, including generated MCP contract and in-app prompt drift,
-  format, lint, all workspace typechecks, 423 tests across 87 files, the runtime bundle, and the editor production
+  format, lint, all workspace typechecks, 466 tests across 95 files, the runtime bundle, and the editor production
   build. The production bundle still emits the documented large-chunk advisory.
-- The 423-test baseline includes standalone static/embedded asset delivery, CLI/workspace parsing,
+- The baseline includes standalone static/embedded asset delivery, CLI/workspace parsing,
   normal-versus-standalone bridge URL isolation, timeline, transport, scrubbing, canvas zoom, OGraf-step playback,
   Lottie document/frame/validation coverage,
   keyboard shortcuts, preset, transform-gesture, Alpha,
@@ -584,6 +625,12 @@ See `docs/KNOWN_ISSUES.md`. The current output must not be described as broadcas
   presets, clipping-aware design visibility, schema discovery, and compiled lower-third clip
   relations. A generated default wipe scored 100 with zero design findings and passed all five
   exact dual-mode certification gates.
+- Procedural tiling: source/resource sharing, seeded layout/seams, atomic invalid-input rejection,
+  named MCP patches, row sampling, package round trips and retained in-app guidance are covered.
+  Live exported-package checks passed realtime movement, deterministic reverse seeking, all 119
+  shared plane/mask row offsets, a 96-second seam, and independence from a 37-frame effect loop.
+  Installed Windows server and certified O/D source/package passed all five artifact gates.
+  See `handovers/2026-09-02-procedural-tiling.md` for paths and deployment evidence.
 - W6/W7 live verification: one Sports pack transaction created scoreboard, clock, bug, and ticker
   recipes with complete mappings and scored 99/100. Browser PNG showed one coherent package; ticker
   sampling moved the crawl from X=1800 to X=-468 at half of its 472-frame local loop while its

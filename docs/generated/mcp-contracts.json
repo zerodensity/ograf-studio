@@ -5,7 +5,7 @@
     {
       "name": "ograf_get_capabilities",
       "title": "Get OGraf authoring capabilities",
-      "description": "Returns element schemas/defaults, binding targets, animation/easing semantics, safe authoring rules, the browser-dependent tool list, and live editor connection/responsiveness/latency. Omit sections for the complete backward-compatible payload; otherwise request only elements, easing, semantics, designSystem, loops, bindings, and/or editor to reduce context. Important semantics: higher layer indexes paint later/on top, and a property key easing/curve governs the segment ending at that key (incoming). liveEditorConnected is a deprecated combined alias; use editor.connected and editor.responsive.",
+      "description": "Discover supported elements, easing, semantics, design systems, loops, bindings and editor health. Request only relevant sections; include editor before browser-dependent work. Health distinguishes connected, responsive and certificationReady. Higher layer indexes paint later; key easing is incoming.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -77,7 +77,7 @@
     {
       "name": "ograf_get_project",
       "title": "Get editable OGraf project",
-      "description": "Returns the editable project, current revision, and validation state. Read before every mutation. With no filters, the response is exactly the existing complete snapshot (backward compatible). Use include to select metadata, layers, elements, tracks, dataFields, transitions, and/or layout. tracks=full preserves both compatibility layer keyframes and canonical animationTracks; animated-only returns only canonical property tracks whose values actually change and omits redundant compatibility layer keyframes; none omits both. The default is full to preserve existing clients.",
+      "description": "Read the revisioned editable project. Omit filters for a complete snapshot, or select include sections (including patterns) and tracks=animated-only for compact reads. Preserve returned stable IDs and revision for mutations.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -94,7 +94,8 @@
                 "tracks",
                 "dataFields",
                 "transitions",
-                "layout"
+                "layout",
+                "patterns"
               ]
             }
           },
@@ -117,7 +118,7 @@
     {
       "name": "ograf_inspect_scene",
       "title": "Inspect OGraf scene",
-      "description": "Returns a compact composition/layer outline with IDs and animated-property indicators.",
+      "description": "Read a compact composition outline: layers, bindings, masks, shared patterns with resolved row periods/speeds, lifecycle and layout. Use stable IDs and revision when editing.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -137,7 +138,7 @@
     {
       "name": "ograf_query_scene",
       "title": "Query OGraf scene by semantic intent",
-      "description": "Returns a small, operation-ready layer selection instead of the full project. Filter by semantic role/tags, layer name, element type, visibility, animation, or bound data-field key. Each match includes its stable ID, semantic intent, on-frame bounds, relationships, binding field keys, and animated properties. Use returned IDs in authoring operations; an empty query intentionally returns all layers up to limit.",
+      "description": "Find stable layer IDs by semantic roles, tags, name, element type, bindings, visibility or motion. Returns geometry at a frame, mask relationships/consumers, pattern IDs and authoring links. Use for compact selection before a revision-checked edit.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -184,7 +185,16 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": ["rectangle", "ellipse", "text", "image", "path", "image-sequence", "lottie"]
+              "enum": [
+                "rectangle",
+                "ellipse",
+                "text",
+                "image",
+                "path",
+                "pattern",
+                "image-sequence",
+                "lottie"
+              ]
             }
           },
           "boundFieldKeys": {
@@ -210,7 +220,7 @@
     {
       "name": "ograf_get_timeline",
       "title": "Get OGraf property timeline",
-      "description": "Returns independent lifecycle property tracks plus any layer-local loop clip for selected layers. Loop tracks use local frames 0..durationFrames, never create OGraf Steps, and every key easing/curve applies to its incoming segment.",
+      "description": "Read independent layer property tracks, lifecycle markers and local loop clips. Optional layerIds restrict the result. Use stable key IDs for surgical edits; property easing governs the incoming segment.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -231,7 +241,7 @@
     {
       "name": "ograf_sample_tracks",
       "title": "Sample resolved OGraf layer geometry",
-      "description": "Browser-free deterministic sampling of canonical animation tracks. Returns resolved values and derived right/bottom bounds at requested integer frames, so geometric invariants can be verified even when the live editor is disconnected or unresponsive. Pass loopElapsedFrame to overlay every selected layer local loop at that absolute elapsed clip frame without mutating state. Omit layerIds for all layers. Omit properties to return properties animated by the finite or loop tracks; derived x/y/width/height/right/bottom/opacity are always included.",
+      "description": "Sample numeric tracks and procedural row offsets at selected frames without a browser. loopElapsedFrame supplies absolute on-air elapsed frames for local loops and patterns. Omitted layerIds selects all layers. Returns bounds and requested or animated properties. Read-only.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -248,28 +258,8 @@
             "minItems": 1,
             "type": "array",
             "items": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "x",
-                    "y",
-                    "width",
-                    "height",
-                    "rotation",
-                    "opacity",
-                    "transformOriginX",
-                    "transformOriginY",
-                    "strokeWidth",
-                    "blur",
-                    "dropShadowOpacity",
-                    "dropShadowOffsetX",
-                    "dropShadowOffsetY",
-                    "dropShadowBlur"
-                  ]
-                },
-                { "type": "string", "pattern": "^fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset$" }
-              ]
+              "type": "string",
+              "pattern": "^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|effects\\.[a-zA-Z0-9_-]+\\.(radius|offsetX|offsetY|opacity|amount|angle))$"
             }
           },
           "loopElapsedFrame": { "type": "number", "minimum": 0 }
@@ -309,7 +299,7 @@
     {
       "name": "ograf_capture",
       "title": "Capture browser-rendered OGraf PNG",
-      "description": "Requires a connected and responsive live browser editor. Rasterizes the authoritative browser DOM renderer to PNG without mutating the project or revision. target=composition renders one deterministic graphic frame; omit frame to capture the first Step/on-air frame, and use dataOverrides keyed by data-field key for temporary values. target=viewport captures visible editor chrome and ignores frame/matte/dataOverrides. matte=transparent preserves PNG alpha, checker provides a diagnostic grid, and #RRGGBB supplies a solid backing. The primary result is a private five-minute localhost URL; request inline base64 only when needed. resolvedFonts is best-effort/inferred.",
+      "description": "Capture browser PNG of a composition frame or live viewport; requires a responsive editor. Default frame is first Step. Composition supports matte/dataOverrides; viewport ignores them. Returns a five-minute URL; inline PNG is opt-in. Does not certify export.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -382,7 +372,7 @@
     {
       "name": "ograf_render_strip",
       "title": "Render OGraf PNG frame strip",
-      "description": "Requires a connected and responsive live browser editor. Renders up to 12 composition frames through the authoritative browser DOM renderer and composites one PNG contact sheet without mutating project state or revision. Omit frames to sample every lifecycle Start/Step/End frame plus each transition midpoint. Each requested frame is rendered independently by the real interpolation engine, so the strip reveals bad holds, pops, staggering, easing, and paint order without reimplementing animation client-side. maxDimension limits each tile’s long edge; labelFrames burns frame numbers into the sheet. matte accepts transparent, checker, or #RRGGBB. The primary result is a private five-minute localhost URL; set enableBase64Response=true only when the client cannot fetch it.",
+      "description": "Render up to 12 frames into a labelled PNG strip in the responsive editor. Defaults to lifecycle frames and transition midpoints. maxDimension applies per tile; columns/matte/labels are configurable. Five-minute URL; inline PNG is opt-in. Read-only.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -413,7 +403,7 @@
     {
       "name": "ograf_apply_operations",
       "title": "Apply, preview, or propose OGraf operations",
-      "description": "One revision-checked operation entry point. mode=apply commits one atomic batch. mode=dry-run performs browser-free validation/lint without changing revision. Set includeReview=true with apply or dry-run to append deterministic design QA and a short-lived browser capture URL when the editor is responsive; QA/apply still succeed when capture is unavailable. mode=preview renders a revision-neutral projected frame or strip in the connected editor. mode=propose presents that projection for explicit human Accept/Reject and requires sessionId=editor plus title. The operation schema appears once regardless of mode.",
+      "description": "Revision-checked atomic operations. apply commits; dry-run validates without changing revision. includeReview adds advisory QA and a capture when available; capture failure does not undo the edit. preview renders a revision-neutral frame/strip in the responsive editor. propose requires sessionId=editor and title, and waits for explicit human Accept/Reject.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -429,6 +419,186 @@
             "type": "array",
             "items": {
               "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "add_effect" },
+                    "compositionId": { "type": "string" },
+                    "layerId": { "type": "string" },
+                    "layerName": { "type": "string" },
+                    "effectType": {
+                      "type": "string",
+                      "enum": [
+                        "blur",
+                        "drop-shadow",
+                        "glow",
+                        "brightness",
+                        "contrast",
+                        "saturate",
+                        "hue-rotate"
+                      ]
+                    },
+                    "patch": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string", "minLength": 1 },
+                        "enabled": { "type": "boolean" },
+                        "params": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {
+                            "anyOf": [{ "type": "number" }, { "type": "string" }]
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "index": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["type", "effectType"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "update_effect" },
+                    "compositionId": { "type": "string" },
+                    "layerId": { "type": "string" },
+                    "layerName": { "type": "string" },
+                    "effectId": { "type": "string" },
+                    "patch": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string", "minLength": 1 },
+                        "enabled": { "type": "boolean" },
+                        "params": {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {
+                            "anyOf": [{ "type": "number" }, { "type": "string" }]
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "scope": {
+                      "default": "authored",
+                      "type": "string",
+                      "enum": ["authored", "frame"]
+                    },
+                    "frame": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["type", "effectId", "patch"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "remove_effect" },
+                    "compositionId": { "type": "string" },
+                    "layerId": { "type": "string" },
+                    "layerName": { "type": "string" },
+                    "effectId": { "type": "string" }
+                  },
+                  "required": ["type", "effectId"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "duplicate_effect" },
+                    "compositionId": { "type": "string" },
+                    "layerId": { "type": "string" },
+                    "layerName": { "type": "string" },
+                    "effectId": { "type": "string" }
+                  },
+                  "required": ["type", "effectId"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "reorder_effects" },
+                    "compositionId": { "type": "string" },
+                    "layerId": { "type": "string" },
+                    "layerName": { "type": "string" },
+                    "effectIds": { "maxItems": 16, "type": "array", "items": { "type": "string" } }
+                  },
+                  "required": ["type", "effectIds"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "set_tiling_pattern" },
+                    "compositionId": { "type": "string" },
+                    "patternId": { "type": "string" },
+                    "patternName": { "type": "string" },
+                    "patch": {
+                      "type": "object",
+                      "properties": {
+                        "fitRows": { "type": "boolean" },
+                        "name": { "type": "string", "minLength": 1 },
+                        "width": { "type": "number" },
+                        "height": { "type": "number" },
+                        "rows": { "type": "integer", "minimum": 1, "maximum": 32 },
+                        "rowHeight": { "type": "number" },
+                        "rowGap": { "type": "number" },
+                        "gap": { "type": "number" },
+                        "spacingVariation": { "type": "number", "minimum": 0, "maximum": 1 },
+                        "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+                        "offsetX": { "type": "number" },
+                        "offsetY": { "type": "number" },
+                        "direction": { "type": "string", "enum": ["left", "right", "alternate"] },
+                        "cycleFrames": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+                        "cyclesPerLoop": { "type": "integer", "minimum": 0, "maximum": 32 },
+                        "speedVariation": { "type": "number", "minimum": 0, "maximum": 1 },
+                        "phase": { "type": "number" },
+                        "rowPhaseStep": { "type": "number" },
+                        "symbols": {
+                          "minItems": 1,
+                          "maxItems": 32,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "propertyNames": { "type": "string" },
+                            "additionalProperties": {}
+                          }
+                        },
+                        "sequence": {
+                          "minItems": 1,
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "symbolKey": { "type": "string", "minLength": 1 },
+                              "gapScale": { "type": "number", "minimum": 0, "maximum": 100 }
+                            },
+                            "required": ["symbolKey", "gapScale"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "rowOverrides": {
+                          "maxItems": 32,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "propertyNames": { "type": "string" },
+                            "additionalProperties": {}
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "createLayer": { "default": true, "type": "boolean" }
+                  },
+                  "required": ["type", "patch"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "remove_tiling_pattern" },
+                    "compositionId": { "type": "string" },
+                    "patternId": { "type": "string" }
+                  },
+                  "required": ["type", "patternId"]
+                },
                 {
                   "type": "object",
                   "properties": {
@@ -560,20 +730,7 @@
                     "tokenKey": { "type": "string", "minLength": 1 },
                     "targetProperty": {
                       "type": "string",
-                      "enum": [
-                        "fill",
-                        "strokeColor",
-                        "strokeWidth",
-                        "borderRadius",
-                        "borderRadiusTopLeft",
-                        "borderRadiusTopRight",
-                        "borderRadiusBottomRight",
-                        "borderRadiusBottomLeft",
-                        "color",
-                        "fontFamily",
-                        "fontSize",
-                        "fontWeight"
-                      ]
+                      "pattern": "^(effects\\.[a-zA-Z0-9_-]+\\.(color|radius|offsetX|offsetY|opacity|amount|angle)|fill|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.color|dropShadowColor|strokeColor|strokeWidth|borderRadius(TopLeft|TopRight|BottomRight|BottomLeft)?|color|fontFamily|fontSize|fontWeight)$"
                     }
                   },
                   "required": ["type", "targetProperty"]
@@ -587,20 +744,7 @@
                     "layerName": { "type": "string" },
                     "targetProperty": {
                       "type": "string",
-                      "enum": [
-                        "fill",
-                        "strokeColor",
-                        "strokeWidth",
-                        "borderRadius",
-                        "borderRadiusTopLeft",
-                        "borderRadiusTopRight",
-                        "borderRadiusBottomRight",
-                        "borderRadiusBottomLeft",
-                        "color",
-                        "fontFamily",
-                        "fontSize",
-                        "fontWeight"
-                      ]
+                      "pattern": "^(effects\\.[a-zA-Z0-9_-]+\\.(color|radius|offsetX|offsetY|opacity|amount|angle)|fill|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.color|dropShadowColor|strokeColor|strokeWidth|borderRadius(TopLeft|TopRight|BottomRight|BottomLeft)?|color|fontFamily|fontSize|fontWeight)$"
                     }
                   },
                   "required": ["type", "targetProperty"]
@@ -874,6 +1018,7 @@
                         "text",
                         "image",
                         "path",
+                        "pattern",
                         "image-sequence",
                         "lottie"
                       ]
@@ -966,6 +1111,14 @@
                     "bindLayers": { "default": true, "type": "boolean" }
                   },
                   "required": ["type", "stylePack"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "remove_style_pack" },
+                    "compositionId": { "type": "string" }
+                  },
+                  "required": ["type"]
                 },
                 {
                   "type": "object",
@@ -1467,6 +1620,7 @@
                     "layerName": { "type": "string" },
                     "isVisible": { "type": "boolean" },
                     "isGuide": { "type": "boolean" },
+                    "isMaskOnly": { "type": "boolean" },
                     "blendMode": {
                       "type": "string",
                       "enum": [
@@ -1484,6 +1638,21 @@
                         "exclusion"
                       ]
                     }
+                  },
+                  "required": ["type"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "const": "set_layer_mask" },
+                    "compositionId": { "type": "string" },
+                    "layerId": { "type": "string" },
+                    "layerName": { "type": "string" },
+                    "sourceLayerId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "sourceLayerName": { "type": "string", "minLength": 1 },
+                    "mode": { "default": "alpha", "type": "string", "enum": ["alpha", "path"] },
+                    "inverted": { "default": false, "type": "boolean" },
+                    "hideSource": { "default": true, "type": "boolean" }
                   },
                   "required": ["type"]
                 },
@@ -1597,31 +1766,8 @@
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
                     "property": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "x",
-                            "y",
-                            "width",
-                            "height",
-                            "rotation",
-                            "opacity",
-                            "transformOriginX",
-                            "transformOriginY",
-                            "strokeWidth",
-                            "blur",
-                            "dropShadowOpacity",
-                            "dropShadowOffsetX",
-                            "dropShadowOffsetY",
-                            "dropShadowBlur"
-                          ]
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|effects\\.[a-zA-Z0-9_-]+\\.(radius|offsetX|offsetY|opacity|amount|angle))$"
                     },
                     "frame": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                     "value": { "type": "number" },
@@ -1690,31 +1836,8 @@
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
                     "property": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "x",
-                            "y",
-                            "width",
-                            "height",
-                            "rotation",
-                            "opacity",
-                            "transformOriginX",
-                            "transformOriginY",
-                            "strokeWidth",
-                            "blur",
-                            "dropShadowOpacity",
-                            "dropShadowOffsetX",
-                            "dropShadowOffsetY",
-                            "dropShadowBlur"
-                          ]
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|effects\\.[a-zA-Z0-9_-]+\\.(radius|offsetX|offsetY|opacity|amount|angle))$"
                     },
                     "keys": {
                       "minItems": 1,
@@ -1840,31 +1963,8 @@
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
                     "property": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "x",
-                            "y",
-                            "width",
-                            "height",
-                            "rotation",
-                            "opacity",
-                            "transformOriginX",
-                            "transformOriginY",
-                            "strokeWidth",
-                            "blur",
-                            "dropShadowOpacity",
-                            "dropShadowOffsetX",
-                            "dropShadowOffsetY",
-                            "dropShadowBlur"
-                          ]
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|effects\\.[a-zA-Z0-9_-]+\\.(radius|offsetX|offsetY|opacity|amount|angle))$"
                     },
                     "keys": {
                       "minItems": 1,
@@ -1954,31 +2054,8 @@
                     "layerIds": { "minItems": 1, "type": "array", "items": { "type": "string" } },
                     "layerNamePattern": { "type": "string", "minLength": 1 },
                     "property": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "x",
-                            "y",
-                            "width",
-                            "height",
-                            "rotation",
-                            "opacity",
-                            "transformOriginX",
-                            "transformOriginY",
-                            "strokeWidth",
-                            "blur",
-                            "dropShadowOpacity",
-                            "dropShadowOffsetX",
-                            "dropShadowOffsetY",
-                            "dropShadowBlur"
-                          ]
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|effects\\.[a-zA-Z0-9_-]+\\.(radius|offsetX|offsetY|opacity|amount|angle))$"
                     },
                     "keys": {
                       "minItems": 1,
@@ -2063,31 +2140,8 @@
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
                     "property": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "x",
-                            "y",
-                            "width",
-                            "height",
-                            "rotation",
-                            "opacity",
-                            "transformOriginX",
-                            "transformOriginY",
-                            "strokeWidth",
-                            "blur",
-                            "dropShadowOpacity",
-                            "dropShadowOffsetX",
-                            "dropShadowOffsetY",
-                            "dropShadowBlur"
-                          ]
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|effects\\.[a-zA-Z0-9_-]+\\.(radius|offsetX|offsetY|opacity|amount|angle))$"
                     },
                     "keyframeId": { "type": "string" },
                     "frame": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
@@ -2102,31 +2156,8 @@
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
                     "property": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "x",
-                            "y",
-                            "width",
-                            "height",
-                            "rotation",
-                            "opacity",
-                            "transformOriginX",
-                            "transformOriginY",
-                            "strokeWidth",
-                            "blur",
-                            "dropShadowOpacity",
-                            "dropShadowOffsetX",
-                            "dropShadowOffsetY",
-                            "dropShadowBlur"
-                          ]
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|effects\\.[a-zA-Z0-9_-]+\\.(radius|offsetX|offsetY|opacity|amount|angle))$"
                     },
                     "keyframeId": { "type": "string" }
                   },
@@ -2140,31 +2171,8 @@
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
                     "property": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "x",
-                            "y",
-                            "width",
-                            "height",
-                            "rotation",
-                            "opacity",
-                            "transformOriginX",
-                            "transformOriginY",
-                            "strokeWidth",
-                            "blur",
-                            "dropShadowOpacity",
-                            "dropShadowOffsetX",
-                            "dropShadowOffsetY",
-                            "dropShadowBlur"
-                          ]
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|effects\\.[a-zA-Z0-9_-]+\\.(radius|offsetX|offsetY|opacity|amount|angle))$"
                     },
                     "keyframeId": { "type": "string" },
                     "easing": {
@@ -2237,6 +2245,7 @@
                   "type": "object",
                   "properties": {
                     "type": { "type": "string", "const": "add_data_field" },
+                    "defaultTokenId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                     "compositionId": { "type": "string" },
                     "fieldType": {
                       "type": "string",
@@ -2316,6 +2325,7 @@
                   "type": "object",
                   "properties": {
                     "type": { "type": "string", "const": "update_data_field" },
+                    "defaultTokenId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                     "compositionId": { "type": "string" },
                     "fieldId": { "type": "string" },
                     "fieldKey": { "type": "string" },
@@ -2955,7 +2965,7 @@
     {
       "name": "ograf_validate_project",
       "title": "Validate editable OGraf project",
-      "description": "Runs semantic project validation but never replaces final browser certification. detail=\"summary\" (default) returns overflow counts plus only failing, clipped, or degenerate checks; detail=\"full\" preserves every per-value browser measurement. browserTextOverflow=true measures text at first Step-frame bounds using stress values. broadcastLint=true adds non-gating Step-frame safe-area, font-size, backing-aware contrast, and optional interlaced thin-rule warnings. A layer spanning the full composition width is exempt from horizontal safe-area checks; full height independently exempts vertical checks. These checks never affect certification validity or revision.",
+      "description": "Validate project semantics; optionally add browser text-overflow measurements and broadcast lint. Pass stress testValues for data-bound text. detail=summary keeps only failures/counts. Browser measurements require a responsive editor. This does not replace exact-artifact certification.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2995,7 +3005,7 @@
     {
       "name": "ograf_review_design",
       "title": "Review OGraf design and motion",
-      "description": "Runs deterministic design QA over semantic coverage, on-air bounds, text hierarchy/legibility, editable-text coverage, palette size, repeater spacing, Start/End visibility, transition pops, and extreme motion speed. It returns operation-ready layer IDs and frames. Set includeStrip=true to append a browser-rendered lifecycle/mid-transition contact sheet without changing revision.",
+      "description": "Review layout, typography, colour and motion with advisory findings and stable layer IDs. includeStrip adds browser-rendered frames when the editor is responsive. QA is not export certification or a substitute for visual judgement.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3020,7 +3030,7 @@
     {
       "name": "ograf_measure_text",
       "title": "Measure OGraf text in the browser",
-      "description": "Requires a connected and responsive live browser editor. Measures one text layer with the authoritative browser runtime without mutating project state or revision. Omit frame to measure the first Step/on-air frame; pass frame explicitly for another pose. Omit text to use the bound field defaultValue when present, otherwise authored content. appliedFontSize and appliedFitRatio report browser text fitting; appliedShrinkRatio remains the shrink-only compatibility value. degenerate=true means the selected fitting mode reached its floor and still could not fit. overflowsParent and clippedAt describe the real DOM box. resolvedFont.resolution=\"inferred\" is advisory because this bridge does not use platform-font inspection.",
+      "description": "Measure authored or replacement text in the responsive editor, defaulting to the first Step. Reports font fit, lines and overflow. degenerate means fitting failed; own-box clipping is a fault, parent clipping may be intentional. Font resolution is inferred.",
       "inputSchema": {
         "type": "object",
         "properties": {

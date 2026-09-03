@@ -1,8 +1,10 @@
 import * as z from 'zod/v4';
 import {
   BLEND_MODES,
+  EFFECT_TYPES,
   STYLE_PACK_IDS,
   type AnimatableLayerProperty,
+  type DesignTokenTargetProperty,
   type FieldValue,
 } from '@ograf-editor/scene-model';
 
@@ -63,33 +65,11 @@ export const gradientPaintSchema = z
   })
   .strict();
 
-const fixedPropertySchema = z.enum([
-  'x',
-  'y',
-  'width',
-  'height',
-  'rotation',
-  'opacity',
-  'transformOriginX',
-  'transformOriginY',
-  'strokeWidth',
-  'blur',
-  'dropShadowOpacity',
-  'dropShadowOffsetX',
-  'dropShadowOffsetY',
-  'dropShadowBlur',
-]);
-
 export const propertySchema = z
-  .union([
-    fixedPropertySchema,
-    z
-      .string()
-      .regex(
-        /^fill\.stops\[(0|[1-9]\d*)\]\.offset$/,
-        'Use fill.stops[N].offset with a zero-based gradient stop index.',
-      ),
-  ])
+  .string()
+  .regex(
+    /^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\.stops\[(0|[1-9]\d*)\]\.offset|effects\.[a-zA-Z0-9_-]+\.(radius|offsetX|offsetY|opacity|amount|angle))$/,
+  )
   .transform((value) => value as AnimatableLayerProperty);
 
 const compositionId = z.string().optional();
@@ -167,20 +147,11 @@ export const designTokenTypeSchema = z.enum([
   'font-family',
   'font-weight',
 ]);
-export const designTokenTargetPropertySchema = z.enum([
-  'fill',
-  'strokeColor',
-  'strokeWidth',
-  'borderRadius',
-  'borderRadiusTopLeft',
-  'borderRadiusTopRight',
-  'borderRadiusBottomRight',
-  'borderRadiusBottomLeft',
-  'color',
-  'fontFamily',
-  'fontSize',
-  'fontWeight',
-]);
+export const designTokenTargetPropertySchema = z
+  .string()
+  .regex(
+    /^(effects\.[a-zA-Z0-9_-]+\.(color|radius|offsetX|offsetY|opacity|amount|angle)|fill|fill\.stops\[(0|[1-9]\d*)\]\.color|dropShadowColor|strokeColor|strokeWidth|borderRadius(TopLeft|TopRight|BottomRight|BottomLeft)?|color|fontFamily|fontSize|fontWeight)$/,
+  ) as z.ZodType<DesignTokenTargetProperty>;
 
 const paintSchema = z.union([z.string().min(1), gradientPaintSchema]);
 const stylePackSchema = z.enum(STYLE_PACK_IDS);
@@ -264,7 +235,97 @@ const fieldSchemaInputSchema: z.ZodType = z.lazy(() =>
     .strict(),
 );
 
+const tilingPatch = z
+  .object({
+    fitRows: z.boolean().optional(),
+    name: z.string().min(1).optional(),
+    width: z.number().finite().optional(),
+    height: z.number().finite().optional(),
+    rows: z.number().int().min(1).max(32).optional(),
+    rowHeight: z.number().finite().optional(),
+    rowGap: z.number().finite().optional(),
+    gap: z.number().finite().optional(),
+    spacingVariation: z.number().min(0).max(1).optional(),
+    seed: z.number().int().min(0).max(2147483647).optional(),
+    offsetX: z.number().finite().optional(),
+    offsetY: z.number().finite().optional(),
+    direction: z.enum(['left', 'right', 'alternate']).optional(),
+    cycleFrames: z.number().int().min(1).max(1000000).optional(),
+    cyclesPerLoop: z.number().int().min(0).max(32).optional(),
+    speedVariation: z.number().min(0).max(1).optional(),
+    phase: z.number().finite().optional(),
+    rowPhaseStep: z.number().finite().optional(),
+    symbols: z.array(z.record(z.string(), z.unknown())).min(1).max(32).optional(),
+    sequence: z
+      .array(
+        z.object({ symbolKey: z.string().min(1), gapScale: z.number().min(0).max(100) }).strict(),
+      )
+      .min(1)
+      .max(64)
+      .optional(),
+    rowOverrides: z.array(z.record(z.string(), z.unknown())).max(32).optional(),
+  })
+  .strict();
+
+const effectPatchSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    enabled: z.boolean().optional(),
+    params: z.record(z.string(), z.union([z.number().finite(), z.string()])).optional(),
+  })
+  .strict();
+
 export const authoringOperationSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('add_effect'),
+    compositionId,
+    layerId,
+    layerName,
+    effectType: z.enum(EFFECT_TYPES),
+    patch: effectPatchSchema.optional(),
+    index: z.number().int().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal('update_effect'),
+    compositionId,
+    layerId,
+    layerName,
+    effectId: z.string(),
+    patch: effectPatchSchema,
+    scope: z.enum(['authored', 'frame']).default('authored'),
+    frame: frame.optional(),
+  }),
+  z.object({
+    type: z.literal('remove_effect'),
+    compositionId,
+    layerId,
+    layerName,
+    effectId: z.string(),
+  }),
+  z.object({
+    type: z.literal('duplicate_effect'),
+    compositionId,
+    layerId,
+    layerName,
+    effectId: z.string(),
+  }),
+  z.object({
+    type: z.literal('reorder_effects'),
+    compositionId,
+    layerId,
+    layerName,
+    effectIds: z.array(z.string()).max(16),
+  }),
+
+  z.object({
+    type: z.literal('set_tiling_pattern'),
+    compositionId,
+    patternId: z.string().optional(),
+    patternName: z.string().optional(),
+    patch: tilingPatch,
+    createLayer: z.boolean().default(true),
+  }),
+  z.object({ type: z.literal('remove_tiling_pattern'), compositionId, patternId: z.string() }),
   z.object({
     type: z.literal('set_project_metadata'),
     id: z.string().min(1).optional(),
@@ -505,7 +566,16 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('add_layer'),
     compositionId,
-    kind: z.enum(['rectangle', 'ellipse', 'text', 'image', 'path', 'image-sequence', 'lottie']),
+    kind: z.enum([
+      'rectangle',
+      'ellipse',
+      'text',
+      'image',
+      'path',
+      'pattern',
+      'image-sequence',
+      'lottie',
+    ]),
     name: z.string().optional(),
     transform: transform.optional(),
     element: z.record(z.string(), z.unknown()).optional(),
@@ -531,6 +601,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     stylePack: stylePackSchema,
     bindLayers: z.boolean().default(true),
   }),
+  z.object({ type: z.literal('remove_style_pack'), compositionId }),
   z.object({
     type: z.literal('create_lower_third'),
     compositionId,
@@ -645,7 +716,19 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     layerName,
     isVisible: z.boolean().optional(),
     isGuide: z.boolean().optional(),
+    isMaskOnly: z.boolean().optional(),
     blendMode: z.enum(BLEND_MODES).optional(),
+  }),
+  z.object({
+    type: z.literal('set_layer_mask'),
+    compositionId,
+    layerId,
+    layerName,
+    sourceLayerId: z.string().nullable().optional(),
+    sourceLayerName: z.string().min(1).optional(),
+    mode: z.enum(['alpha', 'path']).default('alpha'),
+    inverted: z.boolean().default(false),
+    hideSource: z.boolean().default(true),
   }),
   z.object({
     type: z.literal('set_layer_layout'),
@@ -806,6 +889,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('add_data_field'),
+    defaultTokenId: z.string().nullable().optional(),
     compositionId,
     fieldType: fieldTypeSchema,
     key: z.string(),
@@ -821,6 +905,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('update_data_field'),
+    defaultTokenId: z.string().nullable().optional(),
     compositionId,
     fieldId: z.string().optional(),
     fieldKey: z.string().optional(),

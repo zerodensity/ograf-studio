@@ -7,13 +7,14 @@ import {
   type FieldDefinition,
   type Layer,
   type LayerTransform,
+  type TilingPattern,
 } from '@ograf-editor/scene-model';
 import {
   applyAnimatedPaint,
   renderAnimatedElementAtTime,
   renderElementContent,
 } from '@ograf-editor/ograf-runtime';
-import { resolveEffectiveElement } from '../state/dataBinding';
+import { resolveEffectiveElement, resolveEffectiveEffects } from '../state/dataBinding';
 import { useTestDataStore } from '../state/testDataStore';
 import { useTimelineStore } from '../state/timelineStore';
 import './LayerNode.css';
@@ -28,6 +29,7 @@ interface LayerNodeProps {
   dataFields: FieldDefinition[];
   clipPath?: string;
   compositionFrameRate: number;
+  patterns: TilingPattern[];
 }
 
 /**
@@ -53,14 +55,15 @@ export function LayerNode({
   dataFields,
   clipPath,
   compositionFrameRate,
+  patterns,
 }: LayerNodeProps) {
   const testValues = useTestDataStore((s) => s.values);
   const isPlaying = useTimelineStore((s) => s.isPlaying);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const element = useMemo(
-    () => resolveEffectiveElement(layer, testValues, assets, dataFields),
-    [assets, dataFields, layer, testValues],
+    () => resolveEffectiveElement(layer, testValues, assets, dataFields, patterns),
+    [assets, dataFields, layer, testValues, patterns],
   );
 
   // THE canvas render path — deliberately the exact same `renderElementContent` the OGraf runtime
@@ -100,11 +103,17 @@ export function LayerNode({
     width: transform.width,
     height: transform.height,
     opacity: transform.opacity,
+    visibility: layer.isMaskOnly ? 'hidden' : undefined,
     mixBlendMode: layer.blendMode === 'normal' ? undefined : layer.blendMode,
     transform: `translate(${transform.x}px, ${transform.y}px) rotate(${transform.rotation}deg)`,
     transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
     filter: layerEffectsToCssFilter(
-      getLayerEffectsAtFrame(layer, useTimelineStore.getState().currentFrame),
+      resolveEffectiveEffects(
+        layer,
+        getLayerEffectsAtFrame(layer, useTimelineStore.getState().currentFrame),
+        testValues,
+        dataFields,
+      ),
     ),
     clipPath,
   };

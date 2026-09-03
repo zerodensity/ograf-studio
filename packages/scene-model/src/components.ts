@@ -1,4 +1,5 @@
 import { createId } from './id';
+import { assertMaskSourcesRemovable } from './masking';
 import {
   getLayerTransformAtFrame,
   sortLayerKeyframes,
@@ -39,6 +40,10 @@ export function buildComponentDefinition(
   if (wanted.size === 0) throw new Error('A reusable component requires at least one layer.');
   if (wanted.size !== layerIds.length) throw new Error('Component layer IDs cannot repeat.');
   const layers = composition.layers.filter((layer) => wanted.has(layer.id));
+  for (const layer of layers) {
+    if (layer.mask && !wanted.has(layer.mask.sourceLayerId))
+      throw new Error(`Include the mask source when saving component layer "${layer.name}".`);
+  }
   const missing = layerIds.filter((layerId) => !layers.some((layer) => layer.id === layerId));
   if (missing.length > 0) throw new Error(`Component layers not found: ${missing.join(', ')}`);
   const fieldIds = new Set(layers.flatMap((layer) => layer.bindings.map((item) => item.fieldId)));
@@ -91,6 +96,12 @@ export function instantiateComponentDefinition(
       : null;
     layer.parentId =
       source.parentId && sourceIds.has(source.parentId) ? layerIds[source.parentId]! : null;
+    layer.mask = source.mask
+      ? {
+          ...source.mask,
+          sourceLayerId: layerIds[source.mask.sourceLayerId] ?? source.mask.sourceLayerId,
+        }
+      : null;
     layer.keyframes = sortLayerKeyframes(
       layer.keyframes.map((key) => ({
         ...key,
@@ -202,6 +213,7 @@ export function refreshComponentInstances(
     const oldFieldIds = new Set(
       oldLayers.flatMap((layer) => layer.bindings.map((binding) => binding.fieldId)),
     );
+    assertMaskSourcesRemovable(composition, oldIds);
     composition.layers = composition.layers.filter((layer) => !oldIds.has(layer.id));
     const stillUsedFieldIds = new Set(
       composition.layers.flatMap((layer) => layer.bindings.map((binding) => binding.fieldId)),

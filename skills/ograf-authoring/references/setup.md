@@ -5,6 +5,13 @@ disconnected, or a local MCP client needs configuration.
 
 ## Start the services
 
+For the packaged standalone server, the editor, MCP, and health routes share one origin:
+`http://127.0.0.1:4318/`, `/mcp`, and `/health` by default. Follow the running server's configured
+port (for example 4319) instead of starting a second server or assuming port 5173. Standalone
+output defaults to `Documents/OGraf Studio/Projects`; `/health` reports the actual workspace root.
+
+The separate development setup below still uses Vite on port 5173.
+
 From the repository root, install once and run the editor and MCP server in separate terminals:
 
 ```powershell

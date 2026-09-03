@@ -1,4 +1,4 @@
-import { applyDesignTokenBinding } from './designSystem';
+import { applyDesignTokenBinding, syncDesignTokenFieldDefaults } from './designSystem';
 import type {
   Composition,
   DesignToken,
@@ -453,6 +453,42 @@ export function stylePackIdForComposition(composition: Composition): StylePackId
   return STYLE_PACK_IDS.includes(value as StylePackId) ? (value as StylePackId) : null;
 }
 
+/** Detaches the applied pack while retaining every already-materialized visual/timing value. */
+export function removeStylePack(
+  composition: Composition,
+): { packId: StylePackId; removedTokenIds: string[]; affectedLayerIds: string[] } | null {
+  const packId = stylePackIdForComposition(composition);
+  if (!packId) return null;
+  const pack = getStylePack(packId);
+  const keys = new Set<string>(pack.tokens.map((token) => token.key));
+  const removedTokenIds = composition.designSystem.tokens
+    .filter((token) => keys.has(token.key))
+    .map((token) => token.id);
+  const removed = new Set(removedTokenIds);
+  const affectedLayerIds: string[] = [];
+  for (const layer of [
+    ...composition.layers,
+    ...composition.components.flatMap((component) => component.layers),
+  ]) {
+    const before = layer.designTokenBindings.length;
+    layer.designTokenBindings = layer.designTokenBindings.filter(
+      (binding) => !removed.has(binding.tokenId),
+    );
+    if (before !== layer.designTokenBindings.length) affectedLayerIds.push(layer.id);
+  }
+  for (const field of [
+    ...composition.dataFields,
+    ...composition.components.flatMap((component) => component.dataFields),
+  ])
+    if (field.defaultTokenId && removed.has(field.defaultTokenId)) delete field.defaultTokenId;
+  composition.designSystem.tokens = composition.designSystem.tokens.filter(
+    (token) => !removed.has(token.id),
+  );
+  if (composition.designSystem.name === `${pack.name} Brand Kit`)
+    composition.designSystem.name = 'Brand Kit';
+  return { packId, removedTokenIds, affectedLayerIds };
+}
+
 function scaledValue(
   composition: Composition,
   definition: StylePackTokenDefinition,
@@ -539,7 +575,11 @@ function materializeLayerStyle(layer: Layer, tokenByKey: Map<string, DesignToken
   if (layer.element.type === 'rectangle') {
     affected = bind(layer, tokenByKey, 'fill') || affected;
     affected = bind(layer, tokenByKey, 'borderRadius') || affected;
-  } else if (layer.element.type === 'ellipse' || layer.element.type === 'path') {
+  } else if (
+    layer.element.type === 'ellipse' ||
+    layer.element.type === 'path' ||
+    layer.element.type === 'pattern'
+  ) {
     affected = bind(layer, tokenByKey, 'fill') || affected;
   } else if (layer.element.type === 'text') {
     for (const property of ['color', 'fontFamily', 'fontSize', 'fontWeight'] as const) {
@@ -595,6 +635,7 @@ export function applyStylePack(
       token.description = definition.description;
     }
     tokenIds[definition.key] = token.id;
+    syncDesignTokenFieldDefaults(composition, token.id);
   }
   composition.designSystem.name = `${pack.name} Brand Kit`;
   const allowed = options.bindLayerIds ? new Set(options.bindLayerIds) : null;

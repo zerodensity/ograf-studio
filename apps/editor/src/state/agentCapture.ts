@@ -1,8 +1,10 @@
 import { toCanvas } from 'html-to-image';
+import { captureMaskedCanvas } from './maskedCapture';
 import { compileDescriptor } from '@ograf-editor/codegen';
 import {
   applyAnimatedPaint,
   applyCompiledClipPaths,
+  applyCompiledMasks,
   disposeElementContent,
   expandRuntimeCollections,
   isRuntimeCollectionLayerActive,
@@ -10,6 +12,8 @@ import {
   renderElementContent,
   resolveBoundElement,
   sampleCompiledLayerVisualState,
+  compiledLoopElapsedFrames,
+  renderPatternAtElapsed,
 } from '@ograf-editor/ograf-runtime';
 import {
   getLayerTransformAtFrame,
@@ -278,7 +282,10 @@ async function rasterize(
   style?: Partial<CSSStyleDeclaration>,
 ) {
   const output = captureDimensions(originalWidth, originalHeight, maxDimension);
-  const canvas = await toCanvas(root, {
+  const render = root.querySelector('[data-ograf-layer-mask-id], [data-ograf-pattern]')
+    ? captureMaskedCanvas
+    : toCanvas;
+  const canvas = await render(root, {
     width: originalWidth,
     height: originalHeight,
     canvasWidth: output.width,
@@ -340,7 +347,12 @@ function buildCompositionDom(
     if (!layer.isVisible || !isRuntimeCollectionLayerActive(layer, data)) {
       continue;
     }
-    const state = sampleCompiledLayerVisualState(layer, frame);
+    const state = sampleCompiledLayerVisualState(
+      layer,
+      frame,
+      compiledLoopElapsedFrames(descriptor, layer, frame),
+      data,
+    );
     const transform = state.transform;
     const layerRoot = document.createElement('div');
     layerRoot.dataset.agentCaptureLayer = 'true';
@@ -359,6 +371,7 @@ function buildCompositionDom(
     });
     const element = resolveBoundElement(layer, data);
     renderElementContent(layerRoot, element, sequenceFrame(element, frame, composition.frameRate));
+    if (state.patternFrame !== undefined) renderPatternAtElapsed(layerRoot, state.patternFrame);
     renderAnimatedElementAtTime(layerRoot, element, (frame / composition.frameRate) * 1000);
     applyAnimatedPaint(layerRoot, state.paintTracks, state.paintFrame);
     compositionRoot.appendChild(layerRoot);
@@ -366,6 +379,7 @@ function buildCompositionDom(
     states.set(layer.id, state);
   }
   applyCompiledClipPaths(descriptor, rendered, states);
+  applyCompiledMasks(descriptor, rendered, states, data);
   return root;
 }
 

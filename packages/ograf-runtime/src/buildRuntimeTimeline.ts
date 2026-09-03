@@ -4,6 +4,7 @@ import {
   clipPathForParentBounds,
   EFFECT_ANIMATION_PROPERTIES,
   getTrackValueAtFrame,
+  parseEffectProperty,
   isGradientStopOffsetProperty,
   layerEffectsToCssFilter,
   TRANSFORM_ANIMATION_PROPERTIES,
@@ -13,7 +14,11 @@ import {
 } from '@ograf-editor/scene-model';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import { easingForGsap } from './easing';
-import { applyAnimatedPaint } from './renderElement';
+import { applyAnimatedPaint, resolveBoundEffects } from './renderElement';
+import { applyCompiledMasks } from './maskRendering';
+import { sampleCompiledLayerVisualState } from './loopRendering';
+import { compiledLoopElapsedFrames } from './loopRendering';
+import { renderPatternAtElapsed } from './patternRendering';
 
 const DIRECT_GSAP_PROPERTIES: Partial<Record<keyof LayerTransform, string>> = {
   x: 'x',
@@ -45,6 +50,7 @@ function compiledPoseAtFrame(layer: CompiledLayer, frame: number): LayerTransfor
 export function buildRuntimeTimeline(
   descriptor: CompiledGraphicDescriptor,
   layerEls: Map<string, HTMLElement>,
+  dataProvider: () => Record<string, unknown> = () => ({}),
 ): gsap.core.Timeline {
   const tl = gsap.timeline({ paused: true });
   const frameRate = descriptor.frameRate;
@@ -81,7 +87,9 @@ export function buildRuntimeTimeline(
       el.style.transformOrigin = `${originState.transformOriginX * 100}% ${originState.transformOriginY * 100}%`;
     };
     const updateEffects = () => {
-      el.style.filter = layerEffectsToCssFilter(effectState);
+      el.style.filter = layerEffectsToCssFilter(
+        resolveBoundEffects(layer, dataProvider(), effectState),
+      );
     };
     const applyInitialState = () => {
       originState.transformOriginX = firstTransform.transformOriginX;
@@ -102,7 +110,12 @@ export function buildRuntimeTimeline(
     applyInitialState();
 
     for (const property of Object.keys(tracks) as AnimatableLayerProperty[]) {
-      if (isGradientStopOffsetProperty(property) || property === 'strokeWidth') continue;
+      if (
+        isGradientStopOffsetProperty(property) ||
+        property === 'strokeWidth' ||
+        parseEffectProperty(property)
+      )
+        continue;
       const keyframes = [...(tracks[property] ?? [])].sort((a, b) => a.frame - b.frame);
       for (let index = 1; index < keyframes.length; index++) {
         const from = keyframes[index - 1]!;
@@ -141,7 +154,13 @@ export function buildRuntimeTimeline(
     const frame = tl.time() * frameRate;
     for (const layer of descriptor.layers) {
       const child = layerEls.get(layer.id);
+      if (child && layer.effects.stack?.some((e) => !e.legacy))
+        child.style.filter = layerEffectsToCssFilter(
+          sampleCompiledLayerVisualState(layer, frame, undefined, dataProvider()).effects,
+        );
       if (child) applyAnimatedPaint(child, layer.animationTracks, frame);
+      if (child && layer.element.type === 'pattern')
+        renderPatternAtElapsed(child, compiledLoopElapsedFrames(descriptor, layer, frame) ?? 0);
       if (!layer.clipParentId) continue;
       const parent = layerEls.get(layer.clipParentId);
       if (!child || !parent) {
@@ -161,10 +180,29 @@ export function buildRuntimeTimeline(
         );
       }
     }
+    applyCompiledMasks(
+      descriptor,
+      layerEls,
+      new Map(
+        descriptor.layers.map((layer) => [
+          layer.id,
+          sampleCompiledLayerVisualState(
+            layer,
+            frame,
+            compiledLoopElapsedFrames(descriptor, layer, frame),
+            dataProvider(),
+          ),
+        ]),
+      ),
+    );
   };
   const hasDynamicRendering = descriptor.layers.some(
     (layer) =>
       layer.clipParentId ||
+      layer.mask ||
+      layer.element.type === 'pattern' ||
+      layer.effects.stack?.some((e) => !e.legacy) ||
+      layer.isMaskOnly ||
       Object.keys(layer.animationTracks).some(
         (property) => isGradientStopOffsetProperty(property) || property === 'strokeWidth',
       ),

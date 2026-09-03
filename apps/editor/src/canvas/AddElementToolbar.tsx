@@ -13,12 +13,21 @@ const KINDS: { kind: NewLayerKind; label: string }[] = [
   { kind: 'text', label: 'Text' },
   { kind: 'image', label: 'Image' },
   { kind: 'path', label: 'Path' },
+  { kind: 'pattern', label: 'Procedural Pattern' },
   { kind: 'image-sequence', label: 'Image Sequence' },
 ];
 
 function ElementIcon({ kind }: { kind: NewLayerKind }) {
   return (
     <svg className="element-tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {kind === 'pattern' && (
+        <>
+          <circle cx="7" cy="7" r="3" />
+          <circle cx="17" cy="7" r="3" />
+          <circle cx="7" cy="17" r="3" />
+          <circle cx="17" cy="17" r="3" />
+        </>
+      )}
       {kind === 'rectangle' && <rect x="3.5" y="5" width="17" height="14" rx="1.4" />}
       {kind === 'ellipse' && <ellipse cx="12" cy="12" rx="8.5" ry="6.8" />}
       {kind === 'text' && (

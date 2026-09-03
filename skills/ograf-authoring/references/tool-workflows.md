@@ -71,7 +71,7 @@ deterministic design assessment belong in the same model turn.
 Supported operation discriminators:
 
 - Project/composition: `set_project_metadata`, `set_composition`, `set_composition_layout`,
-  `apply_style_pack`, `set_design_system_name`, `upsert_design_token`, `remove_design_token`,
+  `apply_style_pack`, `remove_style_pack`, `set_design_system_name`, `upsert_design_token`, `remove_design_token`,
   `bind_design_token`, `unbind_design_token`,
   `add_lifecycle_step`, `rename_lifecycle_keyframe`, `move_lifecycle_keyframe`,
   `remove_lifecycle_step`, `add_canvas_guide`, `update_canvas_guide`, `remove_canvas_guide`,
@@ -85,7 +85,10 @@ Supported operation discriminators:
   `reorder_layers`
 - Components: `save_component`, `instantiate_component`, `update_component_from_layers`,
   `refresh_component_instances`, `rename_component`, `remove_component`
+- Shared patterns: `set_tiling_pattern`, `remove_tiling_pattern`; inspect through
+  `ograf_get_project include: ["patterns"]` and `ograf_inspect_scene`
 - Content/style: `update_element`, `update_transform`, `update_effects`
+- Compositing: `set_layer_mask`; `set_layer_flags.isMaskOnly` controls source-only output
 - Timeline: `set_property_key`, `set_property_track`, `stagger_property_track`,
   `move_property_key`, `remove_property_key`, `set_property_key_easing`, `set_transition`,
   `set_layer_loop`, `set_loop_property_track`, `remove_layer_loop`
@@ -94,7 +97,7 @@ Supported operation discriminators:
   `update_runtime_collection`, `remove_runtime_collection`
 - Actions: `add_custom_action`, `update_custom_action`, `remove_custom_action`
 
-`add_layer.kind` supports `rectangle`, `ellipse`, `text`, `image`, `path`, and `image-sequence`. It returns the generated layer ID in `summary.generatedIds`.
+`add_layer.kind` supports `rectangle`, `ellipse`, `text`, `image`, `path`, `pattern`, and `image-sequence`. It returns the generated layer ID in `summary.generatedIds`.
 
 `set_layer_semantics` assigns an authoring role, normalized tags, and an intent description without
 changing output pixels. `create_lower_third` materializes a four-layer/two-field grouped lower third
@@ -189,7 +192,9 @@ are immutable; application copies or refreshes canonical editable tokens, option
 compatible semantic layers, and returns complete token/affected-layer mappings. The pack includes
 palette, modular type scale, weights, font stack, radius, text outline, entrance/exit/update/stagger
 frames, and easing conventions. Brand Kit operations can then edit those copied tokens normally.
-Text accepts both `strokeColor` and `strokeWidth` targets. Updating a token rematerializes every
+Color tokens also target `fill.stops[N].color` (existing zero-based gradient stop) and
+`dropShadowColor`; these preserve gradient transparency/offsets and effect timing. Inspector shows
+each stop and shadow link under Brand Kit. Text accepts both `strokeColor` and `strokeWidth` targets. Updating a token rematerializes every
 consumer's ordinary element value. Removing a used token requires `force: true` to clear links while
 preserving the last materialized values.
 
@@ -243,10 +248,10 @@ organization: they never change layer order, animation tracks, canvas `groupId`,
 output. Inspection exposes `layout.timelineGroups`; `layout.timelineFolders` remains a deprecated
 source-storage compatibility field.
 
-Rectangle and ellipse `fill` accepts either a color string or
+Rectangle, ellipse, path and pattern `fill` accepts either a color string or
 `{type:"linear"|"radial"|"conic",angle,stops:[{offset,color,opacity}]}`. Require at least two stops;
-offset and opacity are in 0..1. Use a `gradient` data field to bind the complete paint object. Per-stop
-binding is not supported. Animate an existing stop position through `set_property_key`,
+offset and opacity are in 0..1. Use a `gradient` data field for the complete paint, or a `color`
+field for `fill.stops[N].color`. Animate an existing stop position through `set_property_key`,
 `set_property_track`, or `stagger_property_track` with property `fill.stops[N].offset`.
 
 For one or more data bindings on a layer, call `set_layer_bindings` with an ordered `bindings`

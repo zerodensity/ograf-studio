@@ -28,10 +28,48 @@ import type {
   NewLayerKind,
   LayerLoopActivation,
   Project,
+  TilingPattern,
 } from '@ograf-editor/scene-model';
 import type { ProjectValidationResult } from '@ograf-editor/validation';
 
 export type AuthoringOperation =
+  | {
+      type: 'add_effect';
+      compositionId?: string;
+      layerId: string;
+      effectType: import('@ograf-editor/scene-model').EffectType;
+      patch?: import('@ograf-editor/scene-model').EffectPatch;
+      index?: number;
+      id?: string;
+    }
+  | {
+      type: 'update_effect';
+      compositionId?: string;
+      layerId: string;
+      effectId: string;
+      patch: import('@ograf-editor/scene-model').EffectPatch;
+      scope?: 'authored' | 'frame';
+      frame?: number;
+    }
+  | { type: 'remove_effect'; compositionId?: string; layerId: string; effectId: string }
+  | {
+      type: 'duplicate_effect';
+      compositionId?: string;
+      layerId: string;
+      effectId: string;
+      id?: string;
+    }
+  | { type: 'reorder_effects'; compositionId?: string; layerId: string; effectIds: string[] }
+  | {
+      type: 'set_tiling_pattern';
+      compositionId?: string;
+      patternId?: string;
+      id?: string;
+      patch: Partial<Omit<TilingPattern, 'id'>>;
+      createLayer?: boolean;
+    }
+  | { type: 'remove_tiling_pattern'; compositionId?: string; patternId: string }
+  | { type: 'remove_style_pack'; compositionId?: string }
   | {
       type: 'set_project_metadata';
       id?: string;
@@ -298,7 +336,17 @@ export type AuthoringOperation =
       layerId: string;
       isVisible?: boolean;
       isGuide?: boolean;
+      isMaskOnly?: boolean;
       blendMode?: BlendMode;
+    }
+  | {
+      type: 'set_layer_mask';
+      compositionId?: string;
+      layerId: string;
+      sourceLayerId: string | null;
+      mode?: 'alpha' | 'path';
+      inverted?: boolean;
+      hideSource?: boolean;
     }
   | {
       type: 'set_layer_layout';
@@ -427,6 +475,7 @@ export type AuthoringOperation =
     }
   | {
       type: 'add_data_field';
+      defaultTokenId?: string | null;
       compositionId?: string;
       /** Internally preallocated so later operations in the same atomic batch can resolve it. */
       id?: string;
@@ -444,6 +493,7 @@ export type AuthoringOperation =
     }
   | {
       type: 'update_data_field';
+      defaultTokenId?: string | null;
       compositionId?: string;
       fieldId: string;
       fieldType?: FieldType;
@@ -538,6 +588,8 @@ export interface AuthoringChangeSummary {
     operationIndex: number;
     kind:
       | 'layer'
+      | 'pattern'
+      | 'effect'
       | 'property-key'
       | 'lifecycle-keyframe'
       | 'field'

@@ -7,6 +7,8 @@ import {
   easedProgress,
   getLoopFrameAtElapsed,
   getTrackValueAtFrame,
+  effectParameterValue,
+  sampleEffectStack,
   isGradientStopOffsetProperty,
   layerEffectsToCssFilter,
   TRANSFORM_ANIMATION_PROPERTIES,
@@ -15,13 +17,15 @@ import {
   type LayerEffects,
   type LayerTransform,
 } from '@ograf-editor/scene-model';
-import { applyAnimatedPaint } from './renderElement';
+import { applyAnimatedPaint, resolveBoundEffects } from './renderElement';
+import { renderPatternAtElapsed } from './patternRendering';
 
 export interface CompiledLayerVisualState {
   transform: LayerTransform;
   effects: LayerEffects;
   paintTracks: LayerAnimationTracks;
   paintFrame: number;
+  patternFrame?: number;
 }
 
 /** Resolves a layer loop's active composition-frame window from compiled lifecycle metadata. */
@@ -31,7 +35,8 @@ export function compiledLoopElapsedFrames(
   baseFrame: number,
   heldFrames = 0,
 ): number | undefined {
-  const activation = layer.loop?.activation;
+  const activation =
+    layer.element.type === 'pattern' ? { type: 'lifecycle' as const } : layer.loop?.activation;
   if (!activation) return undefined;
   const orderedLifecycle = [...descriptor.keyframes].sort(
     (left, right) => left.frame - right.frame,
@@ -92,13 +97,20 @@ export function interpolateCompiledLayerVisualState(
     );
   }
 
-  const effects = { ...source.effects };
+  let effects = { ...source.effects };
   for (const property of EFFECT_ANIMATION_PROPERTIES) {
     const eased = incomingProgress(layer, property, targetFrame, clampedProgress);
     effects[property] = interpolate(source.effects[property], target.effects[property], eased);
   }
 
   const paintTracks: LayerAnimationTracks = {};
+  effects = sampleEffectStack(effects, (property, from) =>
+    interpolate(
+      from,
+      Number(effectParameterValue(target.effects, property) ?? from),
+      incomingProgress(layer, property, targetFrame, clampedProgress),
+    ),
+  );
   const paintProperties = new Set<AnimatableLayerProperty>([
     ...(Object.keys(source.paintTracks) as AnimatableLayerProperty[]),
     ...(Object.keys(target.paintTracks) as AnimatableLayerProperty[]),
@@ -118,7 +130,15 @@ export function interpolateCompiledLayerVisualState(
     ];
   }
 
-  return { transform, effects, paintTracks, paintFrame: 0 };
+  return {
+    transform,
+    effects,
+    paintTracks,
+    paintFrame: 0,
+    ...(layer.element.type === 'pattern'
+      ? { patternFrame: (progress < 1 ? source.patternFrame : target.patternFrame) ?? 0 }
+      : {}),
+  };
 }
 
 function firstTransform(layer: CompiledLayer): LayerTransform {
@@ -132,6 +152,7 @@ export function sampleCompiledLayerVisualState(
   layer: CompiledLayer,
   baseFrame: number,
   loopElapsedFrames?: number,
+  data: Record<string, unknown> = {},
 ): CompiledLayerVisualState {
   const initial = firstTransform(layer);
   const transform = Object.fromEntries(
@@ -140,7 +161,7 @@ export function sampleCompiledLayerVisualState(
       getTrackValueAtFrame(layer.animationTracks[property] ?? [], baseFrame, initial[property]),
     ]),
   ) as unknown as LayerTransform;
-  const effects = { ...layer.effects };
+  let effects = { ...resolveBoundEffects(layer, data) };
   for (const property of EFFECT_ANIMATION_PROPERTIES) {
     effects[property] = getTrackValueAtFrame(
       layer.animationTracks[property] ?? [],
@@ -178,6 +199,14 @@ export function sampleCompiledLayerVisualState(
     }
   }
 
+  effects = sampleEffectStack(effects, (property, value) => {
+    const base = getTrackValueAtFrame(layer.animationTracks[property] ?? [], baseFrame, value);
+    const loopKeys = loop?.tracks[property] ?? [];
+    return localFrame !== undefined && loopKeys.length
+      ? getTrackValueAtFrame(loopKeys, localFrame, base)
+      : base;
+  });
+  effects = resolveBoundEffects(layer, data, effects);
   const paintTracks: LayerAnimationTracks = {};
   const paintProperties = new Set<AnimatableLayerProperty>([
     ...(Object.keys(layer.animationTracks) as AnimatableLayerProperty[]),
@@ -202,7 +231,13 @@ export function sampleCompiledLayerVisualState(
     ];
   }
 
-  return { transform, effects, paintTracks, paintFrame: 0 };
+  return {
+    transform,
+    effects,
+    paintTracks,
+    paintFrame: 0,
+    ...(layer.element.type === 'pattern' ? { patternFrame: loopElapsedFrames ?? 0 } : {}),
+  };
 }
 
 export function applyCompiledLayerVisualState(
@@ -221,6 +256,7 @@ export function applyCompiledLayerVisualState(
   });
   element.style.filter = layerEffectsToCssFilter(state.effects);
   applyAnimatedPaint(element, state.paintTracks, state.paintFrame);
+  if (state.patternFrame !== undefined) renderPatternAtElapsed(element, state.patternFrame);
 }
 
 /** Applies clipping after every participating layer pose has been resolved. */

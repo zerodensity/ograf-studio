@@ -1,8 +1,62 @@
 import { describe, expect, it } from 'vitest';
 import { createComposition, createLayerOfKind } from './factory';
-import { applyStylePack, getStylePack, STYLE_PACKS, STYLE_TOKEN_KEYS } from './stylePacks';
+import {
+  applyStylePack,
+  removeStylePack,
+  stylePackIdForComposition,
+  getStylePack,
+  STYLE_PACKS,
+  STYLE_TOKEN_KEYS,
+} from './stylePacks';
 
 describe('broadcast style packs', () => {
+  it('removes the applied pack and links without changing graphics, motion or custom tokens', () => {
+    const composition = createComposition(),
+      panel = createLayerOfKind('rectangle');
+    panel.semantics.role = 'container';
+    composition.layers = [panel];
+    applyStylePack(composition, 'sports');
+    composition.designSystem.tokens.push({
+      id: 'custom',
+      key: 'station.custom',
+      name: 'Custom',
+      type: 'color',
+      value: '#abcdef',
+      description: '',
+    });
+    composition.components = [
+      { id: 'template', name: 'Template', layers: [structuredClone(panel)], dataFields: [] },
+    ];
+    const appearance = JSON.stringify({
+      element: panel.element,
+      tracks: panel.animationTracks,
+      update: composition.updateTransitionFrames,
+    });
+    const removed = removeStylePack(composition);
+    expect(removed?.packId).toBe('sports');
+    expect(stylePackIdForComposition(composition)).toBeNull();
+    expect(composition.designSystem.name).toBe('Brand Kit');
+    expect(composition.designSystem.tokens.map((token) => token.id)).toEqual(['custom']);
+    expect(panel.designTokenBindings).toEqual([]);
+    expect(composition.components[0]!.layers[0]!.designTokenBindings).toEqual([]);
+    expect(
+      JSON.stringify({
+        element: panel.element,
+        tracks: panel.animationTracks,
+        update: composition.updateTransitionFrames,
+      }),
+    ).toBe(appearance);
+  });
+  it('preserves a renamed kit and is a no-op when there is no applied pack', () => {
+    const composition = createComposition();
+    applyStylePack(composition, 'news');
+    composition.designSystem.name = 'My station';
+    removeStylePack(composition);
+    expect(composition.designSystem.name).toBe('My station');
+    const before = JSON.stringify(composition);
+    expect(removeStylePack(composition)).toBeNull();
+    expect(JSON.stringify(composition)).toBe(before);
+  });
   it('ships four immutable named definitions', () => {
     expect(STYLE_PACKS.map((pack) => pack.id)).toEqual([
       'news',

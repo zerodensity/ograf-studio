@@ -29,6 +29,72 @@ The scene model is editor-domain state. The compiled descriptor is the stable bo
 
 ## Agent authoring boundary
 
+Document v28 adds ordered `LayerEffects.stack` entries. Each has a stable layer-scoped ID, type,
+name, enabled flag and validated parameter dictionary. Seven catalog types share the same numeric
+bounds, UI controls, key/property paths and renderer. Compatibility slots adapt the original blur
+and shadow fields so existing tracks, bindings and appearance survive migration. The slots are
+virtual for old documents until a structural edit materializes the stack.
+
+`effectStack.ts` owns add/update/duplicate/remove/reorder and immutable parameter sampling.
+Numeric paths are `effects.ID.PARAM`; changing order does not change those paths. Duplication
+remaps only owned parameter paths/keys and copies their links; deletion prunes those references
+without deleting data fields. Legacy `update_effects` restores a removed compatibility slot when
+explicitly editing it. `effectRendering.ts` emits ordered CSS filters and an equivalent sRGB SVG
+filter chain, with bounds expanded for accumulated blur/shadow extents. Alpha masks use that chain;
+geometric path masks intentionally ignore it.
+
+Stack parameters sample lifecycle tracks and local loops through the shared runtime, including
+direct exits and loop-exit correction. Live numeric/color data overrides sampled params and does
+not reset the loop clock. The timeline builds dynamic stack state on deterministic seeks; Studio,
+PNG capture and export consume the same sampler. Catalog discovery, generated MCP contracts,
+instance operations and the in-app/external authoring skill expose the same model.
+
+Document v27 adds `Composition.patterns` and `PatternElement.patternId`. `tiling.ts` owns validated
+shared mutations and deterministic row layout/phase; `tilingSvg.ts` emits one native SVG pattern
+per row rather than materialized tile layers. Each instance retains independent paint/effect
+tracks. Compilation resolves the definition into the runtime descriptor; import deduplicates it
+back into a shared resource. Sources are SVG paths with explicit size, viewBox and fill rule.
+
+Pattern geometry runs on the lifecycle's absolute loop clock, independent of optional numeric
+effect loops. Integer travel counts wrap at a common `cycleFrames`; seeded variation is fixed
+across cycles and reversible seeks. Runtime updates only pattern offsets while geometry/paint
+remain unchanged. Pattern masks reuse cached definitions and update those same offsets. PNG
+capture uses the self-contained SVG adapter for native pattern references as well as mattes.
+
+`set_tiling_pattern` is an atomic shared patch (create optionally returns a full-canvas instance).
+Named selectors resolve through canonical agent-tool records; malformed symbol/override
+dictionaries are validated in scene-model. Deletion guards include component references.
+Resources and Inspector use the same mutations. `get_project` exposes `patterns`, inspection
+reports resolved rows, and `sample_tracks` reports offsets at explicit elapsed frames.
+
+Brand Kit occupies the `brand-kit` dock pane; saved dock layouts insert it when missing. Color
+tokens can materialize `fill.stops[N].color`, `strokeColor` and `dropShadowColor` without replacing
+gradient alpha/offsets or numeric motion. Top-level color fields may reference `defaultTokenId`;
+token updates synchronize their ordinary defaults, while explicit default edits detach the link.
+The link is authoring metadata; OGraf output contains standard color fields and concrete defaults.
+`boundPaint.ts` shares immutable gradient-stop overrides between Studio, diagnostic rendering and
+runtime. Bound shadow colors flow through visual-state sampling, masks and timeline updates.
+Playback data overrides authored values; scheduled replay clears later overrides when rewinding.
+
+Document v26 adds `Layer.mask` (source ID, alpha/path mode, inversion), `isMaskOnly`, and path
+`Paint`/`fillRule`. Sources are same-composition rectangle/ellipse/path/image layers; path mode
+uses vector geometry only. Validation rejects cycles, guide sources, unsupported source types,
+dangling references, and cross-collection dependencies. Duplication remaps internal source IDs;
+portable components require their matte sources and collection expansion remaps per instance.
+
+The shared runtime renders path gradients with native CSS paint clipped by an SVG path, retaining
+an independent SVG stroke. Shared SVG mask definitions sample source transforms, paint and numeric
+effects after all layer states resolve. Alpha mattes include the source's alpha mask and parent
+clip; path mattes ignore paint/effects. Inversion is confined to target bounds. Inline SVG masks
+work inside the exported custom element's shadow root and browser PNG capture; embedded HTML is
+not used in masks because browsers do not paint `foreignObject` there. Conic matte alpha is
+deterministically tessellated at half-degree intervals. Visible path conic fills remain native CSS.
+
+PNG capture uses a mask-aware clone/embedding adapter. It keeps local SVG references out of the
+image fetcher, embeds referenced images, and turns each cloned matte into a self-contained SVG
+alpha image before rasterization. The live DOM is not modified. A red-ring/green-hole browser
+regression verifies that masks do not silently disappear in captures or proposal thumbnails.
+
 `packages/authoring-core` is a framework-neutral command layer over the scene model. It applies
 discriminated scene, timeline, data, and lifecycle operations as revision-checked atomic batches.
 It owns agent-session undo/redo, dry-run evaluation, validation results, change summaries, and a
@@ -298,7 +364,7 @@ never enter `.ogs`, history, MCP revisions, runtime descriptors, certification, 
 packages.
 
 Editor chrome consumes one centralized Zero Density visual contract sampled from the live
-RealityHub interface: locally bundled Nunito, 14 px primary and 13 px compact text, charcoal
+RealityHub interface: locally bundled Nunito, 13 px primary and 12 px compact text, charcoal
 `#1c1c1c`/`#232323`/`#2e2e2e` surfaces, `#dadada`/`#aaaaaa` text, `#399ed4` active accents,
 `#60d0ff` focus, and flat 0/2 px panel/control geometry. Dock tabs, menus, toolbars, scrollbars,
 inputs, selections, panels, and floating panes project those tokens. The `#root` chrome boundary

@@ -86,6 +86,11 @@ export class AuthoringWorkspace {
     const project = migrateProject(
       JSON.parse(await readFile(this.resolveAllowedPath(inputPath), 'utf8')),
     );
+    const existing = this.sessions.get(sessionId);
+    if (existing) {
+      existing.reset(project, existing.revision, 'Open editable project');
+      return existing;
+    }
     return this.create(sessionId, project);
   }
 }

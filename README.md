@@ -8,22 +8,21 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.10
+## New in OGraf Studio 0.11
 
-- Added self-contained Windows, macOS, and Linux server executables that embed the production
-  editor, MCP server, WebSocket bridge, fonts, icons, schemas, and runtime dependencies.
-- Preserved `npm run dev`, `npm run mcp:start`, and `npm run start:all`; standalone packaging is an
-  additive distribution path and destination machines require no Node.js, npm, Bun, or source tree.
-- Added standalone port, workspace, browser-open, and help options with a writable user Documents
-  workspace default and deliberate loopback-only networking.
-- Added versioned Zero Density/OGS console branding, the public repository URL, and a branded
-  multi-resolution Windows executable icon.
-- Locked new projects to an opaque black background with **Outside canvas · 20% gray** enabled while
-  preserving settings in existing, imported, and autosaved projects.
-- Raised the verified baseline to 423 tests across 87 files.
+- Native gradient fills on paths, including even-odd holes and animated gradient stops.
+- Vector/image alpha and path masks, inversion, source-only layers, and independent mask motion.
+- Procedural tiling with shared vector sources, spacing, row direction, phase and seamless timing.
+- A composable effects stack with multiple blurs, shadows, glows and color adjustments, stable
+  per-effect animation tracks, and live data bindings.
+- A dockable Brand Kit pane, removable style packs, and color tokens linked to gradient stops,
+  effect colors and OGraf field defaults.
+- Smaller interface typography while preserving text inside authored graphics.
+- Updated MCP operations, capabilities, authoring skill and in-app AI guidance.
+- Refreshed single-file Windows, macOS and Linux executables, with the export runtime embedded.
 
-See [the complete 0.10 release notes](docs/releases/0.10.md) for validation evidence and current
-boundaries.
+See [the complete 0.11 release notes](docs/releases/0.11.md) and
+[download the release](https://github.com/zerodensity/ograf-studio/releases/tag/v0.11).
 
 ## Highlights
 
@@ -274,7 +273,7 @@ OGrafStudioServer.exe --open
 OGrafStudioServer.exe --port 4400 --workspace "D:\OGraf Projects"
 ```
 
-The standalone server binds to `127.0.0.1` only in this first release. Its default writable
+The standalone server binds to `127.0.0.1` only. Its default writable
 workspace is `Documents\OGraf Studio\Projects`; `--workspace` and the existing
 `OGRAF_WORKSPACE_ROOT` environment variable can override it. `--open` launches the system browser,
 while the default remains suitable for a console or background process. Run

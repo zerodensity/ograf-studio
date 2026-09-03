@@ -48,6 +48,22 @@ Save/export must certify the same artifact bytes that are written. If certificat
   first pausable Step and reject instead of clamping or crossing lifecycle bounds.
 - Intentional ancestor clipping is not text-box overflow and must not become a validation fault.
 - Gradient paints require at least two normalized stops with finite angle, offsets, and opacities.
+- Path fills use the shared paint contract and a nonzero/even-odd fill rule. Their gradients span
+  the rendered layer box, and existing solid paths migrate without pixel changes.
+- Pattern instances reference one composition resource. Compilation resolves its definition;
+  package import deduplicates those resolved definitions back into editable shared resources.
+  Seeded spacing is fixed across cycles, and row travel is an integer multiple of the motif period
+  over `cycleFrames`. Pattern SVG paint repeats per tile; shared geometry and mask clocks remain
+  synchronized independently of numeric effect-loop duration. Limits are 32 rows, 32 symbols and
+  64 sequence entries; invalid definitions and deletion of referenced resources fail atomically.
+- A layer mask references a same-composition source; sources cannot be guides or participate in
+  cycles. Alpha sources may be rectangles, ellipses, paths, patterns or images; geometric path mode excludes
+  images and ignores source opacity/effects. Targets may be any layer type. Inversion is confined
+  to target bounds. A source-only layer remains in the compiled descriptor but does not paint.
+  Masks and clip-to-parent can coexist. Mask chains include the source's own alpha mask and clip;
+  path mode uses only its geometry. Collection masks remain internal to each prototype instance.
+- Masks use SVG compositing in the shared renderer; conic paint alpha uses half-degree SVG wedges
+  because browser SVG masks do not render embedded HTML. Visible path gradients use native CSS.
 - Gradient stop-offset tracks use `fill.stops[N].offset`, reference an existing zero-based stop, and
   keep authored key values within 0..1.
 - Blend modes are static layer properties evaluated inside one isolated transparent composition.

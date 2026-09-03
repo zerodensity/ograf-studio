@@ -49,6 +49,8 @@ type LegacyLayer = Omit<
   | 'groupId'
   | 'parentId'
   | 'clipChildren'
+  | 'isMaskOnly'
+  | 'mask'
   | 'constraints'
   | 'bindings'
   | 'semantics'
@@ -65,6 +67,8 @@ type LegacyLayer = Omit<
   groupId?: string | null;
   parentId?: string | null;
   clipChildren?: boolean;
+  isMaskOnly?: boolean;
+  mask?: Layer['mask'];
   constraints?: Layer['constraints'];
   bindings?: Layer['bindings'];
   semantics?: Layer['semantics'];
@@ -76,7 +80,13 @@ type LegacyLayer = Omit<
 
 type LegacyComposition = Omit<
   Composition,
-  'keyframes' | 'layers' | 'layout' | 'components' | 'designSystem' | 'runtimeCollections'
+  | 'keyframes'
+  | 'layers'
+  | 'layout'
+  | 'components'
+  | 'designSystem'
+  | 'runtimeCollections'
+  | 'patterns'
 > & {
   keyframes: LegacyKeyframe[];
   layers: LegacyLayer[];
@@ -85,6 +95,7 @@ type LegacyComposition = Omit<
   components?: Composition['components'];
   designSystem?: Composition['designSystem'];
   runtimeCollections?: Composition['runtimeCollections'];
+  patterns?: Composition['patterns'];
 };
 
 type LegacyFieldDefinition = Omit<
@@ -136,6 +147,7 @@ function normalizeFieldDefinition(field: LegacyFieldDefinition): FieldDefinition
 }
 
 function normalizeElement(element: Element): Element {
+  if (element.type === 'path') return { ...element, fillRule: element.fillRule ?? 'nonzero' };
   if (element.type === 'rectangle') {
     const legacy = element as Element & { borderRadius?: number | Record<string, unknown> };
     return {
@@ -227,6 +239,8 @@ function normalizeComposition(composition: LegacyComposition): Composition {
         groupId: legacyLayer.groupId ?? null,
         parentId: legacyLayer.parentId ?? null,
         clipChildren: legacyLayer.clipChildren ?? false,
+        isMaskOnly: legacyLayer.isMaskOnly ?? false,
+        mask: legacyLayer.mask ?? null,
         constraints: legacyLayer.constraints ?? { horizontal: 'left', vertical: 'top' },
         bindings,
         element,
@@ -335,6 +349,8 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       groupId: legacyLayer.groupId ?? null,
       parentId: legacyLayer.parentId ?? null,
       clipChildren: legacyLayer.clipChildren ?? false,
+      isMaskOnly: legacyLayer.isMaskOnly ?? false,
+      mask: legacyLayer.mask ?? null,
       constraints: legacyLayer.constraints ?? { horizontal: 'left', vertical: 'top' },
       bindings,
       element,
@@ -370,6 +386,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       },
       overflow: 'truncate',
     })),
+    patterns: composition.patterns ?? [],
     components: (composition.components ?? []).map((component) => ({
       ...component,
       dataFields: component.dataFields.map((field) =>
@@ -379,6 +396,8 @@ function normalizeComposition(composition: LegacyComposition): Composition {
         const normalizedLayer: Layer = {
           ...layer,
           element: normalizeElement(layer.element),
+          isMaskOnly: layer.isMaskOnly ?? false,
+          mask: layer.mask ?? null,
           blendMode: layer.blendMode ?? 'normal',
           semantics: createLayerSemantics(layer.semantics),
           designTokenBindings: layer.designTokenBindings ?? [],

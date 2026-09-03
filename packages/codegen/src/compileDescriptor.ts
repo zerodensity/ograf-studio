@@ -2,6 +2,7 @@ import {
   computeKeyframeFrames,
   getResolvedLayerAnimationTracks,
   resolveElementAssetReferences,
+  resolvePatternElement,
   type Composition,
 } from '@ograf-editor/scene-model';
 import type {
@@ -57,7 +58,10 @@ export function compileDescriptor(
       id: layer.id,
       isVisible: layer.isVisible,
       blendMode: layer.blendMode,
-      element: resolveElementAssetReferences(layer.element, composition.assets),
+      element: resolvePatternElement(
+        resolveElementAssetReferences(layer.element, composition.assets),
+        composition.patterns,
+      ),
       effects: layer.effects,
       keyframes: layer.keyframes.map((keyframe) => ({
         id: keyframe.id,
@@ -100,6 +104,8 @@ export function compileDescriptor(
             ];
       }),
       clipParentId: clipParent?.id ?? null,
+      isMaskOnly: layer.isMaskOnly,
+      mask: layer.mask ? { ...layer.mask } : null,
     };
   };
 

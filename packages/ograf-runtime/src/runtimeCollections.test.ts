@@ -29,6 +29,8 @@ describe('runtime collection expansion', () => {
     plate.clipChildren = true;
     label.groupId = 'item-group';
     label.parentId = plate.id;
+    label.mask = { sourceLayerId: plate.id, mode: 'alpha', inverted: false };
+    plate.isMaskOnly = true;
     label.bindings = [{ fieldId: field.id, targetProperty: 'content', sourcePath: ['name'] }];
     for (const layer of [plate, label]) {
       layer.keyframes = composition.keyframes.map((keyframe, index) =>
@@ -53,6 +55,11 @@ describe('runtime collection expansion', () => {
     ];
 
     const compiled = compileDescriptor(composition);
+    const masked = expandRuntimeCollections(compiled);
+    for (let index = 0; index < 3; index++) {
+      expect(masked.layers[index * 2 + 1]!.mask!.sourceLayerId).toBe(masked.layers[index * 2]!.id);
+      expect(masked.layers[index * 2]!.isMaskOnly).toBe(true);
+    }
     expect(compiled.layers).toEqual([]);
     expect(compiled.collections?.[0]?.prototypeLayers).toHaveLength(2);
     const expanded = expandRuntimeCollections(compiled);

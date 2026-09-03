@@ -1,5 +1,16 @@
 import {
+  effectStackToSvg,
+  effectStackPadding,
+  parseEffectProperty,
+  withEffectParameter,
+} from '@ograf-editor/scene-model';
+import { applyElementDataValue } from '@ograf-editor/scene-model';
+import {
   getLayerEffectsAtFrame,
+  tilingSvgContent,
+  resolvePatternElement,
+  svgMaskSourceContent,
+  layerMaskSvg,
   getPaintAtFrame,
   getLayerPropertyValueAtFrame,
   getResolvedLayerAnimationTracks,
@@ -32,8 +43,13 @@ function elementSvg(
   height: number,
   frame: number,
   compositionFrameRate: number,
+  svgId = 'diagnostic-path',
 ): string {
   switch (element.type) {
+    case 'pattern':
+      return element.definition
+        ? `<svg width="${width}" height="${height}" viewBox="0 0 ${element.definition.width} ${element.definition.height}" preserveAspectRatio="none">${tilingSvgContent(element, svgId, 0)}</svg>`
+        : '';
     case 'rectangle':
       return typeof element.fill === 'string'
         ? `<path d="${roundedRectangleSvgPath(width, height, element.borderRadius)}" fill="${escapeXml(element.fill)}" stroke="${escapeXml(element.strokeColor)}" stroke-width="${element.strokeWidth}"/>`
@@ -86,7 +102,7 @@ function elementSvg(
         ? `<image width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet" href="${escapeXml(element.src)}"/>`
         : '';
     case 'path':
-      return `<svg width="${width}" height="${height}" viewBox="0 0 ${element.viewBoxWidth} ${element.viewBoxHeight}" preserveAspectRatio="none"><path d="${escapeXml(element.d)}" fill="${escapeXml(element.fill)}" stroke="${escapeXml(element.strokeColor)}" stroke-width="${element.strokeWidth}"/></svg>`;
+      return svgMaskSourceContent(element, width, height, svgId);
     case 'image-sequence': {
       const elapsedSeconds = frame / compositionFrameRate;
       const rawIndex = Math.floor(elapsedSeconds * element.fps);
@@ -119,43 +135,62 @@ function layerSvg(
     idSuffix?: string;
   } = {},
 ): string {
-  if (!layer.isVisible || layer.isGuide) return '';
+  if (!layer.isVisible || layer.isGuide || layer.isMaskOnly) return '';
   const transform = { ...getLayerTransformAtFrame(layer, frame) };
   transform.x += options.offsetX ?? 0;
   transform.y += options.offsetY ?? 0;
-  const effects = getLayerEffectsAtFrame(layer, frame);
+  let effects = getLayerEffectsAtFrame(layer, frame);
+  for (const binding of layer.bindings) {
+    if (
+      binding.targetProperty !== 'dropShadowColor' &&
+      !parseEffectProperty(binding.targetProperty)
+    )
+      continue;
+    const field = composition.dataFields.find((f) => f.id === binding.fieldId);
+    const value = valueAtSourcePath(
+      field && options.collectionFieldId === field.id
+        ? options.itemValue
+        : field
+          ? data[field.key]
+          : undefined,
+      binding.sourcePath,
+    );
+    if (value !== undefined) {
+      const mapped = binding.valueMap?.[String(value)] ?? value;
+      effects =
+        binding.targetProperty === 'dropShadowColor'
+          ? { ...effects, dropShadowColor: String(mapped) }
+          : withEffectParameter(effects, binding.targetProperty, mapped);
+    }
+  }
   const filterId = `filter-${escapeXml(layer.id)}${escapeXml(options.idSuffix ?? '')}`;
-  const filters = [
-    effects.blur > 0 ? `<feGaussianBlur stdDeviation="${effects.blur}"/>` : '',
-    effects.dropShadowEnabled
-      ? `<feDropShadow dx="${effects.dropShadowOffsetX}" dy="${effects.dropShadowOffsetY}" stdDeviation="${effects.dropShadowBlur}" flood-color="${escapeXml(effects.dropShadowColor)}" flood-opacity="${effects.dropShadowOpacity}"/>`
-      : '',
-  ].join('');
+  const filters = effectStackToSvg(effects);
+  const filterPadding = effectStackPadding(effects);
   const originX = transform.transformOriginX * transform.width;
   const originY = transform.transformOriginY * transform.height;
-  const boundElement = layer.bindings.reduce<Element>((resolved, binding) => {
-    const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
-    if (!field) return resolved;
-    const root = options.collectionFieldId === field.id ? options.itemValue : data[field.key];
-    const value = valueAtSourcePath(root, binding.sourcePath);
-    if (value === undefined) return resolved;
-    const mapped = binding.valueMap?.[String(value)] ?? value;
-    return {
-      ...resolved,
-      [binding.targetProperty]:
-        binding.targetProperty === 'fill' && mapped && typeof mapped === 'object'
-          ? mapped
-          : String(mapped),
-    } as Element;
-  }, layer.element);
-  const resolvedElement = resolveElementAssetReferences(boundElement, composition.assets);
+  const resolveElement = (candidate: Layer) =>
+    resolveElementAssetReferences(
+      candidate.bindings.reduce<Element>((resolved, binding) => {
+        const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
+        if (!field) return resolved;
+        const root = options.collectionFieldId === field.id ? options.itemValue : data[field.key];
+        const value = valueAtSourcePath(root, binding.sourcePath);
+        if (value === undefined) return resolved;
+        const mapped = binding.valueMap?.[String(value)] ?? value;
+        return applyElementDataValue(resolved, binding.targetProperty, mapped);
+      }, candidate.element),
+      composition.assets,
+    );
+  const resolvedElement = resolvePatternElement(resolveElement(layer), composition.patterns);
   const element =
     resolvedElement.type === 'text'
       ? {
           ...resolvedElement,
           strokeWidth: getLayerPropertyValueAtFrame(layer, 'strokeWidth', frame),
         }
-      : (resolvedElement.type === 'rectangle' || resolvedElement.type === 'ellipse') &&
+      : (resolvedElement.type === 'rectangle' ||
+            resolvedElement.type === 'ellipse' ||
+            resolvedElement.type === 'path') &&
           typeof resolvedElement.fill !== 'string'
         ? {
             ...resolvedElement,
@@ -187,8 +222,44 @@ function layerSvg(
     transform.height,
     frame,
     compositionFrameRate,
+    `path-${escapeXml(layer.id)}${escapeXml(options.idSuffix ?? '')}`,
   );
-  return `<defs>${filters ? `<filter id="${filterId}" x="-100%" y="-100%" width="300%" height="300%">${filters}</filter>` : ''}${clip}</defs><g transform="translate(${transform.x} ${transform.y}) rotate(${transform.rotation} ${originX} ${originY})" opacity="${transform.opacity}"${layer.blendMode === 'normal' ? '' : ` style="mix-blend-mode:${layer.blendMode}"`}${filters ? ` filter="url(#${filterId})"` : ''}>${clip ? `<g clip-path="url(#${clipId})">${content}</g>` : content}</g>`;
+  const maskId = 'mask-' + escapeXml(layer.id) + escapeXml(options.idSuffix ?? '');
+  const mask = layer.mask
+    ? layerMaskSvg(
+        layer.id,
+        new Map(
+          composition.layers.map((source) => [
+            source.id,
+            {
+              ...source,
+              element: resolveElement(source),
+              clipParentId:
+                composition.layers.find(
+                  (parent) => parent.id === source.parentId && parent.clipChildren,
+                )?.id ?? null,
+            },
+          ]),
+        ),
+        new Map(
+          composition.layers.map((source) => [
+            source.id,
+            {
+              transform: {
+                ...getLayerTransformAtFrame(source, frame),
+                x: getLayerTransformAtFrame(source, frame).x + (options.offsetX ?? 0),
+                y: getLayerTransformAtFrame(source, frame).y + (options.offsetY ?? 0),
+              },
+              effects: getLayerEffectsAtFrame(source, frame),
+              paintTracks: getResolvedLayerAnimationTracks(source),
+              paintFrame: frame,
+            },
+          ]),
+        ),
+        maskId,
+      )
+    : '';
+  return `<defs>${filters ? `<filter id="${filterId}" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse" x="${-filterPadding}" y="${-filterPadding}" width="${transform.width + 2 * filterPadding}" height="${transform.height + 2 * filterPadding}">${filters}</filter>` : ''}${clip}${mask}</defs><g transform="translate(${transform.x} ${transform.y}) rotate(${transform.rotation} ${originX} ${originY})" opacity="${transform.opacity}"${layer.blendMode === 'normal' ? '' : ` style="mix-blend-mode:${layer.blendMode}"`}${filters ? ` filter="url(#${filterId})"` : ''}${mask ? ` mask="url(#${maskId})"` : ''}>${clip ? `<g clip-path="url(#${clipId})">${content}</g>` : content}</g>`;
 }
 
 export function renderCompositionFrameSvg(
