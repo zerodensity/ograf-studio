@@ -561,11 +561,15 @@ describe('OGraf MCP authoring host', () => {
       editor: { certificationReady: false, certificationLikelyCause: expect.any(String) },
       elementSchemas: {
         rectangle: {
+          defaultTransform: { width: 200, height: 200, shape: 'square' },
           borderRadius: {
             default: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
           },
         },
-        ellipse: { strokeWidth: { default: 0 } },
+        ellipse: {
+          defaultTransform: { width: 200, height: 200, shape: 'circle' },
+          strokeWidth: { default: 0 },
+        },
         text: {
           textAlign: { values: ['left', 'center', 'right'] },
           autoFit: {
@@ -577,7 +581,19 @@ describe('OGraf MCP authoring host', () => {
         image: { src: { default: null } },
         path: { viewBoxWidth: { default: 100 } },
         'image-sequence': { fps: { default: 12 }, loop: { default: true } },
-        lottie: { animationData: { default: null }, speed: { default: 1 } },
+        lottie: {
+          animationData: { default: null },
+          speed: { default: 1 },
+          runtimeProfile: {
+            renderer: 'lottie-web light Canvas',
+            backingLimits: { maximumAxisPixels: 8192, maximumTotalPixels: 16777216 },
+            readinessBudgetMs: 2500,
+            sourceInPoint: expect.stringContaining('subtracts animationData.ip'),
+            editor: expect.stringContaining('paused scrubbing rebuilds changed frames'),
+            nonRealtime: expect.stringContaining('byte-identical Canvas pixels'),
+            verification: expect.stringContaining('capture representative frames'),
+          },
+        },
       },
       semantics: {
         layerPaintOrder: 'ascending-index-paints-later',
@@ -668,6 +684,62 @@ describe('OGraf MCP authoring host', () => {
     expect(
       (result.structuredContent as { animatableProperties: string[] }).animatableProperties,
     ).toContain('strokeWidth');
+  });
+
+  it('derives Lottie compatibility details during scene inspection', async () => {
+    const sessionId = 'lottie-inspection-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          {
+            type: 'add_layer',
+            kind: 'lottie',
+            name: 'Nonzero in-point',
+            element: {
+              animationData: {
+                v: '5.13.0',
+                fr: 30,
+                ip: 5,
+                op: 35,
+                w: 320,
+                h: 180,
+                layers: [{ ty: 4, x: 'time * 10' }],
+              },
+            },
+          },
+        ],
+      },
+    });
+    expect(result.isError).not.toBe(true);
+
+    const inspected = await client.callTool({
+      name: 'ograf_inspect_scene',
+      arguments: { sessionId },
+    });
+    expect(inspected.structuredContent).toMatchObject({
+      compositions: [
+        {
+          layers: [
+            {
+              name: 'Nonzero in-point',
+              lottieInspection: {
+                valid: true,
+                warnings: [expect.stringContaining('expressions are disabled')],
+                width: 320,
+                height: 180,
+                frameRate: 30,
+                inPoint: 5,
+                outPoint: 35,
+              },
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it('applies style packs and returns complete semantic recipe mappings', async () => {

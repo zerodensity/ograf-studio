@@ -5,8 +5,13 @@ import {
   type ExportArtifacts,
   type ExportProfile,
 } from '@ograf-editor/codegen';
-import type { Graphic, OGrafManifest } from '@ograf-editor/ograf-types';
-import type { Composition, Project } from '@ograf-editor/scene-model';
+import type { CompiledGraphicDescriptor, Graphic, OGrafManifest } from '@ograf-editor/ograf-types';
+import {
+  lottiePlayerFrameAtTime,
+  type Composition,
+  type Element,
+  type Project,
+} from '@ograf-editor/scene-model';
 
 export type { ExportArtifacts } from '@ograf-editor/codegen';
 
@@ -44,6 +49,33 @@ function defaultsFromManifest(manifest: OGrafManifest): Record<string, unknown> 
       return [[key, (value as { default: unknown }).default]];
     }),
   );
+}
+
+export function certificationSeekTimestamps(elements: Element[]): {
+  target: number;
+  rewind: number;
+  exercisesAllLotties: boolean;
+} {
+  const target = 5_000;
+  const lotties = elements.filter(
+    (element): element is Extract<Element, { type: 'lottie' }> =>
+      element.type === 'lottie' && !!element.animationData && element.speed > 0,
+  );
+  if (lotties.length === 0) return { target, rewind: 2_000, exercisesAllLotties: true };
+  for (let attempt = 0; attempt < 1_999; attempt += 1) {
+    const rewind = 1_000.5 + attempt;
+    if (
+      lotties.every(
+        (element) =>
+          Math.abs(
+            lottiePlayerFrameAtTime(element, target) - lottiePlayerFrameAtTime(element, rewind),
+          ) > 1e-6,
+      )
+    ) {
+      return { target, rewind, exercisesAllLotties: true };
+    }
+  }
+  return { target, rewind: 2_000.5, exercisesAllLotties: false };
 }
 
 function promiseWithTimeout<T>(promise: Promise<T>, method: string): Promise<T> {
@@ -98,6 +130,40 @@ function validateReturnPayload(
 }
 
 type CallableGraphic = HTMLElement & Graphic & Record<string, unknown>;
+
+async function canvasPixelSignatures(
+  graphic: CallableGraphic,
+): Promise<{ signatures: string[]; errors: string[] }> {
+  const signatures: string[] = [];
+  const errors: string[] = [];
+  const canvases = [...(graphic.shadowRoot?.querySelectorAll<HTMLCanvasElement>('canvas') ?? [])];
+  for (const [index, canvas] of canvases.entries()) {
+    if (canvas.width <= 0 || canvas.height <= 0) {
+      errors.push(
+        `Canvas ${index + 1} has invalid backing dimensions ${canvas.width}x${canvas.height}.`,
+      );
+      continue;
+    }
+    try {
+      const context = canvas.getContext('2d');
+      if (!context) {
+        errors.push(`Canvas ${index + 1} does not expose a 2D rendering context.`);
+        continue;
+      }
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      const digest = await crypto.subtle.digest('SHA-256', pixels);
+      const hash = [...new Uint8Array(digest)]
+        .map((value) => value.toString(16).padStart(2, '0'))
+        .join('');
+      signatures.push(`${canvas.width}x${canvas.height}:${hash}`);
+    } catch (error) {
+      errors.push(
+        `Canvas ${index + 1} pixels could not be inspected: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return { signatures, errors };
+}
 
 interface CertificationRealm {
   frame: HTMLIFrameElement;
@@ -205,6 +271,31 @@ async function validateModuleAndLifecycle(
     if (moduleErrors.length > 0) return { moduleErrors, lifecycleErrors };
 
     const initialData = defaultsFromManifest(artifacts.manifest);
+    const compiledDescriptor = (
+      graphicModule.default as CustomElementConstructor & {
+        descriptor?: CompiledGraphicDescriptor;
+      }
+    ).descriptor;
+    const descriptorElements = [
+      ...(compiledDescriptor?.layers.map((layer) => layer.element) ?? []),
+      ...(compiledDescriptor?.collections?.flatMap((collection) =>
+        collection.prototypeLayers.map((layer) => layer.element),
+      ) ?? []),
+    ];
+    const seekTimestamps = certificationSeekTimestamps(descriptorElements);
+    const expectedLottieCanvases =
+      (compiledDescriptor?.layers.filter(
+        (layer) => layer.element.type === 'lottie' && !!layer.element.animationData,
+      ).length ?? 0) +
+      (compiledDescriptor?.collections?.reduce(
+        (count, collection) =>
+          count +
+          collection.capacity *
+            collection.prototypeLayers.filter(
+              (layer) => layer.element.type === 'lottie' && !!layer.element.animationData,
+            ).length,
+        0,
+      ) ?? 0);
     const reducedArrayData = Object.fromEntries(
       Object.entries(initialData).map(([key, value]) => [
         key,
@@ -228,6 +319,11 @@ async function validateModuleAndLifecycle(
           ...(await callGraphicMethod(graphic, 'stopAction', {})),
         );
       } else {
+        if (!seekTimestamps.exercisesAllLotties) {
+          lifecycleErrors.push(
+            'Certification could not choose a backward timestamp that changes every animated Lottie frame.',
+          );
+        }
         lifecycleErrors.push(
           ...(await callGraphicMethod(graphic, 'setActionsSchedule', {
             schedule: [
@@ -240,8 +336,17 @@ async function validateModuleAndLifecycle(
               { timestamp: 7000, action: { type: 'stopAction', params: {} } },
             ],
           })),
-          ...(await callGraphicMethod(graphic, 'goToTime', { timestamp: 5000 })),
+          ...(await callGraphicMethod(graphic, 'goToTime', {
+            timestamp: seekTimestamps.target,
+          })),
         );
+        const canvasSnapshot = await canvasPixelSignatures(graphic);
+        lifecycleErrors.push(...canvasSnapshot.errors);
+        if (canvasSnapshot.signatures.length < expectedLottieCanvases) {
+          lifecycleErrors.push(
+            `Expected at least ${expectedLottieCanvases} Lottie Canvas${expectedLottieCanvases === 1 ? '' : 'es'}, found ${canvasSnapshot.signatures.length}.`,
+          );
+        }
         const collectionSnapshot = [
           ...(graphic.shadowRoot?.querySelectorAll<HTMLElement>('[data-ograf-collection-id]') ??
             []),
@@ -252,8 +357,12 @@ async function validateModuleAndLifecycle(
               `${element.dataset.ografCollectionId}:${element.dataset.ografCollectionIndex}`,
           );
         lifecycleErrors.push(
-          ...(await callGraphicMethod(graphic, 'goToTime', { timestamp: 2000 })),
-          ...(await callGraphicMethod(graphic, 'goToTime', { timestamp: 5000 })),
+          ...(await callGraphicMethod(graphic, 'goToTime', {
+            timestamp: seekTimestamps.rewind,
+          })),
+          ...(await callGraphicMethod(graphic, 'goToTime', {
+            timestamp: seekTimestamps.target,
+          })),
         );
         const replayedCollectionSnapshot = [
           ...(graphic.shadowRoot?.querySelectorAll<HTMLElement>('[data-ograf-collection-id]') ??
@@ -267,6 +376,22 @@ async function validateModuleAndLifecycle(
         if (JSON.stringify(collectionSnapshot) !== JSON.stringify(replayedCollectionSnapshot)) {
           lifecycleErrors.push(
             'Non-realtime collection visibility changed after backward and repeated goToTime seeking.',
+          );
+        }
+        const replayedCanvasSnapshot = await canvasPixelSignatures(graphic);
+        lifecycleErrors.push(...replayedCanvasSnapshot.errors);
+        if (replayedCanvasSnapshot.signatures.length < expectedLottieCanvases) {
+          lifecycleErrors.push(
+            `Expected at least ${expectedLottieCanvases} replayed Lottie Canvas${expectedLottieCanvases === 1 ? '' : 'es'}, found ${replayedCanvasSnapshot.signatures.length}.`,
+          );
+        }
+        if (
+          canvasSnapshot.signatures.length > 0 &&
+          JSON.stringify(canvasSnapshot.signatures) !==
+            JSON.stringify(replayedCanvasSnapshot.signatures)
+        ) {
+          lifecycleErrors.push(
+            'Canvas pixels changed after backward and repeated non-realtime goToTime seeking.',
           );
         }
       }

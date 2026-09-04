@@ -67,6 +67,7 @@ import {
 } from './stageZoom';
 import { nextOgrafStepFrame } from './ografStepPlayback';
 import { isInteractiveShortcutTarget } from '../state/keyboardShortcuts';
+import { duplicateLayerSelection } from '../state/editorShortcuts';
 import './Stage.css';
 
 export function Stage({ style }: { style?: CSSProperties }) {
@@ -1109,7 +1110,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
               label: 'Duplicate',
               disabled: objectMenu.layerIds.length === 0,
               separatorBefore: true,
-              onSelect: () => selectMany(pasteLayers(snapshotLayers(objectMenu.layerIds))),
+              onSelect: () => duplicateLayerSelection(objectMenu.layerIds),
             },
             ...(isPersistentGroupSelection(composition, objectMenu.layerIds)
               ? [

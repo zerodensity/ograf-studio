@@ -40,6 +40,8 @@ import {
   getResolvedLayerAnimationTracks,
   getTotalFrames,
   intersectConvexPolygons,
+  inspectLottieAnimationData,
+  LOTTIE_READY_TIMEOUT_MS,
   PROJECT_SOURCE_EXTENSION,
   MOTION_PRESET_NAMES,
   STYLE_PACKS,
@@ -496,6 +498,20 @@ function inspectComposition(composition: Composition) {
       id: layer.id,
       name: layer.name,
       type: layer.element.type,
+      ...(layer.element.type === 'lottie'
+        ? {
+            lottieInspection: layer.element.animationData
+              ? {
+                  ...inspectLottieAnimationData(layer.element.animationData),
+                  width: layer.element.animationData.w,
+                  height: layer.element.animationData.h,
+                  frameRate: layer.element.animationData.fr,
+                  inPoint: layer.element.animationData.ip,
+                  outPoint: layer.element.animationData.op,
+                }
+              : null,
+          }
+        : {}),
       effectStack: getEffectStack(layer.effects).map((e) => ({
         ...e,
         enabled: effectEnabled(e, layer.effects),
@@ -1476,6 +1492,7 @@ export function createOGrafToolRecords(
         ],
         elementSchemas: {
           rectangle: {
+            defaultTransform: { width: 200, height: 200, shape: 'square' },
             fill: {
               type: 'paint',
               values: [
@@ -1502,6 +1519,7 @@ export function createOGrafToolRecords(
             },
           },
           ellipse: {
+            defaultTransform: { width: 200, height: 200, shape: 'circle' },
             fill: {
               type: 'paint',
               values: [
@@ -1612,9 +1630,33 @@ export function createOGrafToolRecords(
               type: 'object-or-null',
               default: null,
               description:
-                'Self-contained Bodymovin/Lottie JSON. External image/font paths are rejected; expressions are ignored.',
+                'Self-contained Bodymovin/Lottie JSON preserved as imported. External image/font paths, segmented documents, and luma mattes are rejected; alpha mattes are supported; expressions are ignored with a validation warning.',
             },
             speed: { type: 'number', default: 1, minimum: 0 },
+            runtimeProfile: {
+              renderer: 'lottie-web light Canvas',
+              canvas:
+                'Positive adapter-owned backing canvas; CSS reframes later layer-size changes, and a DPR/display change rebuilds the backing without calling the player resize API.',
+              backingLimits: {
+                maximumAxisPixels: 8192,
+                maximumTotalPixels: 16777216,
+                detail:
+                  'Persistent players allocate from the maximum authored layer bounds, then reduce logical size as needed so DPR-adjusted backing stays within both limits.',
+              },
+              readiness:
+                'load() predecodes embedded images and waits for Lottie DOMLoaded, including footage, fonts, item construction, and the initial Canvas frame.',
+              readinessBudgetMs: LOTTIE_READY_TIMEOUT_MS,
+              sourceInPoint:
+                'Elapsed time maps to an absolute source frame; the adapter subtracts animationData.ip before calling the relative player seek API.',
+              realtime:
+                'Persistent player driven from absolute elapsed time for efficient continuous playback.',
+              editor:
+                'Timeline playback uses the persistent player; paused scrubbing rebuilds changed frames for settled pixel repeatability.',
+              nonRealtime:
+                'A changed goToTime target rebuilds and awaits the player so repeated timestamps produce byte-identical Canvas pixels in the regression corpus.',
+              verification:
+                'Inspect lottieInspection warnings, capture representative frames, test backward seeks, and certify the exported package. Canvas results do not prove SVG, original After Effects, HbbTV, or arbitrary target-renderer parity.',
+            },
           },
         },
         animatableProperties: [...ANIMATABLE_LAYER_PROPERTIES],
@@ -2054,7 +2096,7 @@ export function createOGrafToolRecords(
     {
       title: 'Inspect OGraf scene',
       description:
-        'Read a compact composition outline: layers, bindings, masks, shared patterns with resolved row periods/speeds, lifecycle and layout. Use stable IDs and revision when editing.',
+        'Read a compact composition outline: layers, bindings, masks, per-layer Lottie compatibility/source timing, shared patterns with resolved row periods/speeds, lifecycle and layout. Use stable IDs and revision when editing.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),

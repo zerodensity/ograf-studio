@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { computeKeyframeFrames } from '@ograf-editor/scene-model';
 import { getLayerTransformAtFrame, useProjectStore } from './projectStore';
 import { useSelectionStore } from './selectionStore';
 
@@ -14,6 +15,87 @@ describe('project store independent layer timelines', () => {
       expect(layer.keyframes.map((keyframe) => keyframe.transform.opacity)).toEqual([1, 1, 1]);
       expect(layer.animationTracks.opacity?.map((keyframe) => keyframe.value)).toEqual([1, 1, 1]);
     }
+  });
+
+  it('keeps initial frame-zero placement static across lifecycle compatibility keys', () => {
+    const layerId = useProjectStore.getState().addLayer('rectangle');
+    useProjectStore.getState().setLayerLoop(layerId, { durationFrames: 10 });
+    useProjectStore.getState().setLayerLoopPropertyTrack(layerId, 'x', [
+      { id: 'loop-start', frame: 0, value: 100, easing: 'linear' },
+      { id: 'loop-end', frame: 10, value: 140, easing: 'linear' },
+    ]);
+
+    useProjectStore.getState().updateLayerTransform(layerId, 0, {
+      x: 420,
+      y: 210,
+      width: 360,
+      height: 360,
+    });
+
+    const composition = useProjectStore.getState().project.compositions[0]!;
+    const layer = composition.layers.find((candidate) => candidate.id === layerId)!;
+    const lifecycleFrames = computeKeyframeFrames(composition).map(({ frame }) => frame);
+    for (const frame of lifecycleFrames) {
+      expect(getLayerTransformAtFrame(layer, frame)).toMatchObject({
+        x: 420,
+        y: 210,
+        width: 360,
+        height: 360,
+      });
+    }
+    expect(layer.animationTracks.x?.map(({ frame, value }) => ({ frame, value }))).toEqual(
+      lifecycleFrames.map((frame) => ({ frame, value: 420 })),
+    );
+    expect(layer.loop?.tracks.x?.map((keyframe) => keyframe.value)).toEqual([420, 460]);
+  });
+
+  it('keeps deliberate and nonzero transform edits frame-scoped', () => {
+    const layerId = useProjectStore.getState().addLayer('rectangle');
+
+    useProjectStore.getState().updateLayerTransform(layerId, 12, { x: 500 });
+    useProjectStore.getState().updateLayerTransform(layerId, 0, { x: 40, y: 210 });
+    useProjectStore.getState().updateLayerTransform(layerId, 7, { y: 777 });
+
+    const layer = useProjectStore
+      .getState()
+      .project.compositions[0]!.layers.find((candidate) => candidate.id === layerId)!;
+    expect(layer.animationTracks.x?.map(({ frame, value }) => ({ frame, value }))).toEqual([
+      { frame: 0, value: 40 },
+      { frame: 12, value: 500 },
+      { frame: 24, value: 100 },
+    ]);
+    expect(layer.animationTracks.y?.find((keyframe) => keyframe.frame === 7)?.value).toBe(777);
+    expect(layer.animationTracks.y?.filter((keyframe) => keyframe.frame !== 7)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ frame: 0, value: 210 }),
+        expect.objectContaining({ frame: 12, value: 210 }),
+        expect.objectContaining({ frame: 24, value: 210 }),
+      ]),
+    );
+  });
+
+  it('keeps descendants aligned when a static parent is placed at frame zero', () => {
+    const parentId = useProjectStore.getState().addLayer('rectangle');
+    const childId = useProjectStore.getState().addLayer('text');
+    useProjectStore.getState().setLayerParent(childId, parentId);
+    useProjectStore.getState().updateLayerTransform(childId, 6, { x: 150 });
+    useProjectStore.getState().setLayerLoop(childId, { durationFrames: 10 });
+    useProjectStore.getState().setLayerLoopPropertyTrack(childId, 'x', [
+      { id: 'loop-start', frame: 0, value: 100, easing: 'linear' },
+      { id: 'loop-end', frame: 10, value: 140, easing: 'linear' },
+    ]);
+
+    useProjectStore.getState().updateLayerTransform(parentId, 0, { x: 180, y: 260 });
+
+    const composition = useProjectStore.getState().project.compositions[0]!;
+    const parent = composition.layers.find((candidate) => candidate.id === parentId)!;
+    const child = composition.layers.find((candidate) => candidate.id === childId)!;
+    for (const { frame } of computeKeyframeFrames(composition)) {
+      expect(getLayerTransformAtFrame(parent, frame)).toMatchObject({ x: 180, y: 260 });
+      expect(getLayerTransformAtFrame(child, frame)).toMatchObject({ x: 180, y: 260 });
+    }
+    expect(child.animationTracks.x?.find((keyframe) => keyframe.frame === 6)?.value).toBe(230);
+    expect(child.loop?.tracks.x?.map((keyframe) => keyframe.value)).toEqual([180, 220]);
   });
 
   it('adds and edits a key without changing any other layer track', () => {

@@ -8,8 +8,14 @@ export { renderPatternAtElapsed } from './patternRendering';
 export {
   applyAnimatedPaint,
   disposeElementContent,
+  lottieBackingSizeForLayer,
+  MAX_LOTTIE_BACKING_AXIS,
+  MAX_LOTTIE_BACKING_PIXELS,
   renderElementContent,
   renderAnimatedElementAtTime,
+  refreshLottiePresentation,
+  setLottieDeterministicRendering,
+  waitForElementContentReady,
   resolveBoundElement,
   resolveBoundEffects,
 } from './renderElement';

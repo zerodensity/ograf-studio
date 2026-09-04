@@ -196,6 +196,7 @@ export function AddElementToolbar() {
             key={kind}
             type="button"
             className="element-tool-button"
+            data-editor-shortcuts="allow"
             aria-label={`Add ${label}`}
             title={`Add ${label}`}
             data-tooltip={label}
@@ -207,6 +208,7 @@ export function AddElementToolbar() {
         <button
           type="button"
           className="element-tool-button"
+          data-editor-shortcuts="allow"
           aria-label="Add Lottie JSON"
           title="Add Lottie JSON"
           data-tooltip="Lottie"

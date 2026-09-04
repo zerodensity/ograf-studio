@@ -1,6 +1,6 @@
 {
   "contractVersion": 1,
-  "server": { "name": "ograf-editor", "version": "0.1.0" },
+  "server": { "name": "ograf-editor", "version": "0.13.0" },
   "tools": [
     {
       "name": "ograf_get_capabilities",
@@ -118,7 +118,7 @@
     {
       "name": "ograf_inspect_scene",
       "title": "Inspect OGraf scene",
-      "description": "Read a compact composition outline: layers, bindings, masks, shared patterns with resolved row periods/speeds, lifecycle and layout. Use stable IDs and revision when editing.",
+      "description": "Read a compact composition outline: layers, bindings, masks, per-layer Lottie compatibility/source timing, shared patterns with resolved row periods/speeds, lifecycle and layout. Use stable IDs and revision when editing.",
       "inputSchema": {
         "type": "object",
         "properties": {

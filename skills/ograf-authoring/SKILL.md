@@ -1,6 +1,6 @@
 ---
 name: ograf-authoring
-description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, procedural tiling, composable effects stacks, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, .ogs source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
+description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, Lottie layers, procedural tiling, composable effects stacks, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, .ogs source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
 ---
 
 # OGraf Authoring
@@ -94,6 +94,23 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   dependencies into one portable SVG and registers packaged fonts. The result remains one image
   layer—arbitrary Photoshop raster/vector output is not semantically decomposed into editable
   objects.
+
+## Lottie layers
+
+Read `elementSchemas.lottie.runtimeProfile` from the `elements` capability section before authoring
+or assessing Lottie. Create a layer with `add_layer.kind: "lottie"` and a complete self-contained
+`element.animationData` object, or ask the operator to use **+ Lottie JSON** for a local file. Keep
+the imported JSON intact. External image/font paths, segmented documents, and luma mattes are
+rejected; alpha mattes are supported. Embedded data-URI images are decoded and awaited;
+expressions are ignored by the light Canvas renderer and reported as warnings.
+
+After import, read `lottieInspection` from `ograf_inspect_scene`. Treat every warning as a review
+item. Render representative early, middle, late, and loop-boundary frames, then exercise a backward
+seek. Non-realtime `goToTime()` rebuilds and awaits a changed Lottie frame so the same timestamp is
+byte-repeatable. Paused Timeline scrubbing uses the same settled-frame rule, while Timeline and
+realtime playback retain one efficient player. Certification compares Canvas pixel signatures
+across its backward/repeated seek. A successful Canvas result does not establish SVG, original
+After Effects, HbbTV, or other target-renderer parity, so report those separately.
 
 ## Composable effects
 

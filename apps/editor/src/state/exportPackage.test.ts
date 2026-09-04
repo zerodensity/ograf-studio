@@ -4,12 +4,30 @@ import {
   createFieldDefinition,
   createImageLayer,
   createLayerKeyframe,
+  createLottieElement,
   createProject,
+  lottiePlayerFrameAtTime,
 } from '@ograf-editor/scene-model';
 import { buildExportArtifacts, exportProjectAsZip } from './exportPackage';
-import { certifyExportArtifacts, certifyProject } from './ografCompatibility';
+import {
+  certificationSeekTimestamps,
+  certifyExportArtifacts,
+  certifyProject,
+} from './ografCompatibility';
 
 describe('export package artifacts', () => {
+  it('chooses a non-period-aligned Canvas seek for a one-second Lottie loop', () => {
+    const lottie = createLottieElement({
+      animationData: { v: '5.13.0', fr: 30, ip: 5, op: 35, w: 100, h: 100, layers: [] },
+    });
+    const timestamps = certificationSeekTimestamps([lottie]);
+    expect(timestamps.exercisesAllLotties).toBe(true);
+    expect(timestamps.rewind).not.toBe(2_000);
+    expect(lottiePlayerFrameAtTime(lottie, timestamps.target)).not.toBe(
+      lottiePlayerFrameAtTime(lottie, timestamps.rewind),
+    );
+  });
+
   it('extracts and deduplicates data URIs instead of embedding asset bytes in main.js', () => {
     const project = createProject();
     const composition = project.compositions[0]!;

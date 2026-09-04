@@ -8,24 +8,24 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.12
+## New in OGraf Studio 0.13
 
-- Image-first authoring with direct upload, canvas file drop, reusable resource thumbnails and
-  layer replacement that preserves placement and animation.
-- Detachable browser windows for all tool panes, including a Picture only Preview for a second
-  monitor. Pane state, selection, undo and the MCP session remain shared.
-- Shared Looping Pattern lighting: sweep timing and phase, intensity, glow strength and softness,
-  with per-layer sweep counts and preserved source curves, colors and row motion.
-- Style packs recolor existing controls, GDD defaults, shaded gradients, reflections and shared
-  lights. Pack removal restores the recorded pre-pack font, color, binding and timing state.
-- Compact, resizable property columns with feature-specific tooltips and accessible descriptions.
-- Cleaner Timeline controls with frame stepping, focused arrow-key navigation, compact transition
-  units, flat track fills and Alt-hover details in place of crowded inline text.
-- Updated MCP operations, capabilities, authoring skill and in-app AI guidance.
+- Reliable Lottie Canvas rendering across resize, hidden/detached setup, mattes, gradients and
+  rounded artwork, with explicit embedded-image/font readiness and actionable load failures.
+- Correct nonzero Lottie in-points, a shared realtime clock, byte-repeatable non-realtime seeks and
+  stronger exported-runtime certification over every expected Canvas.
+- Launch, New, open/import and template replacement always return to frame 0 with Start selected;
+  initial placement edits preserve still-static lifecycle poses instead of creating accidental
+  easing.
+- Rectangles and ellipses begin at 200 × 200, while Properties presents common visual controls
+  before advanced authoring metadata.
+- Ctrl/Cmd+D, Edit → Duplicate and canvas Duplicate create an exact-position copy with fresh layer,
+  animation, relationship, component-instance and bound-field identities. Paste keeps its offset.
+- Updated MCP capabilities, Lottie inspection, authoring skill and in-app AI guidance.
 - Refreshed single-file Windows, macOS and Linux executables, with the export runtime embedded.
 
-See [the complete 0.12 release notes](docs/releases/0.12.md) and
-[download the release](https://github.com/zerodensity/ograf-studio/releases/tag/v0.12).
+See [the complete 0.13 release notes](docs/releases/0.13.md) and
+[download the release](https://github.com/zerodensity/ograf-studio/releases/tag/v0.13).
 
 ## Highlights
 
@@ -35,6 +35,11 @@ See [the complete 0.12 release notes](docs/releases/0.12.md) and
   and Lottie icons with accessible labels and tooltips.
 - Ordinary newly added rectangles, ellipses, text, images, paths, sequences, and Lottie layers start
   at full alpha across Start, Step, and End until the author explicitly animates opacity.
+- Launch, New, and project/template loading start at frame 0 with the Start lifecycle state selected.
+  Placing a fresh object there updates its still-static lifecycle poses instead of creating an
+  accidental entrance tween.
+- Rectangles and ellipses start at 200 × 200, so their first appearance is a square or circle;
+  width and height remain independently editable afterward.
 - Infinite node-graph-style canvas camera with hidden native scrollbars, unbounded middle-button
   panning, plain-wheel pointer-anchored zoom, and camera-aware rulers/guides in Edit and OGraf
   Preview.
@@ -44,6 +49,11 @@ See [the complete 0.12 release notes](docs/releases/0.12.md) and
 - Properties exposes that same canonical paint order as an editable, one-based **Z order** value:
   `1` is back and the current layer count is front. Typing a value reorders the real layer rather
   than creating a separate 3D depth property.
+- Selected-layer Properties puts common visual work first: name/Z, transform/alpha/easing, and
+  element content/appearance precede Brand Kit, effects, compositing, layout, bindings, and semantics.
+- Ctrl/Cmd+D duplicates the selected object or complete group at exactly the same position and
+  selects the copy beside its source in paint order. Each command is one undo step. Edit and the
+  canvas context menu expose the same command; Paste remains offset.
 - The canvas toolbar adds icon actions for Send to Back, Send Backward, Bring Forward, and Bring to
   Front. They support single or multi-layer selections and preserve selected-layer relative order.
 - EBU R 95 16:9 action-safe and title/graphics-safe overlays with exact 3.5% and 5% per-axis
@@ -202,13 +212,22 @@ Properties. The first supported profile is intentionally deterministic and porta
 - playback loops continuously, with an editable non-negative speed multiplier;
 - editor scrubbing and non-realtime `goToTime()` derive the exact Lottie frame from composition
   time; realtime playback uses the same absolute-time frame calculation;
+- `load()` predecodes embedded images and waits for fonts and the initial Canvas frame; failures
+  return an error instead of allowing a blank graphic to pass as ready;
+- a positive adapter-owned backing Canvas avoids zero-sized matte buffers and unsafe player resize
+  calls. CSS reframes that backing when the layer box changes;
+- nonzero source in-points are mapped to the player's relative frame API, and changed non-realtime
+  seeks rebuild the player for byte-repeatable output;
 - the self-hosted light canvas player is bundled into `main.js`, with no CDN dependency;
-- expressions are disabled, and external image/font paths are rejected. Export images inside the
-  JSON as data URIs or convert them to shapes/glyphs.
+- expressions are disabled; external image/font paths, segmented documents, undecodable image
+  payloads, and luma mattes are rejected. Export images inside the JSON as data URIs, use alpha
+  mattes, or convert artwork to shapes/glyphs.
 
-A small compatible animation is included at `examples/lottie/pulse.json`. Segments, markers,
-one-shot playback, dynamic Lottie text/data binding, separate image folders, and renderer selection
-are deferred until the basic profile has been exercised on target broadcast devices.
+A small compatible animation is included at `examples/lottie/pulse.json`. The pinned
+[Lottie reliability benchmark](docs/benchmarks/2026-09-04-lottie-reliability.md) separates light/full
+Canvas fidelity, repeatability, and exported-runtime evidence. Marker control, one-shot playback,
+dynamic Lottie text/data binding, separate image folders, renderer selection, and target-device
+certification remain deferred.
 
 ## Requirements
 
@@ -313,10 +332,10 @@ unsigned command-line executables; they require code signing and notarization be
 distribution. The Windows executable contains Zero Density product/version metadata and the OGS
 icon; headless macOS/Linux executables do not have desktop application icons.
 
-The server binds only to loopback. Its default writable workspace is the repository root; set
-`OGRAF_WORKSPACE_ROOT` before starting it to use a different confined workspace. Set
-`OGRAF_MCP_PORT` to change port `4318`, and set the editor's `VITE_OGRAF_AGENT_BRIDGE_URL` to the
-matching WebSocket URL when changing the port.
+The source-level `npm run mcp:start` server also binds only to loopback, but defaults its writable
+workspace to the repository root. Set `OGRAF_WORKSPACE_ROOT` before starting that command to use a
+different confined workspace. Set `OGRAF_MCP_PORT` to change port `4318`, and set the editor's
+`VITE_OGRAF_AGENT_BRIDGE_URL` to the matching WebSocket URL when changing the port.
 
 ## In-app AI chat (BYOK)
 

@@ -8,7 +8,7 @@ export interface StandaloneServerOptions {
   help: boolean;
 }
 
-export const OGRAF_STUDIO_STANDALONE_VERSION = '0.12';
+export const OGRAF_STUDIO_STANDALONE_VERSION = '0.13';
 export const OGRAF_STUDIO_REPOSITORY_URL = 'https://github.com/zerodensity/ograf-studio';
 const ZERO_DENSITY_OD_ASCII = [
   '   ##########      ##########',
@@ -131,4 +131,4 @@ Options:
 Repository: ${OGRAF_STUDIO_REPOSITORY_URL}
 
 Environment variables OGRAF_MCP_PORT and OGRAF_WORKSPACE_ROOT remain supported.
-The first standalone release binds to 127.0.0.1 only.`;
+The standalone server binds to 127.0.0.1 only.`;

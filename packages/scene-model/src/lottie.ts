@@ -1,6 +1,8 @@
 import type { LottieAnimationData, LottieElement } from './types';
 
 export const MAX_LOTTIE_JSON_BYTES = 20 * 1024 * 1024;
+/** Must stay below OGraf Studio's 3000 ms lifecycle-method certification deadline. */
+export const LOTTIE_READY_TIMEOUT_MS = 2_500;
 
 export interface LottieInspection {
   valid: boolean;
@@ -14,6 +16,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function positiveFinite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function containsLumaMatte(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const layerCollections = [
+    ...(Array.isArray(value.layers) ? [value.layers] : []),
+    ...(Array.isArray(value.assets)
+      ? value.assets.flatMap((asset) =>
+          isRecord(asset) && Array.isArray(asset.layers) ? [asset.layers] : [],
+        )
+      : []),
+  ];
+  return layerCollections.some((layers) =>
+    layers.some((layer) => isRecord(layer) && (layer.tt === 3 || layer.tt === 4)),
+  );
 }
 
 /** Validate the subset needed for safe, self-contained deterministic playback. */
@@ -33,6 +50,16 @@ export function inspectLottieAnimationData(value: unknown): LottieInspection {
   if (!positiveFinite(value.w) || !positiveFinite(value.h))
     errors.push('Lottie width (w) and height (h) must be positive.');
   if (!Array.isArray(value.layers)) errors.push('Lottie JSON must contain a layers array.');
+  if (Array.isArray(value.segments) && value.segments.length > 0) {
+    errors.push(
+      'Segmented Lottie documents are not supported; export one complete self-contained JSON document.',
+    );
+  }
+  if (containsLumaMatte(value)) {
+    errors.push(
+      'Lottie luma mattes are not supported by the light Canvas renderer; use an alpha matte.',
+    );
+  }
 
   const assets = Array.isArray(value.assets) ? value.assets : [];
   for (const asset of assets) {
@@ -40,6 +67,10 @@ export function inspectLottieAnimationData(value: unknown): LottieInspection {
     if (!asset.p.startsWith('data:image/')) {
       errors.push(
         `External Lottie image asset "${asset.p}" is not supported; embed images in the JSON.`,
+      );
+    } else if (!positiveFinite(asset.w) || !positiveFinite(asset.h)) {
+      errors.push(
+        `Embedded Lottie image asset "${asset.p.slice(0, 48)}" must have positive width and height.`,
       );
     }
   }
@@ -52,12 +83,13 @@ export function inspectLottieAnimationData(value: unknown): LottieInspection {
       );
     }
   }
-  if (JSON.stringify(value).length > MAX_LOTTIE_JSON_BYTES) {
+  const serialized = JSON.stringify(value);
+  if (serialized.length > MAX_LOTTIE_JSON_BYTES) {
     errors.push(
       `Lottie JSON exceeds the ${MAX_LOTTIE_JSON_BYTES / (1024 * 1024)} MB import limit.`,
     );
   }
-  if (JSON.stringify(value).includes('"x":"')) {
+  if (serialized.includes('"x":"')) {
     warnings.push('Lottie expressions are disabled and will be ignored.');
   }
   return { valid: errors.length === 0, errors, warnings };
@@ -88,4 +120,14 @@ export function lottieFrameAtTime(element: LottieElement, elapsedMs: number): nu
   if (!(duration > 0) || !(data.fr > 0)) return data.ip;
   const elapsedFrames = Math.max(0, elapsedMs) * 0.001 * data.fr * Math.max(0, element.speed);
   return data.ip + (((elapsedFrames % duration) + duration) % duration);
+}
+
+/**
+ * Frame accepted by lottie-web's player API. The player adds animationData.ip internally, so its
+ * public seek value must stay relative to that in-point even though OGraf exposes source frames.
+ */
+export function lottiePlayerFrameAtTime(element: LottieElement, elapsedMs: number): number {
+  const data = element.animationData;
+  if (!data) return 0;
+  return lottieFrameAtTime(element, elapsedMs) - data.ip;
 }

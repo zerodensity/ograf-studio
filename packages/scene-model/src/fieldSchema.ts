@@ -1,4 +1,5 @@
 import type { FieldDefinition, FieldValue } from './types';
+import { createId } from './id';
 
 export function valueAtSourcePath(value: unknown, sourcePath: readonly string[] = []): unknown {
   let current = value;
@@ -53,4 +54,18 @@ export function listFieldLeafPaths(
 
 export function cloneFieldValue(value: FieldValue): FieldValue {
   return structuredClone(value);
+}
+
+/** Deep field-schema clone with a fresh ID for the root and every nested property/item node. */
+export function cloneFieldDefinitionWithFreshIds(
+  source: FieldDefinition,
+  rootId = createId('field'),
+): FieldDefinition {
+  const cloneNode = (node: FieldDefinition, id = createId('field')): FieldDefinition => ({
+    ...structuredClone(node),
+    id,
+    properties: node.properties.map((property) => cloneNode(property)),
+    items: node.items ? cloneNode(node.items) : null,
+  });
+  return cloneNode(source, rootId);
 }

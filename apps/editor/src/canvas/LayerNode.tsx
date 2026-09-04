@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   layerEffectsToCssFilter,
   getLayerEffectsAtFrame,
@@ -11,8 +11,12 @@ import {
 } from '@ograf-editor/scene-model';
 import {
   applyAnimatedPaint,
+  disposeElementContent,
+  lottieBackingSizeForLayer,
   renderAnimatedElementAtTime,
   renderElementContent,
+  setLottieDeterministicRendering,
+  waitForElementContentReady,
 } from '@ograf-editor/ograf-runtime';
 import { resolveEffectiveElement, resolveEffectiveEffects } from '../state/dataBinding';
 import { useTestDataStore } from '../state/testDataStore';
@@ -60,11 +64,27 @@ export function LayerNode({
   const testValues = useTestDataStore((s) => s.values);
   const isPlaying = useTimelineStore((s) => s.isPlaying);
   const contentRef = useRef<HTMLDivElement>(null);
+  const readinessGeneration = useRef(0);
+  const [contentError, setContentError] = useState<string | null>(null);
 
   const element = useMemo(
     () => resolveEffectiveElement(layer, testValues, assets, dataFields, patterns),
     [assets, dataFields, layer, testValues, patterns],
   );
+  const lottieBackingSize = useMemo(() => lottieBackingSizeForLayer(layer), [layer]);
+  const watchContentReadiness = useCallback((host: HTMLElement) => {
+    const generation = ++readinessGeneration.current;
+    void waitForElementContentReady(host).then(
+      () => {
+        if (readinessGeneration.current === generation) setContentError(null);
+      },
+      (error: unknown) => {
+        if (readinessGeneration.current === generation) {
+          setContentError(error instanceof Error ? error.message : String(error));
+        }
+      },
+    );
+  }, []);
 
   // THE canvas render path — deliberately the exact same `renderElementContent` the OGraf runtime
   // uses for both the preview harness and every exported package, so the design canvas cannot
@@ -75,24 +95,46 @@ export function LayerNode({
   useLayoutEffect(() => {
     const host = contentRef.current;
     if (host) {
-      renderElementContent(host, element);
+      renderElementContent(
+        host,
+        element,
+        0,
+        element.type === 'lottie' ? { lottieBackingSize } : undefined,
+      );
+      if (element.type === 'lottie') watchContentReadiness(host);
+      else setContentError(null);
       applyAnimatedPaint(host, layer.animationTracks, useTimelineStore.getState().currentFrame);
     }
-  }, [element, layer.animationTracks, layer.isVisible]);
+    return () => {
+      readinessGeneration.current += 1;
+      if (host) disposeElementContent(host);
+    };
+  }, [element, layer.animationTracks, layer.isVisible, lottieBackingSize, watchContentReadiness]);
 
   useLayoutEffect(() => {
-    const renderAtFrame = (frame: number) => {
+    const renderAtFrame = (frame: number, playing: boolean) => {
       const host = contentRef.current;
-      if (host) renderAnimatedElementAtTime(host, element, (frame / compositionFrameRate) * 1000);
+      if (host) {
+        try {
+          setLottieDeterministicRendering(host, !playing);
+          renderAnimatedElementAtTime(host, element, (frame / compositionFrameRate) * 1000);
+          if (element.type === 'lottie') watchContentReadiness(host);
+        } catch (error) {
+          setContentError(error instanceof Error ? error.message : String(error));
+        }
+      }
     };
-    renderAtFrame(useTimelineStore.getState().currentFrame);
-    let previousFrame = useTimelineStore.getState().currentFrame;
+    const initialState = useTimelineStore.getState();
+    renderAtFrame(initialState.currentFrame, initialState.isPlaying);
+    let previousFrame = initialState.currentFrame;
+    let previousPlaying = initialState.isPlaying;
     return useTimelineStore.subscribe((state) => {
-      if (state.currentFrame === previousFrame) return;
+      if (state.currentFrame === previousFrame && state.isPlaying === previousPlaying) return;
       previousFrame = state.currentFrame;
-      renderAtFrame(state.currentFrame);
+      previousPlaying = state.isPlaying;
+      renderAtFrame(state.currentFrame, state.isPlaying);
     });
-  }, [compositionFrameRate, element, layer.isVisible]);
+  }, [compositionFrameRate, element, layer.isVisible, lottieBackingSize, watchContentReadiness]);
 
   if (!layer.isVisible) return null;
 
@@ -147,7 +189,13 @@ export function LayerNode({
           aria-label="Data-bound layer"
         />
       )}
-      {placeholder && <div className="layer-content-placeholder">{placeholder}</div>}
+      {contentError ? (
+        <div className="layer-content-placeholder" title={contentError}>
+          Lottie render error
+        </div>
+      ) : (
+        placeholder && <div className="layer-content-placeholder">{placeholder}</div>
+      )}
     </div>
   );
 }

@@ -32,6 +32,7 @@ import {
   createCustomActionDefinition,
   computeKeyframeFrames,
   createFieldDefinition,
+  cloneFieldDefinitionWithFreshIds,
   createId,
   createKeyframe,
   createLayerKeyframe,
@@ -114,6 +115,7 @@ import {
   type DistributionMode,
 } from '../canvas/layoutGeometry';
 import { useTimelineStore } from './timelineStore';
+import { useLayerClipboardStore } from './layerClipboardStore';
 import { planLifecycleRetime, type LifecycleRetimePlan } from './lifecycleRetime';
 import { buildSvgBundle } from './svgBundleImport';
 import { placeImages, prepareImage, readImageSize, type ImagePlacement } from './imageImport';
@@ -180,6 +182,7 @@ interface ProjectActions {
     gap?: number,
   ) => MaterializedRepeater | null;
   pasteLayers: (layers: Layer[], offset?: number) => string[];
+  duplicateLayers: (layerIds: string[]) => string[];
   removeLayer: (layerId: string) => void;
   updateLayerTransform: (layerId: string, frame: number, patch: Partial<LayerTransform>) => void;
   addLayerKeyframe: (layerId: string, frame: number) => string;
@@ -406,8 +409,8 @@ export function getActiveComposition(project: Project, activeCompositionId: stri
 function getDefaultAuthoringKeyframeId(composition: Composition): string {
   return (
     (
-      composition.keyframes.find((keyframe) => keyframe.role === 'step') ??
       composition.keyframes.find((keyframe) => keyframe.role === 'start') ??
+      composition.keyframes.find((keyframe) => keyframe.role === 'step') ??
       composition.keyframes[0]
     )?.id ?? ''
   );
@@ -524,6 +527,100 @@ function writeLayerTransformAtFrame(
   keyframe.transform = getLayerTransformAtFrame(layer, roundedFrame);
 }
 
+/**
+ * Fresh layers carry equal Start/Step/End keys so every lifecycle pose is explicit. While a
+ * property still consists only of those equal compatibility keys, placing it at frame zero is a
+ * static authoring edit rather than the first half of an accidental tween.
+ */
+function isStaticLifecycleCompatibilityTrack(
+  layer: Layer,
+  property: keyof LayerTransform,
+  lifecycleFrames: number[],
+): boolean {
+  const track = getResolvedLayerAnimationTracks(layer)[property];
+  if (!track || track.length !== lifecycleFrames.length || track.length === 0) return false;
+  const expectedFrames = new Set(lifecycleFrames);
+  if (track.some((keyframe) => !expectedFrames.has(keyframe.frame))) return false;
+  if (new Set(track.map((keyframe) => keyframe.frame)).size !== lifecycleFrames.length)
+    return false;
+  const initialValue = track[0]!.value;
+  return track.every((keyframe) => Math.abs(keyframe.value - initialValue) < 1e-9);
+}
+
+function translateLayerAcrossAllFrames(layer: Layer, deltaX: number, deltaY: number): void {
+  materializeAnimationTracks(layer);
+  for (const [property, delta] of [
+    ['x', deltaX],
+    ['y', deltaY],
+  ] as const) {
+    if (delta === 0) continue;
+    for (const keyframe of layer.animationTracks[property] ?? []) keyframe.value += delta;
+    for (const keyframe of layer.loop?.tracks[property] ?? []) keyframe.value += delta;
+    for (const keyframe of layer.keyframes) keyframe.transform[property] += delta;
+  }
+}
+
+function writeUiLayerTransform(
+  composition: Composition,
+  layer: Layer,
+  frame: number,
+  patch: Partial<LayerTransform>,
+): void {
+  const roundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
+  const normalizedPatch = normalizeAuthoredTransformPatch(patch);
+  const lifecycleFrames = [
+    ...new Set(computeKeyframeFrames(composition).map((keyframe) => keyframe.frame)),
+  ];
+  const framesByProperty = new Map<keyof LayerTransform, number[]>();
+  const staticProperties = new Set<keyof LayerTransform>();
+  for (const property of Object.keys(normalizedPatch) as (keyof LayerTransform)[]) {
+    const isStaticPlacement =
+      roundedFrame === 0 && isStaticLifecycleCompatibilityTrack(layer, property, lifecycleFrames);
+    if (isStaticPlacement) staticProperties.add(property);
+    framesByProperty.set(property, isStaticPlacement ? lifecycleFrames : [roundedFrame]);
+  }
+
+  const descendants = descendantLayers(composition, layer.id);
+  let staticDeltaX = 0;
+  let staticDeltaY = 0;
+  const affectedFrames = [...new Set([...framesByProperty.values()].flat())].sort((a, b) => a - b);
+  for (const affectedFrame of affectedFrames) {
+    const framePatch = Object.fromEntries(
+      Object.entries(normalizedPatch).filter(([property]) =>
+        framesByProperty.get(property as keyof LayerTransform)?.includes(affectedFrame),
+      ),
+    ) as Partial<LayerTransform>;
+    const before = getLayerTransformAtFrame(layer, affectedFrame);
+    writeLayerTransformAtFrame(composition, layer, affectedFrame, framePatch);
+    const after = getLayerTransformAtFrame(layer, affectedFrame);
+    const deltaX = after.x - before.x;
+    const deltaY = after.y - before.y;
+    if (staticProperties.has('x')) staticDeltaX = deltaX;
+    if (staticProperties.has('y')) staticDeltaY = deltaY;
+    const frameDeltaX = staticProperties.has('x') ? 0 : deltaX;
+    const frameDeltaY = staticProperties.has('y') ? 0 : deltaY;
+    if (frameDeltaX === 0 && frameDeltaY === 0) continue;
+    for (const descendant of descendants) {
+      const pose = getLayerTransformAtFrame(descendant, affectedFrame);
+      writeLayerTransformAtFrame(composition, descendant, affectedFrame, {
+        ...(frameDeltaX !== 0 ? { x: pose.x + frameDeltaX } : {}),
+        ...(frameDeltaY !== 0 ? { y: pose.y + frameDeltaY } : {}),
+      });
+    }
+  }
+  if (staticDeltaX !== 0 || staticDeltaY !== 0) {
+    for (const [property, delta] of [
+      ['x', staticDeltaX],
+      ['y', staticDeltaY],
+    ] as const) {
+      for (const keyframe of layer.loop?.tracks[property] ?? []) keyframe.value += delta;
+    }
+    for (const descendant of descendants) {
+      translateLayerAcrossAllFrames(descendant, staticDeltaX, staticDeltaY);
+    }
+  }
+}
+
 function resizeConstrainedLayers(
   composition: Composition,
   oldSize: { width: number; height: number },
@@ -574,6 +671,221 @@ function descendantLayers(composition: Composition, parentId: string): Layer[] {
   return result;
 }
 
+function linkedInstanceKey(layer: Layer): string | null {
+  const link = layer.componentLink;
+  return link ? `${link.componentId}\u0000${link.instanceId}` : null;
+}
+
+function completeLinkedInstanceKeys(composition: Composition, copiedLayers: Layer[]): Set<string> {
+  const copiedLayerIds = new Set(copiedLayers.map((layer) => layer.id));
+  const candidateKeys = new Set(
+    copiedLayers.map(linkedInstanceKey).filter((key): key is string => key !== null),
+  );
+  const complete = new Set<string>();
+
+  for (const key of candidateKeys) {
+    const members = composition.layers.filter((layer) => linkedInstanceKey(layer) === key);
+    const link = members[0]?.componentLink;
+    const definition = link
+      ? composition.components.find((candidate) => candidate.id === link.componentId)
+      : undefined;
+    if (!definition || members.length !== definition.layers.length) continue;
+    if (members.some((layer) => !copiedLayerIds.has(layer.id))) continue;
+    const sourceLayerIds = members.map((layer) => layer.componentLink?.sourceLayerId);
+    if (sourceLayerIds.some((sourceLayerId) => !sourceLayerId)) continue;
+    if (new Set(sourceLayerIds).size !== definition.layers.length) continue;
+    if (!definition.layers.every((source) => sourceLayerIds.includes(source.id))) continue;
+    if (
+      members.some((layer) =>
+        layer.bindings.some(
+          (binding) => !composition.dataFields.some((field) => field.id === binding.fieldId),
+        ),
+      )
+    )
+      continue;
+    complete.add(key);
+  }
+
+  return complete;
+}
+
+function uniqueCopiedFieldKey(base: string, used: Set<string>): string {
+  if (!used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  let suffix = 2;
+  while (used.has(`${base}_${suffix}`)) suffix++;
+  const key = `${base}_${suffix}`;
+  used.add(key);
+  return key;
+}
+
+function appendLayerCopies(
+  composition: Composition,
+  sourceComposition: Composition,
+  sources: Layer[],
+  offset: number,
+  placement: 'front' | 'after-selection' = 'front',
+): string[] {
+  const copiedIds: string[] = [];
+  const copiedLayers: Layer[] = [];
+  const usedNames = new Set(composition.layers.map((layer) => layer.name));
+  const idMap = new Map(sources.map((layer) => [layer.id, createId('layer')]));
+  const groupMap = new Map(
+    sources
+      .map((layer) => layer.groupId)
+      .filter((groupId): groupId is string => Boolean(groupId))
+      .map((groupId) => [groupId, createId('group')]),
+  );
+  const safeLinkedInstances = completeLinkedInstanceKeys(sourceComposition, sources);
+  const linkedInstanceCopies = new Map(
+    [...safeLinkedInstances].map((key) => [key, createId('component-instance')]),
+  );
+  const copiedFieldIds = new Map<string, Map<string, string>>();
+  const usedFieldKeys = new Set(composition.dataFields.map((field) => field.key));
+
+  for (const instanceKey of safeLinkedInstances) {
+    const fields = new Map<string, string>();
+    const boundFieldIds = [
+      ...new Set(
+        sources
+          .filter((layer) => linkedInstanceKey(layer) === instanceKey)
+          .flatMap((layer) => layer.bindings.map((binding) => binding.fieldId)),
+      ),
+    ];
+    for (const sourceFieldId of boundFieldIds) {
+      const sourceField = sourceComposition.dataFields.find((field) => field.id === sourceFieldId);
+      if (!sourceField) continue;
+      const field = cloneFieldDefinitionWithFreshIds(sourceField);
+      field.key = uniqueCopiedFieldKey(sourceField.key, usedFieldKeys);
+      composition.dataFields.push(field);
+      fields.set(sourceFieldId, field.id);
+    }
+    copiedFieldIds.set(instanceKey, fields);
+  }
+
+  for (const source of sources) {
+    const baseName = source.name.replace(/ copy(?: \d+)?$/, '');
+    let name = `${baseName} copy`;
+    let suffix = 2;
+    while (usedNames.has(name)) name = `${baseName} copy ${suffix++}`;
+    usedNames.add(name);
+    const instanceKey = linkedInstanceKey(source);
+    const copiedInstanceId = instanceKey ? linkedInstanceCopies.get(instanceKey) : undefined;
+    const fieldIds = instanceKey ? copiedFieldIds.get(instanceKey) : undefined;
+
+    const layer: Layer = {
+      ...structuredClone(source),
+      id: idMap.get(source.id)!,
+      name,
+      groupId: source.groupId ? (groupMap.get(source.groupId) ?? null) : null,
+      parentId: source.parentId ? (idMap.get(source.parentId) ?? null) : null,
+      mask: source.mask
+        ? idMap.has(source.mask.sourceLayerId) ||
+          composition.layers.some((layer) => layer.id === source.mask!.sourceLayerId)
+          ? {
+              ...source.mask,
+              sourceLayerId: idMap.get(source.mask.sourceLayerId) ?? source.mask.sourceLayerId,
+            }
+          : null
+        : null,
+      componentLink:
+        source.componentLink && copiedInstanceId
+          ? { ...source.componentLink, instanceId: copiedInstanceId }
+          : null,
+      bindings: source.bindings.flatMap((binding) => {
+        const fieldId =
+          fieldIds?.get(binding.fieldId) ??
+          (composition.dataFields.some((field) => field.id === binding.fieldId)
+            ? binding.fieldId
+            : undefined);
+        return fieldId ? [{ ...structuredClone(binding), fieldId }] : [];
+      }),
+      keyframes: source.keyframes.map((keyframe) =>
+        createLayerKeyframe(
+          keyframe.frame,
+          {
+            ...keyframe.transform,
+            x: keyframe.transform.x + offset,
+            y: keyframe.transform.y + offset,
+          },
+          { easing: keyframe.easing },
+        ),
+      ),
+      animationTracks: {},
+    };
+    const sourceTracks = getResolvedLayerAnimationTracks(source);
+    layer.animationTracks = Object.fromEntries(
+      Object.entries(sourceTracks).map(([property, keyframes]) => [
+        property,
+        (keyframes ?? []).map((keyframe) =>
+          createLayerPropertyKeyframe(
+            keyframe.frame,
+            keyframe.value + (property === 'x' || property === 'y' ? offset : 0),
+            {
+              easing: keyframe.easing,
+              curve: keyframe.curve ? { ...keyframe.curve } : undefined,
+            },
+          ),
+        ),
+      ]),
+    );
+    if (source.loop) {
+      layer.loop = {
+        ...structuredClone(source.loop),
+        id: createId('layer-loop'),
+        tracks: Object.fromEntries(
+          Object.entries(source.loop.tracks).map(([property, keyframes]) => [
+            property,
+            (keyframes ?? []).map((keyframe) =>
+              createLayerPropertyKeyframe(
+                keyframe.frame,
+                keyframe.value + (property === 'x' || property === 'y' ? offset : 0),
+                {
+                  easing: keyframe.easing,
+                  curve: keyframe.curve ? { ...keyframe.curve } : undefined,
+                },
+              ),
+            ),
+          ]),
+        ),
+      };
+    }
+    copiedLayers.push(layer);
+    copiedIds.push(layer.id);
+  }
+
+  if (placement === 'after-selection') {
+    const sourceIds = new Set(sources.map((source) => source.id));
+    const insertionIndex =
+      Math.max(
+        -1,
+        ...composition.layers.map((layer, index) => (sourceIds.has(layer.id) ? index : -1)),
+      ) + 1;
+    composition.layers.splice(insertionIndex, 0, ...copiedLayers);
+  } else {
+    composition.layers.push(...copiedLayers);
+  }
+
+  return copiedIds;
+}
+
+function duplicateObjectLayers(composition: Composition, layerIds: string[]): Layer[] {
+  const wanted = new Set(layerIds);
+  const selectedGroupIds = new Set(
+    composition.layers
+      .filter((layer) => wanted.has(layer.id) && layer.groupId)
+      .map((layer) => layer.groupId!),
+  );
+  for (const layer of composition.layers) {
+    if (layer.groupId && selectedGroupIds.has(layer.groupId)) wanted.add(layer.id);
+  }
+  return composition.layers
+    .filter((layer) => wanted.has(layer.id))
+    .map((layer) => structuredClone(layer));
+}
+
 let projectLoadGeneration = 0;
 
 export const useProjectStore = create<ProjectStore>()(
@@ -587,6 +899,7 @@ export const useProjectStore = create<ProjectStore>()(
 
       newProject: () => {
         projectLoadGeneration++;
+        useLayerClipboardStore.getState().copy([]);
         useTimelineStore.getState().resetForProjectLoad();
         set((state) => {
           const project = createProject();
@@ -599,6 +912,7 @@ export const useProjectStore = create<ProjectStore>()(
 
       loadProject: (project) => {
         projectLoadGeneration++;
+        useLayerClipboardStore.getState().copy([]);
         useTimelineStore.getState().resetForProjectLoad();
         set((state) => {
           const migrated = migrateProject(project);
@@ -804,92 +1118,41 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       pasteLayers: (layers, offset = 20) => {
-        const pastedIds: string[] = [];
+        if (layers.length === 0) return [];
+        const snapshot = get();
+        const sourceComposition = getActiveComposition(
+          snapshot.project,
+          snapshot.activeCompositionId,
+        );
+        const sources = layers.map((layer) => structuredClone(layer));
+        let pastedIds: string[] = [];
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
-          const usedNames = new Set(composition.layers.map((layer) => layer.name));
-          const idMap = new Map(layers.map((layer) => [layer.id, createId('layer')]));
-          const groupMap = new Map(
-            layers
-              .map((layer) => layer.groupId)
-              .filter((groupId): groupId is string => Boolean(groupId))
-              .map((groupId) => [groupId, createId('group')]),
-          );
-          for (const source of layers) {
-            const baseName = source.name.replace(/ copy(?: \d+)?$/, '');
-            let name = `${baseName} copy`;
-            let suffix = 2;
-            while (usedNames.has(name)) name = `${baseName} copy ${suffix++}`;
-            usedNames.add(name);
-
-            const layer: Layer = {
-              ...structuredClone(source),
-              id: idMap.get(source.id)!,
-              name,
-              groupId: source.groupId ? (groupMap.get(source.groupId) ?? null) : null,
-              parentId: source.parentId ? (idMap.get(source.parentId) ?? null) : null,
-              mask: source.mask
-                ? {
-                    ...source.mask,
-                    sourceLayerId:
-                      idMap.get(source.mask.sourceLayerId) ?? source.mask.sourceLayerId,
-                  }
-                : null,
-              keyframes: source.keyframes.map((keyframe) =>
-                createLayerKeyframe(
-                  keyframe.frame,
-                  {
-                    ...keyframe.transform,
-                    x: keyframe.transform.x + offset,
-                    y: keyframe.transform.y + offset,
-                  },
-                  { easing: keyframe.easing },
-                ),
-              ),
-              animationTracks: {},
-            };
-            const sourceTracks = getResolvedLayerAnimationTracks(source);
-            layer.animationTracks = Object.fromEntries(
-              Object.entries(sourceTracks).map(([property, keyframes]) => [
-                property,
-                (keyframes ?? []).map((keyframe) =>
-                  createLayerPropertyKeyframe(
-                    keyframe.frame,
-                    keyframe.value + (property === 'x' || property === 'y' ? offset : 0),
-                    {
-                      easing: keyframe.easing,
-                      curve: keyframe.curve ? { ...keyframe.curve } : undefined,
-                    },
-                  ),
-                ),
-              ]),
-            );
-            if (source.loop) {
-              layer.loop = {
-                ...structuredClone(source.loop),
-                id: createId('layer-loop'),
-                tracks: Object.fromEntries(
-                  Object.entries(source.loop.tracks).map(([property, keyframes]) => [
-                    property,
-                    (keyframes ?? []).map((keyframe) =>
-                      createLayerPropertyKeyframe(
-                        keyframe.frame,
-                        keyframe.value + (property === 'x' || property === 'y' ? offset : 0),
-                        {
-                          easing: keyframe.easing,
-                          curve: keyframe.curve ? { ...keyframe.curve } : undefined,
-                        },
-                      ),
-                    ),
-                  ]),
-                ),
-              };
-            }
-            composition.layers.push(layer);
-            pastedIds.push(layer.id);
-          }
+          pastedIds = appendLayerCopies(composition, sourceComposition, sources, offset);
         });
         return pastedIds;
+      },
+
+      duplicateLayers: (layerIds) => {
+        const snapshot = get();
+        const sourceComposition = getActiveComposition(
+          snapshot.project,
+          snapshot.activeCompositionId,
+        );
+        const sources = duplicateObjectLayers(sourceComposition, layerIds);
+        if (sources.length === 0) return [];
+        let duplicatedIds: string[] = [];
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          duplicatedIds = appendLayerCopies(
+            composition,
+            sourceComposition,
+            sources,
+            0,
+            'after-selection',
+          );
+        });
+        return duplicatedIds;
       },
 
       removeLayer: (layerId) =>
@@ -921,19 +1184,7 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((l) => l.id === layerId);
           if (!layer || layer.isLocked) return;
-          const before = getLayerTransformAtFrame(layer, frame);
-          writeLayerTransformAtFrame(composition, layer, frame, patch);
-          const after = getLayerTransformAtFrame(layer, frame);
-          const deltaX = after.x - before.x;
-          const deltaY = after.y - before.y;
-          if (deltaX === 0 && deltaY === 0) return;
-          for (const descendant of descendantLayers(composition, layer.id)) {
-            const pose = getLayerTransformAtFrame(descendant, frame);
-            writeLayerTransformAtFrame(composition, descendant, frame, {
-              x: pose.x + deltaX,
-              y: pose.y + deltaY,
-            });
-          }
+          writeUiLayerTransform(composition, layer, frame, patch);
         }),
 
       addLayerKeyframe: (layerId, frame) => {
@@ -1760,13 +2011,19 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       refreshLinkedComponentInstances: (componentId) => {
+        const snapshot = get();
+        const sourceComposition = getActiveComposition(
+          snapshot.project,
+          snapshot.activeCompositionId,
+        );
+        const sourceDefinition = sourceComposition.components.find(
+          (candidate) => candidate.id === componentId,
+        );
+        if (!sourceDefinition) return [];
+        const definition = structuredClone(sourceDefinition);
         let newLayerIds: string[] = [];
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
-          const definition = composition.components.find(
-            (candidate) => candidate.id === componentId,
-          );
-          if (!definition) return;
           const refreshed = refreshComponentInstances(composition, definition);
           newLayerIds = refreshed.flatMap((entry) =>
             entry.instance.layers.map((layer) => layer.id),

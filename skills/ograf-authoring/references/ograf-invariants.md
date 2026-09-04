@@ -14,6 +14,15 @@ Save/export must certify the same artifact bytes that are written. If certificat
 - Layer animation keys sit on the composition frame ruler but belong to one layer and one property.
 - Frame rate and transition durations determine the total frame range.
 - Non-realtime behavior must remain deterministic under `goToTime()` and scheduled-action replay.
+- Lottie source frames include `animationData.ip`, while the bundled player seek API is relative to
+  that in-point. Keep conversion at the runtime adapter boundary. `load()` must await Lottie
+  `DOMLoaded`; a timer or successful JSON parse is not proof that embedded assets rendered.
+- Lottie input must be one complete self-contained document. Reject external image/font paths,
+  segmented documents, undecodable/nonpositive embedded images, and luma mattes; alpha mattes are
+  supported. Expressions remain warning-only because the light Canvas build ignores them.
+- A changed non-realtime Lottie seek rebuilds and awaits the light Canvas player. Certification
+  compares exact Canvas pixel signatures before and after a backward/repeated seek. Realtime keeps
+  one player and uses absolute elapsed time; Canvas proof does not establish another renderer.
 - Local loop clips share the OGraf clock. Derive their phase from the action schedule and timestamp,
   never mutable timer ticks. A loop may continue while parked at a Step but must not call or advance
   `playAction`, `stopAction`, or another lifecycle state itself.

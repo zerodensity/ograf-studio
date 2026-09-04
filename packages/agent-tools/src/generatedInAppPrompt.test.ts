@@ -17,6 +17,8 @@ describe('generated in-app authoring prompt', () => {
     expect(first).toContain('patternRows');
     expect(first).toContain('reorder_effects');
     expect(first).toContain('effects.ID.PARAM');
+    expect(first).toContain('lottieInspection');
+    expect(first).toContain('byte-repeatable');
   });
 
   it('does not reintroduce out-of-process or unavailable-tool guidance', () => {

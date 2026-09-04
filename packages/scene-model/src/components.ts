@@ -5,6 +5,7 @@ import {
   sortLayerKeyframes,
   sortLayerPropertyKeyframes,
 } from './layerAnimation';
+import { cloneFieldDefinitionWithFreshIds } from './fieldSchema';
 import type { ComponentDefinition, Composition, FieldDefinition, Layer } from './types';
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -79,8 +80,7 @@ export function instantiateComponentDefinition(
   );
   const usedFieldKeys = new Set(composition.dataFields.map((field) => field.key));
   const dataFields = definition.dataFields.map((source) => ({
-    ...clone(source),
-    id: fieldIds[source.id]!,
+    ...cloneFieldDefinitionWithFreshIds(source, fieldIds[source.id]!),
     key: uniqueFieldKey(source.key, usedFieldKeys),
   }));
   const groupId = createId('group');

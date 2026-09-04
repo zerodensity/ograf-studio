@@ -97,7 +97,10 @@ Supported operation discriminators:
   `update_runtime_collection`, `remove_runtime_collection`
 - Actions: `add_custom_action`, `update_custom_action`, `remove_custom_action`
 
-`add_layer.kind` supports `rectangle`, `ellipse`, `text`, `image`, `path`, `pattern`, and `image-sequence`. It returns the generated layer ID in `summary.generatedIds`.
+`add_layer.kind` supports `rectangle`, `ellipse`, `text`, `image`, `path`, `pattern`, `image-sequence`, and `lottie`. It returns the generated layer ID in `summary.generatedIds`. For Lottie, pass a complete self-contained Bodymovin JSON object in `element.animationData`, then inspect the layer's derived `lottieInspection` warnings.
+
+When `transform` is omitted, rectangle and ellipse layers begin at 200 × 200 as a square/circle.
+Pass explicit width and height for a panel or oval; later edits remain independent.
 
 `set_layer_semantics` assigns an authoring role, normalized tags, and an intent description without
 changing output pixels. `create_lower_third` materializes a four-layer/two-field grouped lower third

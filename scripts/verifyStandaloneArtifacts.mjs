@@ -47,7 +47,7 @@ for (const artifact of artifacts) {
   }
   for (const embeddedText of [
     'OGraf Studio',
-    '0.12',
+    '0.13',
     'standalone server',
     'https://github.com/zerodensity/ograf-studio',
     '<!doctype html>',

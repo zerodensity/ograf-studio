@@ -66,6 +66,7 @@ export function applyCompiledMasks(
       svg.setAttribute('width', '0');
       svg.setAttribute('height', '0');
       svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('data-ograf-runtime-auxiliary', 'true');
       Object.assign(svg.style, {
         position: 'absolute',
         width: '0',

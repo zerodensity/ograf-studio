@@ -52,9 +52,15 @@ async function generatedFiles() {
     if (!toolNames.has('ograf_apply_operations')) {
       throw new Error('The consolidated ograf_apply_operations tool is missing.');
     }
+    const serverVersion = client.getServerVersion();
+    if (!serverVersion) {
+      throw new Error(
+        'The MCP server did not report implementation metadata during initialization.',
+      );
+    }
     const contract = {
       contractVersion: CONTRACT_VERSION,
-      server: { name: 'ograf-editor', version: '0.1.0' },
+      server: serverVersion,
       tools: listed.tools,
     };
     const jsonPath = resolve(process.cwd(), 'docs/generated/mcp-contracts.json');

@@ -11,7 +11,9 @@ import {
   renderAnimatedElementAtTime,
   renderElementContent,
   resolveBoundElement,
+  setLottieDeterministicRendering,
   sampleCompiledLayerVisualState,
+  waitForElementContentReady,
   compiledLoopElapsedFrames,
   renderPatternAtElapsed,
 } from '@ograf-editor/ograf-runtime';
@@ -370,11 +372,12 @@ function buildCompositionDom(
       filter: layerEffectsToCssFilter(state.effects),
     });
     const element = resolveBoundElement(layer, data);
+    compositionRoot.appendChild(layerRoot);
     renderElementContent(layerRoot, element, sequenceFrame(element, frame, composition.frameRate));
+    setLottieDeterministicRendering(layerRoot, true);
     if (state.patternFrame !== undefined) renderPatternAtElapsed(layerRoot, state.patternFrame);
     renderAnimatedElementAtTime(layerRoot, element, (frame / composition.frameRate) * 1000);
     applyAnimatedPaint(layerRoot, state.paintTracks, state.paintFrame);
-    compositionRoot.appendChild(layerRoot);
     rendered.set(layer.id, layerRoot);
     states.set(layer.id, state);
   }
@@ -401,6 +404,7 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
   document.body.appendChild(wrapper);
 
   try {
+    await waitForElementContentReady(wrapper);
     await waitForRenderableDom(wrapper);
     let raster = await rasterize(
       wrapper,
@@ -424,6 +428,7 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
         request.dataOverrides,
       );
       document.body.appendChild(wrapper);
+      await waitForElementContentReady(wrapper);
       await waitForRenderableDom(wrapper);
       raster = await rasterize(
         wrapper,
@@ -468,6 +473,7 @@ async function captureViewport(request: AgentCaptureRequest): Promise<AgentCaptu
   if (!root) throw new Error('Editor root element is unavailable.');
   const originalWidth = window.innerWidth;
   const originalHeight = window.innerHeight;
+  await waitForElementContentReady(root);
   await waitForRenderableDom(root);
   const raster = await rasterize(root, originalWidth, originalHeight, request.maxDimension);
   return {

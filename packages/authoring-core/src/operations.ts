@@ -24,6 +24,7 @@ import {
   createCustomActionDefinition,
   createFieldDefinition,
   createFieldDefinitionFromInput,
+  cloneFieldDefinitionWithFreshIds,
   defaultConstraintsForFieldType,
   defaultOptionsForFieldType,
   defaultValueForFieldType,
@@ -500,8 +501,7 @@ function duplicateGroup(
         const sourceField = composition.dataFields.find((field) => field.id === sourceFieldId);
         if (!sourceField)
           throw new Error(`duplicate_group binding field not found: ${sourceFieldId}`);
-        const field = clone(sourceField);
-        field.id = createId('field');
+        const field = cloneFieldDefinitionWithFreshIds(sourceField);
         field.key = literalRewrite(sourceField.key, operation.fieldKeyRewrite, n);
         field.label = literalRewrite(sourceField.label, operation.labelRewrite, n);
         if (typeof field.defaultValue === 'string') {

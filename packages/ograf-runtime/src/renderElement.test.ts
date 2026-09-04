@@ -3,6 +3,7 @@ import {
   applyTextStrokeStyle,
   calculateTextSqueezeScale,
   findFittedFontSize,
+  lottieBackingSizeForLayer,
 } from './renderElement';
 
 describe('text squeeze scaling', () => {
@@ -76,5 +77,37 @@ describe('text fitting', () => {
         fits: () => false,
       }),
     ).toEqual({ fontSize: 0.1, ratio: 0.1 / 48, degenerate: true });
+  });
+});
+
+describe('Lottie backing size', () => {
+  it('uses the maximum lifecycle, property-track, and local-loop dimensions', () => {
+    expect(
+      lottieBackingSizeForLayer({
+        keyframes: [
+          { transform: { width: 1, height: 1 } },
+          { transform: { width: 320, height: 90 } },
+        ],
+        animationTracks: {
+          width: [{ value: 400.2 }],
+          height: [{ value: 120.1 }],
+        },
+        loop: {
+          tracks: {
+            width: [{ value: 384 }],
+            height: [{ value: 144.4 }],
+          },
+        },
+      }),
+    ).toEqual({ width: 401, height: 145 });
+  });
+
+  it('caps pathological authored maxima to a bounded backing allocation', () => {
+    const size = lottieBackingSizeForLayer({
+      keyframes: [{ transform: { width: 1_000_000_000, height: 1_000_000_000 } }],
+      animationTracks: {},
+      loop: null,
+    });
+    expect(size).toEqual({ width: 4096, height: 4096 });
   });
 });

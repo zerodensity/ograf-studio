@@ -5,7 +5,7 @@ import { EffectStackEditor } from './EffectStackEditor';
 import { ImageSourceEditor } from './ImageSourceEditor';
 import { LayerLightingEditor } from './LayerLightingEditor';
 import { getEffectStack, EFFECT_CATALOG, effectProperty } from '@ograf-editor/scene-model';
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { LayerMaskEditor } from './LayerMaskEditor';
 import { TilingPatternEditor } from './TilingPatternEditor';
 import {
@@ -32,6 +32,7 @@ import {
   getPaintAtFrame,
   listFieldLeafPaths,
   getResolvedLayerAnimationTracks,
+  inspectLottieAnimationData,
   isPixelTransformKey,
   parseLottieJson,
   type EasingPreset,
@@ -55,6 +56,13 @@ const TRANSFORM_FIELDS: { key: keyof LayerTransform; label: string; step?: numbe
   { key: 'height', label: 'H' },
   { key: 'rotation', label: 'Rotation' },
 ];
+
+function elementSectionLabel(type: string): string {
+  return type
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
 
 const SEMANTIC_ROLES: Array<{ value: SemanticLayerRole; label: string }> = [
   { value: 'none', label: 'None' },
@@ -253,6 +261,13 @@ export function InspectorPanel() {
   const unbindDesignToken = useProjectStore((s) => s.unbindDesignToken);
 
   const layer = composition.layers.find((l) => l.id === selectedLayerId);
+  const lottieInspection = useMemo(
+    () =>
+      layer?.element.type === 'lottie' && layer.element.animationData
+        ? inspectLottieAnimationData(layer.element.animationData)
+        : null,
+    [layer?.element],
+  );
 
   // Standard design-tool behavior: with nothing selected, Properties edits the document itself
   // rather than showing a dead-end message.
@@ -284,7 +299,6 @@ export function InspectorPanel() {
     layer.element.type === 'text'
       ? getLayerPropertyValueAtFrame(layer, 'strokeWidth', currentFrame)
       : 0;
-
   const transformInputValue = (key: keyof LayerTransform): number => {
     if (isLiveTransform) return pose[key];
     const value = activeLayerKeyframe?.transform[key] ?? pose[key];
@@ -392,378 +406,6 @@ export function InspectorPanel() {
           }
         />
         <p className="inspector-hint">1 is back; {composition.layers.length} is front.</p>
-        {layer.element.type === 'image' && (
-          <ImageSourceEditor key={`image-${layer.id}`} layer={layer} assets={composition.assets} />
-        )}
-        <h3 className="inspector-section">Semantic intent</h3>
-        <PropertyRow
-          help={
-            "Describe the layer's purpose, such as headline, background or container. Style packs and design checks use this semantic role when styling or reviewing the scene."
-          }
-          className="inspector-row"
-        >
-          <span>Role</span>
-          <select
-            value={layer.semantics.role}
-            onChange={(event) =>
-              setLayerSemantics(layer.id, { role: event.target.value as SemanticLayerRole })
-            }
-          >
-            {SEMANTIC_ROLES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </PropertyRow>
-        <PropertyRow
-          help={
-            'Comma-separated tags that help organize and find the layer. Authoring tools can use tags to target related layers.'
-          }
-          className="inspector-row"
-        >
-          <span>Tags</span>
-          <input
-            type="text"
-            value={layer.semantics.tags.join(', ')}
-            placeholder="primary, breaking-news"
-            onChange={(event) =>
-              setLayerSemantics(layer.id, {
-                tags: event.target.value.split(',').map((tag) => tag.trim()),
-              })
-            }
-          />
-        </PropertyRow>
-        <PropertyRow
-          help={
-            'Describe what this layer is meant to communicate or do. This is design guidance for authors and AI tools; it is not displayed in the graphic.'
-          }
-          className="inspector-row"
-        >
-          <span>Intent</span>
-          <textarea
-            value={layer.semantics.description}
-            placeholder="What this layer means in the design"
-            onChange={(event) => setLayerSemantics(layer.id, { description: event.target.value })}
-          />
-        </PropertyRow>
-        {tokenTargets.length > 0 && (
-          <>
-            <h3 className="inspector-section">Brand tokens</h3>
-            {tokenTargets.map((target) => {
-              const binding = layer.designTokenBindings.find(
-                (candidate) => candidate.targetProperty === target.property,
-              );
-              const compatibleTokens = composition.designSystem.tokens.filter(
-                (token) => token.type === target.tokenType,
-              );
-              return (
-                <PropertyRow
-                  help={`Link ${target.label.toLowerCase()} to a shared Brand Kit token. Editing the token updates this property on linked layers. Unlinked removes the connection while keeping the current value.`}
-                  className="inspector-row"
-                  key={target.property}
-                >
-                  <span>{target.label}</span>
-                  <select
-                    value={binding?.tokenId ?? ''}
-                    onChange={(event) => {
-                      if (event.target.value) {
-                        bindDesignToken(layer.id, event.target.value, target.property);
-                      } else {
-                        unbindDesignToken(layer.id, target.property);
-                      }
-                    }}
-                  >
-                    <option value="">Unlinked</option>
-                    {compatibleTokens.map((token) => (
-                      <option key={token.id} value={token.id}>
-                        {token.name} ({token.key})
-                      </option>
-                    ))}
-                  </select>
-                </PropertyRow>
-              );
-            })}
-            {composition.designSystem.tokens.length === 0 && (
-              <p className="inspector-hint">Create brand tokens in Resources first.</p>
-            )}
-          </>
-        )}
-        <PropertyRow
-          help={
-            "Clip child layers at this parent layer's bounds. Use it to keep moving content inside a panel or lower-third background."
-          }
-          className="inspector-row inspector-checkbox-row"
-        >
-          <span>Clip children</span>
-          <input
-            type="checkbox"
-            checked={layer.clipChildren}
-            onChange={(event) => setLayerClipChildren(layer.id, event.target.checked)}
-          />
-        </PropertyRow>
-
-        <h3 className="inspector-section">Compositing</h3>
-        <PropertyRow
-          help={
-            "Choose how this layer's colors combine with layers behind it. Normal draws it normally; other modes can lighten, darken or mix the result."
-          }
-          className="inspector-row"
-        >
-          <span>Blend mode</span>
-          <select
-            value={layer.blendMode}
-            disabled={layer.isLocked}
-            onChange={(event) => setLayerBlendMode(layer.id, event.target.value as BlendMode)}
-          >
-            {BLEND_MODES.map((mode) => (
-              <option key={mode} value={mode}>
-                {mode.replace('-', ' ')}
-              </option>
-            ))}
-          </select>
-        </PropertyRow>
-
-        <LayerMaskEditor composition={composition} layer={layer} key={layer.id} />
-        <h3 className="inspector-section">Layout relationships</h3>
-        <PropertyRow
-          help={
-            'Lock this layer to protect it from selection-based edits and accidental moves. Unlock it before editing its transform or protected properties.'
-          }
-          className="inspector-row inspector-checkbox-row"
-        >
-          <span>Locked</span>
-          <input
-            type="checkbox"
-            checked={layer.isLocked}
-            onChange={() => toggleLayerLock(layer.id)}
-          />
-        </PropertyRow>
-        <PropertyRow
-          help={
-            'Choose a parent layer to establish a layout relationship. Parent movement and resizing can move or resize this layer according to its constraints.'
-          }
-          className="inspector-row"
-        >
-          <span>Parent</span>
-          <select
-            value={layer.parentId ?? ''}
-            onChange={(event) => setLayerParent(layer.id, event.target.value || null)}
-          >
-            <option value="">None</option>
-            {composition.layers
-              .filter((candidate) => candidate.id !== layer.id)
-              .map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name}
-                </option>
-              ))}
-          </select>
-        </PropertyRow>
-        <div className="inspector-grid">
-          <PropertyRow
-            help={
-              "Choose how the layer's horizontal position and width respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
-            }
-            className="inspector-row"
-          >
-            <span>Horizontal</span>
-            <select
-              value={layer.constraints.horizontal}
-              onChange={(event) =>
-                setLayerConstraints(layer.id, {
-                  horizontal: event.target.value as typeof layer.constraints.horizontal,
-                })
-              }
-            >
-              <option value="left">Left</option>
-              <option value="right">Right</option>
-              <option value="left-right">Left + Right</option>
-              <option value="center">Center</option>
-              <option value="scale">Scale</option>
-            </select>
-          </PropertyRow>
-          <PropertyRow
-            help={
-              "Choose how the layer's vertical position and height respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
-            }
-            className="inspector-row"
-          >
-            <span>Vertical</span>
-            <select
-              value={layer.constraints.vertical}
-              onChange={(event) =>
-                setLayerConstraints(layer.id, {
-                  vertical: event.target.value as typeof layer.constraints.vertical,
-                })
-              }
-            >
-              <option value="top">Top</option>
-              <option value="bottom">Bottom</option>
-              <option value="top-bottom">Top + Bottom</option>
-              <option value="center">Center</option>
-              <option value="scale">Scale</option>
-            </select>
-          </PropertyRow>
-        </div>
-        {layer.groupId && <p className="inspector-hint">Persistent group: {layer.groupId}</p>}
-
-        <h3 className="inspector-section">Data Bindings</h3>
-        <div className="inspector-binding-list">
-          {layer.bindings.map((binding, index) => {
-            const field = composition.dataFields.find(
-              (candidate) => candidate.id === binding.fieldId,
-            );
-            const sourcePaths = field
-              ? listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })
-              : [];
-            return (
-              <div className="inspector-binding" key={`${binding.targetProperty}:${index}`}>
-                <PropertyRow
-                  help={
-                    'Data field that supplies a value during playback. Its default is used unless runtime data overrides it.'
-                  }
-                  className="inspector-row"
-                >
-                  <span>Field</span>
-                  <select
-                    aria-label={`Binding ${index + 1} field`}
-                    value={binding.fieldId}
-                    onChange={(event) => {
-                      const nextField = composition.dataFields.find(
-                        (candidate) => candidate.id === event.target.value,
-                      );
-                      const nextPath = nextField
-                        ? (listFieldLeafPaths(nextField, {
-                            fromArrayItem: nextField.type === 'array',
-                          })[0]?.path ?? [])
-                        : [];
-                      const bindings = layer.bindings.map((candidate, candidateIndex) =>
-                        candidateIndex === index
-                          ? { ...candidate, fieldId: event.target.value, sourcePath: nextPath }
-                          : candidate,
-                      );
-                      setLayerBindings(layer.id, bindings);
-                    }}
-                  >
-                    {composition.dataFields.map((field) => (
-                      <option key={field.id} value={field.id}>
-                        {field.label || field.key}
-                      </option>
-                    ))}
-                  </select>
-                </PropertyRow>
-                {(field?.type === 'object' || field?.type === 'array') && (
-                  <PropertyRow
-                    help={
-                      'Choose the nested value inside an object or collection item that this binding reads.'
-                    }
-                    className="inspector-row"
-                  >
-                    <span>Value path</span>
-                    <select
-                      aria-label={`Binding ${index + 1} value path`}
-                      value={JSON.stringify(binding.sourcePath ?? [])}
-                      onChange={(event) => {
-                        const sourcePath = JSON.parse(event.target.value) as string[];
-                        setLayerBindings(
-                          layer.id,
-                          layer.bindings.map((candidate, candidateIndex) =>
-                            candidateIndex === index ? { ...candidate, sourcePath } : candidate,
-                          ),
-                        );
-                      }}
-                    >
-                      {sourcePaths.map((path) => (
-                        <option key={JSON.stringify(path.path)} value={JSON.stringify(path.path)}>
-                          {path.label}
-                        </option>
-                      ))}
-                    </select>
-                  </PropertyRow>
-                )}
-                <PropertyRow
-                  help={
-                    'Layer property controlled by the chosen data field, such as text, position or a gradient-stop color. Incoming playback data updates this property.'
-                  }
-                  className="inspector-row"
-                >
-                  <span>Property</span>
-                  <select
-                    aria-label={`Binding ${index + 1} property`}
-                    value={binding.targetProperty}
-                    onChange={(event) => {
-                      const bindings = layer.bindings.map((candidate, candidateIndex) =>
-                        candidateIndex === index
-                          ? { ...candidate, targetProperty: event.target.value }
-                          : candidate,
-                      );
-                      setLayerBindings(layer.id, bindings);
-                    }}
-                  >
-                    {bindableProperties(layer.element, layer.effects)
-                      .filter(
-                        (property) =>
-                          property.value === binding.targetProperty ||
-                          !layer.bindings.some(
-                            (candidate, candidateIndex) =>
-                              candidateIndex !== index &&
-                              candidate.targetProperty === property.value,
-                          ),
-                      )
-                      .map((property) => (
-                        <option key={property.value} value={property.value}>
-                          {property.label}
-                        </option>
-                      ))}
-                  </select>
-                </PropertyRow>
-                <button
-                  type="button"
-                  className="inspector-binding-remove"
-                  aria-label={`Remove binding ${index + 1}`}
-                  onClick={() =>
-                    setLayerBindings(
-                      layer.id,
-                      layer.bindings.filter((_, candidateIndex) => candidateIndex !== index),
-                    )
-                  }
-                >
-                  Remove
-                </button>
-              </div>
-            );
-          })}
-          <button
-            type="button"
-            disabled={
-              composition.dataFields.length === 0 ||
-              bindableProperties(layer.element, layer.effects).every((property) =>
-                layer.bindings.some((binding) => binding.targetProperty === property.value),
-              )
-            }
-            onClick={() => {
-              const targetProperty = bindableProperties(layer.element, layer.effects).find(
-                (property) =>
-                  !layer.bindings.some((binding) => binding.targetProperty === property.value),
-              )?.value;
-              const fieldId = composition.dataFields[0]?.id;
-              if (targetProperty && fieldId) {
-                const field = composition.dataFields[0]!;
-                const sourcePath =
-                  listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })[0]?.path ??
-                  [];
-                setLayerBindings(layer.id, [
-                  ...layer.bindings,
-                  { fieldId, targetProperty, sourcePath },
-                ]);
-              }
-            }}
-          >
-            + Add Binding
-          </button>
-        </div>
-
         <h3 className="inspector-section">Transform — frame {roundedFrame}</h3>
         {!activeLayerKeyframe && (
           <div className="inspector-evaluated-pose">
@@ -856,11 +498,11 @@ export function InspectorPanel() {
           </PropertyRow>
         )}
 
-        <EffectStackEditor layer={layer} frame={roundedFrame} />
-        <LayerLightingEditor key={`lighting-${layer.id}`} layer={layer} composition={composition} />
-
+        {layer.element.type === 'image' && (
+          <ImageSourceEditor key={`image-${layer.id}`} layer={layer} assets={composition.assets} />
+        )}
         {layer.element.type !== 'image' && (
-          <h3 className="inspector-section">{layer.element.type}</h3>
+          <h3 className="inspector-section">{elementSectionLabel(layer.element.type)}</h3>
         )}
         {layer.element.type !== 'image' && layer.bindings.length > 0 && (
           <p className="inspector-hint">
@@ -1511,10 +1153,387 @@ export function InspectorPanel() {
               />
             </PropertyRow>
             <p className="inspector-hint">
-              Playback loops continuously. Expressions and external image/font paths are disabled.
+              Light Canvas playback loops continuously. External image/font paths are rejected.
             </p>
+            {lottieInspection?.warnings.map((warning) => (
+              <p className="inspector-hint" key={warning}>
+                Warning: {warning}
+              </p>
+            ))}
           </>
         )}
+        {tokenTargets.length > 0 && (
+          <>
+            <h3 className="inspector-section">Brand tokens</h3>
+            {tokenTargets.map((target) => {
+              const binding = layer.designTokenBindings.find(
+                (candidate) => candidate.targetProperty === target.property,
+              );
+              const compatibleTokens = composition.designSystem.tokens.filter(
+                (token) => token.type === target.tokenType,
+              );
+              return (
+                <PropertyRow
+                  help={`Link ${target.label.toLowerCase()} to a shared Brand Kit token. Editing the token updates this property on linked layers. Unlinked removes the connection while keeping the current value.`}
+                  className="inspector-row"
+                  key={target.property}
+                >
+                  <span>{target.label}</span>
+                  <select
+                    value={binding?.tokenId ?? ''}
+                    onChange={(event) => {
+                      if (event.target.value) {
+                        bindDesignToken(layer.id, event.target.value, target.property);
+                      } else {
+                        unbindDesignToken(layer.id, target.property);
+                      }
+                    }}
+                  >
+                    <option value="">Unlinked</option>
+                    {compatibleTokens.map((token) => (
+                      <option key={token.id} value={token.id}>
+                        {token.name} ({token.key})
+                      </option>
+                    ))}
+                  </select>
+                </PropertyRow>
+              );
+            })}
+            {composition.designSystem.tokens.length === 0 && (
+              <p className="inspector-hint">Create brand tokens in Brand Kit first.</p>
+            )}
+          </>
+        )}
+        <EffectStackEditor layer={layer} frame={roundedFrame} />
+        <LayerLightingEditor key={`lighting-${layer.id}`} layer={layer} composition={composition} />
+
+        <h3 className="inspector-section">Compositing</h3>
+        <PropertyRow
+          help={
+            "Choose how this layer's colors combine with layers behind it. Normal draws it normally; other modes can lighten, darken or mix the result."
+          }
+          className="inspector-row"
+        >
+          <span>Blend mode</span>
+          <select
+            value={layer.blendMode}
+            disabled={layer.isLocked}
+            onChange={(event) => setLayerBlendMode(layer.id, event.target.value as BlendMode)}
+          >
+            {BLEND_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {mode.replace('-', ' ')}
+              </option>
+            ))}
+          </select>
+        </PropertyRow>
+
+        <LayerMaskEditor composition={composition} layer={layer} key={layer.id} />
+        <h3 className="inspector-section">Layout relationships</h3>
+        <PropertyRow
+          help={
+            "Clip child layers at this parent layer's bounds. Use it to keep moving content inside a panel or lower-third background."
+          }
+          className="inspector-row inspector-checkbox-row"
+        >
+          <span>Clip children</span>
+          <input
+            type="checkbox"
+            checked={layer.clipChildren}
+            onChange={(event) => setLayerClipChildren(layer.id, event.target.checked)}
+          />
+        </PropertyRow>
+
+        <PropertyRow
+          help={
+            'Lock this layer to protect it from selection-based edits and accidental moves. Unlock it before editing its transform or protected properties.'
+          }
+          className="inspector-row inspector-checkbox-row"
+        >
+          <span>Locked</span>
+          <input
+            type="checkbox"
+            checked={layer.isLocked}
+            onChange={() => toggleLayerLock(layer.id)}
+          />
+        </PropertyRow>
+        <PropertyRow
+          help={
+            'Choose a parent layer to establish a layout relationship. Parent movement and resizing can move or resize this layer according to its constraints.'
+          }
+          className="inspector-row"
+        >
+          <span>Parent</span>
+          <select
+            value={layer.parentId ?? ''}
+            onChange={(event) => setLayerParent(layer.id, event.target.value || null)}
+          >
+            <option value="">None</option>
+            {composition.layers
+              .filter((candidate) => candidate.id !== layer.id)
+              .map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+          </select>
+        </PropertyRow>
+        <div className="inspector-grid">
+          <PropertyRow
+            help={
+              "Choose how the layer's horizontal position and width respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
+            }
+            className="inspector-row"
+          >
+            <span>Horizontal</span>
+            <select
+              value={layer.constraints.horizontal}
+              onChange={(event) =>
+                setLayerConstraints(layer.id, {
+                  horizontal: event.target.value as typeof layer.constraints.horizontal,
+                })
+              }
+            >
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+              <option value="left-right">Left + Right</option>
+              <option value="center">Center</option>
+              <option value="scale">Scale</option>
+            </select>
+          </PropertyRow>
+          <PropertyRow
+            help={
+              "Choose how the layer's vertical position and height respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
+            }
+            className="inspector-row"
+          >
+            <span>Vertical</span>
+            <select
+              value={layer.constraints.vertical}
+              onChange={(event) =>
+                setLayerConstraints(layer.id, {
+                  vertical: event.target.value as typeof layer.constraints.vertical,
+                })
+              }
+            >
+              <option value="top">Top</option>
+              <option value="bottom">Bottom</option>
+              <option value="top-bottom">Top + Bottom</option>
+              <option value="center">Center</option>
+              <option value="scale">Scale</option>
+            </select>
+          </PropertyRow>
+        </div>
+        {layer.groupId && <p className="inspector-hint">Persistent group: {layer.groupId}</p>}
+
+        <h3 className="inspector-section">Data Bindings</h3>
+        <div className="inspector-binding-list">
+          {layer.bindings.map((binding, index) => {
+            const field = composition.dataFields.find(
+              (candidate) => candidate.id === binding.fieldId,
+            );
+            const sourcePaths = field
+              ? listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })
+              : [];
+            return (
+              <div className="inspector-binding" key={`${binding.targetProperty}:${index}`}>
+                <PropertyRow
+                  help={
+                    'Data field that supplies a value during playback. Its default is used unless runtime data overrides it.'
+                  }
+                  className="inspector-row"
+                >
+                  <span>Field</span>
+                  <select
+                    aria-label={`Binding ${index + 1} field`}
+                    value={binding.fieldId}
+                    onChange={(event) => {
+                      const nextField = composition.dataFields.find(
+                        (candidate) => candidate.id === event.target.value,
+                      );
+                      const nextPath = nextField
+                        ? (listFieldLeafPaths(nextField, {
+                            fromArrayItem: nextField.type === 'array',
+                          })[0]?.path ?? [])
+                        : [];
+                      const bindings = layer.bindings.map((candidate, candidateIndex) =>
+                        candidateIndex === index
+                          ? { ...candidate, fieldId: event.target.value, sourcePath: nextPath }
+                          : candidate,
+                      );
+                      setLayerBindings(layer.id, bindings);
+                    }}
+                  >
+                    {composition.dataFields.map((field) => (
+                      <option key={field.id} value={field.id}>
+                        {field.label || field.key}
+                      </option>
+                    ))}
+                  </select>
+                </PropertyRow>
+                {(field?.type === 'object' || field?.type === 'array') && (
+                  <PropertyRow
+                    help={
+                      'Choose the nested value inside an object or collection item that this binding reads.'
+                    }
+                    className="inspector-row"
+                  >
+                    <span>Value path</span>
+                    <select
+                      aria-label={`Binding ${index + 1} value path`}
+                      value={JSON.stringify(binding.sourcePath ?? [])}
+                      onChange={(event) => {
+                        const sourcePath = JSON.parse(event.target.value) as string[];
+                        setLayerBindings(
+                          layer.id,
+                          layer.bindings.map((candidate, candidateIndex) =>
+                            candidateIndex === index ? { ...candidate, sourcePath } : candidate,
+                          ),
+                        );
+                      }}
+                    >
+                      {sourcePaths.map((path) => (
+                        <option key={JSON.stringify(path.path)} value={JSON.stringify(path.path)}>
+                          {path.label}
+                        </option>
+                      ))}
+                    </select>
+                  </PropertyRow>
+                )}
+                <PropertyRow
+                  help={
+                    'Layer property controlled by the chosen data field, such as text, position or a gradient-stop color. Incoming playback data updates this property.'
+                  }
+                  className="inspector-row"
+                >
+                  <span>Property</span>
+                  <select
+                    aria-label={`Binding ${index + 1} property`}
+                    value={binding.targetProperty}
+                    onChange={(event) => {
+                      const bindings = layer.bindings.map((candidate, candidateIndex) =>
+                        candidateIndex === index
+                          ? { ...candidate, targetProperty: event.target.value }
+                          : candidate,
+                      );
+                      setLayerBindings(layer.id, bindings);
+                    }}
+                  >
+                    {bindableProperties(layer.element, layer.effects)
+                      .filter(
+                        (property) =>
+                          property.value === binding.targetProperty ||
+                          !layer.bindings.some(
+                            (candidate, candidateIndex) =>
+                              candidateIndex !== index &&
+                              candidate.targetProperty === property.value,
+                          ),
+                      )
+                      .map((property) => (
+                        <option key={property.value} value={property.value}>
+                          {property.label}
+                        </option>
+                      ))}
+                  </select>
+                </PropertyRow>
+                <button
+                  type="button"
+                  className="inspector-binding-remove"
+                  aria-label={`Remove binding ${index + 1}`}
+                  onClick={() =>
+                    setLayerBindings(
+                      layer.id,
+                      layer.bindings.filter((_, candidateIndex) => candidateIndex !== index),
+                    )
+                  }
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            disabled={
+              composition.dataFields.length === 0 ||
+              bindableProperties(layer.element, layer.effects).every((property) =>
+                layer.bindings.some((binding) => binding.targetProperty === property.value),
+              )
+            }
+            onClick={() => {
+              const targetProperty = bindableProperties(layer.element, layer.effects).find(
+                (property) =>
+                  !layer.bindings.some((binding) => binding.targetProperty === property.value),
+              )?.value;
+              const fieldId = composition.dataFields[0]?.id;
+              if (targetProperty && fieldId) {
+                const field = composition.dataFields[0]!;
+                const sourcePath =
+                  listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })[0]?.path ??
+                  [];
+                setLayerBindings(layer.id, [
+                  ...layer.bindings,
+                  { fieldId, targetProperty, sourcePath },
+                ]);
+              }
+            }}
+          >
+            + Add Binding
+          </button>
+        </div>
+
+        <h3 className="inspector-section">Semantic intent</h3>
+        <PropertyRow
+          help={
+            "Describe the layer's purpose, such as headline, background or container. Style packs and design checks use this semantic role when styling or reviewing the scene."
+          }
+          className="inspector-row"
+        >
+          <span>Role</span>
+          <select
+            value={layer.semantics.role}
+            onChange={(event) =>
+              setLayerSemantics(layer.id, { role: event.target.value as SemanticLayerRole })
+            }
+          >
+            {SEMANTIC_ROLES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </PropertyRow>
+        <PropertyRow
+          help={
+            'Comma-separated tags that help organize and find the layer. Authoring tools can use tags to target related layers.'
+          }
+          className="inspector-row"
+        >
+          <span>Tags</span>
+          <input
+            type="text"
+            value={layer.semantics.tags.join(', ')}
+            placeholder="primary, breaking-news"
+            onChange={(event) =>
+              setLayerSemantics(layer.id, {
+                tags: event.target.value.split(',').map((tag) => tag.trim()),
+              })
+            }
+          />
+        </PropertyRow>
+        <PropertyRow
+          help={
+            'Describe what this layer is meant to communicate or do. This is design guidance for authors and AI tools; it is not displayed in the graphic.'
+          }
+          className="inspector-row"
+        >
+          <span>Intent</span>
+          <textarea
+            value={layer.semantics.description}
+            placeholder="What this layer means in the design"
+            onChange={(event) => setLayerSemantics(layer.id, { description: event.target.value })}
+          />
+        </PropertyRow>
       </div>
     </Panel>
   );

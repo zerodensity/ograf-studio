@@ -56,6 +56,34 @@ describe('AuthoringSession', () => {
     expect(undone.project.compositions[0]!.layers).toHaveLength(0);
   });
 
+  it('uses square shape insertion defaults while preserving explicit non-square geometry', () => {
+    const session = new AuthoringSession(createProject(), 'shape-defaults');
+    const result = session.apply({
+      expectedRevision: 0,
+      operations: [
+        { type: 'add_layer', kind: 'rectangle' },
+        { type: 'add_layer', kind: 'ellipse' },
+        {
+          type: 'add_layer',
+          kind: 'rectangle',
+          name: 'Explicit panel',
+          transform: { width: 480, height: 96 },
+        },
+      ],
+    });
+    const [square, circle, panel] = result.project.compositions[0]!.layers;
+
+    for (const layer of [square!, circle!]) {
+      expect(layer.keyframes).toHaveLength(3);
+      expect(layer.keyframes.every(({ transform }) => transform.width === transform.height)).toBe(
+        true,
+      );
+      expect(layer.keyframes[0]!.transform).toMatchObject({ width: 200, height: 200 });
+    }
+    expect(panel!.keyframes.every(({ transform }) => transform.width === 480)).toBe(true);
+    expect(panel!.keyframes.every(({ transform }) => transform.height === 96)).toBe(true);
+  });
+
   it('materializes and semantically edits a lower third as one portable transaction', () => {
     const session = new AuthoringSession(createProject(), 'semantic-recipe-session');
     const created = session.apply({

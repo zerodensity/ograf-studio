@@ -192,6 +192,9 @@ export type NewLayerKind =
 /** The starting pose for a freshly created layer of this kind — a fresh object every call. */
 export function defaultTransformFor(kind: NewLayerKind): LayerTransform {
   if (kind === 'text') return createDefaultTransform({ height: 64 });
+  if (kind === 'rectangle' || kind === 'ellipse') {
+    return createDefaultTransform({ width: 200, height: 200 });
+  }
   return createDefaultTransform();
 }
 

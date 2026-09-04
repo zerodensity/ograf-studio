@@ -22,6 +22,7 @@ import { DOCK_PANE_IDS, DOCK_PANE_LABELS, type DockPaneId } from '../layout/dock
 import { selectableLayerIds } from '../state/selectAllLayers';
 import './Menubar.css';
 import { useDetachedWindows } from '../layout/detachedWindowContext';
+import { duplicateSelectedLayers } from '../state/editorShortcuts';
 
 const historyTime = (timestamp: number) =>
   new Date(timestamp).toLocaleTimeString([], {
@@ -47,6 +48,7 @@ export function Menubar({
   const activeCompositionId = useProjectStore((s) => s.activeCompositionId);
   const select = useSelectionStore((s) => s.select);
   const selectMany = useSelectionStore((s) => s.selectMany);
+  const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const [status, setStatus] = useState('');
   const [importReport, setImportReport] = useState<OgrafImportResult | null>(null);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
@@ -104,6 +106,14 @@ export function Menubar({
     selectMany(layerIds);
     setEditMenuOpen(false);
     setStatus(`Selected ${layerIds.length} layer${layerIds.length === 1 ? '' : 's'}`);
+  };
+
+  const handleDuplicate = () => {
+    const duplicatedIds = duplicateSelectedLayers();
+    setEditMenuOpen(false);
+    if (duplicatedIds.length > 0) {
+      setStatus(`Duplicated ${duplicatedIds.length} layer${duplicatedIds.length === 1 ? '' : 's'}`);
+    }
   };
 
   const handleNew = () => {
@@ -265,6 +275,15 @@ export function Menubar({
               <button type="button" role="menuitem" onClick={selectAllLayers}>
                 <span>Select all layers</span>
                 <kbd>Ctrl+A</kbd>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={selectedLayerIds.length === 0}
+                onClick={handleDuplicate}
+              >
+                <span>Duplicate</span>
+                <kbd>Ctrl+D</kbd>
               </button>
               <div className="menubar-history-heading" role="presentation">
                 History

@@ -19,10 +19,14 @@ import { resolvePlayTarget } from './lifecycle';
 import {
   applyAnimatedPaint,
   disposeElementContent,
+  lottieBackingSizeForLayer,
   renderAnimatedElementAtTime,
   renderElementContent,
+  refreshLottiePresentation,
   resolveBoundElement,
   resolveBoundEffects,
+  setLottieDeterministicRendering,
+  waitForElementContentReady,
 } from './renderElement';
 import { layerEffectsToCssFilter } from '@ograf-editor/scene-model';
 import {
@@ -130,6 +134,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       const request = owner ? owner.requestAnimationFrame(invoke) : requestAnimationFrame(invoke);
       this.#frameRequests.set(id, { ...entry, owner, request });
     }
+    if (this.shadowRoot) refreshLottiePresentation(this.shadowRoot);
   }
 
   #layerEls = new Map<string, HTMLElement>();
@@ -145,7 +150,9 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
    * update correctly reverts keys that update doesn't touch, instead of leaving them stuck. */
   #scheduleBaseData: Record<string, unknown> = {};
   /** Realtime self-animated-content redraw requests. Phase is derived from absolute elapsed time. */
-  #contentAnimationFrames = new Map<string, number>();
+  #contentAnimationFrame: number | null = null;
+  #contentPlaybackError: Error | null = null;
+  #operationQueue: Promise<void> = Promise.resolve();
   #renderType: LoadParams['renderType'] = 'realtime';
   /** Absolute clock epochs for active layer-local loops. Values use performance.now() in realtime
    * and the scheduled OGraf timestamp in non-realtime; sampling always derives phase absolutely. */
@@ -161,6 +168,20 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   private get activeDescriptor(): CompiledGraphicDescriptor {
     return this.#renderDescriptor ?? this.descriptor;
+  }
+
+  async #serializeOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.#operationQueue;
+    let release = () => {};
+    this.#operationQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 
   connectedCallback(): void {
@@ -184,10 +205,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   #clearContentAnimationFrames(): void {
-    if (typeof cancelAnimationFrame !== 'undefined') {
-      for (const id of this.#contentAnimationFrames.values()) this.#cancelFrame(id);
+    if (this.#contentAnimationFrame !== null && typeof cancelAnimationFrame !== 'undefined') {
+      this.#cancelFrame(this.#contentAnimationFrame);
     }
-    this.#contentAnimationFrames.clear();
+    this.#contentAnimationFrame = null;
   }
 
   #cancelUpdateAnimations(): void {
@@ -538,11 +559,16 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         el.style.width = `${firstTransform.width}px`;
         el.style.height = `${firstTransform.height}px`;
       }
-      renderElementContent(el, resolveBoundElement(layer, this.#lastData));
       shadow.appendChild(el);
+      renderElementContent(
+        el,
+        resolveBoundElement(layer, this.#lastData),
+        0,
+        layer.element.type === 'lottie'
+          ? { lottieBackingSize: lottieBackingSizeForLayer(layer) }
+          : undefined,
+      );
       this.#layerEls.set(layer.id, el);
-
-      this.#startContentPlayback(layer, el);
     }
 
     this.#syncCollectionVisibility();
@@ -551,40 +577,55 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#timeline = buildRuntimeTimeline(renderDescriptor, this.#layerEls, () => this.#lastData);
   }
 
-  #startContentPlayback(layer: CompiledGraphicDescriptor['layers'][number], el: HTMLElement): void {
-    const element = layer.element;
-    if (
-      (element.type !== 'image-sequence' && element.type !== 'lottie') ||
-      (element.type === 'image-sequence' && element.frames.length === 0) ||
-      (element.type === 'lottie' && !element.animationData)
-    ) {
-      return;
+  #setContentRenderingMode(): void {
+    const root = this.shadowRoot;
+    if (root) setLottieDeterministicRendering(root, this.#renderType === 'non-realtime');
+  }
+
+  async #awaitContentReady(): Promise<void> {
+    const root = this.shadowRoot;
+    if (root) await waitForElementContentReady(root);
+    if (this.#contentPlaybackError) throw this.#contentPlaybackError;
+  }
+
+  #remountLottieContent(): void {
+    for (const layer of this.activeDescriptor.layers) {
+      if (layer.element.type !== 'lottie' || !layer.element.animationData) continue;
+      const element = this.#layerEls.get(layer.id);
+      if (!element) continue;
+      renderElementContent(element, resolveBoundElement(layer, this.#lastData), 0, {
+        lottieBackingSize: lottieBackingSizeForLayer(layer),
+      });
     }
-    if (typeof requestAnimationFrame === 'undefined') return;
-    const epoch = performance.now();
-    const render = (now: number) => {
-      const elapsedMs = Math.max(0, now - epoch);
-      renderAnimatedElementAtTime(el, element, elapsedMs);
-      if (
-        element.type === 'image-sequence' &&
-        !element.loop &&
-        elapsedMs / 1000 >= element.frames.length / Math.max(1, element.fps)
-      ) {
-        this.#contentAnimationFrames.delete(layer.id);
-        return;
-      }
-      const request = this.#requestFrame(render);
-      this.#contentAnimationFrames.set(layer.id, request);
-    };
-    this.#contentAnimationFrames.set(layer.id, this.#requestFrame(render));
   }
 
   #startRealtimeContentAnimations(): void {
     this.#clearContentAnimationFrames();
-    for (const layer of this.activeDescriptor.layers) {
-      const el = this.#layerEls.get(layer.id);
-      if (el) this.#startContentPlayback(layer, el);
-    }
+    const layers = this.activeDescriptor.layers.filter(
+      (layer) =>
+        (layer.element.type === 'image-sequence' && layer.element.frames.length > 0) ||
+        (layer.element.type === 'lottie' && !!layer.element.animationData),
+    );
+    if (layers.length === 0 || typeof requestAnimationFrame === 'undefined') return;
+    const epoch = performance.now();
+    const render = (now: number) => {
+      this.#contentAnimationFrame = null;
+      const elapsedMs = Math.max(0, now - epoch);
+      try {
+        this.#renderAnimatedContentAt(elapsedMs);
+      } catch (error) {
+        this.#contentPlaybackError = error instanceof Error ? error : new Error(String(error));
+        return;
+      }
+      const shouldContinue = layers.some((layer) => {
+        const element = layer.element;
+        if (element.type === 'lottie') return true;
+        if (element.type !== 'image-sequence') return false;
+        return element.loop || elapsedMs / 1000 < element.frames.length / Math.max(1, element.fps);
+      });
+      if (shouldContinue) this.#contentAnimationFrame = this.#requestFrame(render);
+    };
+    this.#contentAnimationFrame = this.#requestFrame(render);
   }
 
   #renderAnimatedContentAt(timestampMs: number): void {
@@ -606,7 +647,19 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       }
       const el = this.#layerEls.get(layer.id);
       if (el) {
-        renderElementContent(el, resolveBoundElement(layer, this.#lastData));
+        const element = resolveBoundElement(layer, this.#lastData);
+        const serialized = JSON.stringify(element);
+        if (el.dataset.ografRenderedElement !== serialized) {
+          renderElementContent(
+            el,
+            element,
+            0,
+            element.type === 'lottie'
+              ? { lottieBackingSize: lottieBackingSizeForLayer(layer) }
+              : undefined,
+          );
+          setLottieDeterministicRendering(el, this.#renderType === 'non-realtime');
+        }
         const state = sampleCompiledLayerVisualState(
           layer,
           (this.#timeline?.time() ?? 0) * this.descriptor.frameRate,
@@ -686,21 +739,29 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async load(params: LoadParams): Promise<ReturnPayload | undefined> {
+    return this.#serializeOperation(() => this.#loadUnlocked(params));
+  }
+
+  async #loadUnlocked(params: LoadParams): Promise<ReturnPayload | undefined> {
     try {
       this.#cancelUpdateAnimations();
-      this.#replaceData(params.data);
       this.#stopLoopRendering();
+      this.#clearContentAnimationFrames();
+      this.#contentPlaybackError = null;
       this.#renderType = params.renderType;
-      if (this.#renderType === 'realtime') this.#startRealtimeContentAnimations();
-      else {
-        this.#clearContentAnimationFrames();
-        this.#renderAnimatedContentAt(0);
-      }
+      this.#replaceData(params.data);
+      this.#remountLottieContent();
+      this.#setContentRenderingMode();
+      this.#renderAnimatedContentAt(0);
+      await this.#awaitContentReady();
+      this.#renderAnimatedContentAt(0);
       this.#schedule = [];
       this.#scheduleBaseData = { ...this.#lastData };
       this.#currentStep = undefined;
       this.#directLifecycleTransition = null;
       await this.#seekToKeyframeId(this.descriptor.startKeyframeId, true);
+      this.#renderLoopSnapshot(0, new Map());
+      if (this.#renderType === 'realtime') this.#startRealtimeContentAnimations();
       return { statusCode: 200 };
     } catch (err) {
       return errorPayload(err);
@@ -708,6 +769,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async dispose(): Promise<ReturnPayload | undefined> {
+    return this.#serializeOperation(() => this.#disposeUnlocked());
+  }
+
+  async #disposeUnlocked(): Promise<ReturnPayload | undefined> {
     try {
       this.#timeline?.kill();
       this.#timeline = null;
@@ -725,7 +790,12 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async updateAction(params: UpdateActionParams): Promise<ReturnPayload | undefined> {
+    return this.#serializeOperation(() => this.#updateActionUnlocked(params));
+  }
+
+  async #updateActionUnlocked(params: UpdateActionParams): Promise<ReturnPayload | undefined> {
     try {
+      await this.#awaitContentReady();
       this.#cancelUpdateAnimations();
       const keys = this.#changedBindingKeys(params.data);
       const durationMs =
@@ -734,13 +804,16 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           : ((this.descriptor.updateTransitionFrames ?? 0) / this.descriptor.frameRate) * 1000;
       if (durationMs <= 0 || keys.size === 0) {
         this.#applyData(params.data);
+        await this.#awaitContentReady();
         return { statusCode: 200 };
       }
       await this.#animateBoundContent(keys, 1, 0, durationMs / 2);
       this.#applyData(params.data);
       this.#setBoundContentOpacity(keys, 0);
+      await this.#awaitContentReady();
       await this.#animateBoundContent(keys, 0, 1, durationMs / 2);
       this.#setBoundContentOpacity(keys, 1);
+      await this.#awaitContentReady();
       return { statusCode: 200 };
     } catch (err) {
       return errorPayload(err);
@@ -758,7 +831,12 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async playAction(params: PlayActionParams): Promise<PlayActionReturnPayload> {
+    return this.#serializeOperation(() => this.#playActionUnlocked(params));
+  }
+
+  async #playActionUnlocked(params: PlayActionParams): Promise<PlayActionReturnPayload> {
     try {
+      await this.#awaitContentReady();
       const previousStep = this.#currentStep;
       const target = this.#resolvePlayTarget(this.#currentStep, params);
       const targetFrame =
@@ -782,6 +860,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           )?.durationFrames ?? 0) / this.descriptor.frameRate
         : undefined;
       await this.#seekToKeyframeId(target.keyframeId, params.skipAnimation, exitDurationSeconds);
+      await this.#awaitContentReady();
       this.#currentStep = target.currentStep;
       if (this.#currentStep !== undefined) {
         this.#activateLoopsAtStep(
@@ -803,7 +882,12 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async stopAction(params: StopActionParams): Promise<ReturnPayload | undefined> {
+    return this.#serializeOperation(() => this.#stopActionUnlocked(params));
+  }
+
+  async #stopActionUnlocked(params: StopActionParams): Promise<ReturnPayload | undefined> {
     try {
+      await this.#awaitContentReady();
       const targetFrame =
         this.descriptor.keyframes.find((keyframe) => keyframe.id === this.descriptor.endKeyframeId)
           ?.frame ?? 0;
@@ -821,6 +905,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         params.skipAnimation,
         durationSeconds,
       );
+      await this.#awaitContentReady();
       this.#currentStep = undefined;
       return { statusCode: 200 };
     } catch (err) {
@@ -829,6 +914,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async customAction(params: CustomActionParams): Promise<ReturnPayload | undefined> {
+    return this.#serializeOperation(() => this.#customActionUnlocked(params));
+  }
+
+  async #customActionUnlocked(params: CustomActionParams): Promise<ReturnPayload | undefined> {
     try {
       const known = this.descriptor.customActions.some((a) => a.id === params.id);
       if (!known) {
@@ -1070,6 +1159,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async goToTime(params: GoToTimeParams): Promise<ReturnPayload | undefined> {
+    return this.#serializeOperation(() => this.#goToTimeUnlocked(params));
+  }
+
+  async #goToTimeUnlocked(params: GoToTimeParams): Promise<ReturnPayload | undefined> {
     try {
       this.#timeline?.pause();
       this.#activeTween?.kill();
@@ -1078,6 +1171,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       if (this.#schedule.length > 0) this.#applySchedule(params.timestamp);
       else this.#renderLoopSnapshot(params.timestamp, new Map());
       this.#renderAnimatedContentAt(params.timestamp);
+      await this.#awaitContentReady();
+      this.#renderAnimatedContentAt(params.timestamp);
+      if (this.#schedule.length > 0) this.#applySchedule(params.timestamp);
+      else this.#renderLoopSnapshot(params.timestamp, new Map());
       return { statusCode: 200 };
     } catch (err) {
       return errorPayload(err);
@@ -1085,6 +1182,12 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async setActionsSchedule(params: SetActionsScheduleParams): Promise<ReturnPayload | undefined> {
+    return this.#serializeOperation(() => this.#setActionsScheduleUnlocked(params));
+  }
+
+  async #setActionsScheduleUnlocked(
+    params: SetActionsScheduleParams,
+  ): Promise<ReturnPayload | undefined> {
     try {
       this.#schedule = [...params.schedule].sort((a, b) => a.timestamp - b.timestamp);
       this.#scheduleBaseData = { ...this.#lastData };

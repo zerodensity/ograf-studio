@@ -5,7 +5,6 @@ const MAX_ESTIMATED_TOKENS = 9_000;
 const SOURCE_PATHS = [
   'skills/ograf-authoring/SKILL.md',
   'skills/ograf-authoring/references/tool-workflows.md',
-  'skills/ograf-authoring/references/examples.md',
   'skills/ograf-authoring/references/ograf-invariants.md',
 ] as const;
 
@@ -28,6 +27,8 @@ export const STRIPPED_IN_APP_GUIDANCE = [
   'ograf_open_project',
   'ograf_import_asset',
   'ograf_import_svg_bundle',
+  '## References',
+  'references/examples.md',
 ] as const;
 
 const PREAMBLE = `# OGraf Studio in-app authoring agent

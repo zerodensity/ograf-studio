@@ -79,4 +79,44 @@ describe('reusable components', () => {
     const definition = buildComponentDefinition(composition, [child.id], 'Child');
     expect(definition.layers[0]!.parentId).toBeNull();
   });
+
+  it('regenerates every nested data-schema node ID for each instance', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const field = createFieldDefinition('object', {
+      key: 'story',
+      properties: [
+        createFieldDefinition('text', { key: 'headline' }),
+        createFieldDefinition('array', {
+          key: 'items',
+          items: createFieldDefinition('object', {
+            key: 'item',
+            properties: [createFieldDefinition('text', { key: 'label' })],
+          }),
+        }),
+      ],
+    });
+    const layer = createTextLayer();
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'content', sourcePath: ['headline'] }];
+    composition.dataFields.push(field);
+    composition.layers.push(layer);
+    const definition = buildComponentDefinition(composition, [layer.id], 'Nested field');
+
+    const first = instantiateComponentDefinition(composition, definition);
+    const second = instantiateComponentDefinition(composition, definition);
+    const ids = (root: typeof field) => {
+      const result: string[] = [];
+      const visit = (node: typeof field) => {
+        result.push(node.id);
+        node.properties.forEach(visit);
+        if (node.items) visit(node.items);
+      };
+      visit(root);
+      return result;
+    };
+
+    expect(
+      new Set([...ids(field), ...ids(first.dataFields[0]!), ...ids(second.dataFields[0]!)]).size,
+    ).toBe(ids(field).length * 3);
+  });
 });

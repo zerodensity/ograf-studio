@@ -1,6 +1,7 @@
 import type { Project } from '@ograf-editor/scene-model';
 import { getActiveComposition, useProjectStore } from './projectStore';
 import { describeProjectChange } from './historyLabels';
+import { useSelectionStore } from './selectionStore';
 
 const MAX_HISTORY = 50;
 const DEBOUNCE_MS = 500;
@@ -73,6 +74,18 @@ function flushPending(): void {
   }
 }
 
+/** Commits any pending edit burst before and after one explicit command such as Duplicate. */
+export function runDiscreteHistoryStep<T>(mutation: () => T): T {
+  window.clearTimeout(debounceTimer);
+  flushPending();
+  try {
+    return mutation();
+  } finally {
+    window.clearTimeout(debounceTimer);
+    flushPending();
+  }
+}
+
 useProjectStore.subscribe((state) => {
   if (state.project === previousProject) return;
   if (suppressNextCapture) {
@@ -123,6 +136,24 @@ function reconcileActiveKeyframe(): void {
   }
 }
 
+function reconcileLayerSelection(): void {
+  const state = useProjectStore.getState();
+  const composition = state.project.compositions.find(
+    (candidate) => candidate.id === state.activeCompositionId,
+  );
+  const selection = useSelectionStore.getState();
+  const validLayerIds = new Set(composition?.layers.map((layer) => layer.id) ?? []);
+  const selectedLayerIds = selection.selectedLayerIds.filter((layerId) =>
+    validLayerIds.has(layerId),
+  );
+  if (
+    selectedLayerIds.length !== selection.selectedLayerIds.length ||
+    (selection.selectedLayerId !== null && !validLayerIds.has(selection.selectedLayerId))
+  ) {
+    selection.selectMany(selectedLayerIds);
+  }
+}
+
 export function undo(steps = 1): void {
   window.clearTimeout(debounceTimer);
   flushPending();
@@ -139,6 +170,7 @@ export function undo(steps = 1): void {
   suppressNextCapture = true;
   useProjectStore.setState({ project: restored });
   reconcileActiveKeyframe();
+  reconcileLayerSelection();
   publishHistory();
 }
 
@@ -158,6 +190,7 @@ export function redo(steps = 1): void {
   suppressNextCapture = true;
   useProjectStore.setState({ project: restored });
   reconcileActiveKeyframe();
+  reconcileLayerSelection();
   publishHistory();
 }
 

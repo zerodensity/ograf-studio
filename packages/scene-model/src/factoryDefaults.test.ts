@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createDefaultTransform,
   createComposition,
+  defaultTransformFor,
   defaultTransformForRole,
   createLayerKeyframe,
   createLayerPropertyKeyframe,
@@ -34,6 +35,12 @@ describe('authoring factory defaults', () => {
         expect(defaultTransformForRole(kind, role).opacity).toBe(1);
       }
     }
+  });
+
+  it('starts rectangles as squares and ellipses as circles without changing other defaults', () => {
+    expect(defaultTransformFor('rectangle')).toMatchObject({ width: 200, height: 200 });
+    expect(defaultTransformFor('ellipse')).toMatchObject({ width: 200, height: 200 });
+    expect(defaultTransformFor('image')).toMatchObject({ width: 400, height: 120 });
   });
 
   it('starts new compositions on black with the 20% gray outside-canvas fill enabled', () => {

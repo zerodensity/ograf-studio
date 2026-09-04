@@ -5,7 +5,8 @@ import {
   withEffectParameter,
   getTrackValueAtFrame,
   cornerRadiiToCss,
-  lottieFrameAtTime,
+  LOTTIE_READY_TIMEOUT_MS,
+  lottiePlayerFrameAtTime,
   paintToCss,
   type Element,
   type LayerAnimationTracks,
@@ -27,13 +28,278 @@ interface MountedTextFit {
 const textFits = new WeakMap<HTMLElement, MountedTextFit>();
 const textFitCallbacks = new WeakMap<HTMLElement, () => void>();
 interface MountedLottie {
+  container: HTMLElement;
+  element: Extract<Element, { type: 'lottie' }>;
   animation: AnimationItem;
-  width: number;
-  height: number;
+  canvas: HTMLCanvasElement;
+  requestedWidth: number;
+  requestedHeight: number;
+  baseWidth: number;
+  baseHeight: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  dpr: number;
+  observer?: ResizeObserver;
+  ownerWindow?: Window;
+  onWindowResize?: () => void;
   desiredFrame: number;
+  deterministic: boolean;
+  ready: boolean;
+  settled: boolean;
+  readiness: Promise<void>;
+  resolveReadiness: () => void;
+  error?: Error;
+  timeout?: ReturnType<typeof setTimeout>;
+  removeListeners: Array<() => void>;
 }
 
 const lottieAnimations = new WeakMap<HTMLElement, MountedLottie>();
+export const MAX_LOTTIE_BACKING_AXIS = 8_192;
+export const MAX_LOTTIE_BACKING_PIXELS = 16_777_216;
+
+interface LottieSizedLayer {
+  keyframes: ReadonlyArray<{ transform: { width: number; height: number } }>;
+  animationTracks: Partial<Record<'width' | 'height', ReadonlyArray<{ value: number }>>>;
+  loop?: {
+    tracks: Partial<Record<'width' | 'height', ReadonlyArray<{ value: number }>>>;
+  } | null;
+}
+
+export interface ElementContentRenderOptions {
+  lottieBackingSize?: { width: number; height: number };
+}
+
+function constrainLottieBackingSize(
+  size: { width: number; height: number },
+  dpr = 1,
+): { width: number; height: number } {
+  const safeDpr = Math.max(1, Number.isFinite(dpr) ? dpr : 1);
+  const physicalWidth = size.width * safeDpr;
+  const physicalHeight = size.height * safeDpr;
+  const scale = Math.min(
+    1,
+    MAX_LOTTIE_BACKING_AXIS / physicalWidth,
+    MAX_LOTTIE_BACKING_AXIS / physicalHeight,
+    Math.sqrt(MAX_LOTTIE_BACKING_PIXELS / (physicalWidth * physicalHeight)),
+  );
+  return {
+    width: Math.max(1, Math.floor(size.width * scale)),
+    height: Math.max(1, Math.floor(size.height * scale)),
+  };
+}
+
+/** Maximum authored Lottie box, used to avoid upscaling a backing created at a collapsed key. */
+export function lottieBackingSizeForLayer(layer: LottieSizedLayer): {
+  width: number;
+  height: number;
+} {
+  const maximum = (property: 'width' | 'height') => {
+    const values = [
+      ...layer.keyframes.map((keyframe) => keyframe.transform[property]),
+      ...(layer.animationTracks[property] ?? []).map((keyframe) => keyframe.value),
+      ...(layer.loop?.tracks[property] ?? []).map((keyframe) => keyframe.value),
+    ].filter((value) => Number.isFinite(value) && value > 0);
+    return Math.max(1, Math.ceil(Math.max(1, ...values)));
+  };
+  return constrainLottieBackingSize({ width: maximum('width'), height: maximum('height') });
+}
+
+function positiveCanvasDimension(...values: unknown[]): number {
+  const value = values.find(
+    (candidate) => typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0,
+  );
+  return Math.max(1, Math.round(typeof value === 'number' ? value : 1));
+}
+
+function inlinePixelDimension(value: string): number | undefined {
+  if (!value.trim().endsWith('px')) return undefined;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function lottieCanvasSize(
+  container: HTMLElement,
+  animationData: NonNullable<Extract<Element, { type: 'lottie' }>['animationData']>,
+  preferred?: { width: number; height: number },
+): { width: number; height: number } {
+  const rect = container.isConnected ? container.getBoundingClientRect() : undefined;
+  return {
+    width: positiveCanvasDimension(
+      preferred?.width,
+      container.clientWidth,
+      inlinePixelDimension(container.style.width),
+      rect?.width,
+      animationData.w,
+    ),
+    height: positiveCanvasDimension(
+      preferred?.height,
+      container.clientHeight,
+      inlinePixelDimension(container.style.height),
+      rect?.height,
+      animationData.h,
+    ),
+  };
+}
+
+function positionLottieCanvas(container: HTMLElement, mounted: MountedLottie): void {
+  const rect = container.isConnected ? container.getBoundingClientRect() : undefined;
+  const targetWidth = positiveCanvasDimension(
+    container.clientWidth,
+    inlinePixelDimension(container.style.width),
+    rect?.width,
+    mounted.baseWidth,
+  );
+  const targetHeight = positiveCanvasDimension(
+    container.clientHeight,
+    inlinePixelDimension(container.style.height),
+    rect?.height,
+    mounted.baseHeight,
+  );
+  const basePaintScale = Math.min(
+    mounted.baseWidth / mounted.sourceWidth,
+    mounted.baseHeight / mounted.sourceHeight,
+  );
+  const targetPaintScale = Math.min(
+    targetWidth / mounted.sourceWidth,
+    targetHeight / mounted.sourceHeight,
+  );
+  const presentationScale = targetPaintScale / basePaintScale;
+  const basePaintX = (mounted.baseWidth - mounted.sourceWidth * basePaintScale) / 2;
+  const basePaintY = (mounted.baseHeight - mounted.sourceHeight * basePaintScale) / 2;
+  const targetPaintX = (targetWidth - mounted.sourceWidth * targetPaintScale) / 2;
+  const targetPaintY = (targetHeight - mounted.sourceHeight * targetPaintScale) / 2;
+  mounted.canvas.style.width = `${mounted.baseWidth * presentationScale}px`;
+  mounted.canvas.style.height = `${mounted.baseHeight * presentationScale}px`;
+  mounted.canvas.style.left = `${targetPaintX - basePaintX * presentationScale}px`;
+  mounted.canvas.style.top = `${targetPaintY - basePaintY * presentationScale}px`;
+}
+
+async function decodeEmbeddedLottieImages(
+  animationData: NonNullable<Extract<Element, { type: 'lottie' }>['animationData']>,
+  document: Document,
+): Promise<void> {
+  const assets = Array.isArray(animationData.assets) ? animationData.assets : [];
+  const sources = new Map<string, string>();
+  for (const asset of assets) {
+    if (!asset || typeof asset !== 'object' || Array.isArray(asset)) continue;
+    const source = 'p' in asset && typeof asset.p === 'string' ? asset.p : '';
+    if (!source.startsWith('data:image/')) continue;
+    const label = 'id' in asset && typeof asset.id === 'string' ? asset.id : 'embedded image';
+    sources.set(source, label);
+  }
+  const ImageConstructor = document.defaultView?.Image;
+  if (!ImageConstructor) {
+    if (sources.size > 0) {
+      throw new Error('This browser cannot decode embedded Lottie image assets.');
+    }
+    return;
+  }
+  await Promise.all(
+    [...sources].map(
+      ([source, label]) =>
+        new Promise<void>((resolve, reject) => {
+          const image = new ImageConstructor();
+          image.decoding = 'async';
+          image.addEventListener(
+            'load',
+            () => {
+              if (image.naturalWidth > 0 && image.naturalHeight > 0) resolve();
+              else reject(new Error(`Embedded Lottie image asset "${label}" has no decoded size.`));
+            },
+            { once: true },
+          );
+          image.addEventListener(
+            'error',
+            () => reject(new Error(`Embedded Lottie image asset "${label}" could not be decoded.`)),
+            { once: true },
+          );
+          image.src = source;
+        }),
+    ),
+  );
+}
+
+function renderMountedLottieFrame(mounted: MountedLottie): void {
+  if (mounted.error) throw mounted.error;
+  if (!mounted.ready) return;
+  mounted.animation.goToAndStop(mounted.desiredFrame, true);
+  if (mounted.error) throw mounted.error;
+}
+
+function remountMountedLottie(mounted: MountedLottie): MountedLottie | undefined {
+  const desiredFrame = mounted.desiredFrame;
+  const deterministic = mounted.deterministic;
+  const backingSize = { width: mounted.requestedWidth, height: mounted.requestedHeight };
+  renderElementContent(mounted.container, mounted.element, 0, {
+    lottieBackingSize: backingSize,
+  });
+  const replacement = lottieAnimations.get(mounted.container);
+  if (!replacement) return undefined;
+  replacement.deterministic = deterministic;
+  replacement.desiredFrame = desiredFrame;
+  positionLottieCanvas(replacement.container, replacement);
+  renderMountedLottieFrame(replacement);
+  return replacement;
+}
+
+function settleLottieReadiness(mounted: MountedLottie): void {
+  if (mounted.settled) return;
+  mounted.settled = true;
+  if (mounted.timeout !== undefined) clearTimeout(mounted.timeout);
+  mounted.resolveReadiness();
+}
+
+function failMountedLottie(mounted: MountedLottie, message: string): void {
+  mounted.error ??= new Error(message);
+  settleLottieReadiness(mounted);
+}
+
+function mountedLottiesWithin(root: ParentNode): MountedLottie[] {
+  const mounted: MountedLottie[] = [];
+  if (root instanceof HTMLElement) {
+    const own = lottieAnimations.get(root);
+    if (own) mounted.push(own);
+  }
+  for (const element of root.querySelectorAll<HTMLElement>('*')) {
+    const entry = lottieAnimations.get(element);
+    if (entry) mounted.push(entry);
+  }
+  return mounted;
+}
+
+/** Waits until every Canvas Lottie below `root` has loaded its embedded assets and built its DOM. */
+export async function waitForElementContentReady(root: ParentNode): Promise<void> {
+  const mounted = mountedLottiesWithin(root);
+  await Promise.all(mounted.map((entry) => entry.readiness));
+  const failure = mounted.find((entry) => entry.error)?.error;
+  if (failure) throw failure;
+}
+
+/** Rebuilds Canvas state between changed frames for repeatable non-realtime seeks. */
+export function setLottieDeterministicRendering(root: ParentNode, enabled: boolean): void {
+  for (const mounted of mountedLottiesWithin(root)) {
+    if (enabled && !mounted.deterministic && mounted.ready) {
+      const replacement = remountMountedLottie(mounted);
+      if (replacement) replacement.deterministic = true;
+      continue;
+    }
+    mounted.deterministic = enabled;
+    if (enabled) renderMountedLottieFrame(mounted);
+  }
+}
+
+/** Repositions fixed backings and rebuilds them when adoption/zoom changes the rendering DPR. */
+export function refreshLottiePresentation(root: ParentNode): void {
+  for (const mounted of mountedLottiesWithin(root)) {
+    const ownerWindow = mounted.container.ownerDocument.defaultView ?? undefined;
+    const currentDpr = Math.max(1, ownerWindow?.devicePixelRatio ?? 1);
+    if (ownerWindow !== mounted.ownerWindow || Math.abs(currentDpr - mounted.dpr) > 1e-6) {
+      remountMountedLottie(mounted);
+    } else {
+      positionLottieCanvas(mounted.container, mounted);
+    }
+  }
+}
 
 /** Legacy default retained for migrated projects; each text element now carries an absolute floor. */
 export const SHRINK_TO_FIT_MIN_RATIO = 0.5;
@@ -112,7 +378,16 @@ export function findFittedFontSize(options: {
 
 /** Disconnects text-fitting observation before a renderer discards a content host. */
 export function disposeElementContent(container: HTMLElement): void {
-  lottieAnimations.get(container)?.animation.destroy();
+  const mountedLottie = lottieAnimations.get(container);
+  if (mountedLottie) {
+    if (!mountedLottie.settled) {
+      failMountedLottie(mountedLottie, 'Lottie playback was disposed before it became ready.');
+    }
+    for (const removeListener of mountedLottie.removeListeners) removeListener();
+    mountedLottie.observer?.disconnect();
+    mountedLottie.ownerWindow?.removeEventListener('resize', mountedLottie.onWindowResize!);
+    mountedLottie.animation.destroy();
+  }
   lottieAnimations.delete(container);
   const mountedFit = textFits.get(container);
   mountedFit?.observer?.disconnect();
@@ -188,7 +463,15 @@ export function renderElementContent(
   container: HTMLElement,
   element: Element,
   frameIndex = 0,
+  options: ElementContentRenderOptions = {},
 ): void {
+  const auxiliaryChildren = [...container.children].filter(
+    (child) => child.getAttribute('data-ograf-runtime-auxiliary') === 'true',
+  );
+  const previousContent = [...container.children].find(
+    (child) => child.getAttribute('data-ograf-runtime-auxiliary') !== 'true',
+  ) as HTMLElement | SVGElement | undefined;
+  const previousContentOpacity = previousContent?.style.opacity ?? '';
   disposeElementContent(container);
   container.dataset.ografRenderedElement = JSON.stringify(element);
   switch (element.type) {
@@ -462,42 +745,163 @@ export function renderElementContent(
       if (!element.animationData) break;
       const content = document.createElement('div');
       applyContentBaseStyle(content);
-      content.style.overflow = 'hidden';
+      Object.assign(content.style, { position: 'relative', overflow: 'hidden' });
+      const canvas = document.createElement('canvas');
+      const dpr = Math.max(1, container.ownerDocument.defaultView?.devicePixelRatio ?? 1);
+      const requestedSize = lottieCanvasSize(
+        container,
+        element.animationData,
+        options.lottieBackingSize,
+      );
+      const size = constrainLottieBackingSize(requestedSize, dpr);
+      canvas.width = size.width;
+      canvas.height = size.height;
+      canvas.dataset.ografLottieCanvas = 'true';
+      Object.assign(canvas.style, {
+        position: 'absolute',
+        display: 'block',
+        pointerEvents: 'none',
+        userSelect: 'none',
+      });
+      content.appendChild(canvas);
       container.appendChild(content);
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Lottie Canvas rendering is unavailable in this browser.');
       // The light canvas build excludes the expression engine. Clone because lottie-web mutates
       // parts of animationData while preparing a composition, and project state is immutable input.
-      const animation = lottie.loadAnimation({
-        container: content,
+      // Supplying our own positive-sized context also keeps the player from deriving a 0x0 canvas
+      // while a layer is detached/hidden. The canvas remains fixed after setup and CSS performs
+      // presentation scaling; lottie-web resize() resets cached gradient/context state.
+      const animationConfig = {
+        container: undefined as unknown as HTMLElement,
         renderer: 'canvas',
         loop: false,
         autoplay: false,
+        autoloadSegments: false,
         animationData: JSON.parse(
           JSON.stringify(element.animationData),
         ) as typeof element.animationData,
         rendererSettings: {
           clearCanvas: true,
+          context,
+          dpr,
           preserveAspectRatio: 'xMidYMid meet',
         },
-      });
+      } as const;
+      const animation = lottie.loadAnimation<'canvas'>(animationConfig);
       animation.setSubframe(true);
-      const mounted = {
-        animation,
-        width: -1,
-        height: -1,
-        desiredFrame: element.animationData.ip,
-      };
-      animation.addEventListener('DOMLoaded', () => {
-        animation.resize(container.clientWidth, container.clientHeight);
-        animation.goToAndStop(mounted.desiredFrame, true);
+      let resolveReadiness = () => {};
+      const readiness = new Promise<void>((resolve) => {
+        resolveReadiness = resolve;
       });
-      animation.goToAndStop(mounted.desiredFrame, true);
+      const mounted: MountedLottie = {
+        container,
+        element,
+        animation,
+        canvas,
+        requestedWidth: requestedSize.width,
+        requestedHeight: requestedSize.height,
+        baseWidth: size.width,
+        baseHeight: size.height,
+        sourceWidth: element.animationData.w,
+        sourceHeight: element.animationData.h,
+        dpr,
+        desiredFrame: 0,
+        deterministic: false,
+        ready: false,
+        settled: false,
+        readiness,
+        resolveReadiness,
+        removeListeners: [],
+      };
       lottieAnimations.set(container, mounted);
+      const embeddedImageReadiness = decodeEmbeddedLottieImages(
+        element.animationData,
+        container.ownerDocument,
+      ).then(
+        () => null,
+        (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+      );
+      void embeddedImageReadiness.then((error) => {
+        if (error) failMountedLottie(mounted, error.message);
+      });
+      positionLottieCanvas(container, mounted);
+      if (typeof ResizeObserver !== 'undefined') {
+        mounted.observer = new ResizeObserver(() => {
+          if (lottieAnimations.get(container) !== mounted) return;
+          const currentDpr = Math.max(
+            1,
+            container.ownerDocument.defaultView?.devicePixelRatio ?? 1,
+          );
+          if (Math.abs(currentDpr - mounted.dpr) > 1e-6) remountMountedLottie(mounted);
+          else positionLottieCanvas(container, mounted);
+        });
+        mounted.observer.observe(container);
+      }
+      const ownerWindow = container.ownerDocument.defaultView ?? undefined;
+      if (ownerWindow) {
+        mounted.ownerWindow = ownerWindow;
+        mounted.onWindowResize = () => {
+          if (lottieAnimations.get(container) !== mounted) return;
+          const currentDpr = Math.max(1, ownerWindow.devicePixelRatio || 1);
+          if (Math.abs(currentDpr - mounted.dpr) > 1e-6) remountMountedLottie(mounted);
+          else positionLottieCanvas(container, mounted);
+        };
+        ownerWindow.addEventListener('resize', mounted.onWindowResize);
+      }
+      const onReady = () => {
+        if (mounted.ready || mounted.error) return;
+        void embeddedImageReadiness.then((imageError) => {
+          if (imageError || mounted.error) return;
+          mounted.ready = true;
+          try {
+            renderMountedLottieFrame(mounted);
+            settleLottieReadiness(mounted);
+          } catch (error) {
+            failMountedLottie(
+              mounted,
+              `Lottie Canvas initialization failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        });
+      };
+      mounted.removeListeners.push(
+        animation.addEventListener('DOMLoaded', onReady),
+        animation.addEventListener('data_failed', () =>
+          failMountedLottie(
+            mounted,
+            'Lottie data failed to load; use one complete self-contained JSON document.',
+          ),
+        ),
+        animation.addEventListener('error', (event) => {
+          const nativeError = (event as unknown as { nativeError?: unknown } | undefined)
+            ?.nativeError;
+          failMountedLottie(
+            mounted,
+            `Lottie Canvas playback failed while rendering a frame${nativeError ? `: ${nativeError instanceof Error ? nativeError.message : String(nativeError)}` : '.'}`,
+          );
+        }),
+      );
+      mounted.timeout = setTimeout(
+        () =>
+          failMountedLottie(
+            mounted,
+            `Lottie did not become ready within ${LOTTIE_READY_TIMEOUT_MS} ms.`,
+          ),
+        LOTTIE_READY_TIMEOUT_MS,
+      );
+      if (animation.isLoaded) queueMicrotask(onReady);
       break;
     }
   }
+  const replacementContent = container.firstElementChild as HTMLElement | SVGElement | null;
+  if (replacementContent && previousContentOpacity) {
+    replacementContent.style.opacity = previousContentOpacity;
+  }
+  container.append(...auxiliaryChildren);
 }
 
-/** Updates self-animated content from an absolute clock without remounting its DOM/player. */
+/** Updates self-animated content from an absolute clock; deterministic Lottie seeks may remount. */
 export function renderAnimatedElementAtTime(
   container: HTMLElement,
   element: Element,
@@ -516,17 +920,29 @@ export function renderAnimatedElementAtTime(
     return;
   }
   if (element.type === 'lottie' && element.animationData) {
-    const mounted = lottieAnimations.get(container);
+    let mounted = lottieAnimations.get(container);
     if (!mounted) return;
-    mounted.desiredFrame = lottieFrameAtTime(element, elapsedMs);
-    const width = container.clientWidth;
-    const height = container.clientHeight;
-    if (width !== mounted.width || height !== mounted.height) {
-      mounted.width = width;
-      mounted.height = height;
-      if (width > 0 && height > 0) mounted.animation.resize(width, height);
+    const desiredFrame = lottiePlayerFrameAtTime(element, elapsedMs);
+    const currentDpr = Math.max(1, container.ownerDocument.defaultView?.devicePixelRatio ?? 1);
+    if (Math.abs(currentDpr - mounted.dpr) > 1e-6) {
+      mounted.desiredFrame = desiredFrame;
+      mounted = remountMountedLottie(mounted);
+      if (!mounted) return;
     }
-    mounted.animation.goToAndStop(mounted.desiredFrame, true);
+    // lottie-web's Canvas renderer retains history-dependent drawing state across arbitrary seeks.
+    // A fresh player is the only reset that is pixel-exact across the regression corpus. Keep
+    // realtime playback cheap, but rebuild whenever a non-realtime target frame changes.
+    if (
+      mounted.deterministic &&
+      mounted.ready &&
+      Math.abs(desiredFrame - mounted.desiredFrame) > 1e-6
+    ) {
+      mounted = remountMountedLottie(mounted);
+      if (!mounted) return;
+    }
+    mounted.desiredFrame = desiredFrame;
+    positionLottieCanvas(container, mounted);
+    renderMountedLottieFrame(mounted);
   }
 }
 
