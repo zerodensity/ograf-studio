@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   defaultStandaloneWorkspaceRoot,
@@ -12,27 +13,27 @@ import {
 
 describe('standalone server configuration', () => {
   it('uses an isolated writable user workspace without changing the source MCP default', () => {
-    expect(defaultStandaloneWorkspaceRoot({}, 'C:\\Users\\operator')).toBe(
-      'C:\\Users\\operator\\Documents\\OGraf Studio\\Projects',
+    const operatorHome = resolve('fixtures', 'operator-home');
+    const configuredRoot = resolve('fixtures', 'broadcast-projects');
+    expect(defaultStandaloneWorkspaceRoot({}, operatorHome)).toBe(
+      resolve(operatorHome, 'Documents', 'OGraf Studio', 'Projects'),
     );
     expect(
-      defaultStandaloneWorkspaceRoot(
-        { OGRAF_WORKSPACE_ROOT: 'D:\\Broadcast\\Projects' },
-        'C:\\Users\\operator',
-      ),
-    ).toBe('D:\\Broadcast\\Projects');
+      defaultStandaloneWorkspaceRoot({ OGRAF_WORKSPACE_ROOT: configuredRoot }, operatorHome),
+    ).toBe(configuredRoot);
   });
 
   it('parses explicit port, workspace, and browser options', () => {
+    const workspaceRoot = resolve('fixtures', 'shows');
     expect(
       parseStandaloneServerOptions(
-        ['--port=4400', '--workspace', 'D:\\Shows', '--open'],
+        ['--port=4400', '--workspace', workspaceRoot, '--open'],
         {},
-        'C:\\Users\\operator',
+        resolve('fixtures', 'operator-home'),
       ),
     ).toEqual({
       port: 4400,
-      workspaceRoot: 'D:\\Shows',
+      workspaceRoot,
       openBrowser: true,
       help: false,
     });
