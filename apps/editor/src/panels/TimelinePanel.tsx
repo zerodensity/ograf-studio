@@ -1,3 +1,4 @@
+import { useEditorWindow, isDomElement } from '../layout/EditorWindow';
 import {
   useEffect,
   useRef,
@@ -26,6 +27,7 @@ import { useTimelineStore } from '../state/timelineStore';
 import { useSelectionStore, type SelectedLayerKeyframe } from '../state/selectionStore';
 import { lifecycleRetimeBounds, MIN_LIFECYCLE_TRANSITION_FRAMES } from '../state/lifecycleRetime';
 import { Panel } from './Panel';
+import { TimelineHoverDetails } from './TimelineHoverDetails';
 import { formatFrameDuration } from './timelineFormatting';
 import { FrameDurationControl } from './FrameDurationControl';
 import { EASING_OPTION_GROUPS, easingLabel } from './easingOptions';
@@ -33,6 +35,11 @@ import { EasingCurveEditor } from './EasingCurveEditor';
 import { buildTimelineEntries } from './timelineFolders';
 import { buildTimelineLoopBadges } from './timelineLoopBadges';
 import { isTimelineKeyDrag } from './timelinePointerIntent';
+import {
+  stepTimelineFrame,
+  timelineFrameDirection,
+  timelineTargetOwnsArrows,
+} from './timelineFrameNavigation';
 import { meaningfulTimelineProperties } from './timelinePropertyVisibility';
 import { TIMELINE_LAYER_TRACK_COLOR, timelineTrackColorForProperty } from './timelineTrackColors';
 import {
@@ -75,12 +82,7 @@ const isSameSelectedKey = (left: SelectedLayerKeyframe, right: SelectedLayerKeyf
 function TransportIcon({ name }: { name: TransportIconName }) {
   return (
     <svg className="timeline-transport-icon" viewBox="0 0 16 16" aria-hidden="true">
-      {name === 'previous' && (
-        <>
-          <path d="M3 2.5v11" />
-          <path d="m12.5 3-7 5 7 5z" className="filled" />
-        </>
-      )}
+      {name === 'previous' && <path d="m10 3-5 5 5 5" />}
       {name === 'play' && <path d="m4 2.5 9 5.5-9 5.5z" className="filled" />}
       {name === 'pause' && (
         <>
@@ -89,17 +91,45 @@ function TransportIcon({ name }: { name: TransportIconName }) {
         </>
       )}
       {name === 'stop' && <rect x="3" y="3" width="10" height="10" rx="0.8" className="filled" />}
-      {name === 'next' && (
-        <>
-          <path d="M13 2.5v11" />
-          <path d="m3.5 3 7 5-7 5z" className="filled" />
-        </>
-      )}
+      {name === 'next' && <path d="m6 3 5 5-5 5" />}
     </svg>
   );
 }
 
 export function TimelinePanel({ style }: { style?: CSSProperties }) {
+  const { window } = useEditorWindow();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const handleFrameKey = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || !isDomElement(event.target)) return;
+      const target = event.target;
+      const focusedTimelineTab = target.closest(
+        '[role="tab"][data-dock-pane="timeline"][aria-selected="true"]',
+      );
+      if ((!panel.contains(target) && !focusedTimelineTab) || timelineTargetOwnsArrows(target))
+        return;
+      const direction = timelineFrameDirection(event);
+      if (direction === null || !stepTimelineFrame(direction)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    // Capture before marker/key handlers: unmodified arrows navigate and never retime keys.
+    window.addEventListener('keydown', handleFrameKey, true);
+    const floatingTitle = panel
+      .closest('.dock-floating-pane')
+      ?.querySelector('.dock-floating-title');
+    const focusFloatingTimeline = (event: Event) => {
+      if (isDomElement(event.target) && !event.target.closest('button, input, select, textarea'))
+        panel.focus({ preventScroll: true });
+    };
+    floatingTitle?.addEventListener('pointerdown', focusFloatingTimeline);
+    return () => {
+      window.removeEventListener('keydown', handleFrameKey, true);
+      floatingTitle?.removeEventListener('pointerdown', focusFloatingTimeline);
+    };
+  }, [window]);
   const composition = useActiveComposition();
   const activeKeyframeId = useProjectStore((s) => s.activeKeyframeId);
   const setActiveKeyframe = useProjectStore((s) => s.setActiveKeyframe);
@@ -279,7 +309,6 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const keySelectionAnchorRef = useRef<SelectedLayerKeyframe | null>(null);
 
   const activeKeyframeIndex = composition.keyframes.findIndex((k) => k.id === activeKeyframeId);
-  const activeKeyframe = composition.keyframes[activeKeyframeIndex];
   const incomingTransition =
     activeKeyframeIndex > 0
       ? composition.transitions.find(
@@ -348,7 +377,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
       lifecycleRetimeNotice.warnings.length > 0 ? 6000 : 3500,
     );
     return () => window.clearTimeout(timeout);
-  }, [lifecycleRetimeNotice]);
+  }, [lifecycleRetimeNotice, window]);
 
   const createLoopForSelectedProperty = () => {
     if (!selectedLayer || !selectedLayerProperty) return;
@@ -616,7 +645,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   };
 
   const seekByFrame = (delta: -1 | 1) => {
-    controller?.seek(Math.max(0, Math.min(durationFrames, displayedFrame + delta)));
+    stepTimelineFrame(delta);
+    const state = useTimelineStore.getState();
+    if (state.currentFrame <= 0 || state.currentFrame >= state.durationFrames) {
+      // A newly disabled boundary button loses browser focus; keep arrows in the Timeline.
+      panelRef.current?.focus({ preventScroll: true });
+    }
   };
 
   const handleLayerKeyframePointerDown = (
@@ -740,18 +774,45 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
 
   return (
     <Panel title="Timeline" style={style}>
-      <div className={`timeline-panel${showKeyEditor ? ' has-key-editor' : ''}`}>
+      <div
+        ref={panelRef}
+        className={`timeline-panel${showKeyEditor ? ' has-key-editor' : ''}`}
+        role="region"
+        aria-label="Timeline editor"
+        aria-keyshortcuts="ArrowLeft ArrowRight"
+        tabIndex={0}
+        onPointerDownCapture={(event) => {
+          if (
+            event.button !== 0 ||
+            !isDomElement(event.target) ||
+            timelineTargetOwnsArrows(event.target)
+          )
+            return;
+          const focusTarget = event.target.closest<HTMLElement>('button, a[href], [tabindex]');
+          // Key selection runs on pointer-down before the browser focuses the key. Do not fire
+          // its onFocus selection handler early (that would discard Ctrl/Shift selections).
+          if (focusTarget?.classList.contains('timeline-keyframe-dot')) {
+            event.currentTarget.focus({ preventScroll: true });
+            return;
+          }
+          if (focusTarget instanceof HTMLButtonElement && focusTarget.disabled)
+            event.currentTarget.focus({ preventScroll: true });
+          else (focusTarget ?? event.currentTarget).focus({ preventScroll: true });
+        }}
+      >
         <div className="timeline-toolbar">
           <div className="timeline-transport" role="group" aria-label="Timeline playback">
             <button
               type="button"
-              className="timeline-transport-button"
+              className="timeline-transport-button frame-step"
               aria-label="Previous frame"
-              title="Previous frame"
+              aria-keyshortcuts="ArrowLeft"
+              title="Previous frame (←)"
               onClick={() => seekByFrame(-1)}
               disabled={!controller || displayedFrame <= 0}
             >
               <TransportIcon name="previous" />
+              <span aria-hidden="true">−1f</span>
             </button>
             <button
               type="button"
@@ -776,12 +837,14 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
             </button>
             <button
               type="button"
-              className="timeline-transport-button"
+              className="timeline-transport-button frame-step"
               aria-label="Next frame"
-              title="Next frame"
+              aria-keyshortcuts="ArrowRight"
+              title="Next frame (→)"
               onClick={() => seekByFrame(1)}
               disabled={!controller || displayedFrame >= durationFrames}
             >
+              <span aria-hidden="true">+1f</span>
               <TransportIcon name="next" />
             </button>
           </div>
@@ -829,6 +892,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
           {incomingTransition && (
             <div className="timeline-transition-controls">
               <FrameDurationControl
+                compact
                 label="Incoming lifecycle transition"
                 frames={incomingTransition.durationFrames}
                 frameRate={composition.frameRate}
@@ -837,8 +901,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                   updateTransition(incomingTransition.id, { durationFrames })
                 }
               />
-              <label>
-                Lifecycle easing
+              <label title="Transition easing">
                 <select
                   aria-label="Lifecycle transition easing"
                   value={incomingTransition.easing}
@@ -860,11 +923,6 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 </select>
               </label>
             </div>
-          )}
-          {activeKeyframe && (
-            <span className={`timeline-state-role ${activeKeyframe.role}`}>
-              {activeKeyframe.name} · {activeKeyframe.role}
-            </span>
           )}
         </div>
 
@@ -1160,7 +1218,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       role="button"
                       tabIndex={0}
                       aria-label={`${keyframe.name} at frame ${frame}${loopDescription}`}
-                      title={`${keyframe.name} · frame ${frame} · Click selects · Double-click seeks${keyframe.role === 'start' ? ' · Start is fixed' : ' · Drag to move · Shift+double-click renames'}${loopDescription}`}
+                      data-timeline-tooltip={`${keyframe.name} · frame ${frame} · Click selects · Double-click seeks${keyframe.role === 'start' ? ' · Start is fixed' : ' · Drag or Alt+Left/Right to move · Shift+double-click renames'}${loopDescription}`}
                       onPointerDown={(e) => handleKeyframeMarkerPointerDown(e, i)}
                       onKeyDown={(event) => {
                         if ((event.target as HTMLElement).tagName === 'INPUT') return;
@@ -1177,7 +1235,13 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           setActiveKeyframe(keyframe.id);
                           return;
                         }
-                        if (i > 0 && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+                        if (
+                          i > 0 &&
+                          event.altKey &&
+                          !event.ctrlKey &&
+                          !event.metaKey &&
+                          (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+                        ) {
                           event.preventDefault();
                           commitLifecycleMove(
                             keyframe.id,
@@ -1200,7 +1264,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           <span
                             className="timeline-keyframe-loop-badge"
                             aria-hidden="true"
-                            title={loopDescription.slice(3)}
+                            data-timeline-tooltip={loopDescription.slice(3)}
                           >
                             ∞
                           </span>
@@ -1219,9 +1283,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             if (e.key === 'Escape') setEditingKeyframeId(null);
                           }}
                         />
-                      ) : (
-                        <span className="timeline-keyframe-marker-name">{keyframe.name}</span>
-                      )}
+                      ) : null}
                     </div>
                   );
                 })}
@@ -1272,23 +1334,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             left: fromKeyframe.frame * pixelsPerFrame,
                             width: spanFrames * pixelsPerFrame,
                           }}
-                          title={`${layer.name} · ${fromKeyframe.frame}–${toKeyframe.frame} · ${spanFrames} frames · ${easingLabel(toKeyframe.easing)}`}
-                        >
-                          <span className="timeline-layer-span-metadata">
-                            {spanFrames >= 4 && (
-                              <span className="timeline-layer-span-label">{spanFrames}f</span>
-                            )}
-                            {toKeyframe.easing !== 'linear' &&
-                              spanFrames * pixelsPerFrame >= 42 && (
-                                <span className="timeline-layer-span-easing">
-                                  ∿
-                                  {spanFrames * pixelsPerFrame >= 105
-                                    ? ` ${easingLabel(toKeyframe.easing)}`
-                                    : ''}
-                                </span>
-                              )}
-                          </span>
-                        </div>
+                          data-timeline-tooltip={`${layer.name} · ${fromKeyframe.frame}–${toKeyframe.frame} · ${spanFrames} frames · ${easingLabel(toKeyframe.easing)}`}
+                        ></div>
                       );
                     })}
                     {orderedKeys.map((keyframe) => {
@@ -1314,7 +1361,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           role="button"
                           tabIndex={0}
                           aria-label={`${layer.name} key at frame ${keyframe.frame}${loopTitle}`}
-                          title={`${layer.name} · frame ${keyframe.frame} · Ctrl/Cmd-click adds · Shift-click selects range · Drag moves selection${loopTitle}`}
+                          data-timeline-tooltip={`${layer.name} · frame ${keyframe.frame} · Ctrl/Cmd-click adds · Shift-click selects range · Drag or Alt+Left/Right moves selection${loopTitle}`}
                           onFocus={() => {
                             if (
                               !useSelectionStore
@@ -1332,7 +1379,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           }}
                           onKeyDown={(event) => {
                             if (layer.isLocked) return;
-                            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                            if (
+                              event.altKey &&
+                              !event.ctrlKey &&
+                              !event.metaKey &&
+                              (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+                            ) {
                               event.preventDefault();
                               const selected = useSelectionStore
                                 .getState()
@@ -1430,13 +1482,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                               left: fromKeyframe.frame * pixelsPerFrame,
                               width: spanFrames * pixelsPerFrame,
                             }}
-                            title={`${animatablePropertyLabel(property, layer)} · ${fromKeyframe.frame}–${toKeyframe.frame} · ${easingLabel(toKeyframe.easing)}`}
-                          >
-                            {toKeyframe.easing !== 'linear' &&
-                              spanFrames * pixelsPerFrame >= 42 && (
-                                <span className="timeline-layer-span-easing">∿</span>
-                              )}
-                          </div>
+                            data-timeline-tooltip={`${layer.name} · ${animatablePropertyLabel(property, layer)} · ${fromKeyframe.frame}–${toKeyframe.frame} · ${spanFrames} frames · ${easingLabel(toKeyframe.easing)}`}
+                          ></div>
                         );
                       })}
                       {propertyKeys.map((keyframe) => {
@@ -1457,7 +1504,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             role="button"
                             tabIndex={0}
                             aria-label={`${animatablePropertyLabel(property, layer)} key at frame ${keyframe.frame}${hasLoopBadge ? ' · Loop activates here' : ''}`}
-                            title={`${animatablePropertyLabel(property, layer)} · frame ${keyframe.frame} · value ${keyframe.value.toFixed(3)} · Ctrl/Cmd-click adds · Shift-click selects range · Drag moves selection${hasLoopBadge ? ' · Loop activates here' : ''}`}
+                            data-timeline-tooltip={`${animatablePropertyLabel(property, layer)} · frame ${keyframe.frame} · value ${keyframe.value.toFixed(3)} · Ctrl/Cmd-click adds · Shift-click selects range · Drag or Alt+Left/Right moves selection${hasLoopBadge ? ' · Loop activates here' : ''}`}
                             onFocus={() => {
                               if (
                                 !useSelectionStore
@@ -1475,7 +1522,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             }}
                             onKeyDown={(event) => {
                               if (layer.isLocked) return;
-                              if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                              if (
+                                event.altKey &&
+                                !event.ctrlKey &&
+                                !event.metaKey &&
+                                (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+                              ) {
                                 event.preventDefault();
                                 const selected = useSelectionStore
                                   .getState()
@@ -1536,7 +1588,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             style={{ left: propertyLoopBadgeFrame * pixelsPerFrame }}
                             role="img"
                             aria-label={propertyLoopTitle}
-                            title={propertyLoopTitle}
+                            data-timeline-tooltip={propertyLoopTitle}
                           >
                             <span className="timeline-layer-loop-badge" aria-hidden="true">
                               ∞
@@ -1559,15 +1611,21 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                     key={`lifecycle-line:${keyframeId}`}
                     className={`timeline-lifecycle-dragline ${keyframe.role}${keyframe.id === activeKeyframeId ? ' active' : ''}`}
                     style={{ left: frame * pixelsPerFrame }}
-                    aria-label={`${keyframe.name} at frame ${frame}. Drag or use arrow keys to move.`}
-                    title={`${keyframe.name} · frame ${frame} · Click selects · Double-click seeks · Drag moves`}
+                    aria-label={`${keyframe.name} at frame ${frame}. Drag or use Alt+Left/Right to move.`}
+                    data-timeline-tooltip={`${keyframe.name} · frame ${frame} · Click selects · Double-click seeks · Drag moves`}
                     onPointerDown={(event) => handleKeyframeMarkerPointerDown(event, keyframeIndex)}
                     onDoubleClick={(event) => {
                       event.stopPropagation();
                       controller?.seek(frame);
                     }}
                     onKeyDown={(event) => {
-                      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                      if (
+                        !event.altKey ||
+                        event.ctrlKey ||
+                        event.metaKey ||
+                        (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')
+                      )
+                        return;
                       event.preventDefault();
                       commitLifecycleMove(
                         keyframe.id,
@@ -1586,7 +1644,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                   type="button"
                   className="timeline-playhead-handle"
                   aria-label={`Current frame ${displayedFrame}. Drag to scrub the timeline.`}
-                  title={`Frame ${displayedFrame} · Drag to scrub`}
+                  data-timeline-tooltip={`Frame ${displayedFrame} · Drag to scrub`}
                   onPointerDown={handleScrubPointerDown}
                 />
               </div>
@@ -1599,7 +1657,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
             {selectedLayerKeyframes.length > 1 && (
               <div className="timeline-multi-key-selection" role="status">
                 <strong>{selectedLayerKeyframes.length} keys selected</strong>
-                <span>Drag any selected key or use ←/→ to move them together.</span>
+                <span>Drag any selected key or use Alt+←/→ to move them together.</span>
               </div>
             )}
             {selectedLayer && (selectedPropertyKeyframe || selectedLayerKeyframe) && (
@@ -1775,6 +1833,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             type="number"
                             min={1}
                             placeholder="∞"
+                            disabled={Boolean(selectedLayer.lighting)}
+                            title={
+                              selectedLayer.lighting
+                                ? 'Unlink shared lighting to use finite repeats.'
+                                : undefined
+                            }
                             value={selectedLayer.loop.repeatCount ?? ''}
                             onChange={(event) =>
                               setLayerLoop(selectedLayer.id, {
@@ -1787,6 +1851,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         <label>
                           Active while
                           <select
+                            disabled={Boolean(selectedLayer.lighting)}
+                            title={
+                              selectedLayer.lighting
+                                ? 'Shared lighting uses the lifecycle clock.'
+                                : undefined
+                            }
                             value={
                               selectedLayer.loop.activation.type === 'lifecycle'
                                 ? 'lifecycle'
@@ -1814,6 +1884,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         </label>
                       </div>
                       <details className="timeline-loop-advanced">
+                        {selectedLayer.lighting && (
+                          <p className="inspector-hint">
+                            These are the original light curves. Adjust shared sweep timing in
+                            Resources → Patterns → Shared lighting.
+                          </p>
+                        )}
                         <summary>Advanced loop settings</summary>
                         <label>
                           Phase offset frames
@@ -2131,6 +2207,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
             ]}
           />
         )}
+        <TimelineHoverDetails panelRef={panelRef} />
       </div>
     </Panel>
   );

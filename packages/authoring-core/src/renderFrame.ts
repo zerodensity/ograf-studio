@@ -7,6 +7,11 @@ import {
 import { applyElementDataValue } from '@ograf-editor/scene-model';
 import {
   getLayerEffectsAtFrame,
+  getLayerAnimatableProperties,
+  getLayerPropertyWithLighting,
+  computeKeyframeFrames,
+  TRANSFORM_ANIMATION_PROPERTIES,
+  type LayerTransform,
   tilingSvgContent,
   resolvePatternElement,
   svgMaskSourceContent,
@@ -267,9 +272,58 @@ export function renderCompositionFrameSvg(
   compositionId = project.mainCompositionId,
   frame = 0,
 ): { svg: string; composition: Composition; frame: number } {
-  const composition = project.compositions.find((candidate) => candidate.id === compositionId);
-  if (!composition) throw new Error(`Composition not found: ${compositionId}`);
-  const normalizedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
+  const sourceComposition = project.compositions.find(
+    (candidate) => candidate.id === compositionId,
+  );
+  if (!sourceComposition) throw new Error(`Composition not found: ${compositionId}`);
+  const normalizedFrame = Math.max(
+    0,
+    Math.min(getTotalFrames(sourceComposition), Math.round(frame)),
+  );
+  const firstStep = computeKeyframeFrames(sourceComposition).find(
+    (key) => sourceComposition.keyframes.find((k) => k.id === key.keyframeId)?.role === 'step',
+  )?.frame;
+  const elapsed =
+    firstStep !== undefined &&
+    normalizedFrame >= firstStep &&
+    normalizedFrame < getTotalFrames(sourceComposition)
+      ? normalizedFrame - firstStep
+      : undefined;
+  const composition = {
+    ...sourceComposition,
+    layers: sourceComposition.layers.map((layer) => {
+      if (!layer.lighting) return layer;
+      const value = (property: Parameters<typeof getLayerPropertyWithLighting>[2]) =>
+        getLayerPropertyWithLighting(
+          layer,
+          sourceComposition.patterns,
+          property,
+          normalizedFrame,
+          elapsed,
+        );
+      const transform = Object.fromEntries(
+        TRANSFORM_ANIMATION_PROPERTIES.map((p) => [p, value(p)]),
+      ) as unknown as LayerTransform;
+      return {
+        ...layer,
+        keyframes: layer.keyframes.map((key) => ({ ...key, transform })),
+        loop: null,
+        animationTracks: Object.fromEntries(
+          getLayerAnimatableProperties(layer).map((p) => [
+            p,
+            [
+              {
+                id: `lighting-preview:${layer.id}:${p}`,
+                frame: 0,
+                value: value(p),
+                easing: 'linear' as const,
+              },
+            ],
+          ]),
+        ),
+      };
+    }),
+  };
   const background =
     composition.backgroundColor === 'transparent'
       ? ''

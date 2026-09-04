@@ -1,4 +1,5 @@
 import { useEffect, useState, type RefObject } from 'react';
+import { useEditorWindow } from '../layout/EditorWindow';
 
 /** Computes a scale factor that fits `contentWidth`x`contentHeight` inside the given container, capped at 1x. */
 export function useFitZoom(
@@ -7,6 +8,7 @@ export function useFitZoom(
   contentHeight: number,
   padding = 40,
 ): number {
+  const { window } = useEditorWindow();
   const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
@@ -22,10 +24,10 @@ export function useFitZoom(
     };
 
     compute();
-    const observer = new ResizeObserver(compute);
+    const observer = new window.ResizeObserver(compute);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [containerRef, contentWidth, contentHeight, padding]);
+  }, [containerRef, contentWidth, contentHeight, padding, window]);
 
   return zoom;
 }

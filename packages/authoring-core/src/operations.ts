@@ -12,7 +12,8 @@ import {
   reorderEffects,
   effectProperty,
   bindFieldDefaultToken,
-  syncDesignTokenFieldDefaults,
+  syncDesignToken,
+  stylePackColorUsesToken,
   applyStylePack,
   setTilingPattern,
   removeTilingPattern,
@@ -767,15 +768,7 @@ export function applyAuthoringOperations(
           existing.type = operation.tokenType;
           existing.value = value;
           existing.description = operation.description?.trim() ?? existing.description;
-          syncDesignTokenFieldDefaults(composition, existing.id);
-          for (const layer of composition.layers) {
-            for (const binding of layer.designTokenBindings.filter(
-              (candidate) => candidate.tokenId === existing.id,
-            )) {
-              applyDesignTokenBinding(layer, binding, existing);
-              summary.affectedLayerIds.push(layer.id);
-            }
-          }
+          summary.affectedLayerIds.push(...syncDesignToken(composition, existing.id));
         } else {
           if (
             operation.id &&
@@ -811,7 +804,12 @@ export function applyAuthoringOperations(
         const defaultConsumers = composition.dataFields.filter(
           (field) => field.defaultTokenId === token.id,
         );
-        if ((consumers.length > 0 || defaultConsumers.length > 0) && !operation.force) {
+        if (
+          (consumers.length > 0 ||
+            defaultConsumers.length > 0 ||
+            stylePackColorUsesToken(composition, token.id)) &&
+          !operation.force
+        ) {
           throw new Error(
             `Design token "${token.key}" is bound by ${consumers.length} layer(s); use force=true to remove the links while preserving materialized values.`,
           );
@@ -823,6 +821,11 @@ export function applyAuthoringOperations(
           summary.affectedLayerIds.push(layer.id);
         }
         for (const field of defaultConsumers) delete field.defaultTokenId;
+        if (composition.designSystem.stylePackColors)
+          composition.designSystem.stylePackColors =
+            composition.designSystem.stylePackColors.filter(
+              (link) => link.sourceTokenId !== token.id && link.targetTokenId !== token.id,
+            );
         composition.designSystem.tokens = composition.designSystem.tokens.filter(
           (candidate) => candidate.id !== token.id,
         );
@@ -1376,7 +1379,9 @@ export function applyAuthoringOperations(
         summary.affectedLayerIds.push(
           ...composition.layers
             .filter(
-              (layer) => layer.element.type === 'pattern' && layer.element.patternId === pattern.id,
+              (layer) =>
+                (layer.element.type === 'pattern' && layer.element.patternId === pattern.id) ||
+                layer.lighting?.patternId === pattern.id,
             )
             .map((layer) => layer.id),
         );
@@ -1384,6 +1389,10 @@ export function applyAuthoringOperations(
       }
       case 'remove_tiling_pattern':
         removeTilingPattern(composition, operation.patternId);
+        break;
+      case 'set_layer_lighting':
+        setLayerLighting(composition, operation.layerId, operation.link);
+        summary.affectedLayerIds.push(operation.layerId);
         break;
       case 'set_layer_semantics': {
         const layer = layerFor(composition, operation.layerId);
@@ -1420,6 +1429,10 @@ export function applyAuthoringOperations(
       case 'remove_style_pack': {
         const removed = removeStylePack(composition);
         if (removed) summary.affectedLayerIds.push(...removed.affectedLayerIds);
+        if (removed && !removed.restored)
+          summary.warnings.push(
+            'This older pack has no pre-pack style snapshot. Its tokens were detached; recover original styling from Undo or an earlier source.',
+          );
         break;
       }
       case 'create_lower_third': {
@@ -2239,3 +2252,4 @@ export function materializeLayerAnimation(layer: Layer): void {
   }
   getLayerEffectsAtFrame(layer, 0);
 }
+import { setLayerLighting } from '@ograf-editor/scene-model';

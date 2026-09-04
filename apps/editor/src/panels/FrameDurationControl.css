@@ -62,14 +62,14 @@
 .inspector > .frame-duration-control label {
   min-height: 30px;
   display: grid;
-  grid-template-columns: minmax(118px, 42%) minmax(0, 1fr);
+  grid-template-columns: var(--property-label-width, minmax(118px, 42%)) minmax(0, 1fr);
   align-items: stretch;
   gap: 0;
   border-bottom: 1px solid var(--border);
   color: var(--text);
 }
 
-.inspector > .frame-duration-control label > span {
+.inspector > .frame-duration-control label > span:first-child {
   display: flex;
   align-items: center;
   padding: 0 8px;
@@ -91,4 +91,38 @@
 .inspector > .frame-duration-control .frame-duration-rounding {
   padding: 6px 8px;
   border-bottom: 1px solid var(--border);
+}
+.frame-duration-control.compact {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+}
+.frame-duration-control.compact label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.frame-duration-control.compact input {
+  width: 62px;
+}
+.frame-duration-control.compact .frame-duration-milliseconds input {
+  width: 72px;
+}
+.frame-duration-popover {
+  position: fixed;
+  z-index: 11000;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg-header);
+  box-shadow: 0 6px 20px #0008;
+  color: var(--text);
+  font: 11px/1.4 var(--sans);
+}
+.frame-duration-popover p {
+  margin: 0 0 6px;
+}
+.frame-duration-popover button {
+  font: inherit;
 }

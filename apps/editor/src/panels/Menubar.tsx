@@ -21,6 +21,7 @@ import { importEditableProjectFromOgraf, type OgrafImportResult } from '../state
 import { DOCK_PANE_IDS, DOCK_PANE_LABELS, type DockPaneId } from '../layout/dockModel';
 import { selectableLayerIds } from '../state/selectAllLayers';
 import './Menubar.css';
+import { useDetachedWindows } from '../layout/detachedWindowContext';
 
 const historyTime = (timestamp: number) =>
   new Date(timestamp).toLocaleTimeString([], {
@@ -39,6 +40,7 @@ export function Menubar({
   onToggleDockPane?: (pane: DockPaneId) => void;
 }) {
   const projectName = useProjectStore((s) => s.project.name);
+  const detached = useDetachedWindows();
   const newProject = useProjectStore((s) => s.newProject);
   const loadProject = useProjectStore((s) => s.loadProject);
   const project = useProjectStore((s) => s.project);
@@ -328,12 +330,14 @@ export function Menubar({
                     role="menuitemcheckbox"
                     aria-checked={open}
                     onClick={() => {
-                      onToggleDockPane?.(pane);
+                      if (detached.windows[pane]) detached.open(pane);
+                      else onToggleDockPane?.(pane);
                       setWindowMenuOpen(false);
                     }}
                   >
                     <span aria-hidden="true">{open ? '✓' : ''}</span>
                     {DOCK_PANE_LABELS[pane]}
+                    {detached.windows[pane] ? ' ↗' : ''}
                   </button>
                 );
               })}

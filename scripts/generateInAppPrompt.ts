@@ -33,7 +33,8 @@ async function main() {
     const stale: string[] = [];
     for (const target of targets) {
       const current = await readFile(target.path, 'utf8').catch(() => null);
-      if (current !== target.content) stale.push(target.path);
+      if (current?.replace(/\r\n?/g, '\n') !== target.content.replace(/\r\n?/g, '\n'))
+        stale.push(target.path);
     }
     if (stale.length > 0) {
       throw new Error(

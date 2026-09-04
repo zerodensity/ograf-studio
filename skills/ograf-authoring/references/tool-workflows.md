@@ -85,7 +85,7 @@ Supported operation discriminators:
   `reorder_layers`
 - Components: `save_component`, `instantiate_component`, `update_component_from_layers`,
   `refresh_component_instances`, `rename_component`, `remove_component`
-- Shared patterns: `set_tiling_pattern`, `remove_tiling_pattern`; inspect through
+- Shared patterns: `set_tiling_pattern`, `remove_tiling_pattern`, `set_layer_lighting`; inspect through
   `ograf_get_project include: ["patterns"]` and `ograf_inspect_scene`
 - Content/style: `update_element`, `update_transform`, `update_effects`
 - Compositing: `set_layer_mask`; `set_layer_flags.isMaskOnly` controls source-only output

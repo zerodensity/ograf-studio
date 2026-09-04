@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { createComposition, createLayerOfKind } from './factory';
+import {
+  createComposition,
+  createLayerOfKind,
+  createProject,
+  createLayerKeyframe,
+  createDefaultTransform,
+  createLayerPropertyKeyframe,
+  createFieldDefinition,
+  createLayerLoopClip,
+} from './factory';
+import { migrateProject } from './migrations';
+import { validateProject } from '@ograf-editor/validation';
 import {
   applyStylePack,
   removeStylePack,
@@ -10,11 +21,146 @@ import {
 } from './stylePacks';
 
 describe('broadcast style packs', () => {
-  it('removes the applied pack and links without changing graphics, motion or custom tokens', () => {
+  it('restores fonts, sizing and strokes across pack switches and source reloads, retaining text and layout edits', () => {
+    const project = createProject(),
+      c = project.compositions[0]!,
+      layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw Error('Expected text');
+    Object.assign(layer.element, {
+      content: 'Original',
+      fontFamily: 'Georgia',
+      fontSize: 46,
+      minFontSize: 24,
+      fontWeight: 500,
+      strokeColor: '#112233',
+      strokeWidth: 3,
+    });
+    layer.semantics.role = 'headline';
+    layer.keyframes = [0, 12, 24].map((frame) =>
+      createLayerKeyframe(frame, createDefaultTransform()),
+    );
+    layer.animationTracks.strokeWidth = [createLayerPropertyKeyframe(0, 3)];
+    c.layers.push(layer);
+    const original = structuredClone(layer.element);
+    applyStylePack(c, 'news');
+    applyStylePack(c, 'sports');
+    applyStylePack(c, 'documentary');
+    expect(layer.element.fontFamily).not.toBe('Georgia');
+    layer.element.content = 'Updated live text';
+    layer.keyframes[0]!.transform.x = 900;
+    const recovered = migrateProject(JSON.parse(JSON.stringify(project))).compositions[0]!;
+    removeStylePack(recovered);
+    expect(recovered.layers[0]!.element).toEqual({ ...original, content: 'Updated live text' });
+    expect(recovered.layers[0]!.keyframes[0]!.transform.x).toBe(900);
+    expect(recovered.layers[0]!.animationTracks.strokeWidth?.[0]?.value).toBe(3);
+    expect(recovered.designSystem.stylePackRestore).toBeUndefined();
+  });
+  it('preserves gradient reflection curves, masks and shared light layers through every pack', () => {
+    const project = createProject(),
+      c = project.compositions[0]!,
+      reflection = createLayerOfKind('rectangle'),
+      matte = createLayerOfKind('ellipse');
+    if (reflection.element.type !== 'rectangle') throw Error('Expected rectangle');
+    reflection.semantics.role = 'background';
+    reflection.element.fill = {
+      type: 'linear',
+      angle: 115,
+      stops: [
+        { offset: 0, color: '#fff', opacity: 0 },
+        { offset: 0.5, color: '#ccddee', opacity: 0.8 },
+        { offset: 1, color: '#fff', opacity: 0 },
+      ],
+    };
+    reflection.loop = createLayerLoopClip({
+      tracks: {
+        'fill.stops[1].offset': [
+          createLayerPropertyKeyframe(0, 0.2),
+          createLayerPropertyKeyframe(25, 0.8),
+        ],
+      },
+    });
+    matte.isMaskOnly = true;
+    matte.semantics.role = 'mask';
+    reflection.mask = { sourceLayerId: matte.id, mode: 'alpha', inverted: false };
+    for (const layer of [reflection, matte])
+      layer.keyframes = [0, 12, 24].map((frame) =>
+        createLayerKeyframe(frame, createDefaultTransform()),
+      );
+    c.layers.push(reflection, matte);
+    const original = structuredClone(c.layers);
+    for (const pack of STYLE_PACKS) {
+      applyStylePack(c, pack.id);
+      expect(c.layers[1]).toEqual(original[1]);
+      expect(c.layers[0]!.loop).toEqual(original[0]!.loop);
+      expect(c.layers[0]!.mask).toEqual(original[0]!.mask);
+      const fill = c.layers[0]!.element.type === 'rectangle' ? c.layers[0]!.element.fill : null;
+      expect(
+        fill && typeof fill !== 'string'
+          ? fill.stops.map(({ color: _color, ...stop }) => stop)
+          : null,
+      ).toEqual([
+        { offset: 0, opacity: 0 },
+        { offset: 0.5, opacity: 0.8 },
+        { offset: 1, opacity: 0 },
+      ]);
+      expect(() => migrateProject(project)).not.toThrow();
+      expect(validateProject(project).valid).toBe(true);
+    }
+    removeStylePack(c);
+    expect(c.layers).toEqual(original);
+  });
+  it('restores prior palette tokens and bound field defaults instead of deleting them', () => {
+    const c = createComposition(),
+      layer = createLayerOfKind('rectangle');
+    layer.semantics.role = 'container';
+    if (layer.element.type !== 'rectangle') throw Error('Expected rectangle');
+    layer.element.fill = '#123456';
+    c.designSystem.name = 'Station';
+    c.updateTransitionFrames = 17;
+    c.designSystem.tokens.push({
+      id: 'surface-before',
+      key: STYLE_TOKEN_KEYS.surface,
+      name: 'Original surface',
+      type: 'color',
+      value: '#123456',
+      description: '',
+    });
+    layer.designTokenBindings = [{ tokenId: 'surface-before', targetProperty: 'fill' }];
+    c.layers.push(layer);
+    c.dataFields.push(
+      createFieldDefinition('color', {
+        key: 'surface',
+        defaultValue: '#123456',
+        defaultTokenId: 'surface-before',
+      }),
+    );
+    const before = structuredClone(c);
+    applyStylePack(c, 'sports');
+    expect(c.dataFields[0]!.defaultValue).not.toBe('#123456');
+    removeStylePack(c);
+    expect(c).toEqual(before);
+  });
+  it('does not claim restoration for older applied packs without a saved baseline', () => {
+    const c = createComposition(),
+      layer = createLayerOfKind('text');
+    c.layers.push(layer);
+    applyStylePack(c, 'sports');
+    delete c.designSystem.stylePackRestore;
+    const appearance = structuredClone(layer.element);
+    expect(removeStylePack(c)?.restored).toBe(false);
+    expect(layer.element).toEqual(appearance);
+    expect(layer.designTokenBindings).toEqual([]);
+  });
+  it('restores pre-pack appearance and timing while retaining custom tokens', () => {
     const composition = createComposition(),
       panel = createLayerOfKind('rectangle');
     panel.semantics.role = 'container';
     composition.layers = [panel];
+    const appearance = JSON.stringify({
+      element: panel.element,
+      tracks: panel.animationTracks,
+      update: composition.updateTransitionFrames,
+    });
     applyStylePack(composition, 'sports');
     composition.designSystem.tokens.push({
       id: 'custom',
@@ -27,11 +173,6 @@ describe('broadcast style packs', () => {
     composition.components = [
       { id: 'template', name: 'Template', layers: [structuredClone(panel)], dataFields: [] },
     ];
-    const appearance = JSON.stringify({
-      element: panel.element,
-      tracks: panel.animationTracks,
-      update: composition.updateTransitionFrames,
-    });
     const removed = removeStylePack(composition);
     expect(removed?.packId).toBe('sports');
     expect(stylePackIdForComposition(composition)).toBeNull();

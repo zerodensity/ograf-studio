@@ -16,7 +16,7 @@ import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import { easingForGsap } from './easing';
 import { applyAnimatedPaint, resolveBoundEffects } from './renderElement';
 import { applyCompiledMasks } from './maskRendering';
-import { sampleCompiledLayerVisualState } from './loopRendering';
+import { sampleCompiledLayerVisualState, applyCompiledLayerVisualState } from './loopRendering';
 import { compiledLoopElapsedFrames } from './loopRendering';
 import { renderPatternAtElapsed } from './patternRendering';
 
@@ -161,6 +161,16 @@ export function buildRuntimeTimeline(
       if (child) applyAnimatedPaint(child, layer.animationTracks, frame);
       if (child && layer.element.type === 'pattern')
         renderPatternAtElapsed(child, compiledLoopElapsedFrames(descriptor, layer, frame) ?? 0);
+      if (child && layer.lighting)
+        applyCompiledLayerVisualState(
+          child,
+          sampleCompiledLayerVisualState(
+            layer,
+            frame,
+            compiledLoopElapsedFrames(descriptor, layer, frame),
+            dataProvider(),
+          ),
+        );
       if (!layer.clipParentId) continue;
       const parent = layerEls.get(layer.clipParentId);
       if (!child || !parent) {
@@ -174,8 +184,20 @@ export function buildRuntimeTimeline(
         parentLayer?.element.type === 'rectangle' ? parentLayer.element.borderRadius : 0;
       if (parentLayer) {
         child.style.clipPath = clipPathForParentBounds(
-          compiledPoseAtFrame(layer, frame),
-          compiledPoseAtFrame(parentLayer, frame),
+          layer.lighting
+            ? sampleCompiledLayerVisualState(
+                layer,
+                frame,
+                compiledLoopElapsedFrames(descriptor, layer, frame),
+              ).transform
+            : compiledPoseAtFrame(layer, frame),
+          parentLayer.lighting
+            ? sampleCompiledLayerVisualState(
+                parentLayer,
+                frame,
+                compiledLoopElapsedFrames(descriptor, parentLayer, frame),
+              ).transform
+            : compiledPoseAtFrame(parentLayer, frame),
           radius,
         );
       }
@@ -201,6 +223,7 @@ export function buildRuntimeTimeline(
       layer.clipParentId ||
       layer.mask ||
       layer.element.type === 'pattern' ||
+      layer.lighting ||
       layer.effects.stack?.some((e) => !e.legacy) ||
       layer.isMaskOnly ||
       Object.keys(layer.animationTracks).some(

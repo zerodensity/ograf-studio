@@ -1,22 +1,59 @@
+.brand-kit-panel {
+  --ui-font-size: 11px;
+  --ui-font-size-compact: 10px;
+  gap: 4px;
+  font-size: 11px;
+}
+.brand-kit-panel .inspector-hint {
+  margin: 0 0 2px;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.brand-kit-panel button,
+.brand-kit-panel input,
+.brand-kit-panel select {
+  font-size: 11px;
+}
+.brand-kit-panel button {
+  min-height: 22px;
+  padding: 2px 5px;
+}
+.brand-kit-panel .resources-tree-toolbar {
+  gap: 4px;
+  font-size: 10px;
+}
+.brand-kit-advanced > summary {
+  padding: 4px 0;
+  cursor: pointer;
+  color: var(--text-dim);
+}
 .brand-kit-palette {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 8px;
-  margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  gap: 4px;
+  margin-bottom: 4px;
 }
 .brand-kit-color {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  padding: 7px;
+  gap: 5px;
+  min-width: 0;
+  min-height: 28px;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 3px 5px;
   border: 1px solid var(--border-color, #343434);
-  border-radius: 6px;
+  border-radius: 2px;
+}
+.brand-kit-color span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .brand-kit-color input {
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
   padding: 0;
   border: 0;
   background: transparent;

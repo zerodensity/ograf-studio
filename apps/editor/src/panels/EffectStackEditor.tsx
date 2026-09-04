@@ -1,3 +1,5 @@
+import { effectParameterHelp } from './propertyHelp';
+import { PropertyRow } from '../components/PropertyRow';
 import { useState } from 'react';
 import {
   EFFECT_CATALOG,
@@ -126,7 +128,11 @@ export function EffectStackEditor({ layer, frame }: { layer: Layer; frame: numbe
             </div>
             <div className={enabled ? 'effect-stack-params' : 'effect-stack-params is-bypassed'}>
               {Object.entries(EFFECT_CATALOG[effect.type].params).map(([key, spec]) => (
-                <label className="inspector-row" key={key}>
+                <PropertyRow
+                  help={effectParameterHelp(effect.type, key)}
+                  className="inspector-row"
+                  key={key}
+                >
                   <span>{spec.label}</span>
                   <input
                     aria-label={`${effect.name} ${spec.label}`}
@@ -157,7 +163,7 @@ export function EffectStackEditor({ layer, frame }: { layer: Layer; frame: numbe
                       )
                     }
                   />
-                </label>
+                </PropertyRow>
               ))}
             </div>
           </section>

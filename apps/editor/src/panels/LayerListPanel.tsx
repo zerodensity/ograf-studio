@@ -15,6 +15,7 @@ import {
   encodeAgentLayerReference,
 } from '../state/agentLayerReference';
 import './LayerListPanel.css';
+import { isDomNode } from '../layout/EditorWindow';
 
 function LayerVisibilityIcon({ visible }: { visible: boolean }) {
   return (
@@ -134,7 +135,7 @@ export function LayerListPanel() {
                   }}
                   onDragLeave={(event) => {
                     if (
-                      event.relatedTarget instanceof Node &&
+                      isDomNode(event.relatedTarget) &&
                       event.currentTarget.contains(event.relatedTarget)
                     )
                       return;

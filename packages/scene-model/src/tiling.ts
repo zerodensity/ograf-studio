@@ -2,6 +2,12 @@ import { createId } from './id';
 import { createLayerOfKind, createLayerKeyframe, createDefaultTransform } from './factory';
 import { computeKeyframeFrames } from './keyframeTiming';
 import type { Composition, Element, TilingPattern } from './types';
+import {
+  createPatternLighting,
+  layerLightingErrors,
+  patternLightingErrors,
+  type TilingPatternPatch,
+} from './patternLighting';
 
 export function createTilingPattern(overrides: Partial<TilingPattern> = {}): TilingPattern {
   return {
@@ -139,6 +145,7 @@ export function resolvePatternElement(
 
 export function tilingPatternErrors(pattern: TilingPattern): string[] {
   const errors: string[] = [];
+  if (pattern.lighting != null) errors.push(...patternLightingErrors(pattern.lighting));
   if (
     !Array.isArray(pattern.symbols) ||
     !Array.isArray(pattern.sequence) ||
@@ -286,31 +293,56 @@ export function assertTilingPattern(pattern: TilingPattern): void {
 }
 export function removeTilingPattern(composition: Composition, id: string): void {
   const layers = [...composition.layers, ...composition.components.flatMap((c) => c.layers)];
-  if (layers.some((layer) => layer.element.type === 'pattern' && layer.element.patternId === id))
+  if (
+    layers.some(
+      (layer) =>
+        (layer.element.type === 'pattern' && layer.element.patternId === id) ||
+        layer.lighting?.patternId === id,
+    )
+  )
     throw new Error('Remove or relink pattern instances before deleting their shared definition.');
   composition.patterns = composition.patterns.filter((pattern) => pattern.id !== id);
 }
 
 export function setTilingPattern(
   composition: Composition,
-  patch: Partial<Omit<TilingPattern, 'id'>>,
+  patch: TilingPatternPatch,
   patternId?: string,
   id?: string,
 ): TilingPattern {
   const current = patternId ? composition.patterns.find((p) => p.id === patternId) : undefined;
   if (patternId && !current) throw new Error(`Pattern not found: ${patternId}`);
+  const { lighting, ...rest } = patch;
+  const normalizedPatch: Partial<Omit<TilingPattern, 'id'>> = structuredClone(rest);
+  if (lighting !== undefined)
+    normalizedPatch.lighting =
+      lighting === null
+        ? null
+        : {
+            ...(current?.lighting ??
+              createPatternLighting(
+                (patch.cycleFrames ?? current?.cycleFrames ?? composition.frameRate * 96) / 8,
+              )),
+            ...lighting,
+          };
   const next = current
-    ? { ...current, ...structuredClone(patch) }
+    ? { ...current, ...normalizedPatch }
     : createTilingPattern({
         width: composition.width,
         height: composition.height,
         cycleFrames: Math.round(composition.frameRate * 96),
-        ...patch,
+        ...normalizedPatch,
         ...(id ? { id } : {}),
       });
   if (patch.rows !== undefined && patch.rowOverrides === undefined)
     next.rowOverrides = next.rowOverrides.filter((row) => row.row < next.rows);
   assertTilingPattern(next);
+  const patterns = [...composition.patterns.filter((p) => p.id !== next.id), next];
+  for (const layer of [...composition.layers, ...composition.components.flatMap((c) => c.layers)]) {
+    if (layer.lighting?.patternId !== next.id) continue;
+    const errors = layerLightingErrors(layer, patterns);
+    if (errors.length) throw new Error(errors.join(' '));
+  }
   if (current) composition.patterns[composition.patterns.indexOf(current)] = next;
   else composition.patterns.push(next);
   return next;

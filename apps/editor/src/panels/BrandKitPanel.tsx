@@ -29,7 +29,11 @@ export function BrandKitPanel() {
   const tokenUsageCount = (tokenId: string) =>
     composition.layers.filter((layer) =>
       layer.designTokenBindings.some((binding) => binding.tokenId === tokenId),
-    ).length + composition.dataFields.filter((field) => field.defaultTokenId === tokenId).length;
+    ).length +
+    composition.dataFields.filter((field) => field.defaultTokenId === tokenId).length +
+    (composition.designSystem.stylePackColors ?? []).filter(
+      (link) => link.sourceTokenId === tokenId || link.targetTokenId === tokenId,
+    ).length;
   const defaultTokenValue = (type: DesignTokenType): string | number => {
     if (type === 'color') return '#ffffff';
     if (type === 'number') return 16;
@@ -40,10 +44,9 @@ export function BrandKitPanel() {
 
   return (
     <Panel title="Brand Kit">
-      <div className="resources-panel">
-        <p className="inspector-hint">
-          Edit the palette here. Linked OGraf field defaults follow these colors; playback data can
-          override them.
+      <div className="resources-panel brand-kit-panel">
+        <p className="inspector-hint" title="Playback updates can override these defaults.">
+          Palette colors update linked playback defaults.
         </p>
         <div className="brand-kit-palette">
           {composition.designSystem.tokens
@@ -56,7 +59,7 @@ export function BrandKitPanel() {
                   value={String(token.value).slice(0, 7)}
                   onChange={(event) => updateDesignToken(token.id, { value: event.target.value })}
                 />
-                <span>{token.name}</span>
+                <span title={token.name}>{token.name}</span>
               </label>
             ))}
         </div>
@@ -85,12 +88,21 @@ export function BrandKitPanel() {
           <button
             type="button"
             disabled={!appliedStylePack}
-            title="Remove the applied pack and its token links; preserve the current appearance. Undo restores the pack."
+            title={
+              composition.designSystem.stylePackRestore
+                ? 'Restore the fonts, colors and other styles recorded before the pack was applied.'
+                : 'This older applied pack has no saved original styles. Removal detaches its tokens; use Undo or saved source to recover earlier styling.'
+            }
             onClick={removeStylePack}
           >
             Remove applied pack
           </button>
         </div>
+        {appliedStylePack && !composition.designSystem.stylePackRestore && (
+          <p className="inspector-hint">
+            Original styles were not saved with this older pack. Removal can only detach it.
+          </p>
+        )}
         <div className="resources-tree-toolbar">
           <input
             aria-label="Brand kit name"
@@ -104,106 +116,109 @@ export function BrandKitPanel() {
         {composition.designSystem.tokens.length === 0 ? (
           <p className="panel-placeholder">No design tokens.</p>
         ) : (
-          <div className="resources-tree-items" role="group">
-            {composition.designSystem.tokens.map((token) => {
-              const uses = tokenUsageCount(token.id);
-              return (
-                <ResourceTreeItem
-                  key={token.id}
-                  label={token.name || token.key}
-                  meta={`${token.type} · ${uses} linked`}
-                  preview={
-                    token.type === 'color' && typeof token.value === 'string' ? (
-                      <span
-                        className="resources-token-swatch"
-                        style={{ background: token.value }}
-                      />
-                    ) : (
-                      <span className="resources-tree-item-icon">T</span>
-                    )
-                  }
-                >
-                  <div className="resources-asset-fields">
-                    {token.type === 'color' && typeof token.value === 'string' && (
-                      <input
-                        aria-label={`${token.name} colour`}
-                        type="color"
-                        value={token.value.slice(0, 7)}
-                        onChange={(event) =>
-                          updateDesignToken(token.id, { value: event.target.value })
-                        }
-                      />
-                    )}
-                    <div className="resources-asset-inline">
-                      <input
-                        aria-label="Token name"
-                        value={token.name}
-                        onChange={(event) =>
-                          updateDesignToken(token.id, { name: event.target.value })
-                        }
-                      />
-                      <input
-                        aria-label="Token key"
-                        value={token.key}
-                        onChange={(event) =>
-                          updateDesignToken(token.id, { key: event.target.value })
-                        }
-                      />
+          <details className="brand-kit-advanced">
+            <summary>Advanced tokens ({composition.designSystem.tokens.length})</summary>
+            <div className="resources-tree-items" role="group">
+              {composition.designSystem.tokens.map((token) => {
+                const uses = tokenUsageCount(token.id);
+                return (
+                  <ResourceTreeItem
+                    key={token.id}
+                    label={token.name || token.key}
+                    meta={`${token.type} · ${uses} linked`}
+                    preview={
+                      token.type === 'color' && typeof token.value === 'string' ? (
+                        <span
+                          className="resources-token-swatch"
+                          style={{ background: token.value }}
+                        />
+                      ) : (
+                        <span className="resources-tree-item-icon">T</span>
+                      )
+                    }
+                  >
+                    <div className="resources-asset-fields">
+                      {token.type === 'color' && typeof token.value === 'string' && (
+                        <input
+                          aria-label={`${token.name} colour`}
+                          type="color"
+                          value={token.value.slice(0, 7)}
+                          onChange={(event) =>
+                            updateDesignToken(token.id, { value: event.target.value })
+                          }
+                        />
+                      )}
+                      <div className="resources-asset-inline">
+                        <input
+                          aria-label="Token name"
+                          value={token.name}
+                          onChange={(event) =>
+                            updateDesignToken(token.id, { name: event.target.value })
+                          }
+                        />
+                        <input
+                          aria-label="Token key"
+                          value={token.key}
+                          onChange={(event) =>
+                            updateDesignToken(token.id, { key: event.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="resources-asset-inline">
+                        <select
+                          aria-label="Token type"
+                          value={token.type}
+                          onChange={(event) => {
+                            const type = event.target.value as DesignTokenType;
+                            updateDesignToken(token.id, {
+                              type,
+                              value: defaultTokenValue(type),
+                            });
+                          }}
+                        >
+                          <option value="color">Colour</option>
+                          <option value="number">Number</option>
+                          <option value="font-family">Font family</option>
+                          <option value="font-weight">Font weight</option>
+                          <option value="text">Text</option>
+                        </select>
+                        <input
+                          aria-label="Token value"
+                          type={
+                            token.type === 'number' || token.type === 'font-weight'
+                              ? 'number'
+                              : 'text'
+                          }
+                          value={token.value}
+                          onChange={(event) =>
+                            updateDesignToken(token.id, {
+                              value:
+                                token.type === 'number' || token.type === 'font-weight'
+                                  ? Number(event.target.value)
+                                  : event.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="resources-tree-actions">
+                        <span>
+                          {uses} linked use{uses === 1 ? '' : 's'}
+                        </span>
+                        <button
+                          type="button"
+                          className="data-table-delete"
+                          disabled={uses > 0}
+                          onClick={() => removeDesignToken(token.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                    <div className="resources-asset-inline">
-                      <select
-                        aria-label="Token type"
-                        value={token.type}
-                        onChange={(event) => {
-                          const type = event.target.value as DesignTokenType;
-                          updateDesignToken(token.id, {
-                            type,
-                            value: defaultTokenValue(type),
-                          });
-                        }}
-                      >
-                        <option value="color">Colour</option>
-                        <option value="number">Number</option>
-                        <option value="font-family">Font family</option>
-                        <option value="font-weight">Font weight</option>
-                        <option value="text">Text</option>
-                      </select>
-                      <input
-                        aria-label="Token value"
-                        type={
-                          token.type === 'number' || token.type === 'font-weight'
-                            ? 'number'
-                            : 'text'
-                        }
-                        value={token.value}
-                        onChange={(event) =>
-                          updateDesignToken(token.id, {
-                            value:
-                              token.type === 'number' || token.type === 'font-weight'
-                                ? Number(event.target.value)
-                                : event.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="resources-tree-actions">
-                      <span>
-                        {uses} linked use{uses === 1 ? '' : 's'}
-                      </span>
-                      <button
-                        type="button"
-                        className="data-table-delete"
-                        disabled={uses > 0}
-                        onClick={() => removeDesignToken(token.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                </ResourceTreeItem>
-              );
-            })}
-          </div>
+                  </ResourceTreeItem>
+                );
+              })}
+            </div>
+          </details>
         )}
       </div>
     </Panel>

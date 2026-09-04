@@ -1,3 +1,4 @@
+import { useEditorWindow, isDomNode, isInputElement } from '../layout/EditorWindow';
 import { useEffect, useRef, useState } from 'react';
 import { numericScrubValue, NUMERIC_SCRUB_DRAG_THRESHOLD_PX } from './numericScrub';
 import './NumericScrubController.css';
@@ -19,7 +20,7 @@ interface ScrubGesture {
 }
 
 function eligibleNumericInput(target: EventTarget | null): HTMLInputElement | null {
-  if (!(target instanceof HTMLInputElement) || target.type !== 'number') return null;
+  if (!isInputElement(target) || target.type !== 'number') return null;
   return target.disabled || target.readOnly ? null : target;
 }
 
@@ -34,6 +35,7 @@ function inputStep(input: HTMLInputElement): number {
 }
 
 function hintPosition(input: HTMLInputElement): NumericHint {
+  const window = input.ownerDocument.defaultView ?? globalThis.window;
   const rect = input.getBoundingClientRect();
   const width = 470;
   const left = Math.max(6, Math.min(rect.left, window.innerWidth - width - 6));
@@ -49,6 +51,7 @@ function publishInputValue(input: HTMLInputElement, value: number): void {
 }
 
 export function NumericScrubController() {
+  const { window, document } = useEditorWindow();
   const [hint, setHint] = useState<NumericHint | null>(null);
   const gestureRef = useRef<ScrubGesture | null>(null);
 
@@ -65,7 +68,7 @@ export function NumericScrubController() {
       if (!cancelled && gesture.dragged) {
         gesture.input.dispatchEvent(new Event('change', { bubbles: true }));
       } else if (!cancelled) {
-        requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
           gesture.input.focus();
           gesture.input.select();
         });
@@ -79,7 +82,7 @@ export function NumericScrubController() {
     const handlePointerOut = (event: PointerEvent) => {
       const input = eligibleNumericInput(event.target);
       if (!input || gestureRef.current) return;
-      if (event.relatedTarget instanceof Node && input.contains(event.relatedTarget)) return;
+      if (isDomNode(event.relatedTarget) && input.contains(event.relatedTarget)) return;
       setHint(null);
     };
     const handlePointerDown = (event: PointerEvent) => {
@@ -154,7 +157,7 @@ export function NumericScrubController() {
       gestureRef.current?.input.classList.remove('is-number-scrubbing');
       gestureRef.current = null;
     };
-  }, []);
+  }, [window, document]);
 
   return hint ? (
     <div className="numeric-scrub-hint" role="tooltip" style={hint}>

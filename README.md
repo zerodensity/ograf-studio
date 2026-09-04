@@ -8,21 +8,24 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.11
+## New in OGraf Studio 0.12
 
-- Native gradient fills on paths, including even-odd holes and animated gradient stops.
-- Vector/image alpha and path masks, inversion, source-only layers, and independent mask motion.
-- Procedural tiling with shared vector sources, spacing, row direction, phase and seamless timing.
-- A composable effects stack with multiple blurs, shadows, glows and color adjustments, stable
-  per-effect animation tracks, and live data bindings.
-- A dockable Brand Kit pane, removable style packs, and color tokens linked to gradient stops,
-  effect colors and OGraf field defaults.
-- Smaller interface typography while preserving text inside authored graphics.
+- Image-first authoring with direct upload, canvas file drop, reusable resource thumbnails and
+  layer replacement that preserves placement and animation.
+- Detachable browser windows for all tool panes, including a Picture only Preview for a second
+  monitor. Pane state, selection, undo and the MCP session remain shared.
+- Shared Looping Pattern lighting: sweep timing and phase, intensity, glow strength and softness,
+  with per-layer sweep counts and preserved source curves, colors and row motion.
+- Style packs recolor existing controls, GDD defaults, shaded gradients, reflections and shared
+  lights. Pack removal restores the recorded pre-pack font, color, binding and timing state.
+- Compact, resizable property columns with feature-specific tooltips and accessible descriptions.
+- Cleaner Timeline controls with frame stepping, focused arrow-key navigation, compact transition
+  units, flat track fills and Alt-hover details in place of crowded inline text.
 - Updated MCP operations, capabilities, authoring skill and in-app AI guidance.
 - Refreshed single-file Windows, macOS and Linux executables, with the export runtime embedded.
 
-See [the complete 0.11 release notes](docs/releases/0.11.md) and
-[download the release](https://github.com/zerodensity/ograf-studio/releases/tag/v0.11).
+See [the complete 0.12 release notes](docs/releases/0.12.md) and
+[download the release](https://github.com/zerodensity/ograf-studio/releases/tag/v0.12).
 
 ## Highlights
 
@@ -53,8 +56,13 @@ See [the complete 0.11 release notes](docs/releases/0.11.md) and
   pixels, and never enters capture/certification/export. It requires internet access to the CDN.
 - Independent per-property animation tracks, per-key easing and curves, local loops, and freely
   movable OGraf lifecycle Steps.
+- Timeline transport has explicit **−1f / +1f** controls. With the Timeline focused, Left/Right
+  Arrow pauses playback and steps one frame; Alt+Left/Right nudges focused keys or lifecycle markers.
+  Text/numeric inputs, zoom sliders and the resize divider retain their native arrow behavior.
+- Tracks show clear spans and key markers. Hold **Alt** while hovering for duration, easing and
+  marker details; layer names and ruler values remain visible.
 - Ctrl/Cmd-click selects layer/property keys across timeline rows and Shift-click selects a same-row
-  range; dragging or nudging any selected key moves the complete selection while preserving spacing
+  range; dragging or Alt+Arrow nudging any selected key moves the complete selection while preserving spacing
   and collisions.
 - The Timeline divider between layer/property names and keyframe tracks is draggable, keyboard
   adjustable, double-click resettable, and persisted locally.
@@ -127,7 +135,7 @@ See [the complete 0.11 release notes](docs/releases/0.11.md) and
 | Remote `.ogs` URL         | Public/CORS-enabled editable source | **Open URL**                                                                                    |
 | `.ograf.zip`              | Certified playout package           | **Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
 | Loose OGraf package files | Manifest, `main.js`, and resources  | Select them together with **Import OGraf**                                                      |
-| SVG and raster images     | Reusable image assets               | **Resources → Import Image**                                                                    |
+| SVG and raster images     | Reusable image assets               | **Add Image** above the canvas, or drop files onto the canvas                                   |
 | Lottie `.json`            | Looping vector animation layer      | **+ Lottie JSON** above the canvas                                                              |
 
 An `.ogs` file is not an OGraf manifest and should not be opened directly in an OGraf playout
@@ -154,6 +162,23 @@ Use a commit SHA instead of `main` when the URL must identify an immutable proje
 repositories expose the complete `.ogs`, including embedded image/font data and field defaults;
 do not store private content or credentials in them. Private GitHub raw URLs are not supported by
 the credential-free browser loader, although a CORS-enabled time-limited signed URL can work.
+
+### Adding and replacing images
+
+Click **Add Image** above the canvas to choose files or pick a thumbnail from the template's
+existing images. You can also drop image files directly onto the canvas. Each image becomes a
+named layer at its original proportions; large images fit within 80% of the canvas and smaller
+images retain their native size. Multiple files are added together with a slight offset.
+
+Select an image layer to see its preview and **Replace image** near the top of Properties.
+Replacement preserves the layer's size, position, animation, effects and bindings. Bound data can
+still override the source during playback. **Source URL** remains available for linked images.
+Resources → Images also offers **Add to canvas** on each expanded image.
+
+Cancelling or failing an import leaves no empty layer. Undo restores the image and its resource
+together. PNG, JPEG, WebP, GIF, AVIF and standalone SVG files are supported when the browser can
+decode them; GIF timing retains the existing runtime behavior. SVGs with companion files use the
+bundle workflow below.
 
 ### SVG and Photoshop exports
 

@@ -1,3 +1,5 @@
+import { CANVAS_LAYOUT_HELP } from './propertyHelp';
+import { PropertyRow } from '../components/PropertyRow';
 import { useRef, useState } from 'react';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { colorPickerValue } from '../canvas/compositionBackground';
@@ -65,16 +67,26 @@ export function CompositionSettings() {
       <p className="panel-placeholder">Nothing selected — editing composition settings.</p>
 
       <h3 className="inspector-section">Composition</h3>
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Name of this composition in the project. This does not change text displayed by any layer.'
+        }
+        className="inspector-row"
+      >
         <span>Name</span>
         <input
           type="text"
           value={composition.name}
           onChange={(e) => update({ name: e.target.value })}
         />
-      </label>
+      </PropertyRow>
 
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Apply a standard canvas resolution and frame rate together. Choose Custom dimensions by editing Width, Height or Frame rate.'
+        }
+        className="inspector-row"
+      >
         <span>Preset</span>
         <select
           value={activePresetIndex}
@@ -91,10 +103,15 @@ export function CompositionSettings() {
             </option>
           ))}
         </select>
-      </label>
+      </PropertyRow>
 
       <div className="inspector-grid">
-        <label className="inspector-row">
+        <PropertyRow
+          help={
+            'Width of the output canvas in pixels. Layer constraints determine how layers respond when the canvas size changes.'
+          }
+          className="inspector-row"
+        >
           <span>Width</span>
           <input
             type="number"
@@ -102,8 +119,13 @@ export function CompositionSettings() {
             value={composition.width}
             onChange={(e) => update({ width: Number(e.target.value) })}
           />
-        </label>
-        <label className="inspector-row">
+        </PropertyRow>
+        <PropertyRow
+          help={
+            'Height of the output canvas in pixels. Layer constraints determine how layers respond when the canvas size changes.'
+          }
+          className="inspector-row"
+        >
           <span>Height</span>
           <input
             type="number"
@@ -111,10 +133,15 @@ export function CompositionSettings() {
             value={composition.height}
             onChange={(e) => update({ height: Number(e.target.value) })}
           />
-        </label>
+        </PropertyRow>
       </div>
 
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Frames per second used by the timeline and exported graphic. This determines how frame durations convert to seconds.'
+        }
+        className="inspector-row"
+      >
         <span>Frame rate</span>
         <input
           type="number"
@@ -123,8 +150,9 @@ export function CompositionSettings() {
           value={Number(composition.frameRate.toFixed(3))}
           onChange={(e) => update({ frameRate: Number(e.target.value) })}
         />
-      </label>
+      </PropertyRow>
       <FrameDurationControl
+        propertyColumns
         label="Update crossfade"
         frames={composition.updateTransitionFrames}
         frameRate={composition.frameRate}
@@ -133,25 +161,40 @@ export function CompositionSettings() {
       />
 
       <h3 className="inspector-section">Render modes</h3>
-      <label className="inspector-row inspector-checkbox-row">
+      <PropertyRow
+        help={
+          'Declare support for real-time playback, where the graphic advances using the playback clock.'
+        }
+        className="inspector-row inspector-checkbox-row"
+      >
         <span>Real-time</span>
         <input
           type="checkbox"
           checked={project.supportsRealTime}
           onChange={(event) => setProjectMeta({ supportsRealTime: event.target.checked })}
         />
-      </label>
-      <label className="inspector-row inspector-checkbox-row">
+      </PropertyRow>
+      <PropertyRow
+        help={
+          'Declare support for deterministic, time-addressed playback so a renderer can request an exact point in the animation.'
+        }
+        className="inspector-row inspector-checkbox-row"
+      >
         <span>Non-real-time</span>
         <input
           type="checkbox"
           checked={project.supportsNonRealTime}
           onChange={(event) => setProjectMeta({ supportsNonRealTime: event.target.checked })}
         />
-      </label>
+      </PropertyRow>
 
       <h3 className="inspector-section">Background</h3>
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Export the canvas background with transparency so the graphic can be placed over video. The checkerboard is only an editor preview.'
+        }
+        className="inspector-row"
+      >
         <span>Transparent output</span>
         <input
           type="checkbox"
@@ -160,15 +203,20 @@ export function CompositionSettings() {
             update({ backgroundColor: e.target.checked ? 'transparent' : '#000000' })
           }
         />
-      </label>
-      <label className="inspector-row inspector-background-color">
+      </PropertyRow>
+      <PropertyRow
+        help={
+          'Background color of the output canvas. Choosing a color switches the composition from transparent to opaque output.'
+        }
+        className="inspector-row inspector-background-color"
+      >
         <span>Color</span>
         <input
           type="color"
           value={pickerColor}
           onInput={(e) => update({ backgroundColor: e.currentTarget.value })}
         />
-      </label>
+      </PropertyRow>
       {isTransparent && (
         <p className="inspector-hint">
           The checkerboard is editor-only and will not be exported. Choosing a color switches to an
@@ -190,16 +238,25 @@ export function CompositionSettings() {
           ['snapToLayers', 'Snap to layers'],
         ] as const
       ).map(([key, label]) => (
-        <label className="inspector-row inspector-checkbox-row" key={key}>
+        <PropertyRow
+          help={CANVAS_LAYOUT_HELP[key]}
+          className="inspector-row inspector-checkbox-row"
+          key={key}
+        >
           <span>{label}</span>
           <input
             type="checkbox"
             checked={composition.layout[key]}
             onChange={(event) => updateLayout({ [key]: event.target.checked })}
           />
-        </label>
+        </PropertyRow>
       ))}
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Choose a video or still image behind the graphic for previewing its appearance over footage. This presentation background is editor-only and is not exported.'
+        }
+        className="inspector-row"
+      >
         <span>Presentation background</span>
         <select
           value={composition.layout.presentationBackground}
@@ -213,7 +270,7 @@ export function CompositionSettings() {
           <option value="big-buck-bunny">Big Buck Bunny · looping video</option>
           <option value="still-image">Still image</option>
         </select>
-      </label>
+      </PropertyRow>
       {composition.layout.presentationBackground === 'big-buck-bunny' ? (
         <p className="inspector-hint">
           Editor-only video bed; use Transparent output to see it through the composition. Big Buck
@@ -226,7 +283,12 @@ export function CompositionSettings() {
       ) : null}
       {composition.layout.presentationBackground === 'still-image' ? (
         <div className="inspector-presentation-background-controls">
-          <label className="inspector-row inspector-row-stacked">
+          <PropertyRow
+            help={
+              'URL of the still image used behind the canvas for preview. It is an editor-only presentation background, not a graphic layer.'
+            }
+            className="inspector-row inspector-row-stacked"
+          >
             <span>Image URL</span>
             <input
               type="url"
@@ -240,7 +302,7 @@ export function CompositionSettings() {
                 });
               }}
             />
-          </label>
+          </PropertyRow>
           <div className="inspector-button-row">
             <button type="button" onClick={() => presentationImageInputRef.current?.click()}>
               Choose local image…
@@ -285,7 +347,12 @@ export function CompositionSettings() {
         </div>
       ) : null}
       <div className="inspector-grid">
-        <label className="inspector-row">
+        <PropertyRow
+          help={
+            'Grid spacing in composition pixels. Snap to grid uses this interval when snapping is enabled.'
+          }
+          className="inspector-row"
+        >
           <span>Grid</span>
           <input
             type="number"
@@ -293,8 +360,13 @@ export function CompositionSettings() {
             value={composition.layout.gridSize}
             onChange={(event) => updateLayout({ gridSize: Number(event.target.value) })}
           />
-        </label>
-        <label className="inspector-row">
+        </PropertyRow>
+        <PropertyRow
+          help={
+            'Maximum distance in composition pixels at which a nearby snapping target attracts a layer. Larger values make snapping easier to trigger.'
+          }
+          className="inspector-row"
+        >
           <span>Threshold</span>
           <input
             type="number"
@@ -302,9 +374,14 @@ export function CompositionSettings() {
             value={composition.layout.snapThreshold}
             onChange={(event) => updateLayout({ snapThreshold: Number(event.target.value) })}
           />
-        </label>
+        </PropertyRow>
       </div>
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Choose whether editing may move layers outside the canvas or should keep them contained within its bounds.'
+        }
+        className="inspector-row"
+      >
         <span>Bounds</span>
         <select
           value={composition.layout.boundsMode}
@@ -315,8 +392,13 @@ export function CompositionSettings() {
           <option value="allow">Allow outside</option>
           <option value="contain">Contain in canvas</option>
         </select>
-      </label>
-      <label className="inspector-row">
+      </PropertyRow>
+      <PropertyRow
+        help={
+          'Choose whether the editor shows objects outside the canvas or clips them at its edge. The exported output still uses the composition dimensions.'
+        }
+        className="inspector-row"
+      >
         <span>Overflow preview</span>
         <select
           value={composition.layout.overflowPreview}
@@ -327,7 +409,7 @@ export function CompositionSettings() {
           <option value="visible">Show pasteboard objects</option>
           <option value="clip">Clip to canvas</option>
         </select>
-      </label>
+      </PropertyRow>
 
       <h3 className="inspector-section">Guides</h3>
       <div className="inspector-button-row">
@@ -339,7 +421,11 @@ export function CompositionSettings() {
         </button>
       </div>
       {composition.layout.guides.map((guide) => (
-        <label className="inspector-row" key={guide.id}>
+        <PropertyRow
+          help={`Position of this ${guide.axis} guide in canvas pixels, measured from the ${guide.axis === 'vertical' ? 'left' : 'top'} edge. Guides are editor-only alignment and snapping aids.`}
+          className="inspector-row"
+          key={guide.id}
+        >
           <span>{guide.axis === 'vertical' ? 'V' : 'H'}</span>
           <input
             type="number"
@@ -349,7 +435,7 @@ export function CompositionSettings() {
           <button type="button" title="Remove guide" onClick={() => removeGuide(guide.id)}>
             ×
           </button>
-        </label>
+        </PropertyRow>
       ))}
     </div>
   );

@@ -244,6 +244,7 @@ export function setAgentChatExclusive(enabled: boolean): void {
 
 type BridgeMessage =
   | { type: 'editor.ack'; revision: number }
+  | { type: 'editor.error'; message: string }
   | { type: 'heartbeat.request'; requestId: string }
   | {
       type: 'project.replace';
@@ -354,7 +355,17 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'editor.ack') {
-          status({ revision: message.revision });
+          const prior = useAgentBridgeStatus.getState();
+          status({
+            revision: message.revision,
+            ...(prior.activity.startsWith('The editor update could not be synchronized:')
+              ? { activity: 'Agent connected' }
+              : {}),
+          });
+          return;
+        }
+        if (message.type === 'editor.error') {
+          status({ activity: message.message });
           return;
         }
         if (message.type === 'editor.replaced') {

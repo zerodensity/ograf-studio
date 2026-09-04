@@ -3,7 +3,14 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
-import { computeKeyframeFrames, getLayerTransformAtFrame } from '@ograf-editor/scene-model';
+import {
+  computeKeyframeFrames,
+  getLayerTransformAtFrame,
+  createLayerOfKind,
+  createLayerKeyframe,
+  createDefaultTransform,
+  createLayerPropertyKeyframe,
+} from '@ograf-editor/scene-model';
 import { createOGrafAuthoringHost } from './index';
 import {
   createOGrafToolRecords,
@@ -15,6 +22,134 @@ describe('OGraf MCP authoring host', () => {
   const host = createOGrafAuthoringHost();
   const client = new Client({ name: 'ograf-mcp-test', version: '1.0.0' });
   let testEditorSocket: WebSocket | null = null;
+  it('applies and edits pack colors through existing GDD bindings and restores their defaults', async () => {
+    const sessionId = 'pack-colors-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const session = host.workspace.get(sessionId);
+    const apply = (operations: unknown[]) =>
+      client.callTool({
+        name: 'ograf_apply_operations',
+        arguments: { sessionId, expectedRevision: session.revision, operations },
+      });
+    expect(
+      (
+        await apply([
+          { type: 'add_layer', kind: 'rectangle', name: 'Accent', element: { fill: '#ff0000' } },
+          { type: 'set_layer_semantics', layerName: 'Accent', patch: { role: 'accent' } },
+          { type: 'add_data_field', key: 'color', fieldType: 'color', defaultValue: '#ff0000' },
+          {
+            type: 'set_layer_bindings',
+            layerName: 'Accent',
+            bindings: [{ fieldKey: 'color', targetProperty: 'fill' }],
+          },
+          { type: 'apply_style_pack', stylePack: 'sports' },
+        ])
+      ).isError,
+    ).not.toBe(true);
+    expect(session.snapshot().project.compositions[0]!.dataFields[0]!.defaultValue).toBe('#00E5FF');
+    const tokenId = session
+      .snapshot()
+      .project.compositions[0]!.designSystem.tokens.find((t) => t.key === 'brand.color.accent')!.id;
+    const recolored = await apply([
+      {
+        type: 'upsert_design_token',
+        tokenId,
+        key: 'brand.color.accent',
+        tokenType: 'color',
+        value: '#ff00ff',
+      },
+    ]);
+    expect(recolored.isError, JSON.stringify(recolored.content)).not.toBe(true);
+    const c = session.snapshot().project.compositions[0]!;
+    expect(c.dataFields[0]!.defaultValue).toBe('#ff00ff');
+    expect(c.layers[0]!.element).toMatchObject({ fill: '#ff00ff' });
+    expect((await apply([{ type: 'remove_style_pack' }])).isError).not.toBe(true);
+    expect(session.snapshot().project.compositions[0]!.dataFields[0]!.defaultValue).toBe('#ff0000');
+  });
+  it('exposes shared lighting, samples its clock and rejects broken links atomically', async () => {
+    const sessionId = 'shared-lighting-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const session = host.workspace.get(sessionId);
+    const apply = (operations: unknown[]) =>
+      client.callTool({
+        name: 'ograf_apply_operations',
+        arguments: { sessionId, expectedRevision: session.revision, operations },
+      });
+    expect(
+      (
+        await apply([
+          {
+            type: 'set_tiling_pattern',
+            patch: { name: 'Light rig', lighting: { cycleFrames: 200 } },
+            createLayer: false,
+          },
+          { type: 'add_layer', kind: 'rectangle', name: 'Sweep', transform: { opacity: 0.8 } },
+          {
+            type: 'set_layer_loop',
+            layerName: 'Sweep',
+            durationFrames: 100,
+            repeatCount: null,
+            activation: { type: 'lifecycle' },
+          },
+          {
+            type: 'set_loop_property_track',
+            layerName: 'Sweep',
+            property: 'x',
+            keys: [
+              { frame: 0, value: 0 },
+              { frame: 50, value: 100 },
+              { frame: 100, value: 0 },
+            ],
+          },
+        ])
+      ).isError,
+    ).not.toBe(true);
+    const c = session.snapshot().project.compositions[0]!,
+      p = c.patterns[0]!,
+      before = structuredClone(c.layers[0]!);
+    expect(
+      (
+        await apply([
+          {
+            type: 'set_layer_lighting',
+            layerName: 'Sweep',
+            link: { patternId: p.id, role: 'light' },
+          },
+          {
+            type: 'set_tiling_pattern',
+            patternName: 'Light rig',
+            patch: { lighting: { intensity: 0.5 } },
+          },
+        ])
+      ).isError,
+    ).not.toBe(true);
+    expect(session.snapshot().project.compositions[0]!.layers[0]!.loop).toEqual(before.loop);
+    const sample = await client.callTool({
+      name: 'ograf_sample_tracks',
+      arguments: { sessionId, frames: [12], loopElapsedFrame: 100, properties: ['x', 'opacity'] },
+    });
+    const result = sample.structuredContent as {
+      frames: Array<{
+        layers: Array<{
+          properties: Record<string, number>;
+          lighting: { sourceLoopFrame: number };
+        }>;
+      }>;
+    };
+    expect(result.frames[0]!.layers[0]!.properties).toMatchObject({ x: 100, opacity: 0.4 });
+    expect(result.frames[0]!.layers[0]!.lighting.sourceLoopFrame).toBe(50);
+    const prior = session.snapshot();
+    expect((await apply([{ type: 'remove_tiling_pattern', patternId: p.id }])).isError).toBe(true);
+    expect(session.snapshot()).toEqual(prior);
+    expect(
+      (
+        await apply([
+          { type: 'set_layer_lighting', layerName: 'Sweep', link: null },
+          { type: 'remove_tiling_pattern', patternId: p.id },
+        ])
+      ).isError,
+    ).not.toBe(true);
+  });
   it('authors ordered effect instances with stable animation paths and atomic failures', async () => {
     const sessionId = 'effect-stack-test';
     await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
@@ -2282,6 +2417,52 @@ describe('OGraf MCP authoring host', () => {
         }),
       ]),
     );
+  });
+
+  it('rejects malformed gradient edits without crashing or discarding the last valid project', async () => {
+    const port = (host.httpServer.address() as AddressInfo).port;
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/editor`);
+    testEditorSocket = socket;
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve);
+      socket.once('error', reject);
+    });
+    const message = (type: string) =>
+      new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          socket.off('message', receive);
+          reject(Error(`No ${type}`));
+        }, 2000);
+        const receive = (raw: { toString(): string }) => {
+          const parsed = JSON.parse(raw.toString());
+          if (parsed.type === type) {
+            clearTimeout(timeout);
+            socket.off('message', receive);
+            resolve(parsed);
+          }
+        };
+        socket.on('message', receive);
+      });
+    const before = host.workspace.get('editor').snapshot();
+    let reply = message('editor.ack');
+    socket.send(JSON.stringify({ type: 'editor.hello', project: before.project }));
+    await reply;
+    const invalid = structuredClone(before.project),
+      broken = createLayerOfKind('rectangle');
+    broken.keyframes = [createLayerKeyframe(0, createDefaultTransform())];
+    broken.animationTracks['fill.stops[1].offset'] = [createLayerPropertyKeyframe(0, 0.5)];
+    invalid.compositions[0]!.layers.push(broken);
+    reply = message('editor.error');
+    socket.send(JSON.stringify({ type: 'editor.project', project: invalid }));
+    expect((await reply).message).toContain('gradient stop');
+    expect(host.workspace.get('editor').snapshot()).toEqual(before);
+    expect(host.bridge.health.certificationReady).toBe(false);
+    reply = message('editor.ack');
+    socket.send(JSON.stringify({ type: 'editor.project', project: before.project }));
+    await reply;
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+    expect(host.workspace.get('editor').snapshot()).toEqual(before);
+    expect(host.bridge.health.certificationLikelyCause).not.toContain('gradient stop');
   });
 
   it('fails certification closed when no live browser editor is connected', async () => {

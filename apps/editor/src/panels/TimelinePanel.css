@@ -12,6 +12,21 @@
   grid-template-columns: minmax(0, 1fr) clamp(260px, 22vw, 330px);
 }
 
+.timeline-panel:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.timeline-toolbar .timeline-transport-button.frame-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 53px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
 .timeline-toolbar {
   grid-column: 1;
   grid-row: 1;
@@ -802,15 +817,6 @@
   background: #ffb020;
 }
 
-.timeline-keyframe-marker-name {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.timeline-keyframe-marker.active .timeline-keyframe-marker-name {
-  color: var(--text-heading);
-}
-
 .timeline-keyframe-marker-rename {
   width: 70px;
   background: var(--bg-canvas);
@@ -835,13 +841,7 @@
   position: relative;
   height: 28px;
   border-bottom: 1px solid var(--border);
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--folder-color) 28%, transparent),
-      transparent 45%
-    ),
-    color-mix(in srgb, var(--folder-color) 7%, var(--bg-canvas));
+  background: color-mix(in srgb, var(--folder-color) 7%, var(--bg-canvas));
 }
 
 .timeline-folder-track::after {
@@ -1095,69 +1095,24 @@
   bottom: 0;
   background: color-mix(in srgb, var(--layer-color) 34%, var(--bg-canvas));
   border: 1px solid color-mix(in srgb, var(--text-dim) 62%, transparent);
-  pointer-events: none;
+  pointer-events: auto;
   overflow: hidden;
   z-index: 1;
 }
 
-.timeline-layer-span-label {
-  display: grid;
-  height: 100%;
-  place-items: center;
-  color: color-mix(in srgb, var(--layer-color) 22%, white);
-  font-family: var(--mono);
-  font-size: 8px;
-  line-height: 1;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.timeline-layer-span-metadata {
-  position: absolute;
-  inset: 0 3px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  overflow: hidden;
+.timeline-hover-details {
+  position: fixed;
+  z-index: 11000;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: #202020;
+  color: var(--text-heading);
+  font: 11px/1.4 var(--sans);
+  box-shadow: 0 4px 16px #0006;
   pointer-events: none;
-}
-
-.timeline-layer-span-metadata .timeline-layer-span-label {
-  flex: 1 1 20px;
-  min-width: 20px;
-  height: auto;
-  overflow: hidden;
-}
-
-.timeline-layer-span-metadata .timeline-layer-span-easing {
-  position: static;
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: calc(100% - 24px);
-  transform: none;
-  text-overflow: ellipsis;
-}
-
-.timeline-layer-span-easing {
-  position: absolute;
-  top: 50%;
-  right: 3px;
-  transform: translateY(-50%);
-  overflow: hidden;
-  color: color-mix(in srgb, var(--layer-color) 12%, white);
-  font-family: var(--mono);
-  font-size: 8px;
-  line-height: 1;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.timeline-layer-span.eased {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--layer-color) 22%, var(--bg-canvas)),
-    color-mix(in srgb, var(--layer-color) 52%, var(--bg-canvas))
-  );
 }
 
 .timeline-playhead {

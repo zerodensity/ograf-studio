@@ -15,12 +15,16 @@ import {
   createAsset,
   applyDesignTokenBinding,
   bindFieldDefaultToken,
-  syncDesignTokenFieldDefaults,
+  syncDesignToken,
+  stylePackColorUsesToken,
   applyStylePack,
   setTilingPattern,
+  setLayerLighting,
+  layerLightingErrors,
+  type PatternLightingLink,
+  type TilingPatternPatch,
   removeTilingPattern,
   addTilingPatternLayer,
-  type TilingPattern,
   removeStylePack,
   dataUriByteSize,
   findAssetConsumers,
@@ -112,6 +116,7 @@ import {
 import { useTimelineStore } from './timelineStore';
 import { planLifecycleRetime, type LifecycleRetimePlan } from './lifecycleRetime';
 import { buildSvgBundle } from './svgBundleImport';
+import { placeImages, prepareImage, readImageSize, type ImagePlacement } from './imageImport';
 
 export type { NewLayerKind } from '@ograf-editor/scene-model';
 
@@ -131,6 +136,11 @@ interface ProjectState {
 }
 
 interface ProjectActions {
+  setLayerLighting: (layerId: string | string[], link: PatternLightingLink | null) => void;
+  placeImageSource: (
+    source: File[] | { assetId: string },
+    options?: ImagePlacement,
+  ) => Promise<string[]>;
   newProject: () => void;
   loadProject: (project: Project) => void;
   setProjectMeta: (
@@ -155,7 +165,7 @@ interface ProjectActions {
   removeCanvasGuide: (guideId: string) => void;
 
   addLayer: (kind: NewLayerKind) => string;
-  setTilingPattern: (patch: Partial<Omit<TilingPattern, 'id'>>, patternId?: string) => string;
+  setTilingPattern: (patch: TilingPatternPatch, patternId?: string) => string;
   removeTilingPattern: (patternId: string) => void;
   addPatternInstance: (patternId: string) => string;
   addLowerThird: () => MaterializedLowerThird;
@@ -564,8 +574,10 @@ function descendantLayers(composition: Composition, parentId: string): Layer[] {
   return result;
 }
 
+let projectLoadGeneration = 0;
+
 export const useProjectStore = create<ProjectStore>()(
-  immer((set) => {
+  immer((set, get) => {
     const initialProject = createProject();
     const initialComposition = initialProject.compositions[0]!;
     return {
@@ -574,6 +586,7 @@ export const useProjectStore = create<ProjectStore>()(
       activeKeyframeId: getDefaultAuthoringKeyframeId(initialComposition),
 
       newProject: () => {
+        projectLoadGeneration++;
         useTimelineStore.getState().resetForProjectLoad();
         set((state) => {
           const project = createProject();
@@ -585,6 +598,7 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       loadProject: (project) => {
+        projectLoadGeneration++;
         useTimelineStore.getState().resetForProjectLoad();
         set((state) => {
           const migrated = migrateProject(project);
@@ -1400,6 +1414,13 @@ export const useProjectStore = create<ProjectStore>()(
           for (const frame of previousFrames) removeAggregateKeyframeIfOrphaned(layer, frame);
         }),
 
+      setLayerLighting: (layerId, link) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          for (const id of typeof layerId === 'string' ? [layerId] : layerId)
+            setLayerLighting(composition, id, link);
+        }),
+
       setLayerLoop: (layerId, patch) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
@@ -1429,6 +1450,8 @@ export const useProjectStore = create<ProjectStore>()(
             layer.loop.repeatCount =
               patch.repeatCount === null ? null : Math.max(1, Math.round(patch.repeatCount));
           }
+          const lightingErrors = layerLightingErrors(layer, composition.patterns);
+          if (lightingErrors.length) throw new Error(lightingErrors.join(' '));
         }),
 
       setLayerLoopPropertyTrack: (layerId, property, keys) =>
@@ -1952,20 +1975,14 @@ export const useProjectStore = create<ProjectStore>()(
           next.description = next.description.trim();
           next.value = normalizeDesignTokenValue(next.type, next.value);
           Object.assign(token, next);
-          syncDesignTokenFieldDefaults(composition, token.id);
-          for (const layer of composition.layers) {
-            for (const binding of layer.designTokenBindings.filter(
-              (candidate) => candidate.tokenId === token.id,
-            )) {
-              applyDesignTokenBinding(layer, binding, token);
-            }
-          }
+          syncDesignToken(composition, token.id);
         }),
 
       removeDesignToken: (tokenId) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           if (
+            stylePackColorUsesToken(composition, tokenId) ||
             composition.dataFields.some((field) => field.defaultTokenId === tokenId) ||
             composition.layers.some((layer) =>
               layer.designTokenBindings.some((binding) => binding.tokenId === tokenId),
@@ -2315,6 +2332,75 @@ export const useProjectStore = create<ProjectStore>()(
           }
           Object.assign(action, nextPatch);
         }),
+
+      placeImageSource: async (source, options = {}) => {
+        const initial = get();
+        const generation = projectLoadGeneration;
+        const composition = getActiveComposition(initial.project, initial.activeCompositionId);
+        const originalSource = composition.layers.find(
+          (l) => l.id === options.replaceLayerId,
+        )?.element;
+        let changedDocument = false;
+        const unsubscribe = useProjectStore.subscribe((state) => {
+          if (
+            state.project.id !== initial.project.id ||
+            state.activeCompositionId !== composition.id
+          )
+            changedDocument = true;
+        });
+        try {
+          const images = Array.isArray(source)
+            ? await Promise.all(source.map(prepareImage))
+            : await (async () => {
+                const asset = composition.assets.find(
+                  (a) => a.id === source.assetId && a.kind === 'image',
+                );
+                if (!asset) throw new Error('This image is no longer in Resources.');
+                return [{ asset, companions: [], ...(await readImageSize(asset.dataUri)) }];
+              })();
+          if (options.signal?.aborted) return [];
+          if (changedDocument || generation !== projectLoadGeneration)
+            throw new Error(
+              'The document changed. Choose the image again in the current document.',
+            );
+          let ids: string[] = [];
+          set((state) => {
+            const current = getActiveComposition(state.project, state.activeCompositionId);
+            if (
+              !Array.isArray(source) &&
+              !current.assets.some(
+                (a) =>
+                  a.id === source.assetId &&
+                  a.kind === 'image' &&
+                  a.dataUri === images[0]?.asset.dataUri,
+              )
+            ) {
+              throw new Error('This resource changed while loading. Choose it again.');
+            }
+            const currentSource = current.layers.find(
+              (l) => l.id === options.replaceLayerId,
+            )?.element;
+            if (
+              options.replaceLayerId &&
+              originalSource?.type === 'image' &&
+              currentSource?.type === 'image' &&
+              originalSource.src !== currentSource.src
+            ) {
+              throw new Error(
+                'This image was changed while loading. Choose the replacement again.',
+              );
+            }
+            ids = placeImages(current, images, options);
+            for (const id of ids) {
+              const layer = current.layers.find((l) => l.id === id)!;
+              if (!options.replaceLayerId) materializeAnimationTracks(layer);
+            }
+          });
+          return ids;
+        } finally {
+          unsubscribe();
+        }
+      },
 
       importAsset: async (file) => {
         const dataUri = await new Promise<string>((resolve, reject) => {

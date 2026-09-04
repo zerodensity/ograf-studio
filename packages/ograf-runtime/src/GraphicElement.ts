@@ -91,6 +91,46 @@ interface DirectLifecycleTransition {
  */
 export abstract class GraphicElement extends HTMLElement implements Graphic {
   static descriptor: CompiledGraphicDescriptor;
+  #frameRequestId = 0;
+  #frameRequests = new Map<
+    number,
+    { owner: Window | null; request: number; callback: FrameRequestCallback }
+  >();
+
+  #requestFrame(callback: FrameRequestCallback): number {
+    const id = ++this.#frameRequestId;
+    const owner = this.ownerDocument?.defaultView ?? null;
+    const invoke = () => {
+      this.#frameRequests.delete(id);
+      callback(performance.now());
+    };
+    const request = owner ? owner.requestAnimationFrame(invoke) : requestAnimationFrame(invoke);
+    this.#frameRequests.set(id, { owner, request, callback });
+    return id;
+  }
+
+  #cancelFrame(id: number): void {
+    const entry = this.#frameRequests.get(id);
+    if (!entry) return;
+    if (entry.owner) entry.owner.cancelAnimationFrame(entry.request);
+    else cancelAnimationFrame(entry.request);
+    this.#frameRequests.delete(id);
+  }
+
+  adoptedCallback(): void {
+    // Keep callbacks on the visible document's clock without changing their IDs or phase.
+    for (const [id, entry] of this.#frameRequests) {
+      if (entry.owner) entry.owner.cancelAnimationFrame(entry.request);
+      else cancelAnimationFrame(entry.request);
+      const owner = this.ownerDocument.defaultView;
+      const invoke = () => {
+        this.#frameRequests.delete(id);
+        entry.callback(performance.now());
+      };
+      const request = owner ? owner.requestAnimationFrame(invoke) : requestAnimationFrame(invoke);
+      this.#frameRequests.set(id, { ...entry, owner, request });
+    }
+  }
 
   #layerEls = new Map<string, HTMLElement>();
   #renderDescriptor: CompiledGraphicDescriptor | null = null;
@@ -124,24 +164,28 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   connectedCallback(): void {
+    if (this.shadowRoot && this.#layerEls.size > 0) return;
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
     this.#buildDom();
   }
 
   disconnectedCallback(): void {
-    this.#activeTween?.kill();
-    this.#timeline?.kill();
-    this.#clearContentAnimationFrames();
-    this.#stopLoopRendering();
-    this.#cancelUpdateAnimations();
-    for (const element of this.#layerEls.values()) disposeElementContent(element);
-    this.#layerEls.clear();
-    this.#renderDescriptor = null;
+    queueMicrotask(() => {
+      if (this.isConnected) return;
+      this.#activeTween?.kill();
+      this.#timeline?.kill();
+      this.#clearContentAnimationFrames();
+      this.#stopLoopRendering();
+      this.#cancelUpdateAnimations();
+      for (const element of this.#layerEls.values()) disposeElementContent(element);
+      this.#layerEls.clear();
+      this.#renderDescriptor = null;
+    });
   }
 
   #clearContentAnimationFrames(): void {
     if (typeof cancelAnimationFrame !== 'undefined') {
-      for (const id of this.#contentAnimationFrames.values()) cancelAnimationFrame(id);
+      for (const id of this.#contentAnimationFrames.values()) this.#cancelFrame(id);
     }
     this.#contentAnimationFrames.clear();
   }
@@ -216,7 +260,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   #stopLoopRendering(): void {
     if (this.#loopAnimationFrame !== null && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(this.#loopAnimationFrame);
+      this.#cancelFrame(this.#loopAnimationFrame);
     }
     this.#loopAnimationFrame = null;
     this.#activeLoopEpochs.clear();
@@ -406,16 +450,18 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#loopAnimationFrame = null;
       if (this.#activeLoopEpochs.size === 0 || this.#renderType !== 'realtime') return;
       this.#renderLoopSnapshot(now);
-      this.#loopAnimationFrame = requestAnimationFrame(render);
+      this.#loopAnimationFrame = this.#requestFrame(render);
     };
-    this.#loopAnimationFrame = requestAnimationFrame(render);
+    this.#loopAnimationFrame = this.#requestFrame(render);
   }
 
   #activateLoopsAtStep(step: number | undefined, epochMs: number, firstStep: boolean): void {
     const stepKeyframeId = step === undefined ? undefined : this.descriptor.stepKeyframeIds[step];
     for (const layer of this.activeDescriptor.layers) {
       const activation =
-        layer.element.type === 'pattern' ? { type: 'lifecycle' as const } : layer.loop?.activation;
+        layer.element.type === 'pattern' || layer.lighting
+          ? { type: 'lifecycle' as const }
+          : layer.loop?.activation;
       if (!activation) continue;
       if (activation.type === 'lifecycle') {
         if (firstStep || !this.#activeLoopEpochs.has(layer.id)) {
@@ -527,10 +573,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         this.#contentAnimationFrames.delete(layer.id);
         return;
       }
-      const request = requestAnimationFrame(render);
+      const request = this.#requestFrame(render);
       this.#contentAnimationFrames.set(layer.id, request);
     };
-    this.#contentAnimationFrames.set(layer.id, requestAnimationFrame(render));
+    this.#contentAnimationFrames.set(layer.id, this.#requestFrame(render));
   }
 
   #startRealtimeContentAnimations(): void {
@@ -997,7 +1043,9 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     const stepKeyframeId = step === undefined ? undefined : this.descriptor.stepKeyframeIds[step];
     for (const layer of this.activeDescriptor.layers) {
       const activation =
-        layer.element.type === 'pattern' ? { type: 'lifecycle' as const } : layer.loop?.activation;
+        layer.element.type === 'pattern' || layer.lighting
+          ? { type: 'lifecycle' as const }
+          : layer.loop?.activation;
       if (!activation) continue;
       if (
         activation.type === 'lifecycle' &&

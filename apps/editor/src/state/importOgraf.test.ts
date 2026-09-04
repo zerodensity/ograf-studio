@@ -9,6 +9,9 @@ import {
   createTilingPattern,
   addTilingPatternLayer,
   defaultTransformFor,
+  setTilingPattern,
+  setLayerLighting,
+  createLayerLoopClip,
 } from '@ograf-editor/scene-model';
 import { assembleManifest, compileDescriptor, generateMainJs } from '@ograf-editor/codegen';
 import { OGRAF_MANIFEST_SCHEMA_URL, type OGrafManifest } from '@ograf-editor/ograf-types';
@@ -19,6 +22,37 @@ async function packageBytes(files: Record<string, string>): Promise<Uint8Array> 
   for (const [path, contents] of Object.entries(files)) zip.file(path, contents);
   return zip.generateAsync({ type: 'uint8array' });
 }
+
+it('round-trips a light controller even when no geometry instance is exported', async () => {
+  const project = createProject(),
+    c = project.compositions[0]!;
+  const p = setTilingPattern(c, { lighting: { cycleFrames: 1200, intensity: 0.6, phase: 0.25 } });
+  const layer = createLayerOfKind('rectangle');
+  layer.keyframes = [createLayerKeyframe(0, defaultTransformFor('rectangle'))];
+  layer.loop = createLayerLoopClip({ durationFrames: 100 });
+  c.layers.push(layer);
+  setLayerLighting(c, layer.id, {
+    patternId: p.id,
+    role: 'glow',
+    phaseOffset: 0.2,
+    gain: 0.7,
+    cyclesPerLoop: 3,
+  });
+  const descriptor = compileDescriptor(c),
+    manifest = assembleManifest(project, c, descriptor);
+  const imported = await importOgrafData(
+    'lighting.ograf.zip',
+    await packageBytes({
+      [`${manifest.id}.ograf.json`]: JSON.stringify(manifest),
+      'main.js': generateMainJs(descriptor, ''),
+    }),
+  );
+  const recovered = imported.project.compositions[0]!;
+  expect(recovered.patterns).toEqual([p]);
+  expect(recovered.layers[0]!.lighting).toEqual(layer.lighting);
+  expect(recovered.layers[0]!.loop).toEqual(layer.loop);
+  expect(recovered.layers[0]!.lighting).not.toHaveProperty('definition');
+});
 
 function editableFixture() {
   const project = createProject({

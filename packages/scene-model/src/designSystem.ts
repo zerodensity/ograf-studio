@@ -10,6 +10,7 @@ import type {
   Layer,
 } from './types';
 import { createCornerRadii } from './cornerRadii';
+import { syncStylePackColorLinks } from './stylePackColorLinks';
 import {
   parseEffectProperty,
   effectParameterSpec,
@@ -214,6 +215,7 @@ export function syncDesignToken(composition: Composition, tokenId: string): stri
       affected.push(layer.id);
     }
   }
+  affected.push(...syncStylePackColorLinks(composition, tokenId));
   return [...new Set(affected)];
 }
 

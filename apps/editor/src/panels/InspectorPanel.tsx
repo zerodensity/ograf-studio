@@ -1,4 +1,9 @@
+import { useEditorWindow } from '../layout/EditorWindow';
+import { TRANSFORM_HELP } from './propertyHelp';
+import { PropertyRow } from '../components/PropertyRow';
 import { EffectStackEditor } from './EffectStackEditor';
+import { ImageSourceEditor } from './ImageSourceEditor';
+import { LayerLightingEditor } from './LayerLightingEditor';
 import { getEffectStack, EFFECT_CATALOG, effectProperty } from '@ograf-editor/scene-model';
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { LayerMaskEditor } from './LayerMaskEditor';
@@ -135,7 +140,12 @@ function ZOrderControl({
   };
 
   return (
-    <label className="inspector-row">
+    <PropertyRow
+      help={
+        'Stacking position of this layer. 1 is the back; the highest number is the front. Increasing the value places the layer above others.'
+      }
+      className="inspector-row"
+    >
       <span>Z order</span>
       <div className="inspector-z-order-control">
         <input
@@ -157,7 +167,7 @@ function ZOrderControl({
         />
         <small>of {maximum}</small>
       </div>
-    </label>
+    </PropertyRow>
   );
 }
 
@@ -171,7 +181,12 @@ function CornerRadiusEditor({
   const isUniform = new Set(Object.values(value)).size === 1;
   return (
     <>
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Corner radius in pixels for all four corners. Entering a value replaces any individual corner radii; Mixed means the corners currently differ.'
+        }
+        className="inspector-row"
+      >
         <span>All corners</span>
         <input
           type="number"
@@ -180,7 +195,7 @@ function CornerRadiusEditor({
           placeholder="Mixed"
           onChange={(event) => onChange(createCornerRadii(Number(event.target.value)))}
         />
-      </label>
+      </PropertyRow>
       <div className="inspector-grid inspector-corner-grid">
         {(
           [
@@ -190,7 +205,11 @@ function CornerRadiusEditor({
             ['bottomRight', 'Bottom right'],
           ] as const
         ).map(([corner, label]) => (
-          <label className="inspector-row inspector-row-stacked" key={corner}>
+          <PropertyRow
+            help={`Radius of the ${label.toLowerCase()} corner in pixels. Zero keeps this corner square.`}
+            className="inspector-row inspector-row-stacked"
+            key={corner}
+          >
             <span>{label}</span>
             <input
               type="number"
@@ -203,7 +222,7 @@ function CornerRadiusEditor({
                 })
               }
             />
-          </label>
+          </PropertyRow>
         ))}
       </div>
     </>
@@ -211,6 +230,7 @@ function CornerRadiusEditor({
 }
 
 export function InspectorPanel() {
+  const { window } = useEditorWindow();
   const composition = useActiveComposition();
   const currentFrame = useTimelineStore((s) => s.currentFrame);
   const selectedLayerId = useSelectionStore((s) => s.selectedLayerId);
@@ -304,7 +324,6 @@ export function InspectorPanel() {
 
   // Narrowed to a local so it survives into the `.find()` closure below — TS discards narrowing
   // from `layer.element.type === 'image'` once `layer.element` is re-read inside a nested function.
-  const imageSrc = layer.element.type === 'image' ? layer.element.src : null;
   const sequenceFrames = layer.element.type === 'image-sequence' ? layer.element.frames : [];
   const selectedFontFamily = layer.element.type === 'text' ? layer.element.fontFamily : '';
   const selectedFontSize = layer.element.type === 'text' ? layer.element.fontSize : 1;
@@ -346,14 +365,19 @@ export function InspectorPanel() {
   return (
     <Panel title="Properties">
       <div className="inspector">
-        <label className="inspector-row">
+        <PropertyRow
+          help={
+            "Name used to identify this layer in the editor and by authoring tools. Rename it here; edit a text layer's visible wording under Content."
+          }
+          className="inspector-row"
+        >
           <span>Name</span>
           <input
             type="text"
             value={layer.name}
             onChange={(e: ChangeEvent<HTMLInputElement>) => renameLayer(layer.id, e.target.value)}
           />
-        </label>
+        </PropertyRow>
         <ZOrderControl
           value={zOrder}
           maximum={composition.layers.length}
@@ -368,8 +392,16 @@ export function InspectorPanel() {
           }
         />
         <p className="inspector-hint">1 is back; {composition.layers.length} is front.</p>
+        {layer.element.type === 'image' && (
+          <ImageSourceEditor key={`image-${layer.id}`} layer={layer} assets={composition.assets} />
+        )}
         <h3 className="inspector-section">Semantic intent</h3>
-        <label className="inspector-row">
+        <PropertyRow
+          help={
+            "Describe the layer's purpose, such as headline, background or container. Style packs and design checks use this semantic role when styling or reviewing the scene."
+          }
+          className="inspector-row"
+        >
           <span>Role</span>
           <select
             value={layer.semantics.role}
@@ -383,8 +415,13 @@ export function InspectorPanel() {
               </option>
             ))}
           </select>
-        </label>
-        <label className="inspector-row">
+        </PropertyRow>
+        <PropertyRow
+          help={
+            'Comma-separated tags that help organize and find the layer. Authoring tools can use tags to target related layers.'
+          }
+          className="inspector-row"
+        >
           <span>Tags</span>
           <input
             type="text"
@@ -396,15 +433,20 @@ export function InspectorPanel() {
               })
             }
           />
-        </label>
-        <label className="inspector-row">
+        </PropertyRow>
+        <PropertyRow
+          help={
+            'Describe what this layer is meant to communicate or do. This is design guidance for authors and AI tools; it is not displayed in the graphic.'
+          }
+          className="inspector-row"
+        >
           <span>Intent</span>
           <textarea
             value={layer.semantics.description}
             placeholder="What this layer means in the design"
             onChange={(event) => setLayerSemantics(layer.id, { description: event.target.value })}
           />
-        </label>
+        </PropertyRow>
         {tokenTargets.length > 0 && (
           <>
             <h3 className="inspector-section">Brand tokens</h3>
@@ -416,7 +458,11 @@ export function InspectorPanel() {
                 (token) => token.type === target.tokenType,
               );
               return (
-                <label className="inspector-row" key={target.property}>
+                <PropertyRow
+                  help={`Link ${target.label.toLowerCase()} to a shared Brand Kit token. Editing the token updates this property on linked layers. Unlinked removes the connection while keeping the current value.`}
+                  className="inspector-row"
+                  key={target.property}
+                >
                   <span>{target.label}</span>
                   <select
                     value={binding?.tokenId ?? ''}
@@ -435,7 +481,7 @@ export function InspectorPanel() {
                       </option>
                     ))}
                   </select>
-                </label>
+                </PropertyRow>
               );
             })}
             {composition.designSystem.tokens.length === 0 && (
@@ -443,17 +489,27 @@ export function InspectorPanel() {
             )}
           </>
         )}
-        <label className="inspector-row inspector-checkbox-row">
+        <PropertyRow
+          help={
+            "Clip child layers at this parent layer's bounds. Use it to keep moving content inside a panel or lower-third background."
+          }
+          className="inspector-row inspector-checkbox-row"
+        >
           <span>Clip children</span>
           <input
             type="checkbox"
             checked={layer.clipChildren}
             onChange={(event) => setLayerClipChildren(layer.id, event.target.checked)}
           />
-        </label>
+        </PropertyRow>
 
         <h3 className="inspector-section">Compositing</h3>
-        <label className="inspector-row">
+        <PropertyRow
+          help={
+            "Choose how this layer's colors combine with layers behind it. Normal draws it normally; other modes can lighten, darken or mix the result."
+          }
+          className="inspector-row"
+        >
           <span>Blend mode</span>
           <select
             value={layer.blendMode}
@@ -466,19 +522,29 @@ export function InspectorPanel() {
               </option>
             ))}
           </select>
-        </label>
+        </PropertyRow>
 
         <LayerMaskEditor composition={composition} layer={layer} key={layer.id} />
         <h3 className="inspector-section">Layout relationships</h3>
-        <label className="inspector-row inspector-checkbox-row">
+        <PropertyRow
+          help={
+            'Lock this layer to protect it from selection-based edits and accidental moves. Unlock it before editing its transform or protected properties.'
+          }
+          className="inspector-row inspector-checkbox-row"
+        >
           <span>Locked</span>
           <input
             type="checkbox"
             checked={layer.isLocked}
             onChange={() => toggleLayerLock(layer.id)}
           />
-        </label>
-        <label className="inspector-row">
+        </PropertyRow>
+        <PropertyRow
+          help={
+            'Choose a parent layer to establish a layout relationship. Parent movement and resizing can move or resize this layer according to its constraints.'
+          }
+          className="inspector-row"
+        >
           <span>Parent</span>
           <select
             value={layer.parentId ?? ''}
@@ -493,9 +559,14 @@ export function InspectorPanel() {
                 </option>
               ))}
           </select>
-        </label>
+        </PropertyRow>
         <div className="inspector-grid">
-          <label className="inspector-row">
+          <PropertyRow
+            help={
+              "Choose how the layer's horizontal position and width respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
+            }
+            className="inspector-row"
+          >
             <span>Horizontal</span>
             <select
               value={layer.constraints.horizontal}
@@ -511,8 +582,13 @@ export function InspectorPanel() {
               <option value="center">Center</option>
               <option value="scale">Scale</option>
             </select>
-          </label>
-          <label className="inspector-row">
+          </PropertyRow>
+          <PropertyRow
+            help={
+              "Choose how the layer's vertical position and height respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
+            }
+            className="inspector-row"
+          >
             <span>Vertical</span>
             <select
               value={layer.constraints.vertical}
@@ -528,7 +604,7 @@ export function InspectorPanel() {
               <option value="center">Center</option>
               <option value="scale">Scale</option>
             </select>
-          </label>
+          </PropertyRow>
         </div>
         {layer.groupId && <p className="inspector-hint">Persistent group: {layer.groupId}</p>}
 
@@ -543,7 +619,12 @@ export function InspectorPanel() {
               : [];
             return (
               <div className="inspector-binding" key={`${binding.targetProperty}:${index}`}>
-                <label className="inspector-row">
+                <PropertyRow
+                  help={
+                    'Data field that supplies a value during playback. Its default is used unless runtime data overrides it.'
+                  }
+                  className="inspector-row"
+                >
                   <span>Field</span>
                   <select
                     aria-label={`Binding ${index + 1} field`}
@@ -571,9 +652,14 @@ export function InspectorPanel() {
                       </option>
                     ))}
                   </select>
-                </label>
+                </PropertyRow>
                 {(field?.type === 'object' || field?.type === 'array') && (
-                  <label className="inspector-row">
+                  <PropertyRow
+                    help={
+                      'Choose the nested value inside an object or collection item that this binding reads.'
+                    }
+                    className="inspector-row"
+                  >
                     <span>Value path</span>
                     <select
                       aria-label={`Binding ${index + 1} value path`}
@@ -594,9 +680,14 @@ export function InspectorPanel() {
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </PropertyRow>
                 )}
-                <label className="inspector-row">
+                <PropertyRow
+                  help={
+                    'Layer property controlled by the chosen data field, such as text, position or a gradient-stop color. Incoming playback data updates this property.'
+                  }
+                  className="inspector-row"
+                >
                   <span>Property</span>
                   <select
                     aria-label={`Binding ${index + 1} property`}
@@ -626,7 +717,7 @@ export function InspectorPanel() {
                         </option>
                       ))}
                   </select>
-                </label>
+                </PropertyRow>
                 <button
                   type="button"
                   className="inspector-binding-remove"
@@ -683,7 +774,7 @@ export function InspectorPanel() {
         )}
         <div className="inspector-grid">
           {TRANSFORM_FIELDS.map(({ key, label, step }) => (
-            <label className="inspector-row" key={key}>
+            <PropertyRow help={TRANSFORM_HELP[key]!} className="inspector-row" key={key}>
               <span>{label}</span>
               <input
                 type="number"
@@ -694,11 +785,17 @@ export function InspectorPanel() {
                   setTransform(key, Number(e.target.value))
                 }
               />
-            </label>
+            </PropertyRow>
           ))}
         </div>
 
-        <div className="inspector-alpha-control">
+        <PropertyRow
+          help={
+            'Layer opacity at the current timeline frame. 0% is fully transparent and 100% is fully opaque; lower values let the background show through.'
+          }
+          as="div"
+          className="inspector-alpha-control"
+        >
           <span className="inspector-alpha-label">Alpha</span>
           <input
             type="range"
@@ -725,10 +822,15 @@ export function InspectorPanel() {
             />
             <span>%</span>
           </label>
-        </div>
+        </PropertyRow>
 
         {activeLayerKeyframe && (
-          <label className="inspector-row">
+          <PropertyRow
+            help={
+              'Easing used when the animation arrives at this layer keyframe. It changes the acceleration of the incoming transition without changing its duration.'
+            }
+            className="inspector-row"
+          >
             <span>Incoming easing (this key)</span>
             <select
               aria-label="Selected keyframe easing"
@@ -751,13 +853,16 @@ export function InspectorPanel() {
                 </optgroup>
               ))}
             </select>
-          </label>
+          </PropertyRow>
         )}
 
         <EffectStackEditor layer={layer} frame={roundedFrame} />
+        <LayerLightingEditor key={`lighting-${layer.id}`} layer={layer} composition={composition} />
 
-        <h3 className="inspector-section">{layer.element.type}</h3>
-        {layer.bindings.length > 0 && (
+        {layer.element.type !== 'image' && (
+          <h3 className="inspector-section">{layer.element.type}</h3>
+        )}
+        {layer.element.type !== 'image' && layer.bindings.length > 0 && (
           <p className="inspector-hint">
             {layer.bindings
               .map(
@@ -790,7 +895,12 @@ export function InspectorPanel() {
               value={evaluatedPaint ?? layer.element.fill}
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
-            <label className="inspector-row">
+            <PropertyRow
+              help={
+                'Color of the shape outline. The outline is visible when Stroke Width is greater than zero.'
+              }
+              className="inspector-row"
+            >
               <span>Stroke Color</span>
               <input
                 type="color"
@@ -801,37 +911,55 @@ export function InspectorPanel() {
                 }
                 onChange={(e) => setElement({ strokeColor: e.target.value })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={'Thickness of the shape outline in pixels. Zero removes the outline.'}
+              className="inspector-row"
+            >
               <span>Stroke Width</span>
               <input
                 type="number"
                 value={layer.element.strokeWidth}
                 onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
               />
-            </label>
+            </PropertyRow>
           </>
         )}
 
         {layer.element.type === 'text' && (
           <>
-            <label className="inspector-row inspector-row-stacked">
+            <PropertyRow
+              help={
+                'Text displayed by this layer. A connected playback data field can replace this content at runtime.'
+              }
+              className="inspector-row inspector-row-stacked"
+            >
               <span>Content</span>
               <textarea
                 rows={3}
                 value={layer.element.content}
                 onChange={(e) => setTextElement({ content: e.target.value })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Fill color of the text characters. A Brand Kit token or runtime color binding can control this value.'
+              }
+              className="inspector-row"
+            >
               <span>Color</span>
               <input
                 type="color"
                 value={layer.element.color}
                 onChange={(e) => setTextElement({ color: e.target.value })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Color of the outline around the text characters. Use Stroke Width to set its thickness.'
+              }
+              className="inspector-row"
+            >
               <span>Stroke Color</span>
               <input
                 type="color"
@@ -842,8 +970,13 @@ export function InspectorPanel() {
                 }
                 onChange={(event) => setTextStroke({ strokeColor: event.target.value })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Thickness of the text outline in pixels. Zero removes the outline; larger values can improve separation from the background.'
+              }
+              className="inspector-row"
+            >
               <span>Stroke Width</span>
               <input
                 type="number"
@@ -854,8 +987,13 @@ export function InspectorPanel() {
                   setTextStroke({ strokeWidth: Math.max(0, Number(event.target.value)) })
                 }
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Authored font size in pixels. Text sizing modes may scale or reduce the displayed text to fit its box.'
+              }
+              className="inspector-row"
+            >
               <span>Size</span>
               <input
                 type="number"
@@ -863,8 +1001,13 @@ export function InspectorPanel() {
                 value={layer.element.fontSize}
                 onChange={(e) => setTextElement({ fontSize: Math.max(1, Number(e.target.value)) })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Font weight from 100 (thin) to 900 (heavy). The available visual weights depend on the chosen font.'
+              }
+              className="inspector-row"
+            >
               <span>Weight</span>
               <input
                 type="number"
@@ -878,8 +1021,11 @@ export function InspectorPanel() {
                   })
                 }
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={'Horizontal alignment of the text within its box: left, centered or right.'}
+              className="inspector-row"
+            >
               <span>Align</span>
               <select
                 value={layer.element.textAlign}
@@ -891,8 +1037,13 @@ export function InspectorPanel() {
                 <option value="center">Center</option>
                 <option value="right">Right</option>
               </select>
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Typeface used by the graphic. Imported font resources and built-in choices are listed here.'
+              }
+              className="inspector-row"
+            >
               <span>Font</span>
               <select
                 className="inspector-font-select"
@@ -908,7 +1059,7 @@ export function InspectorPanel() {
                   </option>
                 ))}
               </select>
-            </label>
+            </PropertyRow>
             <div
               className="inspector-font-preview"
               title={`Selected template font: ${layer.element.fontFamily}`}
@@ -916,7 +1067,12 @@ export function InspectorPanel() {
               Template font: {selectedFontFamily}
             </div>
             <div className="inspector-grid">
-              <label className="inspector-row">
+              <PropertyRow
+                help={
+                  'Distance between text baselines as a multiplier of font size. Larger values add more space between lines.'
+                }
+                className="inspector-row"
+              >
                 <span>Line height</span>
                 <input
                   type="number"
@@ -927,8 +1083,13 @@ export function InspectorPanel() {
                     setTextElement({ lineHeight: Math.max(0.5, Number(e.target.value)) })
                   }
                 />
-              </label>
-              <label className="inspector-row">
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Additional spacing between characters in pixels. Positive values spread characters out; negative values bring them closer.'
+                }
+                className="inspector-row"
+              >
                 <span>Tracking</span>
                 <input
                   type="number"
@@ -936,10 +1097,15 @@ export function InspectorPanel() {
                   value={layer.element.letterSpacing}
                   onChange={(e) => setTextElement({ letterSpacing: Number(e.target.value) })}
                 />
-              </label>
+              </PropertyRow>
             </div>
             <div className="inspector-grid">
-              <label className="inspector-row">
+              <PropertyRow
+                help={
+                  'Vertical shift of the text baseline in pixels, for fine alignment with neighboring text or symbols.'
+                }
+                className="inspector-row"
+              >
                 <span>Baseline</span>
                 <input
                   type="number"
@@ -947,8 +1113,13 @@ export function InspectorPanel() {
                   value={layer.element.baselineShift}
                   onChange={(e) => setTextElement({ baselineShift: Number(e.target.value) })}
                 />
-              </label>
-              <label className="inspector-row">
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Smallest font size allowed by Shrink text to box. The text will not shrink below this size.'
+                }
+                className="inspector-row"
+              >
                 <span>Minimum size</span>
                 <input
                   type="number"
@@ -962,9 +1133,12 @@ export function InspectorPanel() {
                     })
                   }
                 />
-              </label>
+              </PropertyRow>
             </div>
-            <label className="inspector-row">
+            <PropertyRow
+              help={'Vertical alignment of text inside its box: top, middle or bottom.'}
+              className="inspector-row"
+            >
               <span>Vertical</span>
               <select
                 value={layer.element.verticalAlign}
@@ -978,8 +1152,13 @@ export function InspectorPanel() {
                 <option value="middle">Middle</option>
                 <option value="bottom">Bottom</option>
               </select>
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Change how letter case is displayed: unchanged, uppercase, lowercase or capitalized. This does not require rewriting the source wording.'
+              }
+              className="inspector-row"
+            >
               <span>Transform</span>
               <select
                 value={layer.element.textTransform}
@@ -994,8 +1173,13 @@ export function InspectorPanel() {
                 <option value="lowercase">Lowercase</option>
                 <option value="capitalize">Capitalize</option>
               </select>
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Choose how text fits its box. Auto size changes the box; Shrink reduces the font; Fit to width scales proportionally; Squeeze stretches characters; Fixed keeps the box.'
+              }
+              className="inspector-row"
+            >
               <span>Text sizing</span>
               <select
                 value={layer.element.autoFit}
@@ -1009,8 +1193,13 @@ export function InspectorPanel() {
                 <option value="squeeze">Squeeze</option>
                 <option value="fixed">Fixed box</option>
               </select>
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Choose how text that exceeds the box is shown: visible outside it, clipped, or shortened with an ellipsis.'
+              }
+              className="inspector-row"
+            >
               <span>Overflow</span>
               <select
                 value={layer.element.overflowPolicy}
@@ -1024,7 +1213,7 @@ export function InspectorPanel() {
                 <option value="clip">Clip</option>
                 <option value="ellipsis">Ellipsis</option>
               </select>
-            </label>
+            </PropertyRow>
             <p className="inspector-hint">
               Auto size changes the authored box. Shrink only reduces text to its minimum-size
               floor. Fit to width scales proportionally. Squeeze fills the box by deforming glyph
@@ -1038,19 +1227,29 @@ export function InspectorPanel() {
             <p className="inspector-hint">
               Raw SVG path data — paste a "d" attribute value. A visual path editor is future work.
             </p>
-            <label className="inspector-row inspector-row-stacked">
+            <PropertyRow
+              help={
+                "SVG path commands from a path's d attribute. These commands define the vector shape; paste path data rather than a complete SVG document."
+              }
+              className="inspector-row inspector-row-stacked"
+            >
               <span>Path Data (d)</span>
               <textarea
                 rows={3}
                 value={layer.element.d}
                 onChange={(e) => setElement({ d: e.target.value })}
               />
-            </label>
+            </PropertyRow>
             <PaintEditor
               value={evaluatedPaint ?? layer.element.fill}
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
-            <label className="inspector-row">
+            <PropertyRow
+              help={
+                'Rule for filling overlapping path contours. Even-odd commonly creates holes; Nonzero uses contour direction to decide which regions are filled.'
+              }
+              className="inspector-row"
+            >
               <span>Fill rule</span>
               <select
                 aria-label="Path fill rule"
@@ -1060,8 +1259,13 @@ export function InspectorPanel() {
                 <option value="nonzero">Nonzero winding</option>
                 <option value="evenodd">Even-odd holes</option>
               </select>
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Color of the vector path outline. Stroke Width determines whether and how strongly it is drawn.'
+              }
+              className="inspector-row"
+            >
               <span>Stroke Color</span>
               <input
                 type="color"
@@ -1072,36 +1276,56 @@ export function InspectorPanel() {
                 }
                 onChange={(e) => setElement({ strokeColor: e.target.value })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Thickness of the vector path outline in pixels. Zero draws the fill without an outline.'
+              }
+              className="inspector-row"
+            >
               <span>Stroke Width</span>
               <input
                 type="number"
                 value={layer.element.strokeWidth}
                 onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                "Width of the path's internal SVG coordinate system. It maps the path coordinates into the layer's displayed width."
+              }
+              className="inspector-row"
+            >
               <span>ViewBox W</span>
               <input
                 type="number"
                 value={layer.element.viewBoxWidth}
                 onChange={(e) => setElement({ viewBoxWidth: Number(e.target.value) })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                "Height of the path's internal SVG coordinate system. It maps the path coordinates into the layer's displayed height."
+              }
+              className="inspector-row"
+            >
               <span>ViewBox H</span>
               <input
                 type="number"
                 value={layer.element.viewBoxHeight}
                 onChange={(e) => setElement({ viewBoxHeight: Number(e.target.value) })}
               />
-            </label>
+            </PropertyRow>
           </>
         )}
         {layer.element.type === 'pattern' && (
           <>
-            <label className="inspector-row">
+            <PropertyRow
+              help={
+                'Shared procedural pattern used by this layer. Editing that pattern updates all linked fills, outlines and masks.'
+              }
+              className="inspector-row"
+            >
               <span>Shared pattern</span>
               <select
                 aria-label="Shared pattern"
@@ -1114,12 +1338,17 @@ export function InspectorPanel() {
                   </option>
                 ))}
               </select>
-            </label>
+            </PropertyRow>
             <PaintEditor
               value={evaluatedPaint ?? layer.element.fill}
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
-            <label className="inspector-row">
+            <PropertyRow
+              help={
+                'Color of the outlines around the repeated symbols. Outline width controls their thickness.'
+              }
+              className="inspector-row"
+            >
               <span>Outline color</span>
               <input
                 type="color"
@@ -1130,8 +1359,13 @@ export function InspectorPanel() {
                 }
                 onChange={(e) => setElement({ strokeColor: e.target.value })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                "Thickness of the repeated symbols' outlines in pixels. Zero hides the outlines."
+              }
+              className="inspector-row"
+            >
               <span>Outline width</span>
               <input
                 type="number"
@@ -1139,7 +1373,7 @@ export function InspectorPanel() {
                 value={layer.element.strokeWidth}
                 onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
               />
-            </label>
+            </PropertyRow>
             {composition.patterns
               .filter((p) => layer.element.type === 'pattern' && p.id === layer.element.patternId)
               .map((p) => (
@@ -1151,7 +1385,12 @@ export function InspectorPanel() {
         {layer.element.type === 'image-sequence' && (
           <>
             {composition.assets.length > 0 && (
-              <label className="inspector-row">
+              <PropertyRow
+                help={
+                  'Add an image resource as the next frame in this image sequence. Frame order determines the playback order.'
+                }
+                className="inspector-row"
+              >
                 <span>Add Frame</span>
                 <select
                   value=""
@@ -1167,7 +1406,7 @@ export function InspectorPanel() {
                     </option>
                   ))}
                 </select>
-              </label>
+              </PropertyRow>
             )}
             {sequenceFrames.length === 0 ? (
               <p className="inspector-hint">No frames yet — add images from Resources, in order.</p>
@@ -1190,28 +1429,43 @@ export function InspectorPanel() {
                 ))}
               </ul>
             )}
-            <label className="inspector-row">
+            <PropertyRow
+              help={
+                'Playback rate of the image sequence in frames per second. This is independent of the composition frame rate.'
+              }
+              className="inspector-row"
+            >
               <span>FPS</span>
               <input
                 type="number"
                 value={layer.element.fps}
                 onChange={(e) => setElement({ fps: Number(e.target.value) })}
               />
-            </label>
-            <label className="inspector-row">
+            </PropertyRow>
+            <PropertyRow
+              help={
+                'Repeat the image sequence when it reaches its last frame. Disable to play the sequence without repetition.'
+              }
+              className="inspector-row"
+            >
               <span>Loop</span>
               <input
                 type="checkbox"
                 checked={layer.element.loop}
                 onChange={(e) => setElement({ loop: e.target.checked })}
               />
-            </label>
+            </PropertyRow>
           </>
         )}
 
         {layer.element.type === 'lottie' && (
           <>
-            <label className="inspector-row inspector-row-stacked">
+            <PropertyRow
+              help={
+                "Load or replace this layer's Lottie animation from a JSON file. Its existing layer placement remains editable."
+              }
+              className="inspector-row inspector-row-stacked"
+            >
               <span>
                 {layer.element.animationData ? 'Replace Lottie JSON' : 'Choose Lottie JSON'}
               </span>
@@ -1230,7 +1484,7 @@ export function InspectorPanel() {
                     );
                 }}
               />
-            </label>
+            </PropertyRow>
             {layer.element.animationData ? (
               <p className="inspector-hint">
                 {layer.element.animationData.w} × {layer.element.animationData.h} ·{' '}
@@ -1241,7 +1495,12 @@ export function InspectorPanel() {
             ) : (
               <p className="inspector-hint">Import a self-contained Bodymovin/Lottie JSON file.</p>
             )}
-            <label className="inspector-row">
+            <PropertyRow
+              help={
+                'Playback speed multiplier for this Lottie animation. 1 uses its original timing; larger values play it faster.'
+              }
+              className="inspector-row"
+            >
               <span>Speed</span>
               <input
                 type="number"
@@ -1250,43 +1509,10 @@ export function InspectorPanel() {
                 value={layer.element.speed}
                 onChange={(event) => setElement({ speed: Math.max(0, Number(event.target.value)) })}
               />
-            </label>
+            </PropertyRow>
             <p className="inspector-hint">
               Playback loops continuously. Expressions and external image/font paths are disabled.
             </p>
-          </>
-        )}
-
-        {layer.element.type === 'image' && (
-          <>
-            {composition.assets.length > 0 && (
-              <label className="inspector-row">
-                <span>Resources</span>
-                <select
-                  value={composition.assets.find((a) => a.dataUri === imageSrc)?.id ?? ''}
-                  onChange={(e) => {
-                    const asset = composition.assets.find((a) => a.id === e.target.value);
-                    if (asset) setElement({ src: asset.dataUri });
-                  }}
-                >
-                  <option value="">Choose an imported image…</option>
-                  {composition.assets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label className="inspector-row inspector-row-stacked">
-              <span>Source URL</span>
-              <input
-                type="text"
-                placeholder="https://…"
-                value={layer.element.src ?? ''}
-                onChange={(e) => setElement({ src: e.target.value || null })}
-              />
-            </label>
           </>
         )}
       </div>

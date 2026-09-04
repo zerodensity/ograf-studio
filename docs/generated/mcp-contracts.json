@@ -5,7 +5,7 @@
     {
       "name": "ograf_get_capabilities",
       "title": "Get OGraf authoring capabilities",
-      "description": "Discover supported elements, easing, semantics, design systems, loops, bindings and editor health. Request only relevant sections; include editor before browser-dependent work. Health distinguishes connected, responsive and certificationReady. Higher layer indexes paint later; key easing is incoming.",
+      "description": "Discover element/easing/semantic/design/loop/binding contracts by section. Include editor before browser work: connected, responsive and certificationReady are distinct.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -241,7 +241,7 @@
     {
       "name": "ograf_sample_tracks",
       "title": "Sample resolved OGraf layer geometry",
-      "description": "Sample numeric tracks and procedural row offsets at selected frames without a browser. loopElapsedFrame supplies absolute on-air elapsed frames for local loops and patterns. Omitted layerIds selects all layers. Returns bounds and requested or animated properties. Read-only.",
+      "description": "Sample numeric tracks, shared lighting and row offsets without a browser. loopElapsedFrame is absolute on-air time. Omitted layerIds selects all. Returns bounds, effective properties and source light-loop frames.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -422,6 +422,28 @@
                 {
                   "type": "object",
                   "properties": {
+                    "type": { "type": "string", "const": "set_layer_lighting" },
+                    "compositionId": { "type": "string" },
+                    "layerId": { "type": "string" },
+                    "layerName": { "type": "string" },
+                    "link": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "propertyNames": { "type": "string" },
+                          "additionalProperties": {
+                            "anyOf": [{ "type": "string" }, { "type": "number" }]
+                          }
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  },
+                  "required": ["type", "link"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
                     "type": { "type": "string", "const": "add_effect" },
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
@@ -532,6 +554,18 @@
                     "patch": {
                       "type": "object",
                       "properties": {
+                        "lighting": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "propertyNames": { "type": "string" },
+                              "additionalProperties": {
+                                "anyOf": [{ "type": "number" }, { "type": "boolean" }]
+                              }
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "fitRows": { "type": "boolean" },
                         "name": { "type": "string", "minLength": 1 },
                         "width": { "type": "number" },
@@ -3072,7 +3106,7 @@
     {
       "name": "ograf_reset_project",
       "title": "Reset an OGraf project session",
-      "description": "Replaces an existing session with a fresh editable project. Requires confirm=true and the current expectedRevision. The reset is one agent transaction and can be reversed with ograf_undo. keepDataFields=true copies existing main-composition field definitions into the fresh project; it does not preserve layers or bindings.",
+      "description": "Reset an existing session in one undoable transaction; requires confirm=true and expectedRevision. keepDataFields copies main-composition fields, not layers or bindings.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3134,7 +3168,7 @@
     {
       "name": "ograf_import_asset",
       "title": "Import a workspace asset into OGraf",
-      "description": "Reads one image, font, CSS, or text file from the configured workspace root and atomically embeds it in composition.assets. Paths outside the workspace are rejected. The returned asset:<id> reference can be assigned to image layers or data fields. Files are capped at 32 MiB.",
+      "description": "Atomically embed one workspace image/font/CSS/text resource (max 32 MiB). Returns asset:<id> for layer sources or field defaults. Paths cannot leave the workspace.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3181,7 +3215,7 @@
     {
       "name": "ograf_import_svg_bundle",
       "title": "Import a portable Photoshop SVG bundle",
-      "description": "Reads exactly one SVG plus selected companion CSS, linked images, and font files from the configured workspace root. It embeds relative resources into a portable SVG, registers discovered fonts separately, and applies every asset in one revision-checked transaction. Paths outside the workspace are rejected; each file is capped at 32 MiB and the bundle at 64 MiB.",
+      "description": "Atomically import one workspace SVG with companion CSS/images/fonts. Embeds relative references and registers fonts. Paths cannot leave the workspace; limits are 32 MiB per file and 64 MiB total.",
       "inputSchema": {
         "type": "object",
         "properties": {

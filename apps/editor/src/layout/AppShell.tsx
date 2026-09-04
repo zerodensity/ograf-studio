@@ -1,3 +1,4 @@
+import { DetachedWindowsProvider } from './DetachedWindows';
 import { useCallback, useRef, useState } from 'react';
 import { Menubar } from '../panels/Menubar';
 import { Stage } from '../canvas/Stage';
@@ -20,20 +21,22 @@ export function AppShell() {
   };
 
   return (
-    <div className="app-shell">
-      <Menubar
-        closedDockPanes={closedDockPanes}
-        onToggleDockPane={(pane) =>
-          commandDockPane(pane, closedDockPanes.includes(pane) ? 'open' : 'close')
-        }
-      />
-      <DockWorkspace
-        paneCommand={dockPaneCommand}
-        onClosedPanesChange={updateClosedDockPanes}
-        center={<Stage />}
-      />
-      <AgentReviewPanel />
-      <NumericScrubController />
-    </div>
+    <DetachedWindowsProvider>
+      <div className="app-shell">
+        <Menubar
+          closedDockPanes={closedDockPanes}
+          onToggleDockPane={(pane) =>
+            commandDockPane(pane, closedDockPanes.includes(pane) ? 'open' : 'close')
+          }
+        />
+        <DockWorkspace
+          paneCommand={dockPaneCommand}
+          onClosedPanesChange={updateClosedDockPanes}
+          center={<Stage />}
+        />
+        <AgentReviewPanel />
+        <NumericScrubController />
+      </div>
+    </DetachedWindowsProvider>
   );
 }

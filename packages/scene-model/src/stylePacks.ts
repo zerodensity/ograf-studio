@@ -1,4 +1,10 @@
 import { applyDesignTokenBinding, syncDesignTokenFieldDefaults } from './designSystem';
+import { planStylePackPalette, applyStylePackPalette } from './stylePackPalette';
+import {
+  createStylePackRestore,
+  rememberPackProperty,
+  restorePackAppearance,
+} from './stylePackRestore';
 import type {
   Composition,
   DesignToken,
@@ -453,10 +459,13 @@ export function stylePackIdForComposition(composition: Composition): StylePackId
   return STYLE_PACK_IDS.includes(value as StylePackId) ? (value as StylePackId) : null;
 }
 
-/** Detaches the applied pack while retaining every already-materialized visual/timing value. */
-export function removeStylePack(
-  composition: Composition,
-): { packId: StylePackId; removedTokenIds: string[]; affectedLayerIds: string[] } | null {
+/** Restore recorded pre-pack styles; older sources without a baseline can only detach the pack. */
+export function removeStylePack(composition: Composition): {
+  packId: StylePackId;
+  removedTokenIds: string[];
+  affectedLayerIds: string[];
+  restored: boolean;
+} | null {
   const packId = stylePackIdForComposition(composition);
   if (!packId) return null;
   const pack = getStylePack(packId);
@@ -466,6 +475,8 @@ export function removeStylePack(
     .map((token) => token.id);
   const removed = new Set(removedTokenIds);
   const affectedLayerIds: string[] = [];
+  const restore = composition.designSystem.stylePackRestore;
+  delete composition.designSystem.stylePackColors;
   for (const layer of [
     ...composition.layers,
     ...composition.components.flatMap((component) => component.layers),
@@ -476,17 +487,34 @@ export function removeStylePack(
     );
     if (before !== layer.designTokenBindings.length) affectedLayerIds.push(layer.id);
   }
-  for (const field of [
-    ...composition.dataFields,
-    ...composition.components.flatMap((component) => component.dataFields),
-  ])
-    if (field.defaultTokenId && removed.has(field.defaultTokenId)) delete field.defaultTokenId;
   composition.designSystem.tokens = composition.designSystem.tokens.filter(
     (token) => !removed.has(token.id),
   );
   if (composition.designSystem.name === `${pack.name} Brand Kit`)
-    composition.designSystem.name = 'Brand Kit';
-  return { packId, removedTokenIds, affectedLayerIds };
+    composition.designSystem.name = restore?.name ?? 'Brand Kit';
+  affectedLayerIds.push(
+    ...restorePackAppearance(
+      composition,
+      new Set([...removed, ...(restore?.tokens.map((t) => t.token.id) ?? [])]),
+    ),
+  );
+  const remainingTokens = new Set(composition.designSystem.tokens.map((token) => token.id));
+  for (const field of [
+    ...composition.dataFields,
+    ...composition.components.flatMap((component) => component.dataFields),
+  ])
+    if (
+      field.defaultTokenId &&
+      removed.has(field.defaultTokenId) &&
+      !remainingTokens.has(field.defaultTokenId)
+    )
+      delete field.defaultTokenId;
+  return {
+    packId,
+    removedTokenIds,
+    affectedLayerIds: [...new Set(affectedLayerIds)],
+    restored: Boolean(restore),
+  };
 }
 
 function scaledValue(
@@ -554,6 +582,7 @@ function tokenKeyForProperty(
 }
 
 function bind(
+  composition: Composition,
   layer: Layer,
   tokenByKey: Map<string, DesignToken>,
   property: DesignTokenTargetProperty,
@@ -561,6 +590,7 @@ function bind(
   const key = tokenKeyForProperty(layer, property);
   const token = key ? tokenByKey.get(key) : undefined;
   if (!token) return false;
+  rememberPackProperty(composition, layer, property);
   const binding: DesignTokenBinding = { tokenId: token.id, targetProperty: property };
   layer.designTokenBindings = [
     ...layer.designTokenBindings.filter((candidate) => candidate.targetProperty !== property),
@@ -570,28 +600,34 @@ function bind(
   return true;
 }
 
-function materializeLayerStyle(layer: Layer, tokenByKey: Map<string, DesignToken>): boolean {
+function materializeLayerStyle(
+  composition: Composition,
+  layer: Layer,
+  tokenByKey: Map<string, DesignToken>,
+): boolean {
   let affected = false;
+  if (layer.isMaskOnly || layer.semantics.role === 'mask' || layer.lighting) return false;
+  if ('fill' in layer.element && typeof layer.element.fill !== 'string') return false;
   if (layer.element.type === 'rectangle') {
-    affected = bind(layer, tokenByKey, 'fill') || affected;
-    affected = bind(layer, tokenByKey, 'borderRadius') || affected;
+    affected = bind(composition, layer, tokenByKey, 'fill') || affected;
+    affected = bind(composition, layer, tokenByKey, 'borderRadius') || affected;
   } else if (
     layer.element.type === 'ellipse' ||
     layer.element.type === 'path' ||
     layer.element.type === 'pattern'
   ) {
-    affected = bind(layer, tokenByKey, 'fill') || affected;
+    affected = bind(composition, layer, tokenByKey, 'fill') || affected;
   } else if (layer.element.type === 'text') {
     for (const property of ['color', 'fontFamily', 'fontSize', 'fontWeight'] as const) {
-      affected = bind(layer, tokenByKey, property) || affected;
+      affected = bind(composition, layer, tokenByKey, property) || affected;
     }
     if (
       layer.element.strokeWidth > 0 ||
       layer.semantics.role === 'score' ||
       layer.semantics.role === 'value'
     ) {
-      affected = bind(layer, tokenByKey, 'strokeColor') || affected;
-      affected = bind(layer, tokenByKey, 'strokeWidth') || affected;
+      affected = bind(composition, layer, tokenByKey, 'strokeColor') || affected;
+      affected = bind(composition, layer, tokenByKey, 'strokeWidth') || affected;
     }
   }
   return affected;
@@ -603,7 +639,15 @@ export function applyStylePack(
   options: ApplyStylePackOptions = {},
 ): AppliedStylePack {
   const pack = getStylePack(packId);
+  if (!composition.designSystem.stylePackRestore && !stylePackIdForComposition(composition)) {
+    composition.designSystem.stylePackRestore = createStylePackRestore(
+      composition,
+      new Set(pack.tokens.map((token) => token.key)),
+    );
+  }
   const refreshTokens = options.refreshTokens ?? true;
+  const allowed = options.bindLayerIds ? new Set(options.bindLayerIds) : undefined;
+  const palette = planStylePackPalette(composition, allowed);
   const createdTokenIds: string[] = [];
   const tokenIds = {} as Record<StyleTokenKey, string>;
   for (const definition of pack.tokens) {
@@ -638,7 +682,6 @@ export function applyStylePack(
     syncDesignTokenFieldDefaults(composition, token.id);
   }
   composition.designSystem.name = `${pack.name} Brand Kit`;
-  const allowed = options.bindLayerIds ? new Set(options.bindLayerIds) : null;
   const tokenByKey = new Map(
     composition.designSystem.tokens.map((token) => [token.key, token] as const),
   );
@@ -652,13 +695,21 @@ export function applyStylePack(
     for (const binding of layer.designTokenBindings) {
       const token = packTokenById.get(binding.tokenId);
       if (!token) continue;
+      if (
+        binding.targetProperty === 'fill' &&
+        'fill' in layer.element &&
+        typeof layer.element.fill !== 'string'
+      )
+        continue;
+      rememberPackProperty(composition, layer, binding.targetProperty);
       applyDesignTokenBinding(layer, binding, token);
       affected.add(layer.id);
     }
   }
   for (const layer of composition.layers.filter((item) => !allowed || allowed.has(item.id))) {
-    if (materializeLayerStyle(layer, tokenByKey)) affected.add(layer.id);
+    if (materializeLayerStyle(composition, layer, tokenByKey)) affected.add(layer.id);
   }
+  for (const id of applyStylePackPalette(composition, palette, !allowed)) affected.add(id);
   const affectedLayerIds = [...affected];
   if (refreshTokens) {
     composition.updateTransitionFrames = resolveStylePackMotion(composition, packId).updateFrames;

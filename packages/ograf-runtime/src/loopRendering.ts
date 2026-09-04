@@ -6,6 +6,8 @@ import {
   EFFECT_ANIMATION_PROPERTIES,
   easedProgress,
   getLoopFrameAtElapsed,
+  patternLightLoopFrame,
+  applyPatternLighting,
   getTrackValueAtFrame,
   effectParameterValue,
   sampleEffectStack,
@@ -36,7 +38,9 @@ export function compiledLoopElapsedFrames(
   heldFrames = 0,
 ): number | undefined {
   const activation =
-    layer.element.type === 'pattern' ? { type: 'lifecycle' as const } : layer.loop?.activation;
+    layer.element.type === 'pattern' || layer.lighting
+      ? { type: 'lifecycle' as const }
+      : layer.loop?.activation;
   if (!activation) return undefined;
   const orderedLifecycle = [...descriptor.keyframes].sort(
     (left, right) => left.frame - right.frame,
@@ -171,9 +175,12 @@ export function sampleCompiledLayerVisualState(
   }
 
   const loop = layer.loop;
+  const lighting = layer.lighting?.definition.lighting;
   const localFrame =
     loop && loopElapsedFrames !== undefined
-      ? getLoopFrameAtElapsed(loop, loopElapsedFrames)
+      ? lighting?.enabled && layer.lighting
+        ? patternLightLoopFrame(loop, lighting, layer.lighting, loopElapsedFrames)
+        : getLoopFrameAtElapsed(loop, loopElapsedFrames)
       : undefined;
   if (loop && localFrame !== undefined) {
     for (const property of Object.keys(loop.tracks) as AnimatableLayerProperty[]) {
@@ -231,9 +238,11 @@ export function sampleCompiledLayerVisualState(
     ];
   }
 
+  const lit = layer.lighting
+    ? applyPatternLighting(lighting, layer.lighting, transform, effects)
+    : { transform, effects };
   return {
-    transform,
-    effects,
+    ...lit,
     paintTracks,
     paintFrame: 0,
     ...(layer.element.type === 'pattern' ? { patternFrame: loopElapsedFrames ?? 0 } : {}),

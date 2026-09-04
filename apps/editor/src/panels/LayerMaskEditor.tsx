@@ -1,3 +1,4 @@
+import { PropertyRow } from '../components/PropertyRow';
 import { useState } from 'react';
 import { maskSourceSupportsMode, type Composition, type Layer } from '@ograf-editor/scene-model';
 import { useProjectStore } from '../state/projectStore';
@@ -28,7 +29,12 @@ export function LayerMaskEditor({
   return (
     <>
       <h3 className="inspector-section">Layer mask</h3>
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Layer whose shape or transparency controls which parts of this layer are visible. Choose None to remove the mask.'
+        }
+        className="inspector-row"
+      >
         <span>Mask source</span>
         <select
           aria-label="Mask source"
@@ -50,10 +56,15 @@ export function LayerMaskEditor({
             </option>
           ))}
         </select>
-      </label>
+      </PropertyRow>
       {layer.mask && (
         <>
-          <label className="inspector-row">
+          <PropertyRow
+            help={
+              "Choose whether to mask by the source's transparency (Alpha) or vector outline (Path). The selected source must support the chosen mode."
+            }
+            className="inspector-row"
+          >
             <span>Mask mode</span>
             <select
               aria-label="Mask mode"
@@ -64,8 +75,13 @@ export function LayerMaskEditor({
               <option value="alpha">Alpha transparency</option>
               <option value="path">Path geometry</option>
             </select>
-          </label>
-          <label className="inspector-row inspector-checkbox-row">
+          </PropertyRow>
+          <PropertyRow
+            help={
+              'Reverse the mask so the normally hidden area becomes visible and the normally visible area is hidden.'
+            }
+            className="inspector-row inspector-checkbox-row"
+          >
             <span>Invert mask</span>
             <input
               aria-label="Invert mask"
@@ -74,7 +90,7 @@ export function LayerMaskEditor({
               checked={layer.mask.inverted}
               onChange={(e) => update({ ...layer.mask!, inverted: e.target.checked })}
             />
-          </label>
+          </PropertyRow>
           <p className="inspector-hint">
             {mode === 'alpha'
               ? 'Uses source transparency, opacity, blur and shadows.'
@@ -83,7 +99,12 @@ export function LayerMaskEditor({
           </p>
         </>
       )}
-      <label className="inspector-row inspector-checkbox-row">
+      <PropertyRow
+        help={
+          'Use this layer only as a mask source. Its own artwork is hidden from the final picture while it can still mask other layers.'
+        }
+        className="inspector-row inspector-checkbox-row"
+      >
         <span>Mask source only</span>
         <input
           aria-label="Mask source only"
@@ -92,7 +113,7 @@ export function LayerMaskEditor({
           checked={layer.isMaskOnly}
           onChange={(e) => setMaskOnly(layer.id, e.target.checked)}
         />
-      </label>
+      </PropertyRow>
       {(consumers.length > 0 || layer.isMaskOnly) && (
         <p className="inspector-hint">
           {layer.isMaskOnly ? 'Hidden from output; available to masks. ' : ''}

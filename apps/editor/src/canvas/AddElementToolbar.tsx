@@ -1,4 +1,5 @@
-import { useRef, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
+import { ImagePicker } from '../components/ImagePicker';
 import { parseLottieJson } from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore, type NewLayerKind } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
@@ -95,6 +96,7 @@ function ArrangeIcon({ action }: { action: LayerArrangeAction }) {
 }
 
 export function AddElementToolbar() {
+  const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const composition = useActiveComposition();
   const addLayer = useProjectStore((s) => s.addLayer);
   const addLowerThird = useProjectStore((s) => s.addLowerThird);
@@ -197,7 +199,7 @@ export function AddElementToolbar() {
             aria-label={`Add ${label}`}
             title={`Add ${label}`}
             data-tooltip={label}
-            onClick={() => select(addLayer(kind))}
+            onClick={() => (kind === 'image' ? setImagePickerOpen(true) : select(addLayer(kind)))}
           >
             <ElementIcon kind={kind} />
           </button>
@@ -220,6 +222,7 @@ export function AddElementToolbar() {
         hidden
         onChange={(event) => void importLottie(event)}
       />
+      {imagePickerOpen && <ImagePicker onClose={() => setImagePickerOpen(false)} />}
       {selectedLayerIds.length > 0 && (
         <div className="arrange-toolbar" role="group" aria-label="Arrange selected layers">
           {ARRANGE_ACTIONS.map(({ action, label }) => (

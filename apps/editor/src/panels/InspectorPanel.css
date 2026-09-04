@@ -337,7 +337,7 @@
 .inspector-row-stacked {
   min-height: 30px;
   display: grid;
-  grid-template-columns: minmax(118px, 42%) minmax(0, 1fr);
+  grid-template-columns: var(--property-label-width, minmax(118px, 42%)) minmax(0, 1fr);
   align-items: stretch;
   gap: 0;
   padding: 0;
@@ -389,7 +389,7 @@
 
 .inspector-alpha-control {
   min-height: 32px;
-  grid-template-columns: minmax(118px, 42%) minmax(70px, 1fr) 72px;
+  grid-template-columns: var(--property-label-width, minmax(118px, 42%)) minmax(0, 1fr) 72px;
   gap: 6px;
   margin: 0;
   padding: 0 6px 0 0;

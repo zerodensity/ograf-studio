@@ -253,12 +253,12 @@
 .preview-data-row {
   min-height: 30px;
   display: grid;
-  grid-template-columns: minmax(118px, 42%) minmax(0, 1fr);
+  grid-template-columns: var(--property-label-width, minmax(118px, 42%)) minmax(0, 1fr);
   gap: 0;
   border-bottom: 1px solid var(--border);
 }
 
-.preview-data-row > span {
+.preview-data-row > span:first-child {
   width: auto;
   height: 100%;
   display: flex;

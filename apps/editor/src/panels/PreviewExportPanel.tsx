@@ -1,3 +1,5 @@
+import { useEditorWindow } from '../layout/EditorWindow';
+import { PropertyRow } from '../components/PropertyRow';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   assembleManifest,
@@ -66,6 +68,7 @@ function successful(result: unknown): boolean {
 }
 
 export function PreviewExportPanel() {
+  const { window } = useEditorWindow();
   const project = useProjectStore((s) => s.project);
   const composition = useActiveComposition();
   const testValues = useTestDataStore((s) => s.values);
@@ -193,7 +196,7 @@ export function PreviewExportPanel() {
     const container = containerRef.current;
     if (!container) return;
     container.replaceChildren();
-    const el = document.createElement(tagName) as HTMLElement & Graphic;
+    const el = globalThis.document.createElement(tagName) as HTMLElement & Graphic;
     container.appendChild(el);
     graphicRef.current = el;
     setIsPreviewLoaded(false);
@@ -263,7 +266,7 @@ export function PreviewExportPanel() {
     }, 150);
 
     return () => window.clearTimeout(timeout);
-  }, [call, isPreviewLoaded, previewData]);
+  }, [call, isPreviewLoaded, previewData, window]);
 
   const handlePlayAction = (params: { delta?: number; goto?: number }) => {
     void call('playAction', params, async (g) => {
@@ -588,7 +591,11 @@ export function PreviewExportPanel() {
           {composition.dataFields.length > 0 && (
             <div className="preview-data-form">
               {composition.dataFields.map((field) => (
-                <label key={field.id} className="preview-data-row">
+                <PropertyRow
+                  help={`${field.description ? field.description + ' ' : ''}Value sent as ${field.key} by preview lifecycle actions. Use Load, Play or Update to test runtime data; this does not change the saved field default.`}
+                  key={field.id}
+                  className="preview-data-row"
+                >
                   <span>{field.label || field.key}</span>
                   <input
                     type="text"
@@ -597,7 +604,7 @@ export function PreviewExportPanel() {
                       setDataForm((prev) => ({ ...prev, [field.key]: e.target.value }))
                     }
                   />
-                </label>
+                </PropertyRow>
               ))}
             </div>
           )}
@@ -637,7 +644,12 @@ export function PreviewExportPanel() {
         <section className="data-panel-section">
           <h3>Typography & broadcast QA</h3>
           <div className="preview-controls-row">
-            <label className="preview-data-row">
+            <PropertyRow
+              help={
+                'Choose a reference image to overlay on the preview for visual comparison. This QA overlay is not included in the exported graphic.'
+              }
+              className="preview-data-row"
+            >
               <span>Source overlay</span>
               <select
                 value={comparisonAssetId}
@@ -652,9 +664,14 @@ export function PreviewExportPanel() {
                     </option>
                   ))}
               </select>
-            </label>
+            </PropertyRow>
             {comparisonAsset && (
-              <label className="preview-data-row">
+              <PropertyRow
+                help={
+                  'Opacity of the reference overlay, from 0 for invisible to 1 for fully opaque. Lower it to compare the reference with the rendered graphic.'
+                }
+                className="preview-data-row"
+              >
                 <span>Overlay opacity</span>
                 <input
                   type="range"
@@ -664,7 +681,7 @@ export function PreviewExportPanel() {
                   value={comparisonOpacity}
                   onChange={(event) => setComparisonOpacity(Number(event.target.value))}
                 />
-              </label>
+              </PropertyRow>
             )}
             {comparisonGeometry && (
               <span className="preview-step-indicator">
@@ -672,14 +689,19 @@ export function PreviewExportPanel() {
                 {Math.round(comparisonGeometry.x)}, {Math.round(comparisonGeometry.y)}
               </span>
             )}
-            <label className="preview-data-row">
+            <PropertyRow
+              help={
+                "Include interlaced-output checks in broadcast QA. This changes the checks, not the graphic's render mode or frame rate."
+              }
+              className="preview-data-row"
+            >
               <span>Interlaced</span>
               <input
                 type="checkbox"
                 checked={interlacedQa}
                 onChange={(event) => setInterlacedQa(event.target.checked)}
               />
-            </label>
+            </PropertyRow>
             <button type="button" disabled={isRunningQa} onClick={() => void handleBroadcastQa()}>
               {isRunningQa ? 'Testing…' : 'Run broadcast QA'}
             </button>
@@ -706,7 +728,12 @@ export function PreviewExportPanel() {
 
         <section className="data-panel-section">
           <h3>Export</h3>
-          <label className="preview-data-row">
+          <PropertyRow
+            help={
+              "Choose the playback modes advertised by the exported package: real-time, non-real-time or both. This output-only choice does not change the editable project's flags."
+            }
+            className="preview-data-row"
+          >
             <span>Export profile</span>
             <select
               value={exportProfileId}
@@ -718,7 +745,7 @@ export function PreviewExportPanel() {
                 </option>
               ))}
             </select>
-          </label>
+          </PropertyRow>
           <p className="panel-placeholder">
             Output-only profile: {exportProfile.mode}. The editable project render-mode flags and ID
             are not changed.

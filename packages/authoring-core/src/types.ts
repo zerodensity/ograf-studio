@@ -28,11 +28,18 @@ import type {
   NewLayerKind,
   LayerLoopActivation,
   Project,
-  TilingPattern,
+  PatternLightingLink,
+  TilingPatternPatch,
 } from '@ograf-editor/scene-model';
 import type { ProjectValidationResult } from '@ograf-editor/validation';
 
 export type AuthoringOperation =
+  | {
+      type: 'set_layer_lighting';
+      compositionId?: string;
+      layerId: string;
+      link: PatternLightingLink | null;
+    }
   | {
       type: 'add_effect';
       compositionId?: string;
@@ -65,7 +72,7 @@ export type AuthoringOperation =
       compositionId?: string;
       patternId?: string;
       id?: string;
-      patch: Partial<Omit<TilingPattern, 'id'>>;
+      patch: TilingPatternPatch;
       createLayer?: boolean;
     }
   | { type: 'remove_tiling_pattern'; compositionId?: string; patternId: string }

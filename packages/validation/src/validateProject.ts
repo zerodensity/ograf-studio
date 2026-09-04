@@ -6,6 +6,8 @@ import {
 import {
   layerMaskErrors,
   tilingPatternErrors,
+  layerLightingErrors,
+  stylePackColorLinkErrors,
   applyDesignTokenBinding,
   BLEND_MODES,
   inspectLottieAnimationData,
@@ -251,6 +253,7 @@ function validateFieldDefaultValue(
 
 function validateComposition(composition: Composition, errors: string[], warnings: string[]): void {
   const prefix = `Composition "${composition.name}"`;
+  for (const error of stylePackColorLinkErrors(composition)) errors.push(`${prefix}: ${error}`);
   const patternIds = new Set<string>();
   for (const pattern of composition.patterns) {
     if (patternIds.has(pattern.id)) errors.push(`${prefix}: duplicate pattern ID ${pattern.id}.`);
@@ -262,6 +265,8 @@ function validateComposition(composition: Composition, errors: string[], warning
     ...composition.layers,
     ...composition.components.flatMap((component) => component.layers),
   ]) {
+    for (const problem of layerLightingErrors(layer, composition.patterns))
+      errors.push(`${prefix}: ${problem}`);
     if (layer.element.type === 'pattern') {
       if (!patternIds.has(layer.element.patternId))
         errors.push(`${prefix}: layer "${layer.name}" references a missing pattern.`);

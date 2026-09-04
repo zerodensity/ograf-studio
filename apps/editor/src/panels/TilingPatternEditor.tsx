@@ -1,3 +1,5 @@
+import { PATTERN_NUMBER_HELP, SYMBOL_SIZE_HELP } from './propertyHelp';
+import { PropertyRow } from '../components/PropertyRow';
 import { useEffect, useState } from 'react';
 import {
   patternRows,
@@ -5,6 +7,7 @@ import {
   type PatternRowOverride,
 } from '@ograf-editor/scene-model';
 import { useProjectStore } from '../state/projectStore';
+import { PatternLightingEditor } from './PatternLightingEditor';
 
 export function TilingPatternEditor({
   pattern,
@@ -26,8 +29,14 @@ export function TilingPatternEditor({
       setError(e instanceof Error ? e.message : String(e));
     }
   };
-  const number = (label: string, key: keyof TilingPattern, min: number, max: number, step = 1) => (
-    <label className="inspector-row" key={key}>
+  const number = (
+    label: string,
+    key: keyof typeof PATTERN_NUMBER_HELP,
+    min: number,
+    max: number,
+    step = 1,
+  ) => (
+    <PropertyRow help={PATTERN_NUMBER_HELP[key]} className="inspector-row" key={key}>
       <span>{label}</span>
       <input
         aria-label={`Pattern ${label}`}
@@ -43,7 +52,7 @@ export function TilingPatternEditor({
         disabled={key === 'rowHeight' && pattern.fitRows}
         onChange={(e) => update({ [key]: Number(e.target.value) })}
       />
-    </label>
+    </PropertyRow>
   );
   const rows = patternRows(pattern);
   const override = (row: number, patch: Partial<PatternRowOverride>) => {
@@ -61,11 +70,22 @@ export function TilingPatternEditor({
         Shared source and motion. Changes update every linked pattern layer, including outlines and
         masks.
       </p>
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Name of this reusable pattern resource. Linked layers reference the same shared pattern.'
+        }
+        className="inspector-row"
+      >
         <span>Pattern name</span>
         <input value={pattern.name} onChange={(e) => update({ name: e.target.value })} />
-      </label>
-      <label className="inspector-row">
+      </PropertyRow>
+      <PatternLightingEditor pattern={pattern} frameRate={frameRate} />
+      <PropertyRow
+        help={
+          'Automatically calculate row height so the requested rows and row gaps fit the pattern canvas height. Disable to set Row height manually.'
+        }
+        className="inspector-row"
+      >
         <span>Fit rows to height</span>
         <input
           aria-label="Pattern fit rows"
@@ -73,7 +93,7 @@ export function TilingPatternEditor({
           checked={pattern.fitRows}
           onChange={(e) => update({ fitRows: e.target.checked })}
         />
-      </label>
+      </PropertyRow>
       {number('Rows', 'rows', 1, 32)}
       {number('Canvas width', 'width', 1, 16384)}
       {number('Canvas height', 'height', 1, 16384)}
@@ -82,7 +102,12 @@ export function TilingPatternEditor({
       {number('Spacing', 'gap', 0, 4096)}
       {number('Spacing variation', 'spacingVariation', 0, 1, 0.05)}
       {number('Seed', 'seed', 0, 2147483647)}
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Default travel direction for the pattern rows. Alternate makes neighboring rows move in opposite directions; per-row overrides can replace it.'
+        }
+        className="inspector-row"
+      >
         <span>Row direction</span>
         <select
           aria-label="Pattern direction"
@@ -93,7 +118,7 @@ export function TilingPatternEditor({
           <option value="right">All right</option>
           <option value="left">All left</option>
         </select>
-      </label>
+      </PropertyRow>
       {number('Cycle frames', 'cycleFrames', 1, 1000000)}
       <p className="inspector-hint">
         {(pattern.cycleFrames / frameRate).toFixed(3)} seconds per complete loop. Shorter cycles
@@ -121,7 +146,12 @@ export function TilingPatternEditor({
       {number('Offset Y', 'offsetY', -16384, 16384)}
       <details>
         <summary>Source symbols and sequence</summary>
-        <label className="inspector-row inspector-row-stacked">
+        <PropertyRow
+          help={
+            'Comma-separated symbol keys in repeating order, such as O, D, O. Each key must match a source symbol in this pattern.'
+          }
+          className="inspector-row inspector-row-stacked"
+        >
           <span>Sequence (symbol keys)</span>
           <input
             aria-label="Pattern sequence"
@@ -136,9 +166,15 @@ export function TilingPatternEditor({
               })
             }
           />
-        </label>
+        </PropertyRow>
         {pattern.sequence.map((entry, index) => (
-          <label className="inspector-row" key={index}>
+          <PropertyRow
+            help={
+              'Spacing multiplier after this symbol in the sequence. 1 uses the base spacing, 0 removes that gap, and larger values create a wider gap.'
+            }
+            className="inspector-row"
+            key={index}
+          >
             <span>
               {index + 1}. {entry.symbolKey} gap scale
             </span>
@@ -157,12 +193,17 @@ export function TilingPatternEditor({
                 })
               }
             />
-          </label>
+          </PropertyRow>
         ))}
         {pattern.symbols.map((symbol, index) => (
           <details key={symbol.key}>
             <summary>{symbol.key}</summary>
-            <label className="inspector-row inspector-row-stacked">
+            <PropertyRow
+              help={
+                'SVG path commands defining this source symbol. Every occurrence of this symbol in the pattern updates together.'
+              }
+              className="inspector-row inspector-row-stacked"
+            >
               <span>SVG path</span>
               <textarea
                 aria-label={`Pattern symbol ${symbol.key} path`}
@@ -176,9 +217,9 @@ export function TilingPatternEditor({
                   })
                 }
               />
-            </label>
+            </PropertyRow>
             {(['width', 'height', 'viewBoxWidth', 'viewBoxHeight'] as const).map((key) => (
-              <label className="inspector-row" key={key}>
+              <PropertyRow help={SYMBOL_SIZE_HELP[key]} className="inspector-row" key={key}>
                 <span>{key}</span>
                 <input
                   type="number"
@@ -192,9 +233,14 @@ export function TilingPatternEditor({
                     })
                   }
                 />
-              </label>
+              </PropertyRow>
             ))}
-            <label className="inspector-row">
+            <PropertyRow
+              help={
+                "Rule for filling this symbol's overlapping contours. Even-odd is useful for letter holes; Nonzero uses contour direction."
+              }
+              className="inspector-row"
+            >
               <span>Fill rule</span>
               <select
                 value={symbol.fillRule}
@@ -209,7 +255,7 @@ export function TilingPatternEditor({
                 <option value="evenodd">Even-odd</option>
                 <option value="nonzero">Nonzero</option>
               </select>
-            </label>
+            </PropertyRow>
             <button
               disabled={pattern.sequence.some((e) => e.symbolKey === symbol.key)}
               onClick={() => update({ symbols: pattern.symbols.filter((_, i) => i !== index) })}
@@ -252,7 +298,12 @@ export function TilingPatternEditor({
                 Row {row.row + 1} · {row.direction > 0 ? '→' : '←'}{' '}
                 {((row.period * row.cycles * frameRate) / pattern.cycleFrames).toFixed(2)} px/s
               </summary>
-              <label className="inspector-row">
+              <PropertyRow
+                help={
+                  "Override the travel direction for this row. This lets one row move differently from the pattern's default direction."
+                }
+                className="inspector-row"
+              >
                 <span>Direction</span>
                 <select
                   value={local?.direction ?? ''}
@@ -266,8 +317,13 @@ export function TilingPatternEditor({
                   <option value="right">Right</option>
                   <option value="left">Left</option>
                 </select>
-              </label>
-              <label className="inspector-row">
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Whole strip repeats traveled by this row during one complete loop. Zero keeps the row still; larger values increase its speed.'
+                }
+                className="inspector-row"
+              >
                 <span>Cycles</span>
                 <input
                   type="number"
@@ -276,8 +332,13 @@ export function TilingPatternEditor({
                   value={row.cycles}
                   onChange={(e) => override(row.row, { cycles: Number(e.target.value) })}
                 />
-              </label>
-              <label className="inspector-row">
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Starting offset for this row in strip turns, combined with the shared phase. A half turn shifts it by half a repeated strip.'
+                }
+                className="inspector-row"
+              >
                 <span>Phase</span>
                 <input
                   type="number"
@@ -285,8 +346,13 @@ export function TilingPatternEditor({
                   value={local?.phase ?? row.row * pattern.rowPhaseStep}
                   onChange={(e) => override(row.row, { phase: Number(e.target.value) })}
                 />
-              </label>
-              <label className="inspector-row">
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Horizontal scale of the symbols in this row. 1 keeps normal proportions; larger values make the symbols wider.'
+                }
+                className="inspector-row"
+              >
                 <span>Width scale</span>
                 <input
                   type="number"
@@ -296,8 +362,13 @@ export function TilingPatternEditor({
                   value={local?.widthScale ?? 1}
                   onChange={(e) => override(row.row, { widthScale: Number(e.target.value) })}
                 />
-              </label>
-              <label className="inspector-row">
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Additional blur in pixels for this row. Use a small amount to place some rows visually behind sharper rows.'
+                }
+                className="inspector-row"
+              >
                 <span>Soft focus</span>
                 <input
                   type="number"
@@ -307,7 +378,7 @@ export function TilingPatternEditor({
                   value={row.blur}
                   onChange={(e) => override(row.row, { blur: Number(e.target.value) })}
                 />
-              </label>
+              </PropertyRow>
               <button
                 onClick={() =>
                   update({ rowOverrides: pattern.rowOverrides.filter((o) => o.row !== row.row) })

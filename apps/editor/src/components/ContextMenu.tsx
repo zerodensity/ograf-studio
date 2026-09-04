@@ -1,3 +1,4 @@
+import { useEditorWindow } from '../layout/EditorWindow';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import './ContextMenu.css';
@@ -22,6 +23,7 @@ interface ContextMenuProps {
 }
 
 export function ContextMenu({ x, y, ariaLabel, items, onClose }: ContextMenuProps) {
+  const { window, document } = useEditorWindow();
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x, y });
 
@@ -35,7 +37,7 @@ export function ContextMenu({ x, y, ariaLabel, items, onClose }: ContextMenuProp
       y: Math.max(margin, Math.min(y, window.innerHeight - rect.height - margin)),
     });
     menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
-  }, [x, y]);
+  }, [x, y, window]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -56,7 +58,7 @@ export function ContextMenu({ x, y, ariaLabel, items, onClose }: ContextMenuProp
       window.removeEventListener('resize', onClose);
       document.removeEventListener('scroll', onClose, true);
     };
-  }, [onClose]);
+  }, [onClose, window, document]);
 
   return createPortal(
     <div

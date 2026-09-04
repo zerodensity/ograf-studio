@@ -9,7 +9,7 @@ describe('RealityHub-style configuration panes', () => {
 
     expect(css).toMatch(/\.inspector-section\s*\{[^}]*background: #252525;/s);
     expect(css).toMatch(
-      /\.inspector-row,\s*\.inspector-row-stacked\s*\{[^}]*display: grid;[^}]*grid-template-columns: minmax\(118px, 42%\) minmax\(0, 1fr\);/s,
+      /\.inspector-row,\s*\.inspector-row-stacked\s*\{[^}]*display: grid;[^}]*grid-template-columns: var\(--property-label-width, minmax\(118px, 42%\)\) minmax\(0, 1fr\);/s,
     );
     expect(css).toMatch(/\.inspector-grid,[^{]+\{\s*display: contents;/s);
   });
@@ -17,7 +17,8 @@ describe('RealityHub-style configuration panes', () => {
   it('uses the same label/value columns for Data and Preview overrides', () => {
     const dataCss = source('./panels/DataPanel.css');
     const previewCss = source('./panels/PreviewExportPanel.css');
-    const columns = /grid-template-columns: minmax\(118px, 42%\) minmax\(0, 1fr\);/;
+    const columns =
+      /grid-template-columns: var\(--property-label-width, minmax\(118px, 42%\)\) minmax\(0, 1fr\);/;
 
     expect(dataCss).toMatch(columns);
     expect(previewCss).toMatch(columns);

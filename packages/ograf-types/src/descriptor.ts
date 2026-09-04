@@ -48,6 +48,12 @@ export interface CompiledLayer {
   animationTracks: Partial<Record<AnimatableLayerProperty, CompiledLayerPropertyKeyframe[]>>;
   /** Deterministic local property clip; authoring IDs are retained only for source correlation. */
   loop?: LayerLoopClip | null;
+  /** Resolved shared controller; source curves and paint remain independent. */
+  lighting?:
+    | (import('@ograf-editor/scene-model').PatternLightingLink & {
+        definition: import('@ograf-editor/scene-model').TilingPattern;
+      })
+    | null;
   /** Ordered bindings; each target property may appear at most once. */
   bindings: CompiledLayerBinding[];
   /** Legacy editor-generated descriptors before document v11. */

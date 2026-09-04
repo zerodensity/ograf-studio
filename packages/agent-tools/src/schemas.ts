@@ -237,6 +237,10 @@ const fieldSchemaInputSchema: z.ZodType = z.lazy(() =>
 
 const tilingPatch = z
   .object({
+    lighting: z
+      .record(z.string(), z.union([z.number().finite(), z.boolean()]))
+      .nullable()
+      .optional(),
     fitRows: z.boolean().optional(),
     name: z.string().min(1).optional(),
     width: z.number().finite().optional(),
@@ -276,6 +280,13 @@ const effectPatchSchema = z
   .strict();
 
 export const authoringOperationSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('set_layer_lighting'),
+    compositionId,
+    layerId,
+    layerName,
+    link: z.record(z.string(), z.union([z.string(), z.number().finite()])).nullable(),
+  }),
   z.object({
     type: z.literal('add_effect'),
     compositionId,

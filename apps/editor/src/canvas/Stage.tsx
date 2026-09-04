@@ -40,6 +40,7 @@ import {
 } from '@ograf-editor/ograf-runtime';
 import { LayerNode } from './LayerNode';
 import { AddElementToolbar } from './AddElementToolbar';
+import { useImagePlacement } from '../state/useImagePlacement';
 import { useFitZoom } from './useFitZoom';
 import { parseCssTransform } from './transformGeometry';
 import { constrainedTranslation, dominantDragAxis, type DragAxis } from './axisConstrainedDrag';
@@ -69,6 +70,8 @@ import { isInteractiveShortcutTarget } from '../state/keyboardShortcuts';
 import './Stage.css';
 
 export function Stage({ style }: { style?: CSSProperties }) {
+  const imagePlacement = useImagePlacement();
+  const [draggingImages, setDraggingImages] = useState(false);
   const composition = useActiveComposition();
   const previewLoopLayerId = useTimelineStore((state) => state.previewLoopLayerId);
   const updateLayerTransform = useProjectStore((s) => s.updateLayerTransform);
@@ -696,7 +699,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
   useEffect(() => {
     const descriptor = compileDescriptor(composition, { includeGuides: true });
     const loopLayers = descriptor.layers.filter(
-      (layer) => layer.loop || layer.element.type === 'pattern',
+      (layer) => layer.loop || layer.lighting || layer.element.type === 'pattern',
     );
     if (loopLayers.length === 0) return;
     const parkedFrame = useTimelineStore.getState().currentFrame;
@@ -706,6 +709,9 @@ export function Stage({ style }: { style?: CSSProperties }) {
     if (!isPlaying && !previewLoopLayerId && !parkedAtStep) return;
     const previewTimeline = timelineRef.current;
     const previewMoveable = moveableRef.current;
+    const previewLightingPattern = descriptor.layers.find(
+      (layer) => layer.id === previewLoopLayerId,
+    )?.lighting?.patternId;
     const epoch = performance.now();
     let animationFrame = 0;
     const render = (now: number) => {
@@ -716,7 +722,12 @@ export function Stage({ style }: { style?: CSSProperties }) {
       const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
       for (const layer of descriptor.layers) {
         const elapsed =
-          layer.id === previewLoopLayerId && !timelineIsPlaying
+          (layer.id === previewLoopLayerId ||
+            (previewLightingPattern &&
+              (layer.lighting?.patternId === previewLightingPattern ||
+                (layer.element.type === 'pattern' &&
+                  layer.element.patternId === previewLightingPattern)))) &&
+          !timelineIsPlaying
             ? ((now - epoch) / 1000) * descriptor.frameRate
             : compiledLoopElapsedFrames(descriptor, layer, baseFrame, heldFrames);
         const state = sampleCompiledLayerVisualState(
@@ -788,6 +799,19 @@ export function Stage({ style }: { style?: CSSProperties }) {
     <section className="canvas-stage" style={style}>
       <AddElementToolbar />
       <div className="canvas-stage-workspace" ref={workspaceRef}>
+        {(draggingImages || imagePlacement.busy) && (
+          <div className="image-placement-banner" role="status">
+            {imagePlacement.busy ? 'Opening images…' : 'Drop images to add them here'}
+          </div>
+        )}
+        {imagePlacement.error && (
+          <div className="image-placement-banner image-placement-error" role="alert">
+            {imagePlacement.error}
+            <button type="button" onClick={imagePlacement.clearError}>
+              Dismiss
+            </button>
+          </div>
+        )}
         <div
           className={`canvas-stage-viewport${isPanning ? ' is-panning' : ''}`}
           ref={viewportRef}
@@ -796,6 +820,31 @@ export function Stage({ style }: { style?: CSSProperties }) {
           title="Mouse wheel or Ctrl/Command+plus/minus to zoom; middle-drag to pan"
           tabIndex={0}
           style={transparencyCheckerboardStyle(1)}
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes('Files')) {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = imagePlacement.busy ? 'none' : 'copy';
+              setDraggingImages(true);
+            }
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+              setDraggingImages(false);
+          }}
+          onDrop={(event) => {
+            if (!event.dataTransfer.types.includes('Files')) return;
+            event.preventDefault();
+            setDraggingImages(false);
+            const files = [...event.dataTransfer.files];
+            const bounds = pasteboardRef.current?.getBoundingClientRect();
+            if (files.length && bounds)
+              void imagePlacement.place(files, {
+                position: {
+                  x: (event.clientX - bounds.left) / zoom,
+                  y: (event.clientY - bounds.top) / zoom,
+                },
+              });
+          }}
           onPointerDownCapture={beginViewportPan}
           onPointerMoveCapture={updateViewportPan}
           onPointerUpCapture={endViewportPan}

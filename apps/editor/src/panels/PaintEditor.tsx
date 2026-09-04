@@ -1,3 +1,4 @@
+import { PropertyRow } from '../components/PropertyRow';
 import { createDefaultGradient, type GradientPaint, type Paint } from '@ograf-editor/scene-model';
 
 interface PaintEditorProps {
@@ -16,7 +17,12 @@ export function PaintEditor({ value, onChange }: PaintEditorProps) {
 
   return (
     <div className="paint-editor">
-      <label className="inspector-row">
+      <PropertyRow
+        help={
+          'Choose a solid, linear, radial or conic fill. Gradient fills expose colors and stops so light and shading can vary across the shape.'
+        }
+        className="inspector-row"
+      >
         <span>Fill</span>
         <select
           value={kind}
@@ -32,27 +38,37 @@ export function PaintEditor({ value, onChange }: PaintEditorProps) {
           <option value="radial">Radial gradient</option>
           <option value="conic">Conic gradient</option>
         </select>
-      </label>
+      </PropertyRow>
       {typeof value === 'string' ? (
-        <label className="inspector-row">
+        <PropertyRow
+          help={
+            'Solid fill color inside the shape. For multiple colors or moving highlights, switch the fill type to a gradient.'
+          }
+          className="inspector-row"
+        >
           <span>Color</span>
           <input
             type="color"
             value={asColor(value)}
             onChange={(event) => onChange(event.target.value)}
           />
-        </label>
+        </PropertyRow>
       ) : (
         <>
           {value.type !== 'radial' && (
-            <label className="inspector-row">
+            <PropertyRow
+              help={
+                'Gradient direction or rotation in degrees. Changing the angle moves the color transition around the shape without changing its outline.'
+              }
+              className="inspector-row"
+            >
               <span>Angle</span>
               <input
                 type="number"
                 value={value.angle}
                 onChange={(event) => updateGradient({ angle: Number(event.target.value) })}
               />
-            </label>
+            </PropertyRow>
           )}
           <div className="paint-stops">
             {value.stops.map((stop, index) => (

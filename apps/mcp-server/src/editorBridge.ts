@@ -2,7 +2,8 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import type { ExportArtifacts } from '@ograf-editor/codegen';
-import type { FieldValue, Project } from '@ograf-editor/scene-model';
+import { migrateProject, type FieldValue, type Project } from '@ograf-editor/scene-model';
+import { validateProject } from '@ograf-editor/validation';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AuthoringWorkspace } from './workspace';
 import type { ChatAgentController, ChatClientMessage } from './agent/chatAgent';
@@ -233,6 +234,7 @@ export class EditorBridge {
   #lastHeartbeatLatencyMs: number | null = null;
   #certificationRegistryHealthy = true;
   #editorBaselineInitialized = false;
+  #editorSyncError: string | null = null;
   #chatController: ChatAgentController | null = null;
 
   constructor(
@@ -293,12 +295,15 @@ export class EditorBridge {
       latencyMs,
       lastHeartbeat: this.#lastHeartbeatAt ? new Date(this.#lastHeartbeatAt).toISOString() : null,
       likelyCause: responsive ? null : 'tab-throttled',
-      certificationReady: responsive && this.#certificationRegistryHealthy,
-      certificationLikelyCause: !responsive
-        ? 'The editor is not responsive.'
-        : this.#certificationRegistryHealthy
-          ? null
-          : 'The page custom-element registry is unhealthy. Reload the editor tab.',
+      certificationReady:
+        responsive && this.#certificationRegistryHealthy && !this.#editorSyncError,
+      certificationLikelyCause:
+        this.#editorSyncError ??
+        (!responsive
+          ? 'The editor is not responsive.'
+          : this.#certificationRegistryHealthy
+            ? null
+            : 'The page custom-element registry is unhealthy. Reload the editor tab.'),
     };
   }
 
@@ -319,6 +324,7 @@ export class EditorBridge {
     }
     this.#socket = socket;
     this.#editorReady = false;
+    this.#editorSyncError = null;
     this.#heartbeatRequest = null;
     this.#lastHeartbeatAt = null;
     this.#lastHeartbeatLatencyMs = null;
@@ -336,7 +342,19 @@ export class EditorBridge {
         summary: change.summary,
       });
     });
-    socket.on('message', (raw) => this.#receive(raw.toString()));
+    socket.on('message', (raw) => {
+      if (this.#socket !== socket) return;
+      try {
+        this.#receive(raw.toString());
+      } catch (error) {
+        this.#editorSyncError = error instanceof Error ? error.message : String(error);
+        this.#editorReady = false;
+        this.#send({
+          type: 'editor.error',
+          message: `The editor update could not be synchronized: ${this.#editorSyncError}. Undo or correct the edit to reconnect.`,
+        });
+      }
+    });
     socket.on('close', () => {
       if (this.#socket !== socket) return;
       this.#socket = null;
@@ -374,6 +392,12 @@ export class EditorBridge {
     } catch {
       return;
     }
+    if (message.type === 'editor.hello' || message.type === 'editor.project') {
+      const candidate = migrateProject(message.project);
+      const validation = validateProject(candidate);
+      if (!validation.valid) throw new Error(validation.errors.slice(0, 3).join(' '));
+      message.project = candidate;
+    }
     if (message.type === 'editor.hello') {
       const session = this.workspace.get('editor');
       if (!this.#editorBaselineInitialized && session.revision === 0) {
@@ -391,6 +415,7 @@ export class EditorBridge {
         });
       }
       this.#editorBaselineInitialized = true;
+      this.#editorSyncError = null;
       this.#send({ type: 'editor.ack', revision: this.workspace.get('editor').revision });
       this.#pruneProposals();
       for (const pending of this.#proposals.values()) {
@@ -402,8 +427,9 @@ export class EditorBridge {
       return;
     }
     if (message.type === 'editor.project') {
-      this.#editorBaselineInitialized = true;
       this.workspace.setEditorProject(message.project, message.reason ?? message.type);
+      this.#editorBaselineInitialized = true;
+      this.#editorSyncError = null;
       this.#send({ type: 'editor.ack', revision: this.workspace.get('editor').revision });
       this.#editorReady = true;
       this.#requestHeartbeat();

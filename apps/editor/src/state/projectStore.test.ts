@@ -4,6 +4,20 @@ import { getActiveComposition, useProjectStore } from './projectStore';
 
 describe('project store authoring', () => {
   beforeEach(() => useProjectStore.getState().newProject());
+  it('applies and removes a pack through Immer with existing token links and rounded shapes', () => {
+    const store = useProjectStore.getState();
+    const id = store.addLayer('rectangle');
+    store.setLayerSemantics(id, { role: 'container' });
+    store.updateLayerElement(id, {
+      borderRadius: { topLeft: 4, topRight: 7, bottomLeft: 2, bottomRight: 3 },
+    });
+    const before = structuredClone(
+      useProjectStore.getState().project.compositions[0]!.layers[0]!.element,
+    );
+    expect(() => store.applyStylePack('sports')).not.toThrow();
+    expect(() => store.removeStylePack()).not.toThrow();
+    expect(useProjectStore.getState().project.compositions[0]!.layers[0]!.element).toEqual(before);
+  });
   it('removes the applied Brand Kit pack through the Resources action', () => {
     const store = useProjectStore.getState();
     store.applyStylePack('news');

@@ -9,7 +9,7 @@ import {
 import { AuthoringSession, RevisionConflictError } from './session';
 
 describe('AuthoringSession', () => {
-  it('removes an applied style pack without changing rendered values and restores it with undo', () => {
+  it('restores pre-pack styles on removal and reinstates the pack with undo', () => {
     const session = new AuthoringSession(createProject(), 'remove-pack');
     const applied = session.apply({
       expectedRevision: 0,
@@ -24,7 +24,7 @@ describe('AuthoringSession', () => {
     });
     expect(removed.project.compositions[0]!.designSystem.tokens).toEqual([]);
     expect(removed.project.compositions[0]!.layers[0]!.element).toEqual(
-      applied.project.compositions[0]!.layers[0]!.element,
+      createLayerOfKind('rectangle').element,
     );
     expect(session.undo(2).project).toEqual(applied.project);
   });

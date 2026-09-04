@@ -42,7 +42,7 @@ function stripFrontmatter(source: string): string {
 
 function projectSource(source: string): string {
   const banned = STRIPPED_IN_APP_GUIDANCE.map((value) => value.toLowerCase());
-  return stripFrontmatter(source)
+  return stripFrontmatter(source.replace(/\r\n?/g, '\n'))
     .split(/\r?\n\s*\r?\n/)
     .filter((paragraph) => {
       const normalized = paragraph.toLowerCase();

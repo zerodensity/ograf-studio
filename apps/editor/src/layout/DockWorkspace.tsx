@@ -17,6 +17,9 @@ import { DataPanel } from '../panels/DataPanel';
 import { PreviewExportPanel } from '../panels/PreviewExportPanel';
 import { TimelinePanel } from '../panels/TimelinePanel';
 import { ResizeHandle } from './ResizeHandle';
+import { PropertyColumnProvider } from '../components/PropertyRow';
+import { DetachablePane } from './DetachedWindows';
+import { useDetachedWindows } from './detachedWindowContext';
 import { useResizable } from './useResizable';
 import {
   activateDockPane,
@@ -68,6 +71,16 @@ function persistDockLayout(layout: DockLayoutState): void {
 }
 
 function PaneContent({ pane }: { pane: DockPaneId }) {
+  return (
+    <DetachablePane pane={pane}>
+      <PropertyColumnProvider key={pane} pane={pane}>
+        <PaneBody pane={pane} />
+      </PropertyColumnProvider>
+    </DetachablePane>
+  );
+}
+
+function PaneBody({ pane }: { pane: DockPaneId }) {
   switch (pane) {
     case 'layers':
       return <LayerListPanel />;
@@ -128,6 +141,11 @@ function DockGroup({
   onClose,
 }: DockGroupProps) {
   const suppressClickRef = useRef(false);
+  const detached = useDetachedWindows();
+  const visiblePanes = group.panes.filter((pane) => !detached.windows[pane]);
+  const activePane = visiblePanes.includes(group.activePane)
+    ? group.activePane
+    : (visiblePanes[0] ?? group.activePane);
 
   const beginPointerReorder = (
     event: ReactPointerEvent<HTMLButtonElement>,
@@ -208,11 +226,14 @@ function DockGroup({
   };
 
   return (
-    <section className="dock-group" style={{ flexGrow: group.weight }}>
+    <section
+      className={`dock-group${visiblePanes.length ? '' : ' detached-empty'}`}
+      style={{ flexGrow: group.weight }}
+    >
       <div
         className="dock-tabs"
         role="tablist"
-        aria-label={`${DOCK_PANE_LABELS[group.activePane]} pane group`}
+        aria-label={`${DOCK_PANE_LABELS[activePane]} pane group`}
         onDragEnter={(event) => {
           if (!draggingPane) return;
           event.preventDefault();
@@ -240,15 +261,15 @@ function DockGroup({
           if (pane) onDockIntoGroup(pane, group.id);
         }}
       >
-        {group.panes.map((pane) => (
+        {visiblePanes.map((pane) => (
           <button
             key={pane}
             type="button"
             role="tab"
             data-dock-pane={pane}
             data-dock-group={group.id}
-            className={pane === group.activePane ? 'active' : ''}
-            aria-selected={pane === group.activePane}
+            className={pane === activePane ? 'active' : ''}
+            aria-selected={pane === activePane}
             title="Drag to reorder, dock, or float · Double-click to float"
             onPointerDown={(event) => beginPointerReorder(event, pane)}
             onClick={() => {
@@ -297,10 +318,19 @@ function DockGroup({
         ))}
         <button
           type="button"
+          className="dock-pane-popout"
+          aria-label={`Open ${DOCK_PANE_LABELS[activePane]} in new window`}
+          title="Open in new window"
+          onClick={() => detached.open(activePane)}
+        >
+          ↗
+        </button>
+        <button
+          type="button"
           className="dock-pane-close"
-          aria-label={`Close ${DOCK_PANE_LABELS[group.activePane]}`}
-          title={`Close ${DOCK_PANE_LABELS[group.activePane]}`}
-          onClick={() => onClose(group.activePane)}
+          aria-label={`Close ${DOCK_PANE_LABELS[activePane]}`}
+          title={`Close ${DOCK_PANE_LABELS[activePane]}`}
+          onClick={() => onClose(activePane)}
         >
           ×
         </button>
@@ -309,10 +339,10 @@ function DockGroup({
         {group.panes.map((pane) => (
           <div
             key={pane}
-            className={`dock-pane-content${pane === group.activePane ? ' active' : ''}`}
+            className={`dock-pane-content${pane === activePane && !detached.windows[pane] ? ' active' : ''}`}
             role="tabpanel"
             aria-label={DOCK_PANE_LABELS[pane]}
-            hidden={pane !== group.activePane}
+            hidden={pane !== activePane || Boolean(detached.windows[pane])}
           >
             <PaneContent pane={pane} />
           </div>
@@ -329,6 +359,8 @@ interface DockRegionProps extends Omit<DockGroupProps, 'group'> {
 }
 
 function DockRegion({ zone, groups, onResizeGroups, ...groupProps }: DockRegionProps) {
+  const { windows } = useDetachedWindows();
+  const visibleGroups = groups.filter((group) => group.panes.some((pane) => !windows[pane]));
   const regionRef = useRef<HTMLDivElement>(null);
   const vertical = zone === 'left' || zone === 'right' || zone === 'bottom';
 
@@ -337,8 +369,9 @@ function DockRegion({ zone, groups, onResizeGroups, ...groupProps }: DockRegionP
     event.stopPropagation();
     const region = regionRef.current;
     if (!region) return;
-    const groupElements = [...region.children].filter((child) =>
-      child.classList.contains('dock-group'),
+    const groupElements = [...region.children].filter(
+      (child) =>
+        child.classList.contains('dock-group') && !child.classList.contains('detached-empty'),
     ) as HTMLElement[];
     const startSizes = groupElements.map((element) =>
       vertical ? element.getBoundingClientRect().height : element.getBoundingClientRect().width,
@@ -360,7 +393,7 @@ function DockRegion({ zone, groups, onResizeGroups, ...groupProps }: DockRegionP
       nextSizes[dividerIndex + 1] = afterSize - delta;
       onResizeGroups(
         zone,
-        Object.fromEntries(groups.map((group, index) => [group.id, nextSizes[index]!])),
+        Object.fromEntries(visibleGroups.map((group, index) => [group.id, nextSizes[index]!])),
       );
     };
     const handleUp = () => {
@@ -380,19 +413,20 @@ function DockRegion({ zone, groups, onResizeGroups, ...groupProps }: DockRegionP
   return (
     <div
       ref={regionRef}
-      className={`dock-region dock-region-${zone}${vertical ? ' vertical' : ' horizontal'}`}
+      className={`dock-region dock-region-${zone}${vertical ? ' vertical' : ' horizontal'}${visibleGroups.length ? '' : ' detached-empty'}`}
       aria-label={`${zone} dock region`}
     >
-      {groups.map((group, index) => (
+      {groups.map((group) => (
         <Fragment key={group.id}>
           <DockGroup group={group} {...groupProps} />
-          {index < groups.length - 1 ? (
+          {visibleGroups.includes(group) &&
+          visibleGroups.indexOf(group) < visibleGroups.length - 1 ? (
             <div
               className={`dock-group-resize-handle ${vertical ? 'row' : 'col'}`}
               role="separator"
               aria-orientation={vertical ? 'horizontal' : 'vertical'}
-              aria-label={`Resize ${DOCK_PANE_LABELS[group.activePane]} and ${DOCK_PANE_LABELS[groups[index + 1]!.activePane]}`}
-              onPointerDown={(event) => beginGroupResize(event, index)}
+              aria-label={`Resize ${DOCK_PANE_LABELS[group.activePane]} and ${DOCK_PANE_LABELS[visibleGroups[visibleGroups.indexOf(group) + 1]!.activePane]}`}
+              onPointerDown={(event) => beginGroupResize(event, visibleGroups.indexOf(group))}
             />
           ) : null}
         </Fragment>
@@ -440,6 +474,7 @@ function FloatingDockPane({
   onDock,
   onClose,
 }: FloatingDockPaneProps) {
+  const detached = useDetachedWindows();
   const beginMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest('button')) return;
     event.preventDefault();
@@ -492,7 +527,7 @@ function FloatingDockPane({
 
   return (
     <section
-      className="dock-floating-pane"
+      className={`dock-floating-pane${detached.windows[floating.pane] ? ' detached-empty' : ''}`}
       style={{
         left: floating.x,
         top: floating.y,
@@ -503,6 +538,15 @@ function FloatingDockPane({
       <div className="dock-floating-title" onPointerDown={beginMove}>
         <strong>{DOCK_PANE_LABELS[floating.pane]}</strong>
         <div>
+          <button
+            type="button"
+            aria-label={`Open ${DOCK_PANE_LABELS[floating.pane]} in new window`}
+            title="Open in new window"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => detached.open(floating.pane)}
+          >
+            ↗
+          </button>
           <button
             type="button"
             draggable
@@ -576,6 +620,7 @@ export function DockWorkspace({
 }) {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState(loadDockLayout);
+  const { windows: detachedWindows } = useDetachedWindows();
   const [draggingPane, setDraggingPane] = useState<DockPaneId | null>(null);
   const [dropTarget, setDropTarget] = useState<DockDropTarget | null>(null);
   const [movingFloatingPane, setMovingFloatingPane] = useState<DockPaneId | null>(null);
@@ -641,10 +686,12 @@ export function DockWorkspace({
     });
   }, [paneCommand]);
 
-  const hasLeft = layout.zones.left.length > 0;
-  const hasRight = layout.zones.right.length > 0;
-  const hasTop = layout.zones.top.length > 0;
-  const hasBottom = layout.zones.bottom.length > 0;
+  const visibleZone = (zone: DockZone) =>
+    layout.zones[zone].some((group) => group.panes.some((pane) => !detachedWindows[pane]));
+  const hasLeft = visibleZone('left');
+  const hasRight = visibleZone('right');
+  const hasTop = visibleZone('top');
+  const hasBottom = visibleZone('bottom');
 
   const beginDockDrag = (event: DragEvent, pane: DockPaneId) => {
     event.stopPropagation();
@@ -833,7 +880,7 @@ export function DockWorkspace({
       ref={workspaceRef}
       style={workspaceStyle}
     >
-      {hasTop ? (
+      {layout.zones.top.length > 0 ? (
         <DockRegion
           zone="top"
           groups={layout.zones.top}
@@ -844,7 +891,7 @@ export function DockWorkspace({
       {hasTop ? (
         <ResizeHandle axis="row" gridColumn="1 / -1" gridRow="2" onPointerDown={top.startDrag} />
       ) : null}
-      {hasLeft ? (
+      {layout.zones.left.length > 0 ? (
         <DockRegion
           zone="left"
           groups={layout.zones.left}
@@ -859,7 +906,7 @@ export function DockWorkspace({
       {hasRight ? (
         <ResizeHandle axis="col" gridColumn="4" gridRow="3" onPointerDown={right.startDrag} />
       ) : null}
-      {hasRight ? (
+      {layout.zones.right.length > 0 ? (
         <DockRegion
           zone="right"
           groups={layout.zones.right}
@@ -870,7 +917,7 @@ export function DockWorkspace({
       {hasBottom ? (
         <ResizeHandle axis="row" gridColumn="1 / -1" gridRow="4" onPointerDown={bottom.startDrag} />
       ) : null}
-      {hasBottom ? (
+      {layout.zones.bottom.length > 0 ? (
         <DockRegion
           zone="bottom"
           groups={layout.zones.bottom}

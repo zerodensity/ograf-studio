@@ -1,3 +1,4 @@
+import { PropertyRow } from '../components/PropertyRow';
 import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import {
   createFieldDefinition,
@@ -305,14 +306,18 @@ export function DataPanel() {
             </div>
             <div className="test-data-form">
               {composition.dataFields.map((field) => (
-                <label className="test-data-row" key={field.id}>
+                <PropertyRow
+                  help={`${field.description ? field.description + ' ' : ''}Test value for ${field.label || field.key} (${field.type}). Updates the editor preview without changing the field default or exported source.`}
+                  className="test-data-row"
+                  key={field.id}
+                >
                   <span>{field.label || field.key}</span>
                   <DefaultValueInput
                     field={field}
                     value={testValues[field.id] ?? field.defaultValue}
                     onChange={(value) => setTestValue(field.id, value)}
                   />
-                </label>
+                </PropertyRow>
               ))}
             </div>
           </section>

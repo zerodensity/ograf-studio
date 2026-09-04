@@ -63,6 +63,16 @@ export function compileDescriptor(
         composition.patterns,
       ),
       effects: layer.effects,
+      ...(layer.lighting
+        ? {
+            lighting: {
+              ...layer.lighting,
+              definition: structuredClone(
+                composition.patterns.find((p) => p.id === layer.lighting!.patternId)!,
+              ),
+            },
+          }
+        : {}),
       keyframes: layer.keyframes.map((keyframe) => ({
         id: keyframe.id,
         frame: keyframe.frame,

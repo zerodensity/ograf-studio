@@ -36,3 +36,5 @@ export * from './blendModes';
 export * from './fieldSchema';
 export * from './projectSource';
 export { createId } from './id';
+export * from './patternLighting';
+export * from './stylePackColorLinks';

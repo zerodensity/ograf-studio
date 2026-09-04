@@ -12,6 +12,7 @@ import { Panel } from './Panel';
 import { TilingPatternEditor } from './TilingPatternEditor';
 import { partitionResourceAssets } from './resourceTree';
 import './ResourcesPanel.css';
+import { useImagePlacement } from '../state/useImagePlacement';
 
 const formatBytes = (bytes = 0) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -20,6 +21,7 @@ const formatBytes = (bytes = 0) => {
 };
 
 export function ResourcesPanel() {
+  const imagePlacement = useImagePlacement();
   const composition = useActiveComposition();
   const addPattern = useProjectStore((s) => s.addLayer);
   const addPatternInstance = useProjectStore((s) => s.addPatternInstance);
@@ -274,6 +276,13 @@ export function ResourcesPanel() {
                           <span>{uses} use(s)</span>
                           <button
                             type="button"
+                            disabled={imagePlacement.busy}
+                            onClick={() => void imagePlacement.place({ assetId: asset.id })}
+                          >
+                            Add to canvas
+                          </button>
+                          <button
+                            type="button"
                             className="data-table-delete"
                             disabled={uses > 0}
                             onClick={() => removeAsset(asset.id)}
@@ -288,6 +297,11 @@ export function ResourcesPanel() {
               </div>
             )}
             <p className="inspector-hint">Select SVG companion files together when importing.</p>
+            {imagePlacement.error && (
+              <p className="image-placement-error" role="alert">
+                {imagePlacement.error}
+              </p>
+            )}
             {svgImportStatus && <p className="inspector-hint">{svgImportStatus}</p>}
           </ResourceTreeBranch>
 

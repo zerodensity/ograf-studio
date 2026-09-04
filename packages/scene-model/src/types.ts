@@ -141,6 +141,25 @@ export interface TilingPattern {
   symbols: PatternSymbol[];
   sequence: PatternEntry[];
   rowOverrides: PatternRowOverride[];
+  /** Optional shared light-loop clock and multipliers; absent preserves legacy rendering. */
+  lighting?: PatternLighting | null;
+}
+
+export interface PatternLighting {
+  enabled: boolean;
+  cycleFrames: number;
+  phase: number;
+  intensity: number;
+  glow: number;
+  softness: number;
+}
+export interface PatternLightingLink {
+  patternId: string;
+  role: 'light' | 'glow';
+  phaseOffset: number;
+  gain: number;
+  /** Whole sweeps per shared cycle, retaining deliberate speed differences. */
+  cyclesPerLoop: number;
 }
 export interface PatternElement {
   type: 'pattern';
@@ -322,6 +341,40 @@ export interface DesignTokenBinding {
 export interface DesignSystem {
   name: string;
   tokens: DesignToken[];
+  /** Authoring-only values replaced by the first applied pack, retained across pack switches. */
+  stylePackRestore?: StylePackRestoreState;
+  /** Active pack palette links to existing color controls and their authored consumers. */
+  stylePackColors?: StylePackColorLink[];
+}
+
+export interface StylePackColorLink {
+  sourceTokenId: string;
+  targetTokenId?: string;
+  targetFieldId?: string;
+  targets: Array<{ layerId: string; property: DesignTokenTargetProperty }>;
+  factor: number;
+  alpha: number;
+}
+
+export interface StylePackPropertyRestore {
+  property: DesignTokenTargetProperty;
+  value: Paint | CornerRadii | number;
+  minFontSize?: number;
+  bindings: DesignTokenBinding[];
+  constantKey?: { id: string; value: number };
+}
+export interface StylePackRestoreState {
+  name: string;
+  updateTransitionFrames: number;
+  tokens: Array<{ index: number; token: DesignToken }>;
+  layers: Array<{
+    layerId: string;
+    elementType: Element['type'];
+    properties: StylePackPropertyRestore[];
+    bindingOrder?: DesignTokenTargetProperty[];
+  }>;
+  fields: Array<{ fieldId: string; defaultValue: FieldValue; defaultTokenId?: string }>;
+  colorFieldIds?: string[];
 }
 
 /** Optional authoring link back to a reusable component snapshot. */
@@ -464,6 +517,8 @@ export interface Layer {
   animationTracks: LayerAnimationTracks;
   /** Optional deterministic local clip sampled while its OGraf lifecycle activation is current. */
   loop: LayerLoopClip | null;
+  /** Shares light-loop timing and strength without rewriting authored keys or paint. */
+  lighting?: PatternLightingLink | null;
   element: Element;
   /** Static CSS effects shared by editor preview and the exported runtime. */
   effects: LayerEffects;

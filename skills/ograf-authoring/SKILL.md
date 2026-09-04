@@ -5,11 +5,13 @@ description: Create, inspect, animate, review, validate, certify, save, and expo
 
 # OGraf Authoring
 
-Use OGraf Studio as the source of truth and keep every generated result editable in its canonical project model. Treat final OGraf certification as a hard gate, not a best-effort check.
+Use OGraf Studio's canonical editable model. Require final OGraf certification.
 
 If the MCP dependency is unavailable, use
 [references/setup.md](./references/setup.md) to start or recover the local editor and server. Do not
 replace the tools with raw file editing.
+
+Detached panes share one session; keep Studio open. See [multi-window guidance](./references/detached-windows.md).
 
 ## Required workflow
 
@@ -108,6 +110,9 @@ and shadow use reorderable compatibility slots and retain old tracks/bindings. R
 
 ## Procedural tiling with shared controls
 
+Shared lights: `set_tiling_pattern.patch.lighting` edits timing/intensity/glow; `set_layer_lighting`
+links loops. See [shared-lighting.md](./references/shared-lighting.md) for setup and limits.
+
 Brand Kit is a standalone dockable pane (Window → Brand Kit), separate from Resources. Color
 fields can set `defaultTokenId` to a color token ID on add/update, so Brand Kit edits also update
 OGraf defaults. Playback `updateAction` data overrides defaults without changing the authored kit.
@@ -156,12 +161,11 @@ reverse seeking in the exported graphic, preserving gradient alpha and the patte
   and motion-convention tokens remain editable starting points. Token links are authoring metadata;
   exported graphics have no style-pack runtime dependency. A recipe `stylePack` option applies the
   same vocabulary while explicit recipe theme/motion values remain deliberate overrides.
-- Use `remove_style_pack` when the user wants to remove the applied Brand Kit pack. It detaches
-  pack-token bindings from layers and component snapshots, removes the pack's named tokens, and
-  preserves materialized styles, animation, update timing and unrelated custom tokens. A default
-  pack kit name returns to `Brand Kit`; a custom kit name is retained. It does not restore the
-  appearance from before the pack was applied. The operation is undoable and available in the UI
-  under Brand Kit → Remove applied pack.
+- Packs recolor existing controls and GDD defaults while retaining gradient alpha/shading and motion.
+  Parent swatch edits propagate. `remove_style_pack` restores recorded fonts, colors, bindings,
+  tokens/defaults and timing; content/layout edits survive. The baseline persists across pack
+  switches and `.ogs` reloads. Legacy packs without a baseline only detach. See
+  [style-packs.md](./references/style-packs.md) for color routing and restoration limits.
 - Text outlines use static `strokeColor` plus an independent, non-negative numeric `strokeWidth`
   track. Use them for legibility over unpredictable video, especially sports and score graphics.
   Keep `paint-order: stroke fill` semantics by authoring through Studio rather than simulating an
@@ -277,7 +281,6 @@ reverse seeking in the exported graphic, preserving gradient alpha and the patte
   property keys; report keys left at the old boundary or outside a shortened End.
 - Treat `set_transition` warnings as actionable: duration changes can strand property keys at a
   moved lifecycle frame or outside the new duration. Retiming is never implicit.
-- Use `linear` when the user requests no easing.
 - Omitted easing on newly authored generic keys and transitions is linear. Recipes must specify any
   intentional non-linear entrance, exit, update, or loop motion explicitly.
 - Preserve Start and End lifecycle states. Only Step states are pausable OGraf steps.
@@ -291,8 +294,6 @@ reverse seeking in the exported graphic, preserving gradient alpha and the patte
   the MCP origin for a standalone server, or localhost:5173 for the separate Vite development setup.
 
 ## References
-
-All reference paths are relative to this skill's own directory.
 
 - Read [references/tool-workflows.md](./references/tool-workflows.md) for operation shapes and task sequences.
 - Read [references/ograf-invariants.md](./references/ograf-invariants.md) before lifecycle, timing, data-binding, or export work.

@@ -767,6 +767,10 @@ function projectFromDescriptor(
         getResolvedLayerAnimationTracks(layer).strokeWidth?.map((key) => ({ ...key })) ?? [];
     }
     layer.loop = compiled.loop ? clone(compiled.loop) : null;
+    if (compiled.lighting) {
+      const { definition: _definition, ...link } = compiled.lighting;
+      layer.lighting = clone(link);
+    }
     const compiledBindings = compiled.bindings ?? (compiled.binding ? [compiled.binding] : []);
     for (const binding of compiledBindings) {
       let field = fieldByKey.get(binding.dataKey);
@@ -848,13 +852,18 @@ function projectFromDescriptor(
     dataFields,
     runtimeCollections,
     patterns: [
-      ...new Map(
-        layers.flatMap((layer) =>
+      ...new Map([
+        ...compiledEntries.flatMap(({ compiled }) =>
+          compiled.lighting?.definition
+            ? [[compiled.lighting.definition.id, clone(compiled.lighting.definition)] as const]
+            : [],
+        ),
+        ...layers.flatMap((layer) =>
           layer.element.type === 'pattern' && layer.element.definition
             ? [[layer.element.definition.id, layer.element.definition] as const]
             : [],
         ),
-      ).values(),
+      ]).values(),
     ],
     customActions: importCustomActions(manifest),
     assets,

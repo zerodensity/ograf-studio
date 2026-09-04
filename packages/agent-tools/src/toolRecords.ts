@@ -31,7 +31,8 @@ import {
   createProject,
   fieldDefinitionAtPath,
   getLayerPropertyValueAtFrame,
-  getLoopPropertyValueAtElapsed,
+  getLayerPropertyWithLighting,
+  patternLightLoopFrame,
   getLayerAnimatableProperties,
   getEbuR95SafeAreas,
   getStylePack,
@@ -511,6 +512,7 @@ function inspectComposition(composition: Composition) {
       clipChildren: layer.clipChildren,
       isMaskOnly: layer.isMaskOnly,
       mask: layer.mask,
+      lighting: layer.lighting ?? null,
       constraints: layer.constraints,
       semantics: layer.semantics,
       designTokenBindings: layer.designTokenBindings,
@@ -937,6 +939,14 @@ function normalizeOperationSelectors(
         delete operation.patternName;
       }
       if (!operation.patternId) operation.id = createId('pattern');
+    }
+    if (operation.type === 'set_layer_lighting' && operation.link) {
+      operation.link = {
+        phaseOffset: 0,
+        gain: 1,
+        cyclesPerLoop: 1,
+        ...(operation.link as Record<string, unknown>),
+      };
     }
     if (operation.type === 'add_effect' || operation.type === 'duplicate_effect')
       operation.id = createId('fx');
@@ -1429,7 +1439,7 @@ export function createOGrafToolRecords(
     {
       title: 'Get OGraf authoring capabilities',
       description:
-        'Discover supported elements, easing, semantics, design systems, loops, bindings and editor health. Request only relevant sections; include editor before browser-dependent work. Health distinguishes connected, responsive and certificationReady. Higher layer indexes paint later; key easing is incoming.',
+        'Discover element/easing/semantic/design/loop/binding contracts by section. Include editor before browser work: connected, responsive and certificationReady are distinct.',
       inputSchema: {
         sections: z.array(z.enum(CAPABILITY_SECTIONS)).min(1).optional(),
       },
@@ -1729,7 +1739,7 @@ export function createOGrafToolRecords(
             motion: pack.motion,
           })),
           stylePackSemantics:
-            'Catalog definitions are immutable. apply_style_pack copies editable tokens into the composition and materializes compatible semantic layer properties; recipes may consume the same editable motion/type/palette vocabulary. remove_style_pack removes the applied pack tokens and links while preserving materialized appearance, timing and unrelated custom tokens. Nothing proprietary enters runtime output.',
+            'apply_style_pack maps colors through existing Brand Kit tokens and root color-field bindings, including gradients and shared lights. Gradient topology, alpha, tonal ratios and motion survive. Parent palette edits propagate through stylePackColors links. Shared color fields use one consistent palette role, preferring accents over surfaces. remove_style_pack restores recorded fonts, colors, bindings/tokens/defaults and timing; pack switches retain the original baseline. Legacy sources without a baseline can only detach. Runtime data still overrides defaults.',
         },
         loopAnimation: {
           operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
@@ -1832,7 +1842,20 @@ export function createOGrafToolRecords(
           catalog: EFFECT_CATALOG,
         },
         tiling: {
-          operations: ['set_tiling_pattern', 'remove_tiling_pattern', 'add_layer kind=pattern'],
+          operations: [
+            'set_tiling_pattern',
+            'remove_tiling_pattern',
+            'set_layer_lighting',
+            'add_layer kind=pattern',
+          ],
+          lighting: {
+            settings:
+              'set_tiling_pattern.patch.lighting merges a partial settings object: {enabled,cycleFrames:1..1000000,phase:0..1,intensity:0..4,glow:0..4,softness:0..4}. Independent of row motion; defaults are enabled, one eighth of the row cycle, phase 0, multipliers 1.',
+            linking:
+              'set_layer_lighting takes layerId or exact layerName and link:{patternId,role:light|glow,phaseOffset:0..1,gain:0..4,cyclesPerLoop:1..64}. link:null detaches. Create the controller first; source layers may be any kind.',
+            sampling:
+              'Existing infinite lifecycle loop curves are sampled over the shared light cycle without retiming keys. Static light layers are also supported. Intensity multiplies sampled layer opacity; glow multiplies glow-role opacity, softness scales their existing blur/shadow/glow radius. Colors and pattern row clocks remain independent. Disable bypasses the controller. Unlink before removing its pattern.',
+          },
           creation:
             'set_tiling_pattern with patch:{} creates an editable O/D pattern and a linked layer by default. Set createLayer:false for a definition only. Returns pattern and layer IDs.',
           editing:
@@ -2167,6 +2190,7 @@ export function createOGrafToolRecords(
             groupId: layer.groupId,
             parentId: layer.parentId,
             mask: layer.mask,
+            lighting: layer.lighting ?? null,
             isMaskOnly: layer.isMaskOnly,
             maskConsumers: composition.layers
               .filter((candidate) => candidate.mask?.sourceLayerId === layer.id)
@@ -2269,7 +2293,7 @@ export function createOGrafToolRecords(
     {
       title: 'Sample resolved OGraf layer geometry',
       description:
-        'Sample numeric tracks and procedural row offsets at selected frames without a browser. loopElapsedFrame supplies absolute on-air elapsed frames for local loops and patterns. Omitted layerIds selects all layers. Returns bounds and requested or animated properties. Read-only.',
+        'Sample numeric tracks, shared lighting and row offsets without a browser. loopElapsedFrame is absolute on-air time. Omitted layerIds selects all. Returns bounds, effective properties and source light-loop frames.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2314,18 +2338,19 @@ export function createOGrafToolRecords(
                   )
                 : undefined;
             const pose = { ...getLayerTransformAtFrame(layer, frame) };
-            const valueAt = (property: Parameters<typeof getLayerPropertyValueAtFrame>[1]) => {
-              const base = getLayerPropertyValueAtFrame(layer, property, frame);
-              return layer.loop && loopElapsedFrame !== undefined
-                ? getLoopPropertyValueAtElapsed(layer.loop, property, loopElapsedFrame, base)
-                : base;
-            };
-            if (layer.loop && loopElapsedFrame !== undefined) {
-              for (const property of TRANSFORM_ANIMATION_PROPERTIES) {
-                if ((layer.loop.tracks[property]?.length ?? 0) > 0)
-                  pose[property] = valueAt(property);
-              }
-            }
+            const valueAt = (property: Parameters<typeof getLayerPropertyValueAtFrame>[1]) =>
+              getLayerPropertyWithLighting(
+                layer,
+                composition.patterns,
+                property,
+                frame,
+                loopElapsedFrame,
+              );
+            for (const property of TRANSFORM_ANIMATION_PROPERTIES)
+              pose[property] = valueAt(property);
+            const lighting = composition.patterns.find(
+              (p) => p.id === layer.lighting?.patternId,
+            )?.lighting;
             const resolvedProperties =
               properties ??
               getLayerAnimatableProperties(layer).filter(
@@ -2345,6 +2370,23 @@ export function createOGrafToolRecords(
                 bottom: pose.y + pose.height,
               },
               opacity: pose.opacity,
+              ...(layer.lighting
+                ? {
+                    lighting: {
+                      ...layer.lighting,
+                      settings: lighting,
+                      sourceLoopFrame:
+                        layer.loop && lighting?.enabled && loopElapsedFrame !== undefined
+                          ? patternLightLoopFrame(
+                              layer.loop,
+                              lighting,
+                              layer.lighting,
+                              loopElapsedFrame,
+                            )
+                          : null,
+                    },
+                  }
+                : {}),
               ...(pattern
                 ? {
                     patternRows: patternRows(pattern).map((row) => ({
@@ -3155,7 +3197,7 @@ export function createOGrafToolRecords(
     {
       title: 'Reset an OGraf project session',
       description:
-        'Replaces an existing session with a fresh editable project. Requires confirm=true and the current expectedRevision. The reset is one agent transaction and can be reversed with ograf_undo. keepDataFields=true copies existing main-composition field definitions into the fresh project; it does not preserve layers or bindings.',
+        'Reset an existing session in one undoable transaction; requires confirm=true and expectedRevision. keepDataFields copies main-composition fields, not layers or bindings.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3220,7 +3262,7 @@ export function createOGrafToolRecords(
     {
       title: 'Import a workspace asset into OGraf',
       description:
-        'Reads one image, font, CSS, or text file from the configured workspace root and atomically embeds it in composition.assets. Paths outside the workspace are rejected. The returned asset:<id> reference can be assigned to image layers or data fields. Files are capped at 32 MiB.',
+        'Atomically embed one workspace image/font/CSS/text resource (max 32 MiB). Returns asset:<id> for layer sources or field defaults. Paths cannot leave the workspace.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3316,7 +3358,7 @@ export function createOGrafToolRecords(
     {
       title: 'Import a portable Photoshop SVG bundle',
       description:
-        'Reads exactly one SVG plus selected companion CSS, linked images, and font files from the configured workspace root. It embeds relative resources into a portable SVG, registers discovered fonts separately, and applies every asset in one revision-checked transaction. Paths outside the workspace are rejected; each file is capped at 32 MiB and the bundle at 64 MiB.',
+        'Atomically import one workspace SVG with companion CSS/images/fonts. Embeds relative references and registers fonts. Paths cannot leave the workspace; limits are 32 MiB per file and 64 MiB total.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3394,7 +3436,7 @@ export function createOGrafToolRecords(
     {
       title: 'Apply atomic OGraf authoring operations',
       description:
-        'Atomically applies scene, timeline, semantic recipe, style-pack, finite repeater, runtime collection, brand-token, loop, recursive GDD data, lifecycle, asset, duplication, component, and canvas-layout operations using expectedRevision. Creation returns stable IDs. apply_style_pack copies editable News/Sports/Entertainment/Documentary tokens and materializes compatible semantic layers. remove_style_pack detaches the applied pack and its token links while preserving appearance, timing and unrelated custom tokens. create_lower_third/create_bug/create_ticker/create_scoreboard/create_clock/create_repeater create ordinary editable grouped output; ticker crawl motion is a clipped local loop. create_runtime_collection registers one contiguous grouped prototype against an object-item array, explicit per-item offset, bounded capacity, and truncate overflow; item bindings use sourcePath segments and remain deterministic under scheduled goToTime seeking. Design-token links and linked-component metadata are authoring-only, while values and refreshed instances remain standard portable OGraf content. Lifecycle rename/move/remove uses the shared retiming planner. group_layers/ungroup_layers persist canvas groups; collection prototypes must be removed from their collection before destructive ungroup/delete operations. set_layer_mask applies an alpha or path source (sourceLayerId or exact sourceLayerName), supports inversion and source-only visibility; sourceLayerId:null detaches. Path fills accept the same gradients and stop tracks as rectangles. set_layer_loop writes deterministic local clips. create_timeline_group is editor-only organization. add_asset returns asset:<id>. Single-layer operations accept layerId or exact layerName; exact layerName, fieldKey, and tokenKey selectors can resolve entities created earlier in the same batch. update_transform/update_effects default scope="authored"; scope="frame" requires frame. duplicate_group creates independent grouped copies. dryRun is revision-neutral and atomic. Higher indexes paint later/on top; property easing is incoming. Every authoring warning is returned verbatim.',
+        'Apply a revision-checked atomic batch across scene/lifecycle tracks and loops, masks, gradients, effects, shared pattern geometry/lighting, Brand Kits, components, collections, assets and layout. Discover capabilities for domain contracts. Single-layer operations take layerId or exact layerName; creation returns stable IDs. preview renders, propose awaits editor acceptance, dry-run does not commit. Transform/effect updates default to all authored lifecycle frames; scope:frame requires frame. Independent keys are never implicitly retimed. All warnings are returned.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
