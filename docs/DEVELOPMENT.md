@@ -149,11 +149,10 @@ bundle so tests work in a fresh clone.
 - `packages/ograf-runtime` — descriptor-driven OGraf `Graphic` custom element.
 - `packages/validation` — official-schema and semantic validation.
 - `skills/ograf-authoring` — reusable MCP authoring skill and references.
-- `docs/generated` — generated MCP tool/schema contracts and in-app system prompt; regenerate
+- `docs/generated` — generated public MCP tool/schema contracts; regenerate
   instead of editing by hand.
 - `templates` — example editable sources and OGraf packages.
 - `fixtures/ograf-schema` — vendored OGraf schema closure used by validation.
 
-See [docs/STATUS.md](STATUS.md) for the current capability inventory,
-[docs/ARCHITECTURE.md](ARCHITECTURE.md) for design invariants, and
-[docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md) for active limitations.
+See [Using Studio](USER_GUIDE.md) for supported workflows and compatibility notes,
+and [Contributing](../CONTRIBUTING.md) for community development guidance.

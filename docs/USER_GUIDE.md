@@ -88,14 +88,23 @@ Properties. The first supported profile is intentionally deterministic and porta
   payloads, and luma mattes are rejected. Export images inside the JSON as data URIs, use alpha
   mattes, or convert artwork to shapes/glyphs.
 
-A small compatible animation is included at `examples/lottie/pulse.json`. The pinned
-[Lottie reliability benchmark](benchmarks/2026-09-04-lottie-reliability.md) separates light/full
-Canvas fidelity, repeatability, and exported-runtime evidence. Marker control, one-shot playback,
-dynamic Lottie text/data binding, separate image folders, renderer selection, and target-device
-certification remain deferred.
+A small compatible animation is included at `examples/lottie/pulse.json`. Marker control, one-shot
+playback, dynamic Lottie text/data binding and renderer selection are not supported. Test your
+exported graphic in the intended playout environment.
 
 ## Editing and animation
 
 For vector points and handles, see the [path-editing guide](../skills/ograf-authoring/references/path-editing.md).
-For the full capability inventory and current behavior, see [Current status](STATUS.md).
-Check [Known issues](KNOWN_ISSUES.md) before planning a target playout workflow.
+For recent changes, see the [release notes](releases/0.14.md).
+
+## Compatibility notes
+
+- Importing arbitrary third-party OGraf packages is best-effort; opaque JavaScript cannot always
+  be recovered as editable layers.
+- Package font assets when consistent typography across computers matters.
+- Refreshing a linked component replaces its local content/style edits. Use independent instances
+  when those edits must be retained.
+- Runtime collections have explicit capacity and truncate overflow. Validate representative data
+  and test the exported package with your target player.
+- Large embedded assets can exhaust browser storage. Save editable source regularly.
+- Browser certification and visual captures require a responsive Studio window.

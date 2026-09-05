@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { format, resolveConfig } from 'prettier';
 import { generateInAppPrompt } from '../packages/agent-tools/src/inAppPromptProjection';
@@ -43,7 +43,6 @@ async function main() {
     }
     return;
   }
-  await mkdir(resolve(process.cwd(), 'docs/generated'), { recursive: true });
   await Promise.all(targets.map((target) => writeFile(target.path, target.content, 'utf8')));
   console.log(`Generated in-app prompt: ~${files.estimatedTokens} tokens.`);
 }

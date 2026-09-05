@@ -84,8 +84,7 @@ interface DirectLifecycleTransition {
  * The generic, descriptor-driven `Graphic` implementation — interprets a CompiledGraphicDescriptor
  * rather than being generated per-project. The SAME class (via this same npm-published/bundled
  * source) drives both the editor's in-app preview harness and every exported package's `main.js`,
- * which is what guarantees the two can never diverge (see docs/PLAN.md, "Runtime is interpreted,
- * not templated per-project").
+ * keeping preview and exported playback on the same interpreter.
  *
  * Custom Elements can't take constructor arguments (the browser calls `new SubClass()` with no
  * args when upgrading/creating one), so the descriptor is read via a `static descriptor` on the

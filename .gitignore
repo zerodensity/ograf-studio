@@ -16,5 +16,20 @@ npm-debug.log*
 
 *.tsbuildinfo
 
+# Keep internal planning and agent-session documents out of the community repository.
+/AGENTS.md
+/CLAUDE.md
+/docs/handovers/
+/docs/decisions/
+/docs/benchmarks/
+/docs/HANDOVER.md
+/docs/PLAN.md
+/docs/ROADMAP.md
+/docs/STATUS.md
+/docs/ARCHITECTURE.md
+/docs/KNOWN_ISSUES.md
+/docs/generated/in-app-system-prompt.md
+/docs/releases/NEXT.md
+
 # Local browser profiles created by compatibility smoke tests.
 .tmp-*-ograf/

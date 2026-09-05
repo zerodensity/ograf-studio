@@ -113,7 +113,7 @@ transition is too short. Every style returns ordinary layer/field/group mappings
 `create_bug`, `create_ticker`, `create_scoreboard`, and `create_clock` materialize compact grouped
 broadcast graphics with semantic tags, constrained editable fields, complete layer/field mappings,
 and one Timeline Group. Each accepts an optional `stylePack`, placement, content/field-key values,
-and shared motion overrides. The scoreboard defaults to the Sports pack and uses W8 text outlines
+and shared motion overrides. The scoreboard defaults to the Sports pack and uses text outlines
 for score values. The ticker owns a `clipChildren` window and one lifecycle-activated local X loop;
 its finite lifecycle X track remains static. Use `speedPixelsPerSecond` to control crawl duration.
 

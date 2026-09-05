@@ -8,4 +8,6 @@ Before requesting review or handing work over:
 npm run verify
 ```
 
-Update the current status, relevant decision record, known issue, and handover whenever the change affects them. Unfinished transferable work should be committed and clearly labelled as work in progress rather than hidden in a local stash.
+Update the relevant public guide or release notes when user-facing behavior changes. Describe the
+change and verification in the pull request. Keep internal planning, handover notes and company
+documents outside the repository.

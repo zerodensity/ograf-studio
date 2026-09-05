@@ -47,8 +47,7 @@ building executables and verification.
 - [Using Studio](docs/USER_GUIDE.md) — projects, images, SVG and Lottie.
 - [AI authoring](docs/AI_AUTHORING.md) — built-in chat, MCP clients and the authoring skill.
 - [Release notes](docs/releases/0.14.md) — what's new in 0.14.
-- [Architecture](docs/ARCHITECTURE.md), [roadmap](docs/ROADMAP.md) and
-  [known issues](docs/KNOWN_ISSUES.md) — technical details and current limits.
+- [Contributing](CONTRIBUTING.md) — community development and verification.
 
 Automated OGraf conformance checks are not EBU certification or a guarantee of compatibility with
 every third-party player.
