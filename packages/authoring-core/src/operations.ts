@@ -1,4 +1,5 @@
 import {
+  applyPathEdit,
   EFFECT_ANIMATION_PROPERTIES,
   assertMaskSourcesRemovable,
   layerMaskErrors,
@@ -1547,6 +1548,11 @@ export function applyAuthoringOperations(
           source.isMaskOnly = true;
         }
         summary.affectedLayerIds.push(source.id);
+        break;
+      }
+      case 'edit_path': {
+        const layer = layerFor(composition, operation.layerId);
+        applyPathEdit(layer, operation.edit, operation.frame ?? 0);
         break;
       }
       case 'update_element': {

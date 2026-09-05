@@ -95,6 +95,14 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   layer—arbitrary Photoshop raster/vector output is not semantically decomposed into editable
   objects.
 
+## Editable vector paths
+
+Use `edit_path` for rectangle/ellipse conversion and static anchor/handle edits. Read
+`elementSchemas.path.editing` and `ograf_inspect_scene` → `pathEditing` first. Pass the returned
+`d` as `edit.expectedD` and zero-based contour/node indices; re-read after inserting or removing
+points. Shape edits apply across the whole animation. See
+[references/path-editing.md](./references/path-editing.md) for conversion boundaries and examples.
+
 ## Lottie layers
 
 Read `elementSchemas.lottie.runtimeProfile` from the `elements` capability section before authoring

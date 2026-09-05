@@ -39,6 +39,9 @@ import {
   sampleCompiledLayerVisualState,
 } from '@ograf-editor/ograf-runtime';
 import { LayerNode } from './LayerNode';
+import { PathEditor } from './PathEditor';
+import { usePathEditStore } from '../state/pathEditStore';
+import { pathConversionError } from '@ograf-editor/scene-model';
 import { AddElementToolbar } from './AddElementToolbar';
 import { useImagePlacement } from '../state/useImagePlacement';
 import { useFitZoom } from './useFitZoom';
@@ -71,6 +74,9 @@ import { duplicateLayerSelection } from '../state/editorShortcuts';
 import './Stage.css';
 
 export function Stage({ style }: { style?: CSSProperties }) {
+  const pathLayerId = usePathEditStore((s) => s.layerId);
+  const [pathDraft, setPathDraft] = useState<string | null>(null);
+  const pathFrame = useTimelineStore((s) => (pathLayerId ? s.currentFrame : 0));
   const imagePlacement = useImagePlacement();
   const [draggingImages, setDraggingImages] = useState(false);
   const composition = useActiveComposition();
@@ -271,6 +277,15 @@ export function Stage({ style }: { style?: CSSProperties }) {
   const moveableTarget = targetEls.length > 1 ? targetEls : targetEl;
   const isGroupSelection = targetEls.length > 1;
   const selectedLayer = composition.layers.find((layer) => layer.id === selectedLayerId);
+  const editingPath =
+    selectedLayer?.id === pathLayerId &&
+    selectedLayer.element.type === 'path' &&
+    !selectedLayer.isLocked &&
+    selectedLayerIds.length === 1 &&
+    !isPlaying;
+  useEffect(() => {
+    if (pathLayerId && !editingPath) usePathEditStore.getState().stop();
+  }, [pathLayerId, editingPath]);
   const selectedPose = selectedLayer
     ? getLayerTransformAtFrame(selectedLayer, useTimelineStore.getState().currentFrame)
     : null;
@@ -537,6 +552,12 @@ export function Stage({ style }: { style?: CSSProperties }) {
 
   useLayoutEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.key === 'Escape' && usePathEditStore.getState().layerId) {
+        usePathEditStore.getState().stop();
+        e.preventDefault();
+        return;
+      }
       if (e.key === 'Shift') shiftPressedRef.current = true;
       if (isInteractiveShortcutTarget(e.target)) return;
       if ((e.ctrlKey || e.metaKey) && ['+', '=', '-', '_'].includes(e.key)) {
@@ -799,6 +820,16 @@ export function Stage({ style }: { style?: CSSProperties }) {
   return (
     <section className="canvas-stage" style={style}>
       <AddElementToolbar />
+      {editingPath && selectedLayer && (
+        <PathEditor
+          key={selectedLayer.id}
+          layer={selectedLayer}
+          pose={getLayerTransformAtFrame(selectedLayer, pathFrame)}
+          zoom={zoom}
+          container={pasteboardRef.current}
+          onPreview={setPathDraft}
+        />
+      )}
       <div className="canvas-stage-workspace" ref={workspaceRef}>
         {(draggingImages || imagePlacement.busy) && (
           <div className="image-placement-banner" role="status">
@@ -916,7 +947,17 @@ export function Stage({ style }: { style?: CSSProperties }) {
                   return (
                     <LayerNode
                       key={layer.id}
-                      layer={layer}
+                      layer={
+                        editingPath &&
+                        layer.id === pathLayerId &&
+                        pathDraft &&
+                        layer.element.type === 'path'
+                          ? {
+                              ...layer,
+                              element: { ...layer.element, d: pathDraft, overflow: 'visible' },
+                            }
+                          : layer
+                      }
                       pose={pose}
                       isSelected={
                         !isPlaying && interactionLayerIds.includes(layer.id) && !isPersistentGroup
@@ -942,7 +983,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
               </div>
             </div>
           </div>
-          {moveableTarget && !isPlaying && (
+          {moveableTarget && !isPlaying && !editingPath && (
             <Moveable
               key={isGroupSelection ? 'group-selection' : 'single-selection'}
               ref={moveableRef}
@@ -1084,6 +1125,18 @@ export function Stage({ style }: { style?: CSSProperties }) {
           ariaLabel="Object actions"
           onClose={() => setObjectMenu(null)}
           items={[
+            {
+              id: 'edit-path',
+              label: 'Edit as path',
+              disabled:
+                objectMenu.layerIds.length !== 1 ||
+                Boolean(
+                  pathConversionError(
+                    composition.layers.find((l) => l.id === objectMenu.layerIds[0])!,
+                  ),
+                ),
+              onSelect: () => usePathEditStore.getState().start(objectMenu.layerIds[0]!),
+            },
             {
               id: 'cut',
               label: 'Cut',

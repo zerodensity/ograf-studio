@@ -9,6 +9,45 @@ import {
 import { AuthoringSession, RevisionConflictError } from './session';
 
 describe('AuthoringSession', () => {
+  it('converts and edits paths atomically with normal undo and unchanged lifecycle keys', () => {
+    const session = new AuthoringSession(createProject(), 'path-edit-test');
+    const added = session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'add_layer', kind: 'rectangle' }],
+    });
+    const original = added.project.compositions[0]!.layers[0]!;
+    const converted = session.apply({
+      expectedRevision: 1,
+      operations: [{ type: 'edit_path', layerId: original.id, edit: { action: 'convert' } }],
+    });
+    const path = converted.project.compositions[0]!.layers[0]!.element;
+    if (path.type !== 'path') throw new Error('Expected converted path');
+    const moved = session.apply({
+      expectedRevision: 2,
+      operations: [
+        {
+          type: 'edit_path',
+          layerId: original.id,
+          edit: { action: 'move', expectedD: path.d, contour: 0, node: 0, x: 50, y: 25 },
+        },
+      ],
+    });
+    expect(moved.project.compositions[0]!.layers[0]!.keyframes).toEqual(original.keyframes);
+    expect(() =>
+      session.apply({
+        expectedRevision: 3,
+        operations: [
+          { type: 'rename_layer', layerId: original.id, name: 'Should roll back' },
+          {
+            type: 'edit_path',
+            layerId: original.id,
+            edit: { action: 'move', expectedD: path.d, contour: 0, node: 0, x: 80, y: 25 },
+          },
+        ],
+      }),
+    ).toThrow(/geometry changed/);
+    expect(session.undo(3).project).toEqual(converted.project);
+  });
   it('restores pre-pack styles on removal and reinstates the pack with undo', () => {
     const session = new AuthoringSession(createProject(), 'remove-pack');
     const applied = session.apply({

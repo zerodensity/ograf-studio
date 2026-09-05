@@ -80,12 +80,14 @@ export interface ImageElement {
 }
 
 /**
- * Raw SVG path data authored by pasting a `d` attribute value — not an interactive pen tool (that's
- * future work). Renders as an inline `<svg viewBox="0 0 viewBoxWidth viewBoxHeight">` filling the
+ * SVG path data authored through canvas point editing or pasted commands.
+ * Renders as an inline `<svg viewBox="0 0 viewBoxWidth viewBoxHeight">` filling the
  * layer's full bounds, matching every other element type's 100%/100%-fill content pattern.
  */
 export interface PathElement {
   type: 'path';
+  /** Point-edited paths may extend beyond their original viewBox. Older paths stay clipped. */
+  overflow?: 'visible';
   d: string;
   fill: Paint;
   fillRule: 'nonzero' | 'evenodd';

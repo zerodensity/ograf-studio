@@ -29,6 +29,11 @@ See [the complete 0.13 release notes](docs/releases/0.13.md) and
 
 ## Highlights
 
+- **Edit as path** turns rectangles, rounded rectangles and ellipses into editable points and
+  curves. Drag anchors/handles, add/remove points, smooth corners and nudge with the keyboard.
+  Changes apply across the animation; each drag is undoable. Existing SVG paths support the same
+  controls, and MCP exposes the corresponding geometry operations.
+
 - WYSIWYG canvas with layers, grouping, guides, rulers, snapping, clipping, and responsive layout
   aids.
 - Compact SVG element tools provide distinct Rectangle, Ellipse, Text, Image, Path, Image Sequence,

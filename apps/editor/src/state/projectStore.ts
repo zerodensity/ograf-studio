@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import {
+  applyPathEdit,
+  type PathEdit,
   assertMaskSourcesRemovable,
   layerMaskErrors,
   addEffect,
@@ -255,6 +257,7 @@ interface ProjectActions {
   ) => void;
   removeLayerLoop: (layerId: string) => void;
   updateLayerElement: (layerId: string, patch: Partial<ElementFields>) => void;
+  editLayerPath: (layerId: string, edit: PathEdit, frame?: number) => void;
   updateLayerTextStroke: (
     layerId: string,
     frame: number,
@@ -1731,6 +1734,14 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
           if (layer && !layer.isLocked) layer.loop = null;
+        }),
+
+      editLayerPath: (layerId, edit, frame = 0) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer) throw new Error('The selected layer no longer exists.');
+          applyPathEdit(layer, edit, frame);
         }),
 
       updateLayerElement: (layerId, patch) =>

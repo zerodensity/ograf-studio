@@ -1,4 +1,5 @@
 export * from './types';
+export * from './pathEditing';
 export * from './authoredTransform';
 export * from './assets';
 export * from './factory';

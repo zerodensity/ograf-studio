@@ -1,3 +1,4 @@
+import { parseEditablePath, pathConversionError } from '@ograf-editor/scene-model';
 import { access, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -498,6 +499,22 @@ function inspectComposition(composition: Composition) {
       id: layer.id,
       name: layer.name,
       type: layer.element.type,
+      ...(['rectangle', 'ellipse', 'path'].includes(layer.element.type)
+        ? {
+            pathEditing: {
+              conversionError: pathConversionError(layer),
+              ...(layer.element.type === 'path'
+                ? (() => {
+                    try {
+                      return { d: layer.element.d, contours: parseEditablePath(layer.element.d) };
+                    } catch (e) {
+                      return { error: (e as Error).message };
+                    }
+                  })()
+                : {}),
+            },
+          }
+        : {}),
       ...(layer.element.type === 'lottie'
         ? {
             lottieInspection: layer.element.animationData
@@ -1594,6 +1611,27 @@ export function createOGrafToolRecords(
             strokeWidth: { type: 'number', default: 0 },
           },
           path: {
+            editing: {
+              operation: 'edit_path',
+              inputs:
+                'layerId or layerName; optional frame for conversion; edit contains action and action-specific fields.',
+              actions: {
+                convert:
+                  'Rectangle/ellipse to path at frame (default 0); existing path unchanged. Preserves layer identity/tracks. Corner tokens and rounded child clipping must be unlinked first.',
+                move: 'expectedD, contour, node, x, y; moves anchor and attached handles.',
+                handles:
+                  'expectedD, contour, node, incoming/outgoing: {x,y} or null; omitted handles unchanged.',
+                insert:
+                  'expectedD, contour, node, optional t in (0,1), default .5; splits following segment without changing its curve.',
+                remove: 'expectedD, contour, node; keeps at least 3 closed or 2 open anchors.',
+                smooth: 'expectedD, contour, node; creates aligned handles.',
+                corner: 'expectedD, contour, node; removes handles.',
+              },
+              coordinates:
+                'Local viewBox units. Zero-based contour/node indices come from inspect_scene.pathEditing.contours; re-read after insert/remove. expectedD rejects stale geometry.',
+              limits:
+                '4096 anchors, 500000 SVG characters. Static geometry only; arcs normalize to cubic approximations. Resize scales path corners/strokes; no point morphing.',
+            },
             d: { type: 'string', default: 'M50,0 L100,100 L0,100 Z' },
             fill: {
               type: 'paint',
@@ -2055,7 +2093,7 @@ export function createOGrafToolRecords(
     {
       title: 'Get OGraf revision changes',
       description:
-        'Returns bounded revision history after sinceRevision, including whether each change came from an agent, the browser editor, undo, or redo and a compact affected-layer summary. Read-only and does not change revision. History retains the latest 100 revisions.',
+        'Read up to 100 retained revisions after sinceRevision, with source and affected-layer summaries.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         sinceRevision: z.number().int().nonnegative(),
@@ -2079,7 +2117,7 @@ export function createOGrafToolRecords(
     {
       title: 'Get editable OGraf project',
       description:
-        'Read the revisioned editable project. Omit filters for a complete snapshot, or select include sections (including patterns) and tracks=animated-only for compact reads. Preserve returned stable IDs and revision for mutations.',
+        'Read project and revision. Omit filters for full data; include sections and tracks=animated-only reduce output. Preserve IDs.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         include: z.array(z.enum(PROJECT_INCLUDE_SECTIONS)).min(1).optional(),
@@ -2096,7 +2134,7 @@ export function createOGrafToolRecords(
     {
       title: 'Inspect OGraf scene',
       description:
-        'Read a compact composition outline: layers, bindings, masks, per-layer Lottie compatibility/source timing, shared patterns with resolved row periods/speeds, lifecycle and layout. Use stable IDs and revision when editing.',
+        'Read layers, bindings, masks, Lottie warnings, path anchors, resolved pattern motion and lifecycle. Preserve IDs and revision.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2123,7 +2161,7 @@ export function createOGrafToolRecords(
     {
       title: 'Query OGraf scene by semantic intent',
       description:
-        'Find stable layer IDs by semantic roles, tags, name, element type, bindings, visibility or motion. Returns geometry at a frame, mask relationships/consumers, pattern IDs and authoring links. Use for compact selection before a revision-checked edit.',
+        'Find layer IDs by semantics, name, type, bindings, visibility or motion; includes frame geometry, masks and authoring links.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2298,7 +2336,7 @@ export function createOGrafToolRecords(
     {
       title: 'Get OGraf property timeline',
       description:
-        'Read independent layer property tracks, lifecycle markers and local loop clips. Optional layerIds restrict the result. Use stable key IDs for surgical edits; property easing governs the incoming segment.',
+        'Read property tracks, lifecycle and local loops, optionally filtered by layerIds. Easing applies to the incoming segment.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2335,7 +2373,7 @@ export function createOGrafToolRecords(
     {
       title: 'Sample resolved OGraf layer geometry',
       description:
-        'Sample numeric tracks, shared lighting and row offsets without a browser. loopElapsedFrame is absolute on-air time. Omitted layerIds selects all. Returns bounds, effective properties and source light-loop frames.',
+        'Sample tracks, bounds, shared lighting and pattern rows without a browser. loopElapsedFrame is absolute on-air time.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2578,7 +2616,7 @@ export function createOGrafToolRecords(
     {
       title: 'Render OGraf PNG frame strip',
       description:
-        'Render up to 12 frames into a labelled PNG strip in the responsive editor. Defaults to lifecycle frames and transition midpoints. maxDimension applies per tile; columns/matte/labels are configurable. Five-minute URL; inline PNG is opt-in. Read-only.',
+        'Capture up to 12 labelled browser frames; defaults to lifecycle/midpoints. maxDimension is per tile. Five-minute URL; inline PNG opt-in.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2943,7 +2981,7 @@ export function createOGrafToolRecords(
     {
       title: 'Validate editable OGraf project',
       description:
-        'Validate project semantics; optionally add browser text-overflow measurements and broadcast lint. Pass stress testValues for data-bound text. detail=summary keeps only failures/counts. Browser measurements require a responsive editor. This does not replace exact-artifact certification.',
+        'Validate semantics; optionally measure browser text overflow with stress testValues and broadcast lint. detail=summary shows failures/counts. Does not certify artifacts.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         browserTextOverflow: z.boolean().default(false),
@@ -3101,7 +3139,7 @@ export function createOGrafToolRecords(
     {
       title: 'Review OGraf design and motion',
       description:
-        'Review layout, typography, colour and motion with advisory findings and stable layer IDs. includeStrip adds browser-rendered frames when the editor is responsive. QA is not export certification or a substitute for visual judgement.',
+        'Advisory layout/type/color/motion QA with layer IDs. includeStrip captures browser frames. Does not certify export.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -3173,7 +3211,7 @@ export function createOGrafToolRecords(
     {
       title: 'Measure OGraf text in the browser',
       description:
-        'Measure authored or replacement text in the responsive editor, defaulting to the first Step. Reports font fit, lines and overflow. degenerate means fitting failed; own-box clipping is a fault, parent clipping may be intentional. Font resolution is inferred.',
+        'Browser text fit, lines and overflow at first Step by default. degenerate means failed fitting. Parent clipping may be intentional; font resolution is inferred.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -3271,7 +3309,7 @@ export function createOGrafToolRecords(
     {
       title: 'Delete temporary OGraf authoring session',
       description:
-        'Permanently removes one non-editor in-memory authoring session and its undo/change history. Requires explicit confirmation. It cannot delete the live "editor" session and does not remove any saved files.',
+        'Delete one non-editor in-memory session and history with confirm=true. Saved files remain.',
       inputSchema: {
         sessionId: z.string(),
         confirm: z.literal(true),
@@ -3639,7 +3677,7 @@ export function createOGrafToolRecords(
     {
       title: 'Certify exact OGraf output artifacts',
       description:
-        'Requires a connected and responsive live browser editor. Compiles the exact output artifacts and runs the mandatory project, manifest, package, module, and lifecycle checks in that browser.',
+        'Certify exact compiled project, manifest, package, module and realtime/non-realtime lifecycle in a responsive editor.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         profile: z.enum(['realtime', 'non-realtime', 'dual']).optional(),
@@ -3657,7 +3695,7 @@ export function createOGrafToolRecords(
     {
       title: 'Certify and save editable OGraf project',
       description:
-        'Requires a connected and responsive live browser editor. Saves .ogs source inside the workspace only after exact output artifacts pass all OGraf certification checks.',
+        'Certify exact output in a responsive editor, then save editable .ogs inside the workspace.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         path: z.string(),
@@ -3685,7 +3723,7 @@ export function createOGrafToolRecords(
     {
       title: 'Certify and export OGraf package',
       description:
-        'Requires a connected and responsive live browser editor. Writes an OGraf playout .ograf.zip inside the workspace only after certifying the exact files that will be written.',
+        'Certify exact output in a responsive editor, then write a playout .ograf.zip inside the workspace.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         path: z.string(),

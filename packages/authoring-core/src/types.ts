@@ -1,4 +1,5 @@
 import type {
+  PathEdit,
   AnimatableLayerProperty,
   BlendMode,
   CubicBezierCurve,
@@ -371,6 +372,13 @@ export type AuthoringOperation =
       compositionId?: string;
       layerId: string;
       patch: Record<string, unknown>;
+    }
+  | {
+      type: 'edit_path';
+      compositionId?: string;
+      layerId: string;
+      frame?: number;
+      edit: PathEdit;
     }
   | {
       type: 'update_transform';

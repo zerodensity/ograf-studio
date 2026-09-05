@@ -1,4 +1,5 @@
 import {
+  editablePathBounds,
   getPaintAtFrame,
   applyElementDataValue,
   parseEffectProperty,
@@ -690,11 +691,31 @@ export function renderElementContent(
       break;
     }
     case 'path': {
+      // Expand only opted-in, point-edited paths. The layer's authored transform stays unchanged.
+      let bounds = { x: 0, y: 0, width: element.viewBoxWidth, height: element.viewBoxHeight };
+      if (element.overflow === 'visible') {
+        try {
+          bounds = editablePathBounds(element);
+        } catch {
+          /* Raw/imported SVG still renders normally. */
+        }
+      }
+      const root = document.createElement('div');
+      applyContentBaseStyle(root);
+      Object.assign(root.style, {
+        position: 'absolute',
+        left: `${(bounds.x / element.viewBoxWidth) * 100}%`,
+        top: `${(bounds.y / element.viewBoxHeight) * 100}%`,
+        width: `${(bounds.width / element.viewBoxWidth) * 100}%`,
+        height: `${(bounds.height / element.viewBoxHeight) * 100}%`,
+      });
+      container.appendChild(root);
       const SVG_NS = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(SVG_NS, 'svg');
       applyContentBaseStyle(svg);
-      svg.setAttribute('viewBox', `0 0 ${element.viewBoxWidth} ${element.viewBoxHeight}`);
+      svg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
       svg.setAttribute('preserveAspectRatio', 'none');
+      if (element.overflow === 'visible') svg.style.overflow = 'visible';
       const path = document.createElementNS(SVG_NS, 'path');
       path.setAttribute('d', element.d);
       path.setAttribute('fill', typeof element.fill === 'string' ? element.fill : 'none');
@@ -703,7 +724,7 @@ export function renderElementContent(
       path.setAttribute('stroke-width', String(element.strokeWidth));
       svg.appendChild(path);
       if (typeof element.fill === 'string') {
-        container.appendChild(svg);
+        root.appendChild(svg);
       } else {
         const host = document.createElement('div');
         applyContentBaseStyle(host);
@@ -722,7 +743,7 @@ export function renderElementContent(
         fill.style.maskRepeat = 'no-repeat';
         Object.assign(svg.style, { position: 'absolute', inset: '0' });
         host.append(fill, svg);
-        container.appendChild(host);
+        root.appendChild(host);
         rememberPaint(container, element.fill);
       }
       break;

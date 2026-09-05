@@ -766,6 +766,19 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     patch: z.record(z.string(), z.unknown()),
   }),
   z.object({
+    type: z.literal('edit_path'),
+    compositionId,
+    layerId,
+    layerName,
+    frame: frame.optional(),
+    // Geometry validates action-specific fields in scene-model. Capabilities publish their contract.
+    edit: z
+      .object({
+        action: z.enum(['convert', 'move', 'handles', 'insert', 'remove', 'smooth', 'corner']),
+      })
+      .catchall(z.unknown()),
+  }),
+  z.object({
     type: z.literal('update_transform'),
     compositionId,
     layerId,

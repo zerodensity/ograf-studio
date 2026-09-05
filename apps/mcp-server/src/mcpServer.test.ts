@@ -686,6 +686,63 @@ describe('OGraf MCP authoring host', () => {
     ).toContain('strokeWidth');
   });
 
+  it('exposes editable path geometry and rejects unknown point-edit parameters', async () => {
+    const sessionId = 'editable-path-mcp';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const created = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'add_layer', kind: 'rectangle', name: 'Panel' },
+          { type: 'edit_path', layerName: 'Panel', edit: { action: 'convert' } },
+        ],
+      },
+    });
+    expect(created.isError).not.toBe(true);
+    const inspected = await client.callTool({
+      name: 'ograf_inspect_scene',
+      arguments: { sessionId },
+    });
+    expect(inspected.structuredContent).toMatchObject({
+      compositions: [
+        {
+          layers: [
+            {
+              pathEditing: {
+                conversionError: null,
+                d: 'M 0 0 L 200 0 L 200 200 L 0 200 Z',
+                contours: [
+                  {
+                    closed: true,
+                    nodes: [
+                      { x: 0, y: 0 },
+                      { x: 200, y: 0 },
+                      { x: 200, y: 200 },
+                      { x: 0, y: 200 },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const bad = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        operations: [
+          { type: 'edit_path', layerName: 'Panel', edit: { action: 'convert', typo: 5 } },
+        ],
+      },
+    });
+    expect(bad.isError).toBe(true);
+  });
+
   it('derives Lottie compatibility details during scene inspection', async () => {
     const sessionId = 'lottie-inspection-test';
     await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });

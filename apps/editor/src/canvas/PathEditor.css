@@ -1,0 +1,38 @@
+.path-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  overflow-x: auto;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: #202c36;
+  border-bottom: 1px solid #43cfff;
+}
+.path-editor-toolbar button {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 3px 7px;
+}
+.path-editor-hint {
+  display: none;
+}
+.path-editor-error {
+  color: #ffc76a;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.path-editor-overlay {
+  position: absolute;
+  overflow: visible;
+  z-index: 8;
+  pointer-events: none;
+  outline: none;
+}
+.path-editor-anchor,
+.path-editor-handle {
+  pointer-events: all;
+  cursor: crosshair;
+  touch-action: none;
+}

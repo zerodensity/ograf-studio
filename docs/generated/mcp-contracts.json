@@ -56,7 +56,7 @@
     {
       "name": "ograf_get_changes",
       "title": "Get OGraf revision changes",
-      "description": "Returns bounded revision history after sinceRevision, including whether each change came from an agent, the browser editor, undo, or redo and a compact affected-layer summary. Read-only and does not change revision. History retains the latest 100 revisions.",
+      "description": "Read up to 100 retained revisions after sinceRevision, with source and affected-layer summaries.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -77,7 +77,7 @@
     {
       "name": "ograf_get_project",
       "title": "Get editable OGraf project",
-      "description": "Read the revisioned editable project. Omit filters for a complete snapshot, or select include sections (including patterns) and tracks=animated-only for compact reads. Preserve returned stable IDs and revision for mutations.",
+      "description": "Read project and revision. Omit filters for full data; include sections and tracks=animated-only reduce output. Preserve IDs.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -118,7 +118,7 @@
     {
       "name": "ograf_inspect_scene",
       "title": "Inspect OGraf scene",
-      "description": "Read a compact composition outline: layers, bindings, masks, per-layer Lottie compatibility/source timing, shared patterns with resolved row periods/speeds, lifecycle and layout. Use stable IDs and revision when editing.",
+      "description": "Read layers, bindings, masks, Lottie warnings, path anchors, resolved pattern motion and lifecycle. Preserve IDs and revision.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -138,7 +138,7 @@
     {
       "name": "ograf_query_scene",
       "title": "Query OGraf scene by semantic intent",
-      "description": "Find stable layer IDs by semantic roles, tags, name, element type, bindings, visibility or motion. Returns geometry at a frame, mask relationships/consumers, pattern IDs and authoring links. Use for compact selection before a revision-checked edit.",
+      "description": "Find layer IDs by semantics, name, type, bindings, visibility or motion; includes frame geometry, masks and authoring links.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -220,7 +220,7 @@
     {
       "name": "ograf_get_timeline",
       "title": "Get OGraf property timeline",
-      "description": "Read independent layer property tracks, lifecycle markers and local loop clips. Optional layerIds restrict the result. Use stable key IDs for surgical edits; property easing governs the incoming segment.",
+      "description": "Read property tracks, lifecycle and local loops, optionally filtered by layerIds. Easing applies to the incoming segment.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -241,7 +241,7 @@
     {
       "name": "ograf_sample_tracks",
       "title": "Sample resolved OGraf layer geometry",
-      "description": "Sample numeric tracks, shared lighting and row offsets without a browser. loopElapsedFrame is absolute on-air time. Omitted layerIds selects all. Returns bounds, effective properties and source light-loop frames.",
+      "description": "Sample tracks, bounds, shared lighting and pattern rows without a browser. loopElapsedFrame is absolute on-air time.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -372,7 +372,7 @@
     {
       "name": "ograf_render_strip",
       "title": "Render OGraf PNG frame strip",
-      "description": "Render up to 12 frames into a labelled PNG strip in the responsive editor. Defaults to lifecycle frames and transition midpoints. maxDimension applies per tile; columns/matte/labels are configurable. Five-minute URL; inline PNG is opt-in. Read-only.",
+      "description": "Capture up to 12 labelled browser frames; defaults to lifecycle/midpoints. maxDimension is per tile. Five-minute URL; inline PNG opt-in.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1736,6 +1736,36 @@
                 {
                   "type": "object",
                   "properties": {
+                    "type": { "type": "string", "const": "edit_path" },
+                    "compositionId": { "type": "string" },
+                    "layerId": { "type": "string" },
+                    "layerName": { "type": "string" },
+                    "frame": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "edit": {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "convert",
+                            "move",
+                            "handles",
+                            "insert",
+                            "remove",
+                            "smooth",
+                            "corner"
+                          ]
+                        }
+                      },
+                      "required": ["action"],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": ["type", "edit"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
                     "type": { "type": "string", "const": "update_transform" },
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
@@ -2999,7 +3029,7 @@
     {
       "name": "ograf_validate_project",
       "title": "Validate editable OGraf project",
-      "description": "Validate project semantics; optionally add browser text-overflow measurements and broadcast lint. Pass stress testValues for data-bound text. detail=summary keeps only failures/counts. Browser measurements require a responsive editor. This does not replace exact-artifact certification.",
+      "description": "Validate semantics; optionally measure browser text overflow with stress testValues and broadcast lint. detail=summary shows failures/counts. Does not certify artifacts.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3039,7 +3069,7 @@
     {
       "name": "ograf_review_design",
       "title": "Review OGraf design and motion",
-      "description": "Review layout, typography, colour and motion with advisory findings and stable layer IDs. includeStrip adds browser-rendered frames when the editor is responsive. QA is not export certification or a substitute for visual judgement.",
+      "description": "Advisory layout/type/color/motion QA with layer IDs. includeStrip captures browser frames. Does not certify export.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3064,7 +3094,7 @@
     {
       "name": "ograf_measure_text",
       "title": "Measure OGraf text in the browser",
-      "description": "Measure authored or replacement text in the responsive editor, defaulting to the first Step. Reports font fit, lines and overflow. degenerate means fitting failed; own-box clipping is a fault, parent clipping may be intentional. Font resolution is inferred.",
+      "description": "Browser text fit, lines and overflow at first Step by default. degenerate means failed fitting. Parent clipping may be intentional; font resolution is inferred.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3129,7 +3159,7 @@
     {
       "name": "ograf_delete_session",
       "title": "Delete temporary OGraf authoring session",
-      "description": "Permanently removes one non-editor in-memory authoring session and its undo/change history. Requires explicit confirmation. It cannot delete the live \"editor\" session and does not remove any saved files.",
+      "description": "Delete one non-editor in-memory session and history with confirm=true. Saved files remain.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3285,7 +3315,7 @@
     {
       "name": "ograf_certify_project",
       "title": "Certify exact OGraf output artifacts",
-      "description": "Requires a connected and responsive live browser editor. Compiles the exact output artifacts and runs the mandatory project, manifest, package, module, and lifecycle checks in that browser.",
+      "description": "Certify exact compiled project, manifest, package, module and realtime/non-realtime lifecycle in a responsive editor.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3305,7 +3335,7 @@
     {
       "name": "ograf_save_project",
       "title": "Certify and save editable OGraf project",
-      "description": "Requires a connected and responsive live browser editor. Saves .ogs source inside the workspace only after exact output artifacts pass all OGraf certification checks.",
+      "description": "Certify exact output in a responsive editor, then save editable .ogs inside the workspace.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3328,7 +3358,7 @@
     {
       "name": "ograf_export_package",
       "title": "Certify and export OGraf package",
-      "description": "Requires a connected and responsive live browser editor. Writes an OGraf playout .ograf.zip inside the workspace only after certifying the exact files that will be written.",
+      "description": "Certify exact output in a responsive editor, then write a playout .ograf.zip inside the workspace.",
       "inputSchema": {
         "type": "object",
         "properties": {

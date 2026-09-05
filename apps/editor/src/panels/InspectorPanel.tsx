@@ -8,6 +8,8 @@ import { getEffectStack, EFFECT_CATALOG, effectProperty } from '@ograf-editor/sc
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { LayerMaskEditor } from './LayerMaskEditor';
 import { TilingPatternEditor } from './TilingPatternEditor';
+import { usePathEditStore } from '../state/pathEditStore';
+import { pathConversionError } from '@ograf-editor/scene-model';
 import {
   getLayerTransformAtFrame,
   useActiveComposition,
@@ -864,10 +866,25 @@ export function InspectorPanel() {
           </>
         )}
 
+        {['rectangle', 'ellipse', 'path'].includes(layer.element.type) && (
+          <div className="inspector-row">
+            <button
+              type="button"
+              disabled={Boolean(pathConversionError(layer))}
+              title={
+                pathConversionError(layer) ??
+                'Convert to editable points and curves. Shape edits apply across the animation; conversion uses the current frame dimensions.'
+              }
+              onClick={() => usePathEditStore.getState().start(layer.id)}
+            >
+              Edit as path
+            </button>
+          </div>
+        )}
         {layer.element.type === 'path' && (
           <>
             <p className="inspector-hint">
-              Raw SVG path data — paste a "d" attribute value. A visual path editor is future work.
+              Edit points on the canvas with Edit as path, or enter SVG commands below.
             </p>
             <PropertyRow
               help={
