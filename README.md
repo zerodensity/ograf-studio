@@ -8,24 +8,18 @@ lower thirds, scoreboards, tickers, full-frame graphics, and reusable data-drive
 The project combines a React/Vite editor, a deterministic OGraf runtime, validation and export
 packages, and an optional local MCP authoring server for AI-assisted workflows.
 
-## New in OGraf Studio 0.13
+## New in OGraf Studio 0.14
 
-- Reliable Lottie Canvas rendering across resize, hidden/detached setup, mattes, gradients and
-  rounded artwork, with explicit embedded-image/font readiness and actionable load failures.
-- Correct nonzero Lottie in-points, a shared realtime clock, byte-repeatable non-realtime seeks and
-  stronger exported-runtime certification over every expected Canvas.
-- Launch, New, open/import and template replacement always return to frame 0 with Start selected;
-  initial placement edits preserve still-static lifecycle poses instead of creating accidental
-  easing.
-- Rectangles and ellipses begin at 200 × 200, while Properties presents common visual controls
-  before advanced authoring metadata.
-- Ctrl/Cmd+D, Edit → Duplicate and canvas Duplicate create an exact-position copy with fresh layer,
-  animation, relationship, component-instance and bound-field identities. Paste keeps its offset.
-- Updated MCP capabilities, Lottie inspection, authoring skill and in-app AI guidance.
-- Refreshed single-file Windows, macOS and Linux executables, with the export runtime embedded.
+- Edit as path converts rectangles, rounded rectangles and ellipses into editable vector shapes.
+- Drag anchors and curve handles; add/remove points, smooth or sharpen corners, and nudge with
+  arrow keys. Each drag is one undo step, including on rotated and resized layers.
+- Edited geometry can extend beyond the original box while preserving authored transform tracks.
+- MCP exposes the same conversion and point operations, with inspected contours and stale-path
+  checks. Updated external skills and in-app guidance document the workflow and its limits.
+- Refreshed single-file servers for Windows x64, macOS Intel/Apple Silicon and Linux x64/ARM64.
 
-See [the complete 0.13 release notes](docs/releases/0.13.md) and
-[download the release](https://github.com/zerodensity/ograf-studio/releases/tag/v0.13).
+See [the complete 0.14 release notes](docs/releases/0.14.md) and
+[download the release](https://github.com/zerodensity/ograf-studio/releases/tag/v0.14).
 
 ## Highlights
 

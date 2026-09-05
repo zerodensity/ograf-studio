@@ -97,6 +97,8 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 
 ## Editable vector paths
 
+Available in Studio 0.14 and later. Discover the running server's capabilities before use.
+
 Use `edit_path` for rectangle/ellipse conversion and static anchor/handle edits. Read
 `elementSchemas.path.editing` and `ograf_inspect_scene` → `pathEditing` first. Pass the returned
 `d` as `edit.expectedD` and zero-based contour/node indices; re-read after inserting or removing

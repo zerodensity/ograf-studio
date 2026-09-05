@@ -30,7 +30,7 @@ until curl -fsS "http://127.0.0.1:$port/health" >"$temporary_root/health.json"; 
 done
 
 curl -fsS "http://127.0.0.1:$port/" | grep -q '<title>OGraf Studio</title>'
-grep -q 'OGraf Studio 0.13 standalone server' "$temporary_root/server.log"
+grep -q 'OGraf Studio 0.14 standalone server' "$temporary_root/server.log"
 grep -q 'https://github.com/zerodensity/ograf-studio' "$temporary_root/server.log"
 cat "$temporary_root/health.json"
 printf '\nLinux standalone smoke test passed.\n'

@@ -21,7 +21,7 @@ const outputParts = parse(outfile);
 const stagedOutfile = resolve(outputParts.dir, `${outputParts.name}.next${outputParts.ext}`);
 const previousOutfile = resolve(outputParts.dir, `${outputParts.name}.previous${outputParts.ext}`);
 const generatedEntrypoint = resolve(repositoryRoot, 'release/standalone-entry.ts');
-const version = process.env.OGRAF_STUDIO_BUILD_VERSION ?? '0.13.0.0';
+const version = process.env.OGRAF_STUDIO_BUILD_VERSION ?? '0.14.0.0';
 
 await mkdir(dirname(outfile), { recursive: true });
 await rm(stagedOutfile, { force: true });

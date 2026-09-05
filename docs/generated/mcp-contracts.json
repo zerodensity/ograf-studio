@@ -1,6 +1,6 @@
 {
   "contractVersion": 1,
-  "server": { "name": "ograf-editor", "version": "0.13.0" },
+  "server": { "name": "ograf-editor", "version": "0.14.0" },
   "tools": [
     {
       "name": "ograf_get_capabilities",

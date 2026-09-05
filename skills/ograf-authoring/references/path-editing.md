@@ -54,5 +54,11 @@ or disabling child clipping before conversion. Converted paths scale corners and
 their box; review animated resizing. SVG arcs become cubic approximations, including ellipses.
 Compound contours and fill rules survive. Limits: 4096 points and 500000 SVG characters.
 
+Point edits enable `overflow: visible`: artwork outside the original viewBox remains visible,
+without moving transform keys. Gradient paint spans the expanded curve bounds. Review a capture
+after expanding the shape, especially for shaded backgrounds. A stroke must be smaller than both
+shape dimensions when converting. Refreshing a linked component replaces local geometry edits;
+save/update the component definition if those changes should be reused.
+
 Geometry edits apply across the animation. Vertex keyframes/morphing, text outlines, image
 tracing/clipping tools, pattern-symbol editing and Lottie decomposition are outside this version.
