@@ -62,7 +62,6 @@ export function LayerNode({
   patterns,
 }: LayerNodeProps) {
   const testValues = useTestDataStore((s) => s.values);
-  const isPlaying = useTimelineStore((s) => s.isPlaying);
   const contentRef = useRef<HTMLDivElement>(null);
   const readinessGeneration = useRef(0);
   const [contentError, setContentError] = useState<string | null>(null);
@@ -182,13 +181,6 @@ export function LayerNode({
       style={style}
     >
       <div className="layer-content-host" ref={contentRef} />
-      {layer.bindings.length > 0 && !isPlaying && (
-        <span
-          className="layer-binding-indicator"
-          title={`${layer.bindings.length} data binding${layer.bindings.length === 1 ? '' : 's'} — edit fields and properties in Properties`}
-          aria-label="Data-bound layer"
-        />
-      )}
       {contentError ? (
         <div className="layer-content-placeholder" title={contentError}>
           Lottie render error

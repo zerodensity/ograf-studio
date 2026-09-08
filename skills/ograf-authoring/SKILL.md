@@ -98,6 +98,7 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 ## Editable vector paths
 
 Available in Studio 0.14 and later. Discover the running server's capabilities before use.
+In Studio 0.15+, blank-canvas clicks keep point editing active; Done or Escape exits.
 
 Use `edit_path` for rectangle/ellipse conversion and static anchor/handle edits. Read
 `elementSchemas.path.editing` and `ograf_inspect_scene` → `pathEditing` first. Pass the returned

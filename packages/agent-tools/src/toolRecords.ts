@@ -1613,6 +1613,8 @@ export function createOGrafToolRecords(
           path: {
             editing: {
               operation: 'edit_path',
+              editor:
+                'Blank-canvas clicks keep point editing active and preserve keyboard nudging. Done or Escape exits the mode.',
               inputs:
                 'layerId or layerName; optional frame for conversion; edit contains action and action-specific fields.',
               actions: {

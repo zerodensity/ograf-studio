@@ -4,6 +4,8 @@ Studio supports Edit as path on rectangles, rounded rectangles, ellipses and exi
 Drag points, add/remove points, or use Smooth/Corner. Shift constrains dragging; arrows nudge
 (Shift = 10); Alt lets a curve handle move independently. Escape cancels a drag or exits.
 Each finished drag is one undo step. UI conversion uses current-frame dimensions; MCP defaults to 0.
+Blank-canvas clicks keep the path and its points selected for continued editing. Choose Done or
+press Escape to finish; ordinary canvas deselection resumes afterward.
 
 ## MCP operations
 

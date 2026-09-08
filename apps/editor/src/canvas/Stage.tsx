@@ -926,7 +926,15 @@ export function Stage({ style }: { style?: CSSProperties }) {
                   overflow: composition.layout.overflowPreview,
                 }}
                 onMouseDown={(e) => {
-                  if (e.target === e.currentTarget) select(null);
+                  if (e.target !== e.currentTarget) return;
+                  if (editingPath) {
+                    e.preventDefault();
+                    pasteboardRef.current
+                      ?.querySelector<SVGSVGElement>('.path-editor-overlay')
+                      ?.focus();
+                    return;
+                  }
+                  select(null);
                 }}
               >
                 {composition.layers.map((layer) => {

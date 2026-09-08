@@ -20,20 +20,6 @@
   outline-color: #ffb74d;
 }
 
-.layer-binding-indicator {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-focus);
-  border: 1px solid color-mix(in srgb, var(--accent-focus) 45%, white);
-  box-shadow: 0 0 4px color-mix(in srgb, var(--accent-focus) 60%, transparent);
-  cursor: help;
-  pointer-events: auto;
-}
-
 /*
  * Container the shared runtime renderer (`renderElementContent`) draws into. React deliberately
  * never renders children here — the runtime owns this subtree — so the two can't fight over it.

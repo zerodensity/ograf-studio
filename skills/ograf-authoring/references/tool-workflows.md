@@ -2,6 +2,9 @@
 
 ## Discovery and inspection
 
+Canvas artwork has no binding badges. Inspect scene bindings or use Properties → Data Bindings;
+the absence of an on-canvas marker does not mean a layer is unbound.
+
 - `ograf_get_capabilities`: request only the relevant `sections` from `elements`, `easing`,
   `semantics`, `designSystem`, `loops`, `bindings`, and `editor`. Include `editor` for the bridge
   connection/responsiveness/latency, certification readiness, browser dependency map, and safety
