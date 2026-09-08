@@ -27,6 +27,7 @@ import {
 import { useFitZoom } from '../canvas/useFitZoom';
 import { transparencyCheckerboardStyle } from '../canvas/compositionBackground';
 import { resolvePreviewDataRecord } from '../state/previewData';
+import { enterPreviewFullscreen, installPreviewShortcuts } from '../state/previewPresentation';
 import { measureAgentText } from '../state/agentCapture';
 import { Panel } from './Panel';
 import { resolveSourceOverlayGeometry } from './sourceOverlay';
@@ -68,15 +69,25 @@ function successful(result: unknown): boolean {
 }
 
 export function PreviewExportPanel() {
-  const { window } = useEditorWindow();
+  const { window, document: ownerDocument } = useEditorWindow();
   const project = useProjectStore((s) => s.project);
   const composition = useActiveComposition();
   const testValues = useTestDataStore((s) => s.values);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const graphicRef = useRef<(HTMLElement & Graphic) | null>(null);
-  const zoom = useFitZoom(viewportRef, composition.width, composition.height, 8);
+  const zoom = useFitZoom(
+    viewportRef,
+    composition.width,
+    composition.height,
+    isFullscreen ? 0 : 8,
+    isFullscreen ? Infinity : 1,
+  );
 
   const [log, setLog] = useState<LogEntry[]>([]);
   const [currentStep, setCurrentStep] = useState<number | undefined>();
@@ -268,13 +279,59 @@ export function PreviewExportPanel() {
     return () => window.clearTimeout(timeout);
   }, [call, isPreviewLoaded, previewData, window]);
 
-  const handlePlayAction = (params: { delta?: number; goto?: number }) => {
-    void call('playAction', params, async (g) => {
-      const result = await g.playAction(params);
-      setCurrentStep(result.currentStep);
-      return result;
+  const handlePlayAction = useCallback(
+    (params: { delta?: number; goto?: number }) => {
+      void call('playAction', params, async (g) => {
+        const result = await g.playAction(params);
+        if (graphicRef.current === g) setCurrentStep(result.currentStep);
+        return result;
+      });
+    },
+    [call],
+  );
+
+  const handleFullscreen = () => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    setFullscreenError('');
+    void enterPreviewFullscreen(viewport).catch((error: unknown) => {
+      setFullscreenError(error instanceof Error ? error.message : 'Unable to enter fullscreen.');
     });
   };
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    let wasFullscreen = false;
+    const changed = () => {
+      const active = ownerDocument.fullscreenElement === viewport;
+      setIsFullscreen(active);
+      if (active) viewport.focus({ preventScroll: true });
+      else if (wasFullscreen) fullscreenButtonRef.current?.focus({ preventScroll: true });
+      wasFullscreen = active;
+    };
+    changed();
+    ownerDocument.addEventListener('fullscreenchange', changed);
+    return () => {
+      ownerDocument.removeEventListener('fullscreenchange', changed);
+      if (ownerDocument.fullscreenElement === viewport) {
+        void ownerDocument.exitFullscreen().catch(() => undefined);
+      }
+    };
+  }, [ownerDocument]);
+
+  useEffect(() => {
+    const panel = panelRef.current,
+      viewport = viewportRef.current;
+    if (!panel || !viewport) return;
+    return installPreviewShortcuts(
+      ownerDocument,
+      panel,
+      viewport,
+      (delta) => handlePlayAction({ delta }),
+      () => isPreviewLoaded,
+    );
+  }, [ownerDocument, handlePlayAction, isPreviewLoaded]);
 
   const handleStop = () =>
     void call('stopAction', {}, async (g) => {
@@ -442,8 +499,16 @@ export function PreviewExportPanel() {
 
   return (
     <Panel title="Preview & Export">
-      <div className="preview-export-panel">
-        <div className="preview-stage-wrap" ref={viewportRef}>
+      <div className="preview-export-panel" ref={panelRef}>
+        <div
+          className="preview-stage-wrap"
+          ref={viewportRef}
+          tabIndex={0}
+          aria-label="Graphic preview. Space or Right: next step. Left: previous step. Escape: exit fullscreen."
+          onMouseDown={(event) => {
+            if (event.button === 0) event.currentTarget.focus({ preventScroll: true });
+          }}
+        >
           <div
             className="preview-stage-measure"
             style={{ width: composition.width * zoom, height: composition.height * zoom }}
@@ -490,8 +555,24 @@ export function PreviewExportPanel() {
           </div>
         </div>
 
+        {fullscreenError && (
+          <p role="alert" className="preview-fullscreen-error">
+            {fullscreenError}
+          </p>
+        )}
+
         <div className="preview-controls">
           <div className="preview-controls-row">
+            <button
+              type="button"
+              ref={fullscreenButtonRef}
+              data-preview-fullscreen
+              onClick={handleFullscreen}
+              disabled={!isPreviewLoaded}
+              title="Fill this window's display with the graphic. Space/Right: next step; Left: previous step; Escape: exit."
+            >
+              Fullscreen
+            </button>
             <select
               value={renderType}
               onChange={(e) => setRenderType(e.target.value as RenderType)}

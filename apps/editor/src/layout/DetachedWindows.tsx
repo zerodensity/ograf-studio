@@ -170,7 +170,6 @@ export function DetachablePane({ pane, children }: { pane: DockPaneId; children:
   const entry = registry.windows[pane];
   const home = useRef<HTMLDivElement>(null);
   const remote = useRef<HTMLDivElement>(null);
-  const [pictureOnly, setPictureOnly] = useState(false);
   const [host] = useState(() => {
     const node = document.createElement('div');
     node.className = 'detachable-pane-host';
@@ -194,16 +193,18 @@ export function DetachablePane({ pane, children }: { pane: DockPaneId; children:
               <strong>{DOCK_PANE_LABELS[pane]}</strong>
               <span>Shared Studio session</span>
               {pane === 'export' && (
-                <button onClick={() => setPictureOnly((value) => !value)}>
-                  {pictureOnly ? 'Show controls' : 'Picture only'}
+                <button
+                  title="Show the graphic fullscreen on this display"
+                  onClick={() =>
+                    host.querySelector<HTMLButtonElement>('[data-preview-fullscreen]')?.click()
+                  }
+                >
+                  Fullscreen
                 </button>
               )}
               <button onClick={() => registry.dock(pane)}>Dock back</button>
             </header>
-            <div
-              ref={remote}
-              className={`detached-pane-body${pictureOnly ? ' picture-only' : ''}`}
-            />
+            <div ref={remote} className="detached-pane-body" />
             <EditorWindowContext.Provider value={entry.window}>
               <NumericScrubController />
               <DetachedFonts owner={entry.window} />

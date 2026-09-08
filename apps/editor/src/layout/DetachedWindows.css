@@ -55,26 +55,6 @@
   flex: none;
   resize: vertical;
 }
-.detached-pane-body.picture-only .panel-body {
-  display: flex;
-  padding: 0;
-  overflow: hidden;
-}
-.detached-pane-body.picture-only .preview-export-panel {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-.detached-pane-body.picture-only .preview-export-panel > :not(.preview-stage-wrap) {
-  display: none;
-}
-.detached-pane-body.picture-only .preview-stage-wrap {
-  height: auto;
-  min-height: 0;
-  flex: 1;
-  resize: none;
-  border: 0;
-}
 .detachable-pane-host > .panel,
 .detachable-pane-host > .agent-chat-panel {
   flex: 1;

@@ -8,7 +8,7 @@ export interface StandaloneServerOptions {
   help: boolean;
 }
 
-export const OGRAF_STUDIO_STANDALONE_VERSION = '0.15';
+export const OGRAF_STUDIO_STANDALONE_VERSION = '0.16';
 export const OGRAF_STUDIO_REPOSITORY_URL = 'https://github.com/zerodensity/ograf-studio';
 const ZERO_DENSITY_OD_ASCII = [
   '   ##########      ##########',

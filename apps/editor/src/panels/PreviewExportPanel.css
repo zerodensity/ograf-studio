@@ -20,6 +20,40 @@
   flex: none;
 }
 
+.preview-export-panel .preview-stage-wrap:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  flex: none;
+  resize: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: #000;
+}
+
+.preview-stage-wrap::backdrop {
+  background: #000;
+}
+
+.preview-stage-wrap:fullscreen .preview-stage {
+  background: #000 !important;
+  outline: none;
+}
+
+.preview-stage-wrap:fullscreen .preview-source-overlay {
+  display: none;
+}
+
+.preview-fullscreen-error {
+  color: #ff8a8a;
+  font-size: 11px;
+  margin: 0;
+}
+
 .preview-stage {
   position: relative;
   transform-origin: top left;

@@ -96,10 +96,21 @@ exported graphic in the intended playout environment.
 
 For vector points and handles, see the [path-editing guide](../skills/ograf-authoring/references/path-editing.md).
 Clicking blank canvas keeps path editing active. Choose **Done** or press **Escape** to finish.
-For recent changes, see the [release notes](releases/0.15.md).
+For recent changes, see the [release notes](releases/0.16.md).
 
 Manage a selected layer's data links under **Properties → Data Bindings**. Binding indicators are
 not drawn over the canvas artwork.
+
+## Fullscreen preview
+
+In **Preview & Export**, choose **Fullscreen** to fill the current display with the graphic.
+To use another monitor, first open the pane in a new window and move that window to the display.
+The detached window's **Fullscreen** button opens the same presentation view.
+
+Use **Space** or **Right Arrow** for the next OGraf step and **Left Arrow** for the previous step.
+These keys also work when the preview image has keyboard focus. **Escape** exits fullscreen and
+restores the controls without restarting the graphic. Fullscreen fits the composition to the
+display while preserving its proportions, with black margins where needed.
 
 ## Compatibility notes
 
