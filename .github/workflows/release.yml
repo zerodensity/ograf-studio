@@ -29,6 +29,22 @@ jobs:
       - run: npm ci
       - run: npm run verify
       - run: npm audit
+      - name: Prepare standalone target runtimes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $cache = Join-Path $env:USERPROFILE '.bun/install/cache'
+          New-Item -ItemType Directory -Force $cache | Out-Null
+          foreach ($target in @('bun-windows-x64-baseline', 'bun-darwin-x64', 'bun-darwin-aarch64', 'bun-linux-x64', 'bun-linux-aarch64')) {
+            $destination = Join-Path $env:RUNNER_TEMP $target
+            New-Item -ItemType Directory -Force $destination | Out-Null
+            gh release download bun-v1.3.11 --repo oven-sh/bun --pattern "$target.zip" --dir $destination
+            if ($LASTEXITCODE -ne 0) { throw "Runtime download failed: $target" }
+            Expand-Archive -LiteralPath "$destination/$target.zip" -DestinationPath $destination
+            $filename = if ($target -like '*windows*') { 'bun.exe' } else { 'bun' }
+            Copy-Item -LiteralPath "$destination/$target/$filename" -Destination "$cache/$target-v1.3.11"
+          }
       - run: npm run server:package:all
       - name: Verify Windows standalone
         shell: pwsh
