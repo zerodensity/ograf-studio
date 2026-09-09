@@ -1,0 +1,138 @@
+name: Publish standalone release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - run: npm ci
+      - run: npm run verify
+      - run: npm audit
+      - run: npm run server:package:all
+      - name: Verify Windows standalone
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath "$PWD/release/OGrafStudioServer.exe" -ArgumentList '--port', '4497', '--workspace', "$env:RUNNER_TEMP/ograf-projects", '--no-open' -WindowStyle Hidden -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 50; $attempt++) {
+              try { $health = Invoke-RestMethod http://127.0.0.1:4497/health; if ($health.ok) { $ready = $true; break } } catch {}
+              Start-Sleep -Milliseconds 200
+            }
+            if (-not $ready) { throw 'Standalone server did not start' }
+            $html = (Invoke-WebRequest http://127.0.0.1:4497/).Content
+            if ($html -notmatch '<title>OGraf Studio</title>') { throw 'Editor was not served' }
+            foreach ($asset in @('app-icon.svg', 'favicon.png', 'third-party/ebu-ograf-LICENSE.txt')) {
+              $download = Join-Path $env:RUNNER_TEMP ([IO.Path]::GetFileName($asset))
+              Invoke-WebRequest "http://127.0.0.1:4497/$asset" -OutFile $download
+              if ((Get-FileHash $download).Hash -ne (Get-FileHash "apps/editor/public/$asset").Hash) { throw "Packaged asset differs: $asset" }
+            }
+            $body = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"release-check","version":"1.0.0"}}}'
+            $response = Invoke-WebRequest http://127.0.0.1:4497/mcp -Method Post -ContentType application/json -Headers @{Accept='application/json, text/event-stream'} -Body $body
+            if ($response.Content -notmatch 'serverInfo') { throw 'MCP initialization failed' }
+          } finally { Stop-Process -Id $process.Id -ErrorAction SilentlyContinue }
+      - name: Package authoring skill
+        shell: pwsh
+        run: |
+          git archive --format=zip --prefix=ograf-authoring/ --output=release/ograf-authoring.zip HEAD:skills/ograf-authoring SKILL.md agents references
+          git rev-parse HEAD | Set-Content release/SOURCE-COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: standalone-release
+          compression-level: 0
+          path: |
+            release/OGrafStudioServer.exe
+            release/OGrafStudioServer-macos-x64
+            release/OGrafStudioServer-macos-arm64
+            release/OGrafStudioServer-linux-x64
+            release/OGrafStudioServer-linux-arm64
+            release/ograf-authoring.zip
+            release/SOURCE-COMMIT.txt
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: standalone-release
+          path: release
+      - name: Verify Linux standalone
+        run: |
+          chmod +x release/OGrafStudioServer-linux-x64
+          sh scripts/smokeStandaloneLinux.sh ./release/OGrafStudioServer-linux-x64 4498
+      - name: Create manifest and checksums
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync, statSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
+          const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex');
+          const files = ['OGrafStudioServer.exe', 'OGrafStudioServer-macos-x64', 'OGrafStudioServer-macos-arm64', 'OGrafStudioServer-linux-x64', 'OGrafStudioServer-linux-arm64', 'ograf-authoring.zip'];
+          const sourceCommit = readFileSync('release/SOURCE-COMMIT.txt', 'utf8').trim();
+          if (sourceCommit !== execFileSync('git', ['rev-parse', 'HEAD'], {encoding:'utf8'}).trim()) throw new Error('Build source mismatch');
+          const manifest = {
+            tag: process.env.RELEASE_TAG,
+            packageVersion: JSON.parse(readFileSync('package.json', 'utf8')).version,
+            repository: `https://github.com/${process.env.GITHUB_REPOSITORY}`,
+            sourceCommit, builtAt: new Date().toISOString(),
+            build: {runner:'windows-latest', node:'22', bun:'1.3.11', dependencies:'npm ci from committed lockfile'},
+            validation: {repositoryGate:true, dependencyAudit:true, binaryFormatAndArchitecture:true, windowsStartupHttpMcpAndAssets:true, linuxX64StartupAndHttp:true, nativeMacOS:false, nativeArm64:false},
+            signing: {windowsSigned:false, macOSSigned:false, macOSNotarized:false},
+            workflow: `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            artifacts: files.map(file => ({file, bytes:statSync(`release/${file}`).size, sha256:sha256(`release/${file}`)}))
+          };
+          writeFileSync('release/RELEASE-MANIFEST.json', JSON.stringify(manifest,null,2)+'\n');
+          writeFileSync('release/SHA256SUMS.txt', [...files,'RELEASE-MANIFEST.json'].map(file=>`${sha256(`release/${file}`)}  ${file}`).join('\n')+'\n');
+          JS
+      - name: Upload and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft | grep -qx true
+          for file in OGrafStudioServer.exe OGrafStudioServer-macos-x64 OGrafStudioServer-macos-arm64 OGrafStudioServer-linux-x64 OGrafStudioServer-linux-arm64 ograf-authoring.zip RELEASE-MANIFEST.json SHA256SUMS.txt; do
+            gh release upload "$RELEASE_TAG" "release/$file" --clobber
+          done
+          gh release view "$RELEASE_TAG" --json assets > release/uploaded-assets.json
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const {assets} = JSON.parse(readFileSync('release/uploaded-assets.json','utf8'));
+          const files = [...JSON.parse(readFileSync('release/RELEASE-MANIFEST.json','utf8')).artifacts.map(a=>a.file),'RELEASE-MANIFEST.json','SHA256SUMS.txt'];
+          for (const file of files) {
+            const data = readFileSync(`release/${file}`), asset = assets.find(a=>a.name===file);
+            const digest = 'sha256:'+createHash('sha256').update(data).digest('hex');
+            if (!asset || asset.state !== 'uploaded' || asset.size !== data.length || asset.digest !== digest) throw new Error(`Upload verification failed: ${file}`);
+          }
+          JS
+          gh release edit "$RELEASE_TAG" --draft=false --latest
