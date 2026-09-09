@@ -9,9 +9,18 @@
 }
 
 .menubar-brand {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  white-space: nowrap;
   font-weight: 400;
   color: var(--text-heading);
   font-size: var(--ui-font-size);
+}
+
+.menubar-brand .ograf-logo {
+  margin-inline-end: 0;
 }
 
 .menubar-project-name {

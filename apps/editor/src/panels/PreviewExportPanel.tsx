@@ -1,5 +1,6 @@
 import { useEditorWindow } from '../layout/EditorWindow';
 import { PropertyRow } from '../components/PropertyRow';
+import { OgrafLogo } from '../components/OgrafLogo';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   assembleManifest,
@@ -808,7 +809,10 @@ export function PreviewExportPanel() {
         </section>
 
         <section className="data-panel-section">
-          <h3>Export</h3>
+          <h3 className="preview-export-heading">
+            <OgrafLogo section />
+            Export
+          </h3>
           <PropertyRow
             help={
               "Choose the playback modes advertised by the exported package: real-time, non-real-time or both. This output-only choice does not change the editable project's flags."
