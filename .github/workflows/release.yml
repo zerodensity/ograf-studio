@@ -55,7 +55,7 @@ jobs:
       - name: Package authoring skill
         shell: pwsh
         run: |
-          git archive --format=zip --output=release/ograf-authoring.zip HEAD:skills/ograf-authoring SKILL.md agents references
+          git archive --format=zip --prefix=ograf-authoring/ --output=release/ograf-authoring.zip HEAD:skills/ograf-authoring SKILL.md agents references
           git rev-parse HEAD | Set-Content release/SOURCE-COMMIT.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -123,4 +123,16 @@ jobs:
           for file in OGrafStudioServer.exe OGrafStudioServer-macos-x64 OGrafStudioServer-macos-arm64 OGrafStudioServer-linux-x64 OGrafStudioServer-linux-arm64 ograf-authoring.zip RELEASE-MANIFEST.json SHA256SUMS.txt; do
             gh release upload "$RELEASE_TAG" "release/$file" --clobber
           done
+          gh release view "$RELEASE_TAG" --json assets > release/uploaded-assets.json
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const {assets} = JSON.parse(readFileSync('release/uploaded-assets.json','utf8'));
+          const files = [...JSON.parse(readFileSync('release/RELEASE-MANIFEST.json','utf8')).artifacts.map(a=>a.file),'RELEASE-MANIFEST.json','SHA256SUMS.txt'];
+          for (const file of files) {
+            const data = readFileSync(`release/${file}`), asset = assets.find(a=>a.name===file);
+            const digest = 'sha256:'+createHash('sha256').update(data).digest('hex');
+            if (!asset || asset.state !== 'uploaded' || asset.size !== data.length || asset.digest !== digest) throw new Error(`Upload verification failed: ${file}`);
+          }
+          JS
           gh release edit "$RELEASE_TAG" --draft=false --latest
