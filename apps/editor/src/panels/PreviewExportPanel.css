@@ -4,6 +4,12 @@
   gap: 12px;
 }
 
+.preview-export-heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .preview-stage-wrap {
   display: flex;
   align-items: center;

@@ -1,4 +1,4 @@
-# OGraf Studio
+# <picture><source media="(prefers-color-scheme: dark)" srcset="apps/editor/src/assets/ebu-ograf-logo-mono-white.svg"><img src="docs/images/ograf-logo-colour.svg" alt="OGraf" width="119" height="40"></picture> Studio
 
 Create animated, data-driven broadcast graphics visually or with AI.
 
@@ -55,3 +55,5 @@ every third-party player.
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`).
+
+[Third-party asset credits](docs/THIRD_PARTY.md).

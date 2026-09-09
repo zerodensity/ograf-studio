@@ -1,0 +1,16 @@
+.ograf-logo {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 54px;
+  height: 18px;
+  margin-inline-end: 5px;
+  object-fit: contain;
+  vertical-align: middle;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ograf-logo-section {
+  width: 66px;
+  height: 22px;
+}

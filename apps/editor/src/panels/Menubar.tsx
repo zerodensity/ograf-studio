@@ -1,3 +1,4 @@
+import { OgrafLogo } from '../components/OgrafLogo';
 import {
   useEffect,
   useRef,
@@ -214,7 +215,10 @@ export function Menubar({
 
   return (
     <header className="menubar" style={style}>
-      <span className="menubar-brand">OGraf Studio</span>
+      <span className="menubar-brand" aria-label="OGraf Studio">
+        <OgrafLogo />
+        Studio
+      </span>
       <span className="menubar-project-name">{projectName}</span>
       <nav className="menubar-actions">
         <button type="button" onClick={handleNew}>
