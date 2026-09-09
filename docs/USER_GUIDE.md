@@ -96,7 +96,7 @@ exported graphic in the intended playout environment.
 
 For vector points and handles, see the [path-editing guide](../skills/ograf-authoring/references/path-editing.md).
 Clicking blank canvas keeps path editing active. Choose **Done** or press **Escape** to finish.
-For recent changes, see the [release notes](releases/0.16.md).
+For recent changes, see the [release notes](releases/0.17.md).
 
 Manage a selected layer's data links under **Properties → Data Bindings**. Binding indicators are
 not drawn over the canvas artwork.

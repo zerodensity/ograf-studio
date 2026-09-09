@@ -100,7 +100,7 @@ self-contained.
 
 Linux users must make the downloaded file executable with `chmod +x`. The macOS artifacts are raw,
 unsigned command-line executables; they require code signing and notarization before broad external
-distribution. The Windows executable contains Zero Density product/version metadata and the OGS
+distribution. The Windows executable contains Zero Density product/version metadata and the official OGraf
 icon; headless macOS/Linux executables do not have desktop application icons.
 
 The source-level `npm run mcp:start` server also binds only to loopback, but defaults its writable
