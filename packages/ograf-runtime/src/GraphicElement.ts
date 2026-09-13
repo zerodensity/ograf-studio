@@ -46,6 +46,7 @@ import {
   sampleCompiledLayerVisualState,
 } from './loopRendering';
 import { expandRuntimeCollections, isRuntimeCollectionLayerActive } from './runtimeCollections';
+import { registerDocumentFonts } from './documentFonts';
 
 function errorPayload(err: unknown): ReturnPayload {
   return {
@@ -504,10 +505,13 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#stopLoopRendering();
   }
 
+  #documentFontsReady: Promise<void> = Promise.resolve();
+
   #buildDom(): void {
     const shadow = this.shadowRoot;
     if (!shadow) return;
     const descriptor = this.descriptor;
+    this.#documentFontsReady = registerDocumentFonts(this.ownerDocument, descriptor.fonts ?? []);
     this.#renderDescriptor = expandRuntimeCollections(descriptor);
     const renderDescriptor = this.activeDescriptor;
     for (const element of this.#layerEls.values()) disposeElementContent(element);
@@ -583,6 +587,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   async #awaitContentReady(): Promise<void> {
     const root = this.shadowRoot;
+    await this.#documentFontsReady;
     if (root) await waitForElementContentReady(root);
     if (this.#contentPlaybackError) throw this.#contentPlaybackError;
   }
