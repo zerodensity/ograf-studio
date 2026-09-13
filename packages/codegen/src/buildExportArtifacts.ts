@@ -48,7 +48,7 @@ for (const layer of exportedDescriptor.layers) {
   }
 }
 for (const font of exportedDescriptor.fonts ?? []) {
-  if (font.source?.startsWith('assets/')) {
+  if (font.source && !/^[a-z][a-z0-9+.-]*:/i.test(font.source)) {
     font.source = new URL(font.source, exportedModuleBaseUrl).href;
   }
 }

@@ -63,6 +63,13 @@ describe('export package artifacts', () => {
     expect(artifacts.mainJs).toContain('new URL(layer.element.src, exportedModuleBaseUrl)');
   });
 
+  it('resolves every relative packaged font path against the exported module', () => {
+    const project = createProject();
+    const artifacts = buildExportArtifacts(project, project.compositions[0]!);
+    expect(artifacts.mainJs).toContain('new URL(font.source, exportedModuleBaseUrl)');
+    expect(artifacts.mainJs).not.toContain("font.source?.startsWith('assets/')");
+  });
+
   it('packages asset references once across elements and image-url field defaults', () => {
     const project = createProject();
     const composition = project.compositions[0]!;
