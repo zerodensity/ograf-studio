@@ -28,7 +28,8 @@ lower thirds, scoreboards, tickers, full-screen graphics and reusable templates.
 ## Get started
 
 [Download a single-file server](https://github.com/zerodensity/ograf-studio/releases/latest) for
-Windows x64. Run it and open **http://127.0.0.1:4318/**.
+Windows x64 or Linux x64/ARM64. Run it and open **http://127.0.0.1:4318/**.
+On Linux, first run `chmod +x <downloaded-file>`.
 No Node.js, npm or Bun installation is needed. Platform verification and signing details accompany each release.
 
 To run from source with Node.js 22+:
@@ -45,7 +46,7 @@ building executables and verification.
 
 - [Using Studio](docs/USER_GUIDE.md) — projects, images, SVG and Lottie.
 - [AI authoring](docs/AI_AUTHORING.md) — built-in chat, MCP clients and the authoring skill.
-- [What's new](docs/releases/0.21.md) — highlights prepared for the next release.
+- [What's new](docs/releases/0.21.md) — highlights in 0.21.
 - [Contributing](CONTRIBUTING.md) — community development and verification.
 
 Contributions target `dev`; maintainers merge tested changes into `main`.

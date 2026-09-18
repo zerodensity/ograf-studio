@@ -132,7 +132,7 @@ motion is offset rather than replaced. Enable it to make frame-specific edits.
 
 For vector points and handles, see the [path-editing guide](../skills/ograf-authoring/references/path-editing.md).
 Clicking blank canvas keeps path editing active. Choose **Done** or press **Escape** to finish.
-For recent changes, see the [release notes](releases/0.20.md).
+For recent changes, see the [release notes](releases/0.21.md).
 
 Manage a selected layer's data links under **Properties → Data Bindings**. Binding indicators are
 not drawn over the canvas artwork.
