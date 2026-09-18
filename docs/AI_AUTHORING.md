@@ -9,49 +9,80 @@ the local server process and drives the same canonical, revision-checked tool re
 browser receives only redacted chat/tool/usage events: provider credentials never enter renderer
 JavaScript, WebSocket frames, project files, or local usage storage.
 
-### Codex sign-in
+### Choose a connection
 
-The **Codex** provider uses the installed Codex CLI and its existing sign-in through the official
-[Codex App Server](https://learn.chatgpt.com/docs/app-server). No separate API key is required when
-Codex is signed in with ChatGPT. Captured areas are sent as image inputs.
+| Provider                  | What you need                                                          | Setting                                  |
+| ------------------------- | ---------------------------------------------------------------------- | ---------------------------------------- |
+| Codex                     | Installed Codex CLI, signed in with your account                       | `OGRAF_AGENT_PROVIDER=codex`             |
+| Anthropic Claude          | Anthropic API key, API access and a model ID available to your account | `OGRAF_AGENT_PROVIDER=anthropic`         |
+| OpenAI-compatible service | Its endpoint, model ID and API credential                              | `OGRAF_AGENT_PROVIDER=openai-compatible` |
 
-On Windows, run `codex login` if needed, then start Studio with:
+Configure the process that runs Studio's server, then restart that server. Open **AI Assistant**
+and check the displayed provider and model. Only one provider is active at a time.
+Studio currently does not connect the built-in assistant through a Claude subscription or Claude
+Code sign-in. External AI clients can connect separately through MCP; see below.
+
+### Codex
+
+Install the Codex CLI and run `codex login` if you are not already signed in.
+Studio uses that sign-in through the Codex App Server; it does not need a separate API key when
+Codex is signed in with ChatGPT.
+
+For the Windows executable, run from its folder:
+
+```powershell
+$env:OGRAF_AGENT_PROVIDER = "codex"
+$env:OGRAF_AGENT_MODEL = "default"
+.\OGrafStudioServer.exe
+```
+
+For a source checkout, use:
 
 ```powershell
 .\scripts\startCodex.ps1 -RestartMcp
 ```
 
-The script saves provider settings in the ignored `.ograf-agent.local` file; later `startAll.ps1`
-launches reuse them. `-RestartMcp` restarts only this checkout's source MCP server. The default model
-follows Codex's configuration; pass `-Model` to choose another model available to your account.
+The source launcher saves non-secret Codex settings locally for `startAll.ps1`.
+The default model follows Codex's configuration. Set `OGRAF_AGENT_MODEL` to choose another model,
+and `OGRAF_CODEX_EXECUTABLE` if Codex is not on PATH.
 
-For other launch methods, set `OGRAF_AGENT_PROVIDER=codex`. `OGRAF_AGENT_MODEL` is optional, and
-`OGRAF_CODEX_EXECUTABLE` can point to Codex when it is not on PATH. Keep Codex and its bundled Code
-Mode host installed together. Studio uses ephemeral Codex conversations and supplies its authoring
-tools; scene mutations retain revision checks and the visual proposal review flow.
+### Anthropic Claude
 
-### API providers (BYOK)
-
-Configure the server before starting `npm run mcp:start`:
+Use a Claude Console API key and an API model ID available to your account.
+Enter the key privately in PowerShell, then launch the server from the same window:
 
 ```powershell
-$env:OGRAF_AGENT_PROVIDER = "anthropic" # or "openai-compatible"
+$env:OGRAF_AGENT_PROVIDER = "anthropic"
 $env:OGRAF_AGENT_BASE_URL = "https://api.anthropic.com"
 $env:OGRAF_AGENT_MODEL = "your-model-id"
-npm run agent:credential
-npm run mcp:start
+$key = Read-Host "Anthropic API key" -AsSecureString
+$env:OGRAF_AGENT_API_KEY = [System.Net.NetworkCredential]::new("", $key).Password
+.\OGrafStudioServer.exe
 ```
 
-`agent:credential` prompts without echo and stores the secret as
-`OGraf Studio/<provider>` in Windows Credential Manager. For managed or air-gapped machines, set
-`OGRAF_AGENT_API_KEY` in the server environment instead; it is a fallback and is never persisted by
-Studio. `OGRAF_AGENT_BASE_URL` is required so facilities can use an internal gateway or self-hosted
-OpenAI-compatible endpoint. It may be an API root ending in `/v1` or a complete chat-completions URL.
+For a source checkout, replace the last line with `npm run mcp:start` and run the editor with
+`npm run dev`. Use these direct commands when switching from Codex: `startAll.ps1` restores a
+previously saved Codex configuration. Do not start a second server on the same port.
 
-Optional server-only settings are `OGRAF_AGENT_CHEAP_MODEL` for routine rename/property/key work,
-`OGRAF_AGENT_EFFORT` (`low`, `medium`, or `high`), `OGRAF_AGENT_ORGANIZATION`,
-`OGRAF_AGENT_PROJECT`, `OGRAF_AGENT_CREDENTIAL_TARGET`, and `OGRAF_AGENT_TIMEOUT_MS` (provider wait
-timeout, default 120000 ms). Restart the server after changing them.
+To store the key in Windows Credential Manager instead of the process environment, run
+`npm run agent:credential -- -Provider anthropic` from a source checkout. Studio checks
+`OGraf Studio/anthropic` before `OGRAF_AGENT_API_KEY`; update that stored key if it is outdated.
+Credentials stay on the server and are not included in project files.
+
+For an OpenAI-compatible service, use `openai-compatible` and that service's base URL, model ID
+and credential. Do not use Anthropic's endpoint with that provider setting.
+
+### Connection checks
+
+- **Not configured:** API providers require provider, base URL, model and credential settings.
+- **Wrong provider:** restart the server with the intended settings; refreshing the browser alone
+  does not change the server's configuration.
+- **Authentication or model error:** check the active account/key, API access and exact model ID.
+- **Image references:** choose a model that supports images and tool use.
+
+Optional server settings include `OGRAF_AGENT_CREDENTIAL_TARGET` for a different credential-store
+entry and `OGRAF_AGENT_TIMEOUT_MS` for request timeout (default 120000 ms).
+
 The panel reports per-message, per-session, and cumulative-per-project token usage; cumulative usage
 is browser-local metadata keyed by project ID and is deliberately excluded from `.ogs`.
 It also reports recent external MCP activity. An optional session-local exclusive toggle prevents

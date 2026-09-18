@@ -1,6 +1,12 @@
 # Contributing
 
-Use a short-lived branch per coherent change. Keep commits focused, preserve unrelated working-tree changes, and use pull requests for review when a remote is available.
+Create your feature or fix branch from `dev` and open pull requests against `dev`.
+Keep each pull request focused on one change. `main` contains the stable code;
+maintainers promote tested changes from `dev` to `main` when ready.
+
+If you started from `main` or an older release, update your branch with `dev` before
+submitting. The PR target check accepts contributions to `dev` and promotions from
+this repository's `dev` branch to `main`.
 
 Before requesting review or handing work over:
 

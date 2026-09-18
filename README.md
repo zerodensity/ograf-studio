@@ -5,7 +5,7 @@ Create animated, data-driven broadcast graphics visually or with AI.
 OGraf Studio is an open-source, browser-based editor for EBU OGraf-compatible HTML5 graphics:
 lower thirds, scoreboards, tickers, full-screen graphics and reusable templates.
 
-[Download the latest release](https://github.com/savasalkim/ograf-studio/releases/latest) ·
+[Download the latest release](https://github.com/zerodensity/ograf-studio/releases/latest) ·
 [Getting started](#get-started) · [Documentation](#documentation)
 
 ![OGraf Studio editing the ZD News Globe Opener with AI Assistant](docs/images/ograf-studio-editor.png)
@@ -27,7 +27,7 @@ lower thirds, scoreboards, tickers, full-screen graphics and reusable templates.
 
 ## Get started
 
-[Download a single-file server](https://github.com/savasalkim/ograf-studio/releases/latest) for
+[Download a single-file server](https://github.com/zerodensity/ograf-studio/releases/latest) for
 Windows x64. Run it and open **http://127.0.0.1:4318/**.
 No Node.js, npm or Bun installation is needed. Platform verification and signing details accompany each release.
 
@@ -45,8 +45,10 @@ building executables and verification.
 
 - [Using Studio](docs/USER_GUIDE.md) — projects, images, SVG and Lottie.
 - [AI authoring](docs/AI_AUTHORING.md) — built-in chat, MCP clients and the authoring skill.
-- [Release notes](docs/releases/0.20.md) — what's new in 0.20.
+- [What's new](docs/releases/0.21.md) — highlights prepared for the next release.
 - [Contributing](CONTRIBUTING.md) — community development and verification.
+
+Contributions target `dev`; maintainers merge tested changes into `main`.
 
 Automated OGraf conformance checks are not EBU certification or a guarantee of compatibility with
 every third-party player.
