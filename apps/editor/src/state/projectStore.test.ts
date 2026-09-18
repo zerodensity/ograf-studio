@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { useTimelineStore } from './timelineStore';
 import { getLayerPropertyValueAtFrame } from '@ograf-editor/scene-model';
 import { getActiveComposition, useProjectStore } from './projectStore';
 
@@ -75,6 +76,7 @@ describe('project store authoring', () => {
   });
 
   it('authors stroke colour statically and stroke width on the current frame', () => {
+    useTimelineStore.getState().setAutoKeyframe(true);
     const layerId = useProjectStore.getState().addLayer('text');
 
     useProjectStore.getState().updateLayerTextStroke(layerId, 6, {

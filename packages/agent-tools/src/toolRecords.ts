@@ -1,6 +1,6 @@
 import { parseEditablePath, pathConversionError } from '@ograf-editor/scene-model';
 import { access, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import {
@@ -13,6 +13,7 @@ import {
   buildExportArtifactsWithRuntime,
   getExportProfile,
   validatePackageLayout,
+  withExportThumbnail,
   type ExportProfileMode,
   type ExportArtifacts,
 } from '@ograf-editor/codegen';
@@ -55,6 +56,13 @@ import {
   type Project,
 } from '@ograf-editor/scene-model';
 import JSZip from 'jszip';
+import { writeTemplateFiles } from './projectFiles';
+import {
+  projectThumbnailFrame,
+  thumbnailRenderProject,
+  templateThumbnailName,
+  THUMBNAIL_MAX_DIMENSION,
+} from '@ograf-editor/scene-model';
 import * as z from 'zod/v4';
 import {
   authoringOperationSchema,
@@ -205,7 +213,7 @@ function consolidateOperationTools(
     config: {
       title: 'Apply, preview, or propose OGraf operations',
       description:
-        'Revision-checked atomic operations. apply commits; dry-run validates without changing revision. includeReview adds advisory QA and a capture when available; capture failure does not undo the edit. preview renders a revision-neutral frame/strip in the responsive editor. propose requires sessionId=editor and title, and waits for explicit human Accept/Reject.',
+        'Revision-checked atomic operations. apply commits; dry-run validates without changes. includeReview adds optional QA/capture without rollback on capture failure. preview renders a frame/strip in a responsive editor without changes. propose requires sessionId=editor, title and human Accept/Reject.',
       inputSchema: consolidatedOperationInputSchema,
       annotations: mutation,
     },
@@ -312,12 +320,12 @@ function consolidateOperationTools(
         ...common,
         title: input.title,
         description: input.description,
-        render: input.render ?? 'strip',
+        render: 'frame',
         ...(input.compositionId ? { compositionId: input.compositionId } : {}),
         ...(input.frame !== undefined ? { frame: input.frame } : {}),
         ...(input.frames ? { frames: input.frames } : {}),
         columns: input.columns,
-        maxDimension: Math.min(input.maxDimension ?? 320, 1024),
+        maxDimension: Math.min(input.maxDimension ?? 900, 1024),
         matte: input.matte,
         enableBase64Response: input.enableBase64Response,
       });
@@ -408,39 +416,56 @@ function runtimeSource(): Promise<string> {
   return runtimeSourcePromise;
 }
 
-async function artifactsFor(
-  workspace: AuthoringWorkspacePort,
-  sessionId: string,
-  profileId?: ExportProfileMode,
-): Promise<ExportArtifacts> {
-  const project = workspace.get(sessionId).snapshot().project;
-  return buildExportArtifactsWithRuntime(
-    project,
-    mainComposition(project),
-    await runtimeSource(),
-    profileId ? getExportProfile(profileId) : undefined,
-  );
-}
-
 async function certifiedArtifacts(
   workspace: AuthoringWorkspacePort,
   bridge: EditorBridgePort,
   sessionId: string,
   profileId?: ExportProfileMode,
+  includeThumbnail = false,
+  thumbnailFrame?: number | null,
 ): Promise<{
   artifacts: ExportArtifacts;
   certification: Awaited<ReturnType<EditorBridgePort['certify']>>;
+  thumbnailFrame?: number;
 }> {
-  const artifacts = await artifactsFor(workspace, sessionId, profileId);
+  const project = workspace.get(sessionId).snapshot().project;
+  if (thumbnailFrame !== undefined) {
+    if (thumbnailFrame !== null && thumbnailFrame > getTotalFrames(mainComposition(project)))
+      throw new Error('Thumbnail frame is beyond the end of the template.');
+    project.thumbnailFrame = thumbnailFrame;
+  }
+  let artifacts = buildExportArtifactsWithRuntime(
+    project,
+    mainComposition(project),
+    await runtimeSource(),
+    profileId ? getExportProfile(profileId) : undefined,
+  );
   const staticErrors = [...artifacts.errors, ...validatePackageLayout(artifacts)];
   if (staticErrors.length > 0) {
     throw new Error(`OGraf certification failed:\n${staticErrors.join('\n')}`);
+  }
+  if (includeThumbnail) {
+    const thumbnail = await bridge.capture({
+      target: 'composition',
+      project: thumbnailRenderProject(project),
+      compositionId: project.mainCompositionId,
+      frame: projectThumbnailFrame(project),
+      maxDimension: THUMBNAIL_MAX_DIMENSION,
+      matte: 'transparent',
+    });
+    artifacts = withExportThumbnail(artifacts, project, thumbnail.data);
+    const errors = [...artifacts.errors, ...validatePackageLayout(artifacts)];
+    if (errors.length) throw new Error(`OGraf certification failed:\n${errors.join('\n')}`);
   }
   const certification = await bridge.certify(artifacts);
   if (!certification.valid) {
     throw new Error(`OGraf certification failed:\n${certification.errors.join('\n')}`);
   }
-  return { artifacts, certification };
+  return {
+    artifacts,
+    certification,
+    ...(includeThumbnail ? { thumbnailFrame: projectThumbnailFrame(project) } : {}),
+  };
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -2540,7 +2565,7 @@ export function createOGrafToolRecords(
     {
       title: 'Capture browser-rendered OGraf PNG',
       description:
-        'Capture browser PNG of a composition frame or live viewport; requires a responsive editor. Default frame is first Step. Composition supports matte/dataOverrides; viewport ignores them. Returns a five-minute URL; inline PNG is opt-in. Does not certify export.',
+        'Capture PNG (responsive editor required). Default: first Step. Matte/dataOverrides: composition only. Five-minute URL; inline PNG opt-in. Not export certification.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         target: z.enum(['composition', 'viewport']).default('composition'),
@@ -2824,14 +2849,14 @@ export function createOGrafToolRecords(
     {
       title: 'Propose OGraf operations for human review',
       description:
-        'Creates a visual, revision-neutral dry-run and presents it inside OGraf Studio with explicit Accept and Reject controls. Acceptance atomically applies the exact prevalidated operations only if the live revision still equals baseRevision; otherwise the proposal resolves as stale and must be regenerated. This is the preferred boundary for visually consequential AI edits.',
+        'Show one large frame on the main canvas for Accept/Reject in AI Assistant. Accept applies exact operations only at baseRevision; stale proposals must be regenerated. Source stays unchanged until acceptance.',
       inputSchema: {
         sessionId: z.literal('editor').default('editor'),
         expectedRevision: z.number().int().nonnegative(),
         title: z.string().min(1).max(120),
         description: z.string().max(1000).default(''),
         operations: z.array(authoringOperationSchema).min(1),
-        render: z.enum(['frame', 'strip']).default('strip'),
+        render: z.enum(['frame', 'strip']).default('frame'),
         compositionId: z.string().optional(),
         frame: z.number().int().nonnegative().optional(),
         frames: z.array(z.number().int().nonnegative()).min(1).max(12).optional(),
@@ -2848,11 +2873,9 @@ export function createOGrafToolRecords(
       title,
       description,
       operations,
-      render,
       compositionId,
       frame,
       frames,
-      columns,
       maxDimension,
       matte,
       enableBase64Response,
@@ -2872,46 +2895,27 @@ export function createOGrafToolRecords(
         (item) => item.id === (compositionId ?? projection.project.mainCompositionId),
       );
       if (!composition) throw new Error('Composition not found in projected project.');
-      let preview: Awaited<ReturnType<EditorBridgePort['capture']>>;
-      let renderedFrames: number[];
-      if (render === 'frame') {
-        const resolvedFrame = frame ?? firstStepFrame(composition);
-        if (resolvedFrame > getTotalFrames(composition)) {
-          throw new Error(`Frame ${resolvedFrame} is beyond the projected composition's duration.`);
-        }
-        preview = await bridge.capture({
-          target: 'composition',
-          project: projection.project,
-          compositionId: composition.id,
-          frame: resolvedFrame,
-          maxDimension,
-          matte,
-        });
-        renderedFrames = [resolvedFrame];
-      } else {
-        const resolvedFrames = frames
-          ? [...new Set(frames)].sort((a, b) => a - b)
-          : defaultStripFrames(composition);
-        const invalidFrame = resolvedFrames.find(
-          (candidate) => candidate > getTotalFrames(composition),
-        );
-        if (invalidFrame !== undefined) {
-          throw new Error(`Frame ${invalidFrame} is beyond the projected composition's duration.`);
-        }
-        preview = await bridge.renderStrip({
-          project: projection.project,
-          compositionId: composition.id,
-          frames: resolvedFrames,
-          columns,
-          maxDimension,
-          labelFrames: true,
-          matte,
-        });
-        renderedFrames = resolvedFrames;
+      // Operator approval always presents one readable frame, even for legacy strip requests.
+      const stepFrame = firstStepFrame(composition);
+      const resolvedFrame =
+        frame ?? (frames?.includes(stepFrame) ? stepFrame : frames?.[0]) ?? stepFrame;
+      if (resolvedFrame > getTotalFrames(composition)) {
+        throw new Error(`Frame ${resolvedFrame} is beyond the projected composition's duration.`);
       }
+      const preview = await bridge.capture({
+        target: 'composition',
+        project: projection.project,
+        compositionId: composition.id,
+        frame: resolvedFrame,
+        maxDimension,
+        matte,
+      });
+      const renderedFrames = [resolvedFrame];
       const proposalId = randomUUID();
       const proposal = {
         id: proposalId,
+        project: projection.project,
+        compositionId: composition.id,
         title,
         description,
         sessionId,
@@ -2920,7 +2924,7 @@ export function createOGrafToolRecords(
         operationCount: typedOperations.length,
         previewUrl: preview.url,
         previewExpiresAt: preview.expiresAt,
-        render,
+        render: 'frame' as const,
         frames: renderedFrames,
         valid: projection.validation.valid,
         warnings: [
@@ -3660,7 +3664,7 @@ export function createOGrafToolRecords(
       name,
       {
         title: action === 'undo' ? 'Undo agent change' : 'Redo agent change',
-        description: `${action === 'undo' ? 'Undoes' : 'Redoes'} the latest agent-authored transaction in a session.`,
+        description: `${action === 'undo' ? 'Undo' : 'Redo'} the latest agent transaction.`,
         inputSchema: {
           sessionId: z.string().default('editor'),
           expectedRevision: z.number().int().nonnegative(),
@@ -3677,9 +3681,8 @@ export function createOGrafToolRecords(
   server.registerTool(
     'ograf_certify_project',
     {
-      title: 'Certify exact OGraf output artifacts',
-      description:
-        'Certify exact compiled project, manifest, package, module and realtime/non-realtime lifecycle in a responsive editor.',
+      title: 'Certify OGraf output',
+      description: 'Validate project, manifest, package, module and lifecycle in the editor.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         profile: z.enum(['realtime', 'non-realtime', 'dual']).optional(),
@@ -3695,27 +3698,67 @@ export function createOGrafToolRecords(
   server.registerTool(
     'ograf_save_project',
     {
-      title: 'Certify and save editable OGraf project',
-      description:
-        'Certify exact output in a responsive editor, then save editable .ogs inside the workspace.',
+      title: 'Save OGraf project and PNG',
+      description: 'Certify and save .ogs plus <id>_thumb.png.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         path: z.string(),
         confirm: z.literal(true),
         overwrite: z.boolean().default(false),
+        thumbnailFrame: z.number().int().nonnegative().nullable().optional(),
       },
       annotations: mutation,
     },
-    async ({ sessionId, path, overwrite }) => {
+    async ({ sessionId, path, overwrite, thumbnailFrame }) => {
       if (extname(path).toLowerCase() !== PROJECT_SOURCE_EXTENSION)
         throw new Error(`Project path must end in ${PROJECT_SOURCE_EXTENSION}.`);
-      const { certification } = await certifiedArtifacts(workspace, bridge, sessionId);
       const target = workspace.resolveAllowedPath(path);
-      const project = workspace.get(sessionId).snapshot().project;
-      await atomicWrite(target, `${JSON.stringify(project, null, 2)}\n`, overwrite);
+      const snapshot = workspace.get(sessionId).snapshot();
+      const project = snapshot.project;
+      const thumbnailPath = workspace.resolveAllowedPath(
+        join(dirname(target), templateThumbnailName(project)),
+      );
+      if (thumbnailFrame !== undefined) {
+        if (thumbnailFrame !== null && thumbnailFrame > getTotalFrames(mainComposition(project)))
+          throw new Error('Thumbnail frame is beyond the end of the template.');
+        project.thumbnailFrame = thumbnailFrame;
+      }
+      const frame = projectThumbnailFrame(project);
+      const artifacts = buildExportArtifactsWithRuntime(
+        project,
+        mainComposition(project),
+        await runtimeSource(),
+      );
+      const errors = [...artifacts.errors, ...validatePackageLayout(artifacts)];
+      if (errors.length) throw new Error(`OGraf certification failed:\n${errors.join('\n')}`);
+      const certification = await bridge.certify(artifacts);
+      if (!certification.valid)
+        throw new Error(`OGraf certification failed:\n${certification.errors.join('\n')}`);
+      const thumbnail = await bridge.capture({
+        target: 'composition',
+        project: thumbnailRenderProject(project),
+        compositionId: project.mainCompositionId,
+        frame,
+        maxDimension: THUMBNAIL_MAX_DIMENSION,
+        matte: 'transparent',
+      });
+      await writeTemplateFiles(
+        [
+          { path: target, data: `${JSON.stringify(project, null, 2)}\n` },
+          { path: thumbnailPath, data: Buffer.from(thumbnail.data, 'base64') },
+        ],
+        overwrite,
+      );
       return textResult(
-        { sessionId, path: target, certification },
-        `Certified and saved ${target}`,
+        {
+          sessionId,
+          path: target,
+          thumbnailPath,
+          thumbnailFrame: frame,
+          revision: snapshot.revision,
+          certification,
+        },
+        `Certified and saved ${target} with ${thumbnailPath} (frame ${frame})`,
       );
     },
   );
@@ -3723,27 +3766,26 @@ export function createOGrafToolRecords(
   server.registerTool(
     'ograf_export_package',
     {
-      title: 'Certify and export OGraf package',
-      description:
-        'Certify exact output in a responsive editor, then write a playout .ograf.zip inside the workspace.',
+      title: 'Export OGraf ZIP and PNG',
+      description: 'Export certified .ograf.zip with <id>_thumb.png.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         path: z.string(),
         confirm: z.literal(true),
         overwrite: z.boolean().default(false),
         profile: z.enum(['realtime', 'non-realtime', 'dual']).default('dual'),
+        thumbnailFrame: z.number().int().nonnegative().nullable().optional(),
       },
       annotations: mutation,
     },
-    async ({ sessionId, path, overwrite, profile }) => {
+    async ({ sessionId, path, overwrite, profile, thumbnailFrame }) => {
       if (!path.toLowerCase().endsWith('.ograf.zip'))
         throw new Error('Package path must end in .ograf.zip.');
-      const { artifacts, certification } = await certifiedArtifacts(
-        workspace,
-        bridge,
-        sessionId,
-        profile,
-      );
+      const {
+        artifacts,
+        certification,
+        thumbnailFrame: renderedFrame,
+      } = await certifiedArtifacts(workspace, bridge, sessionId, profile, true, thumbnailFrame);
       const zip = new JSZip();
       zip.file(artifacts.manifestFileName, JSON.stringify(artifacts.manifest, null, 2));
       zip.file('main.js', artifacts.mainJs);
@@ -3754,7 +3796,7 @@ export function createOGrafToolRecords(
       const target = workspace.resolveAllowedPath(path);
       await atomicWrite(target, output, overwrite);
       return textResult(
-        { sessionId, path: target, profile, certification },
+        { sessionId, path: target, profile, certification, thumbnailFrame: renderedFrame },
         `Certified and exported ${target}`,
       );
     },

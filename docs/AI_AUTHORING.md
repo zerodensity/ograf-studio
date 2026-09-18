@@ -2,12 +2,35 @@
 
 [Back to overview](../README.md) · [Using Studio](USER_GUIDE.md) · [Server setup](DEVELOPMENT.md#run-the-mcp-server)
 
-## In-app AI chat (BYOK)
+## AI Assistant
 
-OGraf Studio includes a **Chat** tab beside **Layers** in the left sidebar. The model loop runs in
+OGraf Studio includes an **AI Assistant** tab beside **Layers** in the left sidebar. The model loop runs in
 the local server process and drives the same canonical, revision-checked tool records as MCP. The
 browser receives only redacted chat/tool/usage events: provider credentials never enter renderer
 JavaScript, WebSocket frames, project files, or local usage storage.
+
+### Codex sign-in
+
+The **Codex** provider uses the installed Codex CLI and its existing sign-in through the official
+[Codex App Server](https://learn.chatgpt.com/docs/app-server). No separate API key is required when
+Codex is signed in with ChatGPT. Captured areas are sent as image inputs.
+
+On Windows, run `codex login` if needed, then start Studio with:
+
+```powershell
+.\scripts\startCodex.ps1 -RestartMcp
+```
+
+The script saves provider settings in the ignored `.ograf-agent.local` file; later `startAll.ps1`
+launches reuse them. `-RestartMcp` restarts only this checkout's source MCP server. The default model
+follows Codex's configuration; pass `-Model` to choose another model available to your account.
+
+For other launch methods, set `OGRAF_AGENT_PROVIDER=codex`. `OGRAF_AGENT_MODEL` is optional, and
+`OGRAF_CODEX_EXECUTABLE` can point to Codex when it is not on PATH. Keep Codex and its bundled Code
+Mode host installed together. Studio uses ephemeral Codex conversations and supplies its authoring
+tools; scene mutations retain revision checks and the visual proposal review flow.
+
+### API providers (BYOK)
 
 Configure the server before starting `npm run mcp:start`:
 
@@ -35,25 +58,60 @@ It also reports recent external MCP activity. An optional session-local exclusiv
 the in-app and external agents from authoring at the same time; optimistic revision checks remain
 the normal default when that toggle is off.
 
-While a turn is active, Chat keeps an always-visible progress strip above the transcript with an
-animated activity indicator, provider/model wait phase, tool summary, model round, and elapsed time.
-Long waits escalate to explicit "still working" guidance. Disconnects and provider timeouts end the
-busy state with an actionable error instead of leaving Cancel visible indefinitely.
+AI Assistant uses one updating status line for model activity, tool commands and proposal readiness.
+Intermediate steps do not add conversation rows or scroll the transcript. The final reply and its
+usage appear once when the turn finishes. Disconnects and provider timeouts report an error and
+leave the assistant ready to retry.
 
-Chat conversations are isolated by project ID, retain at most 96,000 characters of recent atomic
-history, and cap individual tool-result payloads at 16,000 characters. Opening or creating another
+AI Assistant conversations are isolated by project ID, keep a bounded recent conversation and the
+latest batch of reference images, and cap individual tool-result payloads at 16,000 characters. Opening or creating another
 project therefore starts a fresh conversation. If Anthropic still rejects the first request as too
 long, Studio automatically retries that turn once with fresh project conversation history.
 
-Current canvas, Layers-pane, and Timeline selection automatically appears in Chat as one or more
+Use **Capture areas** to reference parts of your graphic without selecting layers. Studio pauses
+playback and freezes the current frame in place on the main canvas. Choose **Rectangle** or
+**Freehand**, then draw up to eight areas, mixing shapes or overlapping them as needed. Freehand
+works by holding the left mouse button and drawing an outline. Releasing the button automatically
+closes and selects the area; pixels outside the outline are excluded from the
+attached image. Enter each numbered region's instruction in the AI Assistant pane.
+Zoom and middle-drag pan remain available. For example: **Area 1** — make the
+background smaller; **Area 2** — increase the font size; **Area 3** — change the accent to red.
+
+Choose **Attach areas**, then **Send**. A separate message is optional when you have written area
+instructions. You can edit the notes, remove individual attachments, or use **Add areas** before
+sending. Removing an area renumbers the remaining regions and keeps their notes paired with them.
+**Escape** or **Cancel** discards the current capture without removing previously attached areas.
+
+The microphone buttons dictate into individual annotations or the main message. Click once to
+start and again to stop; review and edit the recognized text before sending. Dictation appends to
+existing text, uses your browser's language, and stops when its field is removed or the capture
+mode ends. Stop dictation before attaching areas or sending the message.
+
+Dictation requires browser speech-recognition support and microphone permission. Some browsers
+use an online speech service; unsupported browsers can use system dictation instead.
+
+The configured model must support images. The assistant receives each numbered crop with its
+instruction, composition coordinates, captured frame and revision, and checks the editable scene
+before proposing the corrections together. An attached area takes precedence over the current
+layer selection. Area attachments are cleared
+when you switch projects or compositions and are not saved in `.ogs` files.
+
+Current canvas, Layers-pane, and Timeline selection otherwise appears in AI Assistant as one or more
 **selected** reference chips. The primary layer's selected property/key is included when applicable,
-and those references update immediately as selection changes. Layers may still be dragged into Chat
+and those references update immediately as selection changes. Layers may still be dragged into AI Assistant
 to add removable references outside the current selection. Explicit chips supply stable IDs, names,
 and element types for prompts such as “change the color to green.”
 
 The in-app model receives a reduced 14-tool authoring surface. Save, export, certification, project
 reset/open, and imports remain explicit Studio UI actions. Visually consequential tool batches still
-appear in the existing **Accept/Reject** review panel. The generated in-app knowledge prompt is a
+appear on the **main canvas**, with **Accept changes** and **Reject** in the AI Assistant pane.
+Use the proposal frame controls to inspect the result or **Compare original** to switch views.
+Approval shows one large frame at a time, so the operator can inspect changes clearly.
+The editable project stays unchanged until acceptance. Editing the original while reviewing marks
+the proposal stale; ask for a new proposal before accepting it. An accepted offer appears immediately in
+**Edit → History** as one named **AI Assistant** entry with its action count. Undo/Redo applies to
+the complete offer and preserves the surrounding manual edits as separate history steps.
+The generated in-app knowledge prompt is a
 projection of `skills/ograf-authoring`; `npm run prompt:generate` updates it and `npm run verify`
 rejects drift.
 

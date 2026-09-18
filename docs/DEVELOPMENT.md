@@ -69,6 +69,9 @@ This creates the Windows x64 executable. Build the complete release matrix with:
 npm run server:package:all
 ```
 
+Set `OGRAF_STANDALONE_PLATFORMS=windows,linux` to exclude macOS from packaging and artifact
+verification. The release workflow uses this selection.
+
 The matrix produces:
 
 | Operating system | Architecture  | Artifact                        |

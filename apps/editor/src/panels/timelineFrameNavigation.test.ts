@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTimelineStore } from '../state/timelineStore';
-import { stepTimelineFrame, timelineFrameDirection } from './timelineFrameNavigation';
+import {
+  handleTimelinePlaybackKey,
+  stepTimelineFrame,
+  timelineFrameDirection,
+} from './timelineFrameNavigation';
 
 const arrows = {
   key: 'ArrowRight',
@@ -61,5 +65,35 @@ describe('Timeline frame navigation', () => {
     useTimelineStore.getState().setCurrentFrame(60);
     stepTimelineFrame(1);
     expect(useTimelineStore.getState().currentFrame).toBe(60);
+  });
+
+  it('toggles playback once per Space press using current state and consumes held repeats', () => {
+    const play = vi.fn(() => useTimelineStore.getState().setPlaying(true));
+    const pause = vi.fn(() => useTimelineStore.getState().setPlaying(false));
+    useTimelineStore.setState({ controller: { play, pause, seek: vi.fn(), stop: vi.fn() } });
+    const space = { ...arrows, key: ' ', code: 'Space' };
+    expect(handleTimelinePlaybackKey(space)).toBe(true);
+    expect(useTimelineStore.getState().isPlaying).toBe(true);
+    expect(handleTimelinePlaybackKey({ ...space, repeat: true })).toBe(true);
+    expect(play).toHaveBeenCalledOnce();
+    expect(pause).not.toHaveBeenCalled();
+    expect(handleTimelinePlaybackKey({ ...space, code: undefined })).toBe(true);
+    expect(pause).toHaveBeenCalledOnce();
+    expect(useTimelineStore.getState().isPlaying).toBe(false);
+  });
+
+  it('ignores modified or composing Space and safely handles an unavailable timeline', () => {
+    const space = { ...arrows, key: ' ', code: 'Space' };
+    expect(handleTimelinePlaybackKey(space)).toBe(true);
+    for (const key of ['altKey', 'ctrlKey', 'metaKey', 'shiftKey', 'isComposing'])
+      expect(handleTimelinePlaybackKey({ ...space, [key]: true })).toBe(false);
+    expect(handleTimelinePlaybackKey(arrows)).toBe(false);
+    const play = vi.fn();
+    useTimelineStore.setState({
+      durationFrames: 0,
+      controller: { play, pause: vi.fn(), seek: vi.fn(), stop: vi.fn() },
+    });
+    expect(handleTimelinePlaybackKey(space)).toBe(true);
+    expect(play).not.toHaveBeenCalled();
   });
 });

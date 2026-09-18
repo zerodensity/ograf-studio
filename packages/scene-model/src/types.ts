@@ -768,6 +768,8 @@ export interface ProjectAuthor {
 }
 
 export interface Project {
+  /** Authoring thumbnail frame; absent/null follows the first OGraf step. */
+  thumbnailFrame?: number | null;
   /** Version of the editor document shape, independent from the exported Graphic version. */
   documentVersion: number;
   id: string;

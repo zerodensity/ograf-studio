@@ -1,0 +1,37 @@
+.voice-dictation-button,
+.agent-chat-composer .voice-dictation-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border: 1px solid var(--border, #555);
+  border-radius: 4px;
+  background: var(--bg-panel-raised, #303238);
+  color: var(--text, #eee);
+  cursor: pointer;
+}
+.voice-dictation-button.is-listening,
+.agent-chat-composer .voice-dictation-button.is-listening {
+  background: #952f39;
+  color: #fff;
+  border-color: #e2707b;
+}
+.voice-dictation-stop {
+  width: 10px;
+  height: 10px;
+  background: currentColor;
+  border-radius: 1px;
+}
+.voice-dictation-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.agent-composer-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

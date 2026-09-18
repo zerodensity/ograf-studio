@@ -60,7 +60,7 @@ export function LeftSidebar({
           className={tab === 'chat' ? 'active' : ''}
           onClick={() => selectTab('chat')}
         >
-          Chat
+          AI Assistant
         </button>
         <button
           type="button"

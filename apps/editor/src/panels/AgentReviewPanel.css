@@ -1,20 +1,19 @@
 .agent-review-panel {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 60;
   display: flex;
-  width: min(460px, calc(100vw - 48px));
-  max-height: calc(100vh - 72px);
+  flex: none;
+  margin: 8px;
+  width: auto;
+  max-height: min(340px, calc(100% - 46px));
+  min-height: 0;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: 8px;
+  padding: 10px;
   overflow: auto;
   color: var(--text);
   background: color-mix(in srgb, var(--bg-panel-raised) 96%, black);
   border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
-  border-radius: 12px;
-  box-shadow: 0 18px 60px rgb(0 0 0 / 45%);
+  border-radius: var(--radius-control);
+  font-size: 11px;
 }
 
 .agent-review-panel header,
@@ -28,7 +27,7 @@
 
 .agent-review-panel h2 {
   margin-top: 2px;
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .agent-review-eyebrow,
@@ -40,15 +39,6 @@
 .agent-review-description {
   margin: 0;
   color: var(--text);
-}
-
-.agent-review-preview {
-  width: 100%;
-  max-height: 330px;
-  object-fit: contain;
-  background: #111;
-  border: 1px solid var(--border);
-  border-radius: 7px;
 }
 
 .agent-review-meta {
@@ -92,6 +82,10 @@
 
 .agent-review-panel footer {
   justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
+  padding-top: 6px;
+  background: var(--bg-panel-raised);
 }
 
 .agent-review-panel footer button {
@@ -117,12 +111,10 @@
 }
 
 .agent-review-toast {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 60;
   display: flex;
-  max-width: 420px;
+  flex: none;
+  margin: 8px;
+  font-size: 11px;
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
@@ -147,4 +139,9 @@
   border: 0;
   color: var(--text-dim);
   cursor: pointer;
+}
+
+.agent-review-error {
+  color: #ffa9a9;
+  margin: 0;
 }

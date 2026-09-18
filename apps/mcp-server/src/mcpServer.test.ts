@@ -2716,6 +2716,10 @@ describe('OGraf MCP authoring host', () => {
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XcJR8QAAAABJRU5ErkJggg==';
     const capturedLayerNames: string[][] = [];
     let presentedProposalId: string | null = null;
+    let presentedDraftLayers: string[] = [];
+    let presentedRender: string | undefined;
+    let presentedFrames: number[] | undefined;
+    let stripRequestCount = 0;
     let resolveProposalDecision: ((result: { status: string; revision?: number }) => void) | null =
       null;
     socket.on('message', (raw) => {
@@ -2726,12 +2730,21 @@ describe('OGraf MCP authoring host', () => {
           frame?: number;
           project?: { compositions: Array<{ layers: Array<{ name: string }> }> };
         };
-        proposal?: { id: string };
+        proposal?: {
+          id: string;
+          render?: string;
+          frames?: number[];
+          project?: { compositions: Array<{ layers: Array<{ name: string }> }> };
+        };
         proposalId?: string;
         result?: { status: string; revision?: number };
       };
       if (message.type === 'proposal.present' && message.proposal) {
         presentedProposalId = message.proposal.id;
+        presentedRender = message.proposal.render;
+        presentedFrames = message.proposal.frames;
+        presentedDraftLayers =
+          message.proposal.project?.compositions[0]?.layers.map((layer) => layer.name) ?? [];
         return;
       }
       if (message.type === 'proposal.resolved' && message.result) {
@@ -2763,6 +2776,7 @@ describe('OGraf MCP authoring host', () => {
           }),
         );
       } else if (message.type === 'strip.request') {
+        stripRequestCount++;
         socket.send(
           JSON.stringify({
             type: 'strip.result',
@@ -2907,6 +2921,7 @@ describe('OGraf MCP authoring host', () => {
     ).toBeGreaterThan(0);
     expect(host.workspace.get('editor').revision).toBe(before);
 
+    const stripsBeforeProposal = stripRequestCount;
     const proposed = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2914,7 +2929,7 @@ describe('OGraf MCP authoring host', () => {
         sessionId: 'editor',
         expectedRevision: before,
         title: 'Add reviewed panel',
-        render: 'frame',
+        render: 'strip',
         operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Accepted review panel' }],
       },
     });
@@ -2924,6 +2939,17 @@ describe('OGraf MCP authoring host', () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     expect(presentedProposalId).toBe(proposalId);
+    expect(presentedRender).toBe('frame');
+    expect(presentedFrames).toHaveLength(1);
+    expect(stripRequestCount).toBe(stripsBeforeProposal);
+    expect(presentedDraftLayers).toContain('Accepted review panel');
+    expect(host.workspace.get('editor').revision).toBe(before);
+    expect(
+      host.workspace
+        .get('editor')
+        .snapshot()
+        .project.compositions[0]!.layers.some((layer) => layer.name === 'Accepted review panel'),
+    ).toBe(false);
     const decision = new Promise<{ status: string; revision?: number }>((resolve) => {
       resolveProposalDecision = resolve;
     });

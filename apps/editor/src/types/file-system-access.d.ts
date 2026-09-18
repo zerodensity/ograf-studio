@@ -11,6 +11,7 @@ declare global {
   interface FileSystemWritableFileStream {
     write(data: Blob | string): Promise<void>;
     close(): Promise<void>;
+    abort(): Promise<void>;
   }
 
   interface FilePickerAcceptType {
@@ -25,10 +26,15 @@ declare global {
 
   interface OpenFilePickerOptions {
     types?: FilePickerAcceptType[];
+    excludeAcceptAllOption?: boolean;
     multiple?: boolean;
   }
 
   interface Window {
+    showDirectoryPicker?(options?: {
+      mode?: 'read' | 'readwrite';
+      id?: string;
+    }): Promise<FileSystemDirectoryHandle>;
     showSaveFilePicker?(options?: SaveFilePickerOptions): Promise<FileSystemFileHandle>;
     showOpenFilePicker?(options?: OpenFilePickerOptions): Promise<FileSystemFileHandle[]>;
   }

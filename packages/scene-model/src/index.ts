@@ -36,6 +36,7 @@ export * from './motionPresets';
 export * from './blendModes';
 export * from './fieldSchema';
 export * from './projectSource';
+export * from './projectThumbnail';
 export { createId } from './id';
 export * from './patternLighting';
 export * from './stylePackColorLinks';

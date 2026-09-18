@@ -15,7 +15,7 @@ export type DockTabInsertSide = 'before' | 'after';
 
 export const DOCK_PANE_LABELS: Record<DockPaneId, string> = {
   layers: 'Layers',
-  chat: 'Chat',
+  chat: 'AI Assistant',
   resources: 'Resources',
   'brand-kit': 'Brand Kit',
   inspector: 'Properties',
@@ -266,6 +266,17 @@ export function reopenDockPane(
 ): DockLayoutState {
   if (!layout.closed.includes(pane)) return layout;
   return floatDockPane(layout, pane, position);
+}
+
+/** Reveal a review pane without creating a floating window. */
+export function revealDockPane(layout: DockLayoutState, pane: DockPaneId): DockLayoutState {
+  const groupId = findDockGroup(layout, pane);
+  if (groupId) return activateDockPane(layout, groupId, pane);
+  if (layout.floating.some((item) => item.pane === pane)) return layout;
+  const targetGroup = layout.zones.left[0];
+  return targetGroup
+    ? dockPaneToGroup(layout, pane, targetGroup.id)
+    : dockPaneToZone(layout, pane, 'left');
 }
 
 export function dockZoneNearPointer(

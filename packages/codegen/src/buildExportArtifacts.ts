@@ -1,5 +1,5 @@
 import type { CompiledGraphicDescriptor, OGrafManifest } from '@ograf-editor/ograf-types';
-import type { Composition, Project } from '@ograf-editor/scene-model';
+import { templateThumbnailName, type Composition, type Project } from '@ograf-editor/scene-model';
 import { validateManifest, validateProject } from '@ograf-editor/validation';
 import { assembleManifest } from './assembleManifest';
 import { compileDescriptor } from './compileDescriptor';
@@ -186,6 +186,26 @@ export function buildExportArtifactsWithRuntime(
   };
 }
 
+/** Adds the rendered thumbnail before certification of the complete package. */
+export function withExportThumbnail(
+  artifacts: ExportArtifacts,
+  project: Pick<Project, 'id'>,
+  pngBase64: string,
+): ExportArtifacts {
+  const file = templateThumbnailName(project);
+  const manifest = { ...artifacts.manifest, thumbnails: [{ file }] };
+  const manifestErrors = validateManifest(manifest).errors;
+  const errors = [...artifacts.projectErrors, ...manifestErrors];
+  return {
+    ...artifacts,
+    manifest,
+    resources: [...artifacts.resources, { path: file, data: pngBase64, base64: true }],
+    manifestErrors,
+    errors,
+    valid: errors.length === 0,
+  };
+}
+
 export function validatePackageLayout(artifacts: ExportArtifacts): string[] {
   const errors: string[] = [];
   if (!artifacts.manifestFileName.endsWith('.ograf.json')) {
@@ -206,6 +226,10 @@ export function validatePackageLayout(artifacts: ExportArtifacts): string[] {
     }
     if (uniquePaths.has(path)) errors.push(`Package contains duplicate path "${path}".`);
     uniquePaths.add(path);
+  }
+  for (const thumbnail of artifacts.manifest.thumbnails ?? []) {
+    if (!artifacts.resources.some((resource) => resource.path === thumbnail.file))
+      errors.push(`Thumbnail file is missing from the package: "${thumbnail.file}".`);
   }
   return errors;
 }

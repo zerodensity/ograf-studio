@@ -712,6 +712,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
     return () => {
       segmentTween?.kill();
       tl.kill();
+      if (useTimelineStore.getState().controller === controller) setController(null);
     };
   }, [composition, setController, setCurrentFrame, setDurationFrames, setPlaying]);
 
@@ -990,6 +991,11 @@ export function Stage({ style }: { style?: CSSProperties }) {
                 <CanvasLayoutOverlay composition={composition} zoom={zoom} />
               </div>
             </div>
+            <div
+              className="canvas-stage-border"
+              aria-hidden="true"
+              style={{ width: composition.width * zoom, height: composition.height * zoom }}
+            />
           </div>
           {moveableTarget && !isPlaying && !editingPath && (
             <Moveable

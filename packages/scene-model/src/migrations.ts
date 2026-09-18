@@ -448,6 +448,11 @@ function normalizeComposition(composition: LegacyComposition): Composition {
 /** Upgrade an editor project without mutating the parsed/autosaved source object. */
 export function migrateProject(project: Project | LegacyProject): Project {
   const cloned = cloneProject(project as LegacyProject);
+  if (
+    cloned.thumbnailFrame != null &&
+    (!Number.isInteger(cloned.thumbnailFrame) || cloned.thumbnailFrame < 0)
+  )
+    delete cloned.thumbnailFrame;
   return {
     ...cloned,
     documentVersion: PROJECT_DOCUMENT_VERSION,

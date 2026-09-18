@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import type { Composition, Project } from '@ograf-editor/scene-model';
-import type { ExportProfile } from '@ograf-editor/codegen';
+import { withExportThumbnail, type ExportProfile } from '@ograf-editor/codegen';
 import { saveBlobToFile } from './fileIO';
 import {
   buildExportArtifacts,
@@ -26,7 +26,20 @@ export async function exportProjectAsZip(
   composition: Composition,
   profile?: ExportProfile,
 ): Promise<ExportZipResult> {
-  const artifacts = buildExportArtifacts(project, composition, profile);
+  const snapshot = structuredClone(project);
+  const snapshotComposition = structuredClone(composition);
+  let artifacts = buildExportArtifacts(snapshot, snapshotComposition, profile);
+  if (artifacts.valid) {
+    const { createTemplateThumbnail } = await import('./templateThumbnail');
+    const thumbnail = await createTemplateThumbnail({
+      ...snapshot,
+      mainCompositionId: snapshotComposition.id,
+      compositions: [snapshotComposition],
+    });
+    const bytes = new Uint8Array(await thumbnail.arrayBuffer());
+    const base64 = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''));
+    artifacts = withExportThumbnail(artifacts, snapshot, base64);
+  }
   const compatibility = await certifyExportArtifacts(artifacts);
   if (!compatibility.valid) {
     throw new Error(
@@ -42,7 +55,7 @@ export async function exportProjectAsZip(
   const blob = await zip.generateAsync({ type: 'blob' });
   const saveResult = await saveBlobToFile(
     blob,
-    `${project.name || 'untitled'}${profile?.fileNameSuffix ?? ''}.ograf.zip`,
+    `${snapshot.name || 'untitled'}${profile?.fileNameSuffix ?? ''}.ograf.zip`,
     ZIP_FILE_TYPES,
   );
   return { ...artifacts, compatibility, saveResult };

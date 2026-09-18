@@ -73,7 +73,7 @@ export function LayerListPanel() {
       ) : (
         <>
           <p className="layer-list-drag-hint">
-            Row centre parents · edges reorder · drop in Chat to reference
+            Row centre parents · edges reorder · drop in AI Assistant to reference
           </p>
           <ul className="layer-list">
             {layers.map((layer) => {
@@ -155,7 +155,7 @@ export function LayerListPanel() {
                 >
                   <span
                     className="layer-list-drag-handle"
-                    title="Drag to parent/reorder, or drop in Chat to reference this layer"
+                    title="Drag to parent/reorder, or drop in AI Assistant to reference this layer"
                   >
                     {'⠿'}
                   </span>

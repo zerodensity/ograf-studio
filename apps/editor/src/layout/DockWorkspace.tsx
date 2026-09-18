@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { LayerListPanel } from '../panels/LayerListPanel';
 import { AgentChatPanel } from '../panels/AgentChatPanel';
+import { useAgentReviewStore } from '../state/agentReviewStore';
 import { ResourcesPanel } from '../panels/ResourcesPanel';
 import { BrandKitPanel } from '../panels/BrandKitPanel';
 import { InspectorPanel } from '../panels/InspectorPanel';
@@ -23,6 +24,7 @@ import { useDetachedWindows } from './detachedWindowContext';
 import { useResizable } from './useResizable';
 import {
   activateDockPane,
+  revealDockPane,
   closeDockPane,
   createDefaultDockLayout,
   DOCK_PANE_LABELS,
@@ -620,6 +622,10 @@ export function DockWorkspace({
 }) {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState(loadDockLayout);
+  const proposalId = useAgentReviewStore((state) => state.proposals[0]?.id);
+  useEffect(() => {
+    if (proposalId) setLayout((current) => revealDockPane(current, 'chat'));
+  }, [proposalId]);
   const { windows: detachedWindows } = useDetachedWindows();
   const [draggingPane, setDraggingPane] = useState<DockPaneId | null>(null);
   const [dropTarget, setDropTarget] = useState<DockDropTarget | null>(null);

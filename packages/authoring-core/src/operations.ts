@@ -704,6 +704,7 @@ export function applyAuthoringOperations(
   operations.forEach((operation, operationIndex) => {
     recordOperation(summary, operation);
     if (operation.type === 'set_project_metadata') {
+      if (operation.thumbnailFrame !== undefined) project.thumbnailFrame = operation.thumbnailFrame;
       if (operation.id !== undefined) project.id = operation.id;
       if (operation.name !== undefined) project.name = operation.name;
       if (operation.description !== undefined) project.description = operation.description;

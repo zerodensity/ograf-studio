@@ -39,6 +39,7 @@ import {
   stepTimelineFrame,
   timelineFrameDirection,
   timelineTargetOwnsArrows,
+  handleTimelinePlaybackKey,
 } from './timelineFrameNavigation';
 import { meaningfulTimelineProperties } from './timelinePropertyVisibility';
 import { TIMELINE_LAYER_TRACK_COLOR, timelineTrackColorForProperty } from './timelineTrackColors';
@@ -110,12 +111,17 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
       );
       if ((!panel.contains(target) && !focusedTimelineTab) || timelineTargetOwnsArrows(target))
         return;
+      if (handleTimelinePlaybackKey(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       const direction = timelineFrameDirection(event);
       if (direction === null || !stepTimelineFrame(direction)) return;
       event.preventDefault();
       event.stopPropagation();
     };
-    // Capture before marker/key handlers: unmodified arrows navigate and never retime keys.
+    // Capture before buttons and markers: Space toggles playback; arrows navigate frames.
     window.addEventListener('keydown', handleFrameKey, true);
     const floatingTitle = panel
       .closest('.dock-floating-pane')
@@ -190,6 +196,10 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const isPlaying = useTimelineStore((s) => s.isPlaying);
   const pauseAtOgrafSteps = useTimelineStore((s) => s.pauseAtOgrafSteps);
   const setPauseAtOgrafSteps = useTimelineStore((s) => s.setPauseAtOgrafSteps);
+  const autoKeyframe = useTimelineStore((s) => s.autoKeyframe);
+  const setAutoKeyframe = useTimelineStore((s) => s.setAutoKeyframe);
+  const canCreateKeys = () => useTimelineStore.getState().autoKeyframe;
+  const autoKeyframeHint = autoKeyframe ? undefined : 'Enable Auto-keyframe to create keyframes';
   const durationFrames = useTimelineStore((s) => s.durationFrames);
   const controller = useTimelineStore((s) => s.controller);
   const previewLoopLayerId = useTimelineStore((s) => s.previewLoopLayerId);
@@ -274,6 +284,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
     });
 
   const addVisiblePropertyTrack = (layerId: string, property: AnimatableLayerProperty) => {
+    if (!canCreateKeys()) return;
     setRevealedPropertyTracks((current) =>
       new Set(current).add(propertyTrackKey(layerId, property)),
     );
@@ -380,7 +391,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   }, [lifecycleRetimeNotice, window]);
 
   const createLoopForSelectedProperty = () => {
-    if (!selectedLayer || !selectedLayerProperty) return;
+    if (!canCreateKeys() || !selectedLayer || !selectedLayerProperty) return;
     const duration = Math.max(2, Math.round(composition.frameRate));
     const stepFrame =
       keyframeFrames.find((item) => item.keyframeId === activeKeyframeId)?.frame ?? displayedFrame;
@@ -395,6 +406,11 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   };
 
   const updateSelectedLoopTrack = (keys: typeof selectedLoopTrack) => {
+    if (
+      !canCreateKeys() &&
+      keys.some((key) => !selectedLoopTrack.some((current) => current.id === key.id))
+    )
+      return;
     if (selectedLayer && selectedLayerProperty) {
       setLayerLoopPropertyTrack(selectedLayer.id, selectedLayerProperty, keys);
     }
@@ -631,13 +647,14 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   };
 
   const handleAddKeyframe = () => {
+    if (!canCreateKeys()) return;
     // addKeyframe() already sets activeKeyframeId to the new keyframe internally, which is what
     // drives the effect above — no direct seek here (see its comment for why that would race).
     addKeyframe();
   };
 
   const handleAddLayerKeyframe = () => {
-    if (!selectedLayerId || selectedLayer?.isLocked) return;
+    if (!canCreateKeys() || !selectedLayerId || selectedLayer?.isLocked) return;
     const frame = Math.round(currentFrame);
     const keyframeId = addLayerKeyframe(selectedLayerId, frame);
     selectLayerKeyframe(selectedLayerId, keyframeId);
@@ -779,7 +796,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
         className={`timeline-panel${showKeyEditor ? ' has-key-editor' : ''}`}
         role="region"
         aria-label="Timeline editor"
-        aria-keyshortcuts="ArrowLeft ArrowRight"
+        aria-keyshortcuts="Space ArrowLeft ArrowRight"
         tabIndex={0}
         onPointerDownCapture={(event) => {
           if (
@@ -861,6 +878,18 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
             <span>Pause at Steps</span>
           </label>
 
+          <label
+            className="timeline-step-playback-toggle"
+            title="Create keys at the current frame when editing. When off, object edits apply across existing keys without adding animation."
+          >
+            <input
+              type="checkbox"
+              checked={autoKeyframe}
+              onChange={(event) => setAutoKeyframe(event.target.checked)}
+            />
+            <span>Auto-keyframe</span>
+          </label>
+
           <div className="timeline-readout" aria-label="Timeline position and duration">
             <strong>{displayedFrame}</strong>
             <span className="timeline-readout-divider">/</span>
@@ -870,10 +899,20 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
           </div>
 
           <div className="timeline-edit-controls">
-            <button type="button" onClick={handleAddKeyframe}>
+            <button
+              type="button"
+              onClick={handleAddKeyframe}
+              disabled={!autoKeyframe}
+              title={autoKeyframeHint}
+            >
               {'+ Step'}
             </button>
-            <button type="button" onClick={handleAddLayerKeyframe} disabled={!selectedLayerId}>
+            <button
+              type="button"
+              onClick={handleAddLayerKeyframe}
+              disabled={!autoKeyframe || !selectedLayerId || selectedLayer?.isLocked}
+              title={autoKeyframeHint}
+            >
               {'◆ Add Keyframe'}
             </button>
           </div>
@@ -1066,9 +1105,11 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         <select
                           className="timeline-property-add"
                           aria-label={`Add property track for ${layer.name}`}
-                          title="Add property track"
+                          title={autoKeyframeHint ?? 'Add property track'}
                           value=""
-                          disabled={layer.isLocked || hiddenProperties.length === 0}
+                          disabled={
+                            !autoKeyframe || layer.isLocked || hiddenProperties.length === 0
+                          }
                           onChange={(event) =>
                             addVisiblePropertyTrack(
                               layer.id,
@@ -1315,7 +1356,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       selectLayer(layer.id);
                     }}
                     onDoubleClick={(event) => {
-                      if (layer.isLocked) return;
+                      if (!canCreateKeys() || layer.isLocked) return;
                       const frame = Math.min(durationFrames, frameFromClientX(event.clientX));
                       const keyframeId = addLayerKeyframe(layer.id, frame);
                       selectLayerKeyframe(layer.id, keyframeId);
@@ -1463,7 +1504,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         selectLayer(layer.id);
                       }}
                       onDoubleClick={(event) => {
-                        if (layer.isLocked) return;
+                        if (!canCreateKeys() || layer.isLocked) return;
                         const frame = Math.min(durationFrames, frameFromClientX(event.clientX));
                         const keyframeId = addLayerPropertyKeyframe(layer.id, property, frame);
                         selectLayerKeyframe(layer.id, keyframeId, property);
@@ -1808,7 +1849,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                     </div>
                   )}
                   {!selectedLayer.loop ? (
-                    <button type="button" onClick={createLoopForSelectedProperty}>
+                    <button
+                      type="button"
+                      onClick={createLoopForSelectedProperty}
+                      disabled={!autoKeyframe}
+                      title={autoKeyframeHint}
+                    >
                       Add Loop…
                     </button>
                   ) : (
@@ -1907,7 +1953,10 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       {selectedLoopTrack.length === 0 ? (
                         <button
                           type="button"
+                          disabled={!autoKeyframe}
+                          title={autoKeyframeHint}
                           onClick={() => {
+                            if (!canCreateKeys()) return;
                             const value = getLayerPropertyValueAtFrame(
                               selectedLayer,
                               selectedLayerProperty,
@@ -2012,7 +2061,10 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           <div className="timeline-loop-actions">
                             <button
                               type="button"
+                              disabled={!autoKeyframe}
+                              title={autoKeyframeHint}
                               onClick={() => {
+                                if (!canCreateKeys()) return;
                                 const occupied = new Set(selectedLoopTrack.map((key) => key.frame));
                                 const frame = Array.from(
                                   { length: selectedLayer.loop!.durationFrames + 1 },
@@ -2073,8 +2125,13 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                     {
                       id: 'insert-property-key',
                       label: `Insert ${animatablePropertyLabel(frameMenu.property)} key`,
-                      disabled: frameMenuLayer.isLocked || Boolean(frameMenuPropertyKeyframe),
+                      disabled:
+                        !autoKeyframe ||
+                        frameMenuLayer.isLocked ||
+                        Boolean(frameMenuPropertyKeyframe),
+                      title: autoKeyframeHint,
                       onSelect: () => {
+                        if (!canCreateKeys()) return;
                         const keyframeId = addLayerPropertyKeyframe(
                           frameMenu.layerId,
                           frameMenu.property!,
@@ -2108,9 +2165,12 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                     {
                       id: 'insert-frame',
                       label: 'Insert Hold Key',
-                      disabled: frameMenuLayer.isLocked || Boolean(frameMenuKeyframe),
-                      title: 'Hold the preceding authored pose through this frame',
+                      disabled:
+                        !autoKeyframe || frameMenuLayer.isLocked || Boolean(frameMenuKeyframe),
+                      title:
+                        autoKeyframeHint ?? 'Hold the preceding authored pose through this frame',
                       onSelect: () => {
+                        if (!canCreateKeys()) return;
                         const keyframeId = addLayerHoldFrame(frameMenu.layerId, frameMenu.frame);
                         selectLayerKeyframe(frameMenu.layerId, keyframeId);
                         controller?.seek(frameMenu.frame);
@@ -2119,9 +2179,11 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                     {
                       id: 'insert-keyframe',
                       label: 'Insert Keyframe',
-                      disabled: frameMenuLayer.isLocked || Boolean(frameMenuKeyframe),
-                      title: 'Capture the evaluated pose at this frame',
+                      disabled:
+                        !autoKeyframe || frameMenuLayer.isLocked || Boolean(frameMenuKeyframe),
+                      title: autoKeyframeHint ?? 'Capture the evaluated pose at this frame',
                       onSelect: () => {
+                        if (!canCreateKeys()) return;
                         const keyframeId = addLayerKeyframe(frameMenu.layerId, frameMenu.frame);
                         selectLayerKeyframe(frameMenu.layerId, keyframeId);
                         controller?.seek(frameMenu.frame);

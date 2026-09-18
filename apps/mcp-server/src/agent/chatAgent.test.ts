@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createOGrafToolRecords } from '@ograf-editor/agent-tools';
 import { createOGrafAuthoringHost } from '../index';
 import {
@@ -10,11 +10,19 @@ import {
   toolResultContent,
 } from './chatAgent';
 import type { AgentMessage, ChatServerEvent } from './types';
+import { loadAgentProviderConfig } from './config';
+
+// These tests exercise the HTTP agent loop, not the host's OS credential store.
+vi.mock('./config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./config')>()),
+  loadAgentProviderConfig: vi.fn(),
+}));
 
 const originalEnvironment = { ...process.env };
 
 afterEach(() => {
   process.env = { ...originalEnvironment };
+  vi.mocked(loadAgentProviderConfig).mockReset();
 });
 
 describe('server-side in-app agent loop', () => {
@@ -127,11 +135,13 @@ describe('server-side in-app agent loop', () => {
     });
     await new Promise<void>((resolve) => provider.listen(0, '127.0.0.1', resolve));
     const baseUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
-    process.env.OGRAF_AGENT_PROVIDER = 'openai-compatible';
-    process.env.OGRAF_AGENT_BASE_URL = baseUrl;
-    process.env.OGRAF_AGENT_MODEL = 'test-model';
-    process.env.OGRAF_AGENT_API_KEY = 'loop-secret';
-    process.env.OGRAF_AGENT_CREDENTIAL_TARGET = `OGraf Studio/test-${Date.now()}`;
+    vi.mocked(loadAgentProviderConfig).mockResolvedValue({
+      provider: 'openai-compatible',
+      baseUrl,
+      model: 'test-model',
+      apiKey: 'loop-secret',
+      effort: 'medium',
+    });
 
     const host = createOGrafAuthoringHost();
     const events: ChatServerEvent[] = [];
@@ -154,6 +164,7 @@ describe('server-side in-app agent loop', () => {
       ambient: { frame: 12, selection: { layerIds: [] } },
     });
     await completed;
+    provider.closeAllConnections();
     await new Promise<void>((resolve) => provider.close(() => resolve()));
 
     expect(host.workspace.get('editor').revision).toBe(1);
@@ -186,12 +197,14 @@ describe('server-side in-app agent loop', () => {
     });
     await new Promise<void>((resolve) => provider.listen(0, '127.0.0.1', resolve));
     const baseUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
-    process.env.OGRAF_AGENT_PROVIDER = 'openai-compatible';
-    process.env.OGRAF_AGENT_BASE_URL = baseUrl;
-    process.env.OGRAF_AGENT_MODEL = 'silent-model';
-    process.env.OGRAF_AGENT_API_KEY = 'timeout-secret';
+    vi.mocked(loadAgentProviderConfig).mockResolvedValue({
+      provider: 'openai-compatible',
+      baseUrl,
+      model: 'silent-model',
+      apiKey: 'timeout-secret',
+      effort: 'medium',
+    });
     process.env.OGRAF_AGENT_TIMEOUT_MS = '100';
-    process.env.OGRAF_AGENT_CREDENTIAL_TARGET = `OGraf Studio/timeout-test-${Date.now()}`;
 
     const host = createOGrafAuthoringHost();
     const events: ChatServerEvent[] = [];

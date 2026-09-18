@@ -9,6 +9,22 @@ import {
 import { AuthoringSession, RevisionConflictError } from './session';
 
 describe('AuthoringSession', () => {
+  it('persists thumbnail frame preferences through metadata edits and undo', () => {
+    const session = new AuthoringSession(createProject(), 'thumbnail');
+    expect(
+      session.apply({
+        expectedRevision: 0,
+        operations: [{ type: 'set_project_metadata', thumbnailFrame: 18 }],
+      }).project.thumbnailFrame,
+    ).toBe(18);
+    expect(
+      session.apply({
+        expectedRevision: 1,
+        operations: [{ type: 'set_project_metadata', thumbnailFrame: null }],
+      }).project.thumbnailFrame,
+    ).toBeNull();
+    expect(session.undo(2).project.thumbnailFrame).toBe(18);
+  });
   it('converts and edits paths atomically with normal undo and unchanged lifecycle keys', () => {
     const session = new AuthoringSession(createProject(), 'path-edit-test');
     const added = session.apply({

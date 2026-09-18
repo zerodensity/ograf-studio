@@ -1,10 +1,13 @@
+import { useAgentReviewStore, type AgentAuthoringProposal } from './agentReviewStore';
+export { useAgentReviewStore, type AgentAuthoringProposal } from './agentReviewStore';
 import { useEffect } from 'react';
+import type { AgentAreaReference } from '@ograf-editor/agent-tools/chat-references';
 import { resolveAgentBridgeUrl } from './agentBridgeUrl';
-import type { Project } from '@ograf-editor/scene-model';
+import { getTotalFrames, type Project } from '@ograf-editor/scene-model';
 import type { ExportArtifacts } from '@ograf-editor/codegen';
 import { create } from 'zustand';
 import { certifyExportArtifacts } from './ografCompatibility';
-import { resetHistory } from './historyStore';
+import { applyRemoteProjectUpdate } from './historyStore';
 import { useProjectStore } from './projectStore';
 import { useSelectionStore } from './selectionStore';
 import { useTimelineStore } from './timelineStore';
@@ -47,10 +50,12 @@ export interface ChatTranscriptEntry {
   text: string;
   status?: 'running' | 'ok' | 'error';
   usage?: ChatUsage;
+  areaReferences?: AgentAreaReference[];
+  areaSummaries?: Array<{ number: number; frame: number; instruction: string }>;
 }
 
 export interface ChatProgress {
-  phase: 'sending' | 'waiting' | 'continuing' | 'tool';
+  phase: 'sending' | 'waiting' | 'continuing' | 'tool' | 'complete' | 'error';
   message: string;
   round: number;
   updatedAt: number;
@@ -67,11 +72,11 @@ interface AgentChatState {
   activeTurnId: string | null;
   activeTurnStartedAt: number | null;
   progress: ChatProgress | null;
+  pendingAssistantText: string;
   sessionUsage: ChatUsage;
   projectUsage: ChatUsage;
   addEntry: (entry: ChatTranscriptEntry) => void;
-  patchTool: (turnId: string, callId: string, patch: Partial<ChatTranscriptEntry>) => void;
-  setState: (patch: Partial<Omit<AgentChatState, 'addEntry' | 'patchTool' | 'setState'>>) => void;
+  setState: (patch: Partial<Omit<AgentChatState, 'addEntry' | 'setState'>>) => void;
 }
 
 const EMPTY_USAGE: ChatUsage = { input: 0, output: 0, cacheRead: 0 };
@@ -121,63 +126,52 @@ export const useAgentChatStore = create<AgentChatState>((set) => ({
   activeTurnId: null,
   activeTurnStartedAt: null,
   progress: null,
+  pendingAssistantText: '',
   sessionUsage: EMPTY_USAGE,
   projectUsage: EMPTY_USAGE,
-  addEntry: (entry) => set((state) => ({ entries: [...state.entries, entry] })),
-  patchTool: (turnId, callId, patch) =>
+  addEntry: (entry) =>
     set((state) => ({
-      entries: state.entries.map((entry) =>
-        entry.turnId === turnId && entry.id === callId ? { ...entry, ...patch } : entry,
-      ),
+      entries: [
+        ...state.entries.map((previous) =>
+          entry.areaReferences && previous.areaReferences
+            ? { ...previous, areaReferences: undefined }
+            : previous,
+        ),
+        entry,
+      ],
     })),
   setState: (patch) => set(patch),
 }));
 
-export interface AgentAuthoringProposal {
-  id: string;
-  title: string;
-  description: string;
-  sessionId: string;
-  baseRevision: number;
-  operationTypes: string[];
-  operationCount: number;
-  previewUrl: string;
-  previewExpiresAt: string;
-  render: 'frame' | 'strip';
-  frames: number[];
-  valid: boolean;
-  warnings: string[];
-}
-
-interface AgentReviewState {
-  proposals: AgentAuthoringProposal[];
-  lastResolution: { status: string; message: string } | null;
-  present: (proposal: AgentAuthoringProposal) => void;
-  resolve: (proposalId: string, result: { status: string; message: string }) => void;
-  dismissResolution: () => void;
-}
-
-export const useAgentReviewStore = create<AgentReviewState>((set) => ({
-  proposals: [],
-  lastResolution: null,
-  present: (proposal) =>
-    set((state) => ({
-      proposals: [...state.proposals.filter((candidate) => candidate.id !== proposal.id), proposal],
-      lastResolution: null,
-    })),
-  resolve: (proposalId, result) =>
-    set((state) => ({
-      proposals: state.proposals.filter((proposal) => proposal.id !== proposalId),
-      lastResolution: result,
-    })),
-  dismissResolution: () => set({ lastResolution: null }),
-}));
-
 let sendProposalDecision: ((payload: unknown) => void) | null = null;
 let sendChatPayload: ((payload: unknown) => void) | null = null;
+type ProposalCapture = (
+  request: AgentCaptureRequest,
+  isCurrent: () => boolean,
+) => Promise<Awaited<ReturnType<typeof captureAgentPng>> | null>;
+const directProposalCapture: ProposalCapture = async (request, isCurrent) =>
+  isCurrent() ? captureAgentPng(request) : null;
+let proposalCapture = directProposalCapture;
+
+/** Share the renderer queue with MCP capture/certification work. */
+export function captureAgentProposal(request: AgentCaptureRequest, isCurrent: () => boolean) {
+  return proposalCapture(request, isCurrent);
+}
 
 export function decideAgentProposal(proposalId: string, decision: 'accept' | 'reject'): void {
-  if (!sendProposalDecision) return;
+  const proposal = useAgentReviewStore.getState().proposals.find((item) => item.id === proposalId);
+  const connection = useAgentBridgeStatus.getState();
+  if (
+    !sendProposalDecision ||
+    !connection.connected ||
+    !connection.authoritative ||
+    !proposal ||
+    proposal.deciding
+  )
+    return;
+  if (decision === 'accept' && (!proposal.valid || proposal.staleReason || !proposal.previewReady))
+    return;
+  useAgentReviewStore.getState().update(proposalId, { deciding: decision });
   useAgentBridgeStatus.getState().setStatus({
     activity:
       decision === 'accept' ? 'Applying accepted agent proposal…' : 'Rejecting agent proposal…',
@@ -185,7 +179,11 @@ export function decideAgentProposal(proposalId: string, decision: 'accept' | 're
   sendProposalDecision({ type: 'proposal.decision', proposalId, decision });
 }
 
-export function sendAgentChat(text: string, references: AgentLayerReference[] = []): void {
+export function sendAgentChat(
+  text: string,
+  references: AgentLayerReference[] = [],
+  areaReferences: AgentAreaReference[] = [],
+): void {
   if (!sendChatPayload || !text.trim()) return;
   const turnId = crypto.randomUUID();
   const selection = useSelectionStore.getState();
@@ -198,9 +196,20 @@ export function sendAgentChat(text: string, references: AgentLayerReference[] = 
     turnId,
     kind: 'user',
     text: text.trim(),
+    ...(areaReferences.length
+      ? {
+          areaSummaries: areaReferences.map((area, index) => ({
+            number: index + 1,
+            frame: area.frame,
+            instruction: area.instruction ?? '',
+          })),
+        }
+      : {}),
+    ...(areaReferences.length ? { areaReferences } : {}),
   });
   useAgentChatStore.getState().setState({
     activeTurnId: turnId,
+    pendingAssistantText: '',
     activeTurnStartedAt: Date.now(),
     progress: {
       phase: 'sending',
@@ -214,10 +223,17 @@ export function sendAgentChat(text: string, references: AgentLayerReference[] = 
     turnId,
     sessionId: `editor:${projectId}`,
     text: text.trim(),
+    ...(areaReferences.length ? { areaReferences } : {}),
     ambient: {
       selection: {
-        layerIds: referencedLayerIds.length ? referencedLayerIds : selection.selectedLayerIds,
-        primaryLayerId: referencedLayerIds[0] ?? selection.selectedLayerId,
+        layerIds: areaReferences.length
+          ? []
+          : referencedLayerIds.length
+            ? referencedLayerIds
+            : selection.selectedLayerIds,
+        primaryLayerId: areaReferences.length
+          ? null
+          : (referencedLayerIds[0] ?? selection.selectedLayerId),
       },
       ...(references.length ? { references } : {}),
       frame: timeline.currentFrame,
@@ -240,6 +256,72 @@ export function cancelAgentChat(): void {
 
 export function setAgentChatExclusive(enabled: boolean): void {
   sendChatPayload?.({ type: 'chat.exclusive', enabled });
+}
+
+/** Activity replaces one status line; it must never append or patch transcript rows. */
+export function updateAgentChatActivity(
+  message: Extract<
+    BridgeMessage,
+    { type: 'chat.progress' | 'chat.text' | 'chat.tool' | 'chat.proposal' }
+  >,
+): void {
+  const chat = useAgentChatStore.getState();
+  if (chat.activeTurnId !== message.turnId) return;
+  let text: string;
+  let phase: ChatProgress['phase'] = 'continuing';
+  let round = chat.progress?.round ?? 1;
+  if (message.type === 'chat.progress') {
+    text = message.message;
+    phase = message.phase;
+    round = message.round;
+  } else if (message.type === 'chat.tool') {
+    text = `${message.status === 'running' ? 'Running' : message.status === 'ok' ? 'Done' : 'Error'}: ${message.summary}`;
+    phase =
+      message.status === 'running' ? 'tool' : message.status === 'error' ? 'error' : 'continuing';
+  } else if (message.type === 'chat.proposal') {
+    text = 'Proposal ready for review';
+  } else {
+    text = message.text;
+  }
+  chat.setState({
+    progress: { phase, message: text, round, updatedAt: Date.now() },
+    ...(message.type === 'chat.text' ? { pendingAssistantText: message.text } : {}),
+  });
+}
+
+export function finishAgentChatTurn(
+  message: Extract<BridgeMessage, { type: 'chat.turn.end' }>,
+): void {
+  const chat = useAgentChatStore.getState();
+  if (chat.activeTurnId !== message.turnId) return;
+  const projectId = useProjectStore.getState().project.id;
+  const projectUsage = addUsage(readProjectUsage(projectId), message.usage);
+  persistProjectUsage(projectId, projectUsage);
+  const cancelled = message.stopReason === 'cancelled';
+  chat.setState({
+    activeTurnId: null,
+    activeTurnStartedAt: null,
+    pendingAssistantText: '',
+    progress: {
+      phase: 'complete',
+      message: cancelled
+        ? 'Cancelled'
+        : useAgentReviewStore.getState().proposals.length
+          ? 'Proposal ready for review'
+          : 'Completed',
+      round: chat.progress?.round ?? 1,
+      updatedAt: Date.now(),
+    },
+    sessionUsage: addUsage(chat.sessionUsage, message.usage),
+    projectUsage,
+  });
+  chat.addEntry({
+    id: `assistant-${message.turnId}`,
+    turnId: message.turnId,
+    kind: 'assistant',
+    text: cancelled ? 'Cancelled.' : chat.pendingAssistantText,
+    usage: message.usage,
+  });
 }
 
 type BridgeMessage =
@@ -313,6 +395,17 @@ export function useAgentBridge(): void {
     // browser renderer/font resources. Serialize them so a heavy strip cannot overlap a save gate
     // or leave shared renderer state half-disposed for the next request.
     let browserWorkQueue: Promise<void> = Promise.resolve();
+    const queuedProposalCapture: ProposalCapture = (request, isCurrent) => {
+      const result = browserWorkQueue
+        .catch(() => undefined)
+        .then(() => (isCurrent() ? captureAgentPng(request) : null));
+      browserWorkQueue = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    };
+    proposalCapture = queuedProposalCapture;
     const status = useAgentBridgeStatus.getState().setStatus;
 
     const send = (payload: unknown) => {
@@ -323,11 +416,15 @@ export function useAgentBridge(): void {
 
     const unsubscribe = useProjectStore.subscribe((state, previous) => {
       if (state.project === previous.project || applyingRemote) return;
+      useAgentReviewStore
+        .getState()
+        .invalidate('The template changed. Ask the assistant to regenerate this proposal.');
       if (state.project.id !== previous.project.id) {
         useAgentChatStore.getState().setState({ projectUsage: readProjectUsage(state.project.id) });
       }
       window.clearTimeout(syncTimer);
       syncTimer = window.setTimeout(() => {
+        syncTimer = undefined;
         send({
           type: 'editor.project',
           project: useProjectStore.getState().project,
@@ -355,6 +452,12 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'editor.ack') {
+          useAgentReviewStore
+            .getState()
+            .invalidate(
+              'The template changed. Ask the assistant to regenerate this proposal.',
+              message.revision,
+            );
           const prior = useAgentBridgeStatus.getState();
           status({
             revision: message.revision,
@@ -369,6 +472,7 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'editor.replaced') {
+          useAgentReviewStore.getState().invalidate('This editor is no longer the active session.');
           replaced = true;
           status({ connected: false, authoritative: false, activity: message.message });
           return;
@@ -392,6 +496,7 @@ export function useAgentBridge(): void {
           const chat = useAgentChatStore.getState();
           chat.setState({
             activeTurnId: message.turnId,
+            pendingAssistantText: '',
             activeTurnStartedAt: chat.activeTurnStartedAt ?? Date.now(),
             progress: {
               phase: 'waiting',
@@ -402,95 +507,32 @@ export function useAgentBridge(): void {
           });
           return;
         }
-        if (message.type === 'chat.progress') {
-          useAgentChatStore.getState().setState({
-            progress: {
-              phase: message.phase,
-              message: message.message,
-              round: message.round,
-              updatedAt: Date.now(),
-            },
-          });
-          return;
-        }
-        if (message.type === 'chat.text') {
-          useAgentChatStore.getState().addEntry({
-            id: `assistant-${message.turnId}-${crypto.randomUUID()}`,
-            turnId: message.turnId,
-            kind: 'assistant',
-            text: message.text,
-          });
-          return;
-        }
-        if (message.type === 'chat.tool') {
-          const chat = useAgentChatStore.getState();
-          const exists = chat.entries.some(
-            (entry) => entry.turnId === message.turnId && entry.id === message.callId,
-          );
-          if (exists) chat.patchTool(message.turnId, message.callId, { status: message.status });
-          else
-            chat.addEntry({
-              id: message.callId,
-              turnId: message.turnId,
-              kind: 'tool',
-              text: message.summary,
-              status: message.status,
-            });
-          chat.setState({
-            progress:
-              message.status === 'running'
-                ? {
-                    phase: 'tool',
-                    message: `Running tool: ${message.summary}`,
-                    round: chat.progress?.round ?? 1,
-                    updatedAt: Date.now(),
-                  }
-                : {
-                    phase: 'continuing',
-                    message:
-                      message.status === 'ok'
-                        ? `Finished tool: ${message.summary}`
-                        : `Tool reported an error: ${message.summary}`,
-                    round: chat.progress?.round ?? 1,
-                    updatedAt: Date.now(),
-                  },
-          });
-          return;
-        }
-        if (message.type === 'chat.proposal') {
-          useAgentChatStore.getState().addEntry({
-            id: `proposal-${message.proposalId}`,
-            turnId: message.turnId,
-            kind: 'proposal',
-            text: 'A design proposal is ready in the review panel.',
-          });
+        if (
+          message.type === 'chat.progress' ||
+          message.type === 'chat.text' ||
+          message.type === 'chat.tool' ||
+          message.type === 'chat.proposal'
+        ) {
+          updateAgentChatActivity(message);
           return;
         }
         if (message.type === 'chat.turn.end') {
-          const chat = useAgentChatStore.getState();
-          const sessionUsage = addUsage(chat.sessionUsage, message.usage);
-          const projectId = useProjectStore.getState().project.id;
-          const projectUsage = addUsage(readProjectUsage(projectId), message.usage);
-          persistProjectUsage(projectId, projectUsage);
-          chat.setState({
-            activeTurnId: null,
-            activeTurnStartedAt: null,
-            progress: null,
-            sessionUsage,
-            projectUsage,
-          });
-          chat.addEntry({
-            id: `usage-${message.turnId}`,
-            turnId: message.turnId,
-            kind: 'assistant',
-            text: message.stopReason === 'cancelled' ? 'Cancelled.' : '',
-            usage: message.usage,
-          });
+          finishAgentChatTurn(message);
           return;
         }
         if (message.type === 'chat.error') {
           const chat = useAgentChatStore.getState();
-          chat.setState({ activeTurnId: null, activeTurnStartedAt: null, progress: null });
+          chat.setState({
+            activeTurnId: null,
+            activeTurnStartedAt: null,
+            pendingAssistantText: '',
+            progress: {
+              phase: 'error',
+              message: message.message,
+              round: chat.progress?.round ?? 1,
+              updatedAt: Date.now(),
+            },
+          });
           chat.addEntry({
             id: `error-${message.turnId}`,
             turnId: message.turnId,
@@ -507,11 +549,20 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'project.replace') {
+          window.clearTimeout(syncTimer);
+          syncTimer = undefined;
+          useAgentReviewStore
+            .getState()
+            .invalidate(
+              'The template changed. Ask the assistant to regenerate this proposal.',
+              message.revision,
+            );
           applyingRemote = true;
-          useProjectStore.getState().loadProject(message.project);
-          useSelectionStore.getState().select(null);
-          resetHistory();
-          applyingRemote = false;
+          try {
+            applyRemoteProjectUpdate(message.project, message);
+          } finally {
+            applyingRemote = false;
+          }
           const count = message.summary?.operationCount;
           const detail = message.reason || message.summary?.operationTypes?.join(', ');
           const sourceLabel =
@@ -529,12 +580,49 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'proposal.present') {
-          useAgentReviewStore.getState().present(message.proposal);
+          const stale =
+            syncTimer !== undefined ||
+            message.proposal.baseRevision !== useAgentBridgeStatus.getState().revision;
+          useTimelineStore.getState().controller?.pause();
+          useTimelineStore.getState().setPreviewLoopLayerId(null);
+          useAgentReviewStore
+            .getState()
+            .present(
+              message.proposal,
+              useProjectStore.getState().project,
+              stale
+                ? 'The template changed. Ask the assistant to regenerate this proposal.'
+                : undefined,
+            );
           status({ activity: `Review requested: ${message.proposal.title}` });
           return;
         }
         if (message.type === 'proposal.resolved') {
+          const reviewed = useAgentReviewStore
+            .getState()
+            .proposals.find((item) => item.id === message.proposalId);
+          if (message.result.status === 'accepted' && reviewed) {
+            const state = useProjectStore.getState();
+            const composition = state.project.compositions.find(
+              (item) => item.id === (reviewed.compositionId ?? state.project.mainCompositionId),
+            );
+            if (composition) {
+              useProjectStore.setState({ activeCompositionId: composition.id });
+              useTimelineStore
+                .getState()
+                .setCurrentFrame(Math.min(reviewed.previewFrame, getTotalFrames(composition)));
+            }
+          }
           useAgentReviewStore.getState().resolve(message.proposalId, message.result);
+          if (!useAgentChatStore.getState().activeTurnId)
+            useAgentChatStore.getState().setState({
+              progress: {
+                phase: 'complete',
+                message: message.result.message,
+                round: 1,
+                updatedAt: Date.now(),
+              },
+            });
           status({
             revision: message.result.revision ?? useAgentBridgeStatus.getState().revision,
             activity: message.result.message,
@@ -621,6 +709,9 @@ export function useAgentBridge(): void {
         // React StrictMode intentionally mounts, cleans up, and remounts effects in development.
         // The disposed bridge must not overwrite the status of its replacement connection.
         if (stopped) return;
+        useAgentReviewStore
+          .getState()
+          .invalidate('Connection lost. Reconnect before reviewing this proposal.');
         const chat = useAgentChatStore.getState();
         if (chat.activeTurnId) {
           chat.addEntry({
@@ -629,7 +720,17 @@ export function useAgentBridge(): void {
             kind: 'error',
             text: 'The agent connection closed before the turn finished. Reconnect, then retry.',
           });
-          chat.setState({ activeTurnId: null, activeTurnStartedAt: null, progress: null });
+          chat.setState({
+            activeTurnId: null,
+            activeTurnStartedAt: null,
+            pendingAssistantText: '',
+            progress: {
+              phase: 'error',
+              message: 'Connection lost',
+              round: 1,
+              updatedAt: Date.now(),
+            },
+          });
         }
         status({ connected: false, revision: null, activity: 'Agent bridge offline' });
         if (!replaced) reconnectTimer = window.setTimeout(connect, 3000);
@@ -645,6 +746,7 @@ export function useAgentBridge(): void {
       unsubscribe();
       if (sendProposalDecision === send) sendProposalDecision = null;
       if (sendChatPayload === send) sendChatPayload = null;
+      if (proposalCapture === queuedProposalCapture) proposalCapture = directProposalCapture;
       socket?.close();
     };
   }, []);

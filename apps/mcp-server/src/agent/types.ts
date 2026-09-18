@@ -1,4 +1,4 @@
-import type { ProviderToolDefinition } from '@ograf-editor/agent-tools';
+import type { AgentAreaReference, ProviderToolDefinition } from '@ograf-editor/agent-tools';
 
 export interface ChatAmbientContext {
   selection?: { layerIds: string[]; primaryLayerId?: string | null };
@@ -12,10 +12,17 @@ export interface ChatAmbientContext {
   frame?: number;
   viewport?: { width: number; height: number; zoom?: number };
   recentEdits?: string[];
+  area?: Omit<AgentAreaReference, 'image'>;
+  areas?: Array<Omit<AgentAreaReference, 'image'> & { number: number }>;
 }
 
 export type AgentMessage =
-  | { role: 'user' | 'system'; content: string }
+  | {
+      role: 'user';
+      content: string;
+      images?: Array<AgentAreaReference['image'] & { label?: string }>;
+    }
+  | { role: 'system'; content: string }
   | { role: 'assistant'; content: string; toolCalls?: AgentToolCall[] }
   | { role: 'tool'; callId: string; name: string; content: string };
 
@@ -48,6 +55,7 @@ export interface ProviderRequest {
 
 export interface ProviderAdapter {
   complete(request: ProviderRequest): Promise<ProviderCompletion>;
+  dispose?(): void | Promise<void>;
 }
 
 export type ChatServerEvent =

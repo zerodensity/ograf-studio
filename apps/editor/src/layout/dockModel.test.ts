@@ -14,10 +14,21 @@ import {
   moveFloatingDockPane,
   parseDockLayout,
   reopenDockPane,
+  revealDockPane,
   resizeDockGroups,
 } from './dockModel';
 
 describe('dock layout model', () => {
+  it('reveals AI review in its dock group and reopens a closed pane without floating it', () => {
+    const initial = createDefaultDockLayout();
+    const revealed = revealDockPane(initial, 'chat');
+    expect(revealed.zones.left[0]?.activePane).toBe('chat');
+    expect(revealed.floating).toHaveLength(0);
+    const reopened = revealDockPane(closeDockPane(initial, 'chat'), 'chat');
+    expect(reopened.closed).not.toContain('chat');
+    expect(reopened.zones.left[0]?.activePane).toBe('chat');
+    expect(reopened.floating).toHaveLength(0);
+  });
   it('starts with the existing editor arrangement', () => {
     const layout = createDefaultDockLayout();
     expect(layout.zones.left.map((group) => group.panes)).toEqual([

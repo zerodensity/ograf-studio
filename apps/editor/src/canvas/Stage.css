@@ -51,8 +51,17 @@
 .canvas-stage-frame {
   position: absolute;
   z-index: 1;
-  outline: 4px solid #686c76;
   overflow: visible;
+}
+
+.canvas-stage-border {
+  position: absolute;
+  left: var(--stage-origin-x, 0px);
+  top: var(--stage-origin-y, 0px);
+  z-index: 2;
+  box-sizing: border-box;
+  border: 1px solid #000;
+  pointer-events: none;
 }
 
 .canvas-presentation-background {

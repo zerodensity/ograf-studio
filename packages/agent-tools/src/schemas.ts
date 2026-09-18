@@ -339,6 +339,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('remove_tiling_pattern'), compositionId, patternId: z.string() }),
   z.object({
     type: z.literal('set_project_metadata'),
+    thumbnailFrame: z.number().int().nonnegative().nullable().optional(),
     id: z.string().min(1).optional(),
     name: z.string().optional(),
     description: z.string().optional(),

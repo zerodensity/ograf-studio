@@ -13,6 +13,9 @@ replace the tools with raw file editing.
 
 Detached panes share one session; keep Studio open. See [multi-window guidance](./references/detached-windows.md).
 
+For numbered canvas references, match each annotation to its rectangle or freehand outline. See
+[area references and operator review](./references/tool-workflows.md#canvas-area-references).
+
 ## Required workflow
 
 1. Call `ograf_get_capabilities` with only the `sections` needed for the task. Include `editor` to

@@ -1,0 +1,233 @@
+.area-capture-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 8px;
+  padding: 8px;
+  outline: none;
+}
+.agent-chat-panel.is-area-capture > :not(.area-capture-panel) {
+  display: none;
+}
+.area-capture-image.area-capture-canvas-overlay {
+  position: absolute;
+  left: var(--stage-origin-x, 0px);
+  top: var(--stage-origin-y, 0px);
+  z-index: 4;
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.canvas-stage-workspace:has(.area-capture-canvas-overlay) .moveable-control-box,
+.canvas-stage-workspace:has(.area-capture-canvas-overlay) .path-editor-overlay,
+.canvas-stage-workspace:has(.area-capture-canvas-overlay) .canvas-viewport-guide {
+  /* Moveable sets display inline; area drawing must own the canvas hit targets. */
+  display: none !important;
+}
+.area-capture-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+.area-capture-toolbar > strong {
+  flex: 1;
+  min-width: 0;
+}
+.area-capture-guidance,
+.area-capture-footer {
+  font-size: 11px;
+  color: #bbb;
+  margin: 0;
+}
+.area-capture-toolbar button {
+  padding: 5px 8px;
+}
+.area-capture-toolbar .area-capture-attach {
+  background: #125c78;
+  color: white;
+}
+.area-capture-image {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  background: repeating-conic-gradient(#333 0% 25%, #292929 0% 50%) 0 / 16px 16px;
+}
+.area-capture-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.area-capture-selection {
+  position: absolute;
+  border: 1px solid #5dd5ff;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.area-capture-selection.is-freehand {
+  border: 0;
+}
+.area-capture-outline {
+  fill: none;
+  stroke: #5dd5ff;
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.area-capture-outline.is-drawing {
+  stroke-linecap: round;
+}
+.area-capture-modes {
+  display: flex;
+  gap: 4px;
+}
+.area-capture-modes button {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.area-capture-modes button[aria-pressed='true'] {
+  background: #125c78;
+  color: white;
+  outline: 1px solid #5dd5ff;
+  outline-offset: -1px;
+}
+.area-capture-notes {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px;
+}
+.area-capture-notes p {
+  color: #bbb;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.area-capture-note {
+  background: #24272e;
+  border: 1px solid #454952;
+  border-radius: 5px;
+  padding: 6px;
+  margin-bottom: 6px;
+}
+.area-capture-note > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.area-capture-note small {
+  color: #bbb;
+  font-size: 10px;
+  flex: 1;
+}
+.area-capture-note button {
+  padding: 1px 6px;
+}
+.area-capture-note textarea {
+  box-sizing: border-box;
+  width: 100%;
+  background: #17181c;
+  color: #eee;
+  padding: 6px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+  border: 1px solid #505050;
+}
+.area-capture-shade {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.area-capture-number {
+  position: absolute;
+  left: 0;
+  top: 0;
+  min-width: 20px;
+  padding: 2px 4px;
+  box-sizing: border-box;
+  background: #5dd5ff;
+  color: #081720;
+  font: bold 12px sans-serif;
+  text-align: center;
+}
+.agent-area-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  max-height: 200px;
+  overflow: auto;
+}
+.agent-area-card {
+  padding: 5px;
+  border: 1px solid #505050;
+  border-radius: 4px;
+}
+.agent-area-card .agent-area-thumbnail {
+  padding: 0 0 5px;
+  border: 0;
+}
+.agent-area-card .agent-area-thumbnail img {
+  width: 52px;
+  height: 34px;
+}
+.agent-chat-composer .agent-area-card textarea {
+  padding: 5px;
+  font-size: 11px;
+}
+.agent-area-error {
+  grid-column: 1 / -1;
+}
+.area-capture-error {
+  color: #ffacac;
+  font-size: 12px;
+}
+.agent-chat-area-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 120px;
+  margin-top: 6px;
+  object-fit: contain;
+}
+.agent-area-thumbnail {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid #505050;
+  border-radius: 4px;
+}
+.agent-area-thumbnail img {
+  width: 72px;
+  height: 48px;
+  object-fit: contain;
+  background: #181818;
+}
+.agent-area-thumbnail > span {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+}
+.agent-area-thumbnail small {
+  display: block;
+  color: #aaa;
+}
+.agent-area-thumbnail button {
+  flex: 0 0 auto;
+}
+.agent-chat-composer .agent-area-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+  align-self: flex-start;
+  padding: 4px 8px;
+}

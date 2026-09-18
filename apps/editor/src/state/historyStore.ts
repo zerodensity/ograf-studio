@@ -75,15 +75,65 @@ function flushPending(): void {
 }
 
 /** Commits any pending edit burst before and after one explicit command such as Duplicate. */
-export function runDiscreteHistoryStep<T>(mutation: () => T): T {
+export function runDiscreteHistoryStep<T>(mutation: () => T, label?: string): T {
   window.clearTimeout(debounceTimer);
   flushPending();
   try {
     return mutation();
   } finally {
     window.clearTimeout(debounceTimer);
+    if (pendingEntry && label) pendingEntry.label = label;
     flushPending();
   }
+}
+
+export interface RemoteHistoryUpdate {
+  source: string;
+  reason?: string;
+  summary?: { operationCount?: number; operationTypes?: string[] };
+}
+
+export function remoteHistoryLabel(update: RemoteHistoryUpdate): string {
+  const acceptedTitle = update.reason?.match(/^Accepted proposal:\s*(.+)$/)?.[1];
+  const prefix = acceptedTitle
+    ? 'AI Assistant'
+    : update.source === 'undo'
+      ? 'Agent undo'
+      : update.source === 'redo'
+        ? 'Agent redo'
+        : 'Agent';
+  const description =
+    acceptedTitle ||
+    update.reason ||
+    update.summary?.operationTypes?.join(', ') ||
+    'Update project';
+  const count = update.summary?.operationCount;
+  return `${prefix}: ${description}${count ? ` (${count} ${count === 1 ? 'action' : 'actions'})` : ''}`;
+}
+
+/** Keep accepted batches in the same undo stack as direct editing, without echoing a server undo. */
+export function applyRemoteProjectUpdate(project: Project, update: RemoteHistoryUpdate): void {
+  const current = useProjectStore.getState().project;
+  if (JSON.stringify(current) === JSON.stringify(project)) return;
+  if (current.id !== project.id) {
+    useProjectStore.getState().loadProject(project);
+    useSelectionStore.getState().select(null);
+    resetHistory();
+    return;
+  }
+  window.clearTimeout(debounceTimer);
+  flushPending();
+  const stack = update.source === 'undo' ? past : update.source === 'redo' ? future : [];
+  if (stack.length && JSON.stringify(stack.at(-1)!.project) === JSON.stringify(project)) {
+    if (update.source === 'undo') undo();
+    else redo();
+    return;
+  }
+  runDiscreteHistoryStep(() => {
+    useProjectStore.setState({ project });
+    reconcileActiveKeyframe();
+    reconcileLayerSelection();
+  }, remoteHistoryLabel(update));
 }
 
 useProjectStore.subscribe((state) => {

@@ -12,6 +12,9 @@ import {
   duplicateEffect,
   reorderEffects,
   effectProperty,
+  effectParameterSpec,
+  getEffectStack,
+  effectParams,
   type EffectType,
   type EffectPatch,
   createAsset,
@@ -151,7 +154,13 @@ interface ProjectActions {
     patch: Partial<
       Pick<
         Project,
-        'id' | 'name' | 'description' | 'version' | 'supportsRealTime' | 'supportsNonRealTime'
+        | 'id'
+        | 'name'
+        | 'description'
+        | 'version'
+        | 'supportsRealTime'
+        | 'supportsNonRealTime'
+        | 'thumbnailFrame'
       >
     >,
   ) => void;
@@ -530,36 +539,54 @@ function writeLayerTransformAtFrame(
   keyframe.transform = getLayerTransformAtFrame(layer, roundedFrame);
 }
 
-/**
- * Fresh layers carry equal Start/Step/End keys so every lifecycle pose is explicit. While a
- * property still consists only of those equal compatibility keys, placing it at frame zero is a
- * static authoring edit rather than the first half of an accidental tween.
- */
-function isStaticLifecycleCompatibilityTrack(
+function normalizeOffsetProperty(
   layer: Layer,
-  property: keyof LayerTransform,
-  lifecycleFrames: number[],
-): boolean {
-  const track = getResolvedLayerAnimationTracks(layer)[property];
-  if (!track || track.length !== lifecycleFrames.length || track.length === 0) return false;
-  const expectedFrames = new Set(lifecycleFrames);
-  if (track.some((keyframe) => !expectedFrames.has(keyframe.frame))) return false;
-  if (new Set(track.map((keyframe) => keyframe.frame)).size !== lifecycleFrames.length)
-    return false;
-  const initialValue = track[0]!.value;
-  return track.every((keyframe) => Math.abs(keyframe.value - initialValue) < 1e-9);
+  property: AnimatableLayerProperty,
+  value: number,
+): number {
+  if (['x', 'y', 'width', 'height'].includes(property))
+    return normalizeAuthoredTransformPatch({ [property]: value })[
+      property as keyof LayerTransform
+    ]!;
+  if (
+    property === 'opacity' ||
+    property === 'dropShadowOpacity' ||
+    property.startsWith('fill.stops[')
+  )
+    return Math.max(0, Math.min(1, value));
+  if (property === 'blur' || property === 'dropShadowBlur' || property === 'strokeWidth')
+    return Math.max(0, value);
+  const spec = effectParameterSpec(layer.effects, property);
+  return spec ? Math.max(spec.min ?? -Infinity, Math.min(spec.max ?? Infinity, value)) : value;
 }
 
-function translateLayerAcrossAllFrames(layer: Layer, deltaX: number, deltaY: number): void {
-  materializeAnimationTracks(layer);
-  for (const [property, delta] of [
-    ['x', deltaX],
-    ['y', deltaY],
-  ] as const) {
-    if (delta === 0) continue;
-    for (const keyframe of layer.animationTracks[property] ?? []) keyframe.value += delta;
-    for (const keyframe of layer.loop?.tracks[property] ?? []) keyframe.value += delta;
-    for (const keyframe of layer.keyframes) keyframe.transform[property] += delta;
+/** Offset existing curves without materializing tracks or adding playhead keys. */
+function offsetExistingPropertyKeys(
+  layer: Layer,
+  property: AnimatableLayerProperty,
+  delta: number,
+): void {
+  if (!Number.isFinite(delta) || Math.abs(delta) < 1e-9) return;
+  for (const track of [layer.animationTracks[property], layer.loop?.tracks[property]])
+    for (const key of track ?? [])
+      key.value = normalizeOffsetProperty(layer, property, key.value + delta);
+}
+
+function offsetLayerTransform(layer: Layer, frame: number, patch: Partial<LayerTransform>): void {
+  const before = getLayerTransformAtFrame(layer, frame);
+  for (const [property, value] of Object.entries(normalizeAuthoredTransformPatch(patch)) as [
+    keyof LayerTransform,
+    number,
+  ][]) {
+    const delta = value - before[property];
+    if (!Number.isFinite(delta) || Math.abs(delta) < 1e-9) continue;
+    offsetExistingPropertyKeys(layer, property, delta);
+    for (const key of layer.keyframes)
+      key.transform[property] = normalizeOffsetProperty(
+        layer,
+        property,
+        key.transform[property] + delta,
+      );
   }
 }
 
@@ -570,57 +597,22 @@ function writeUiLayerTransform(
   patch: Partial<LayerTransform>,
 ): void {
   const roundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
-  const normalizedPatch = normalizeAuthoredTransformPatch(patch);
-  const lifecycleFrames = [
-    ...new Set(computeKeyframeFrames(composition).map((keyframe) => keyframe.frame)),
-  ];
-  const framesByProperty = new Map<keyof LayerTransform, number[]>();
-  const staticProperties = new Set<keyof LayerTransform>();
-  for (const property of Object.keys(normalizedPatch) as (keyof LayerTransform)[]) {
-    const isStaticPlacement =
-      roundedFrame === 0 && isStaticLifecycleCompatibilityTrack(layer, property, lifecycleFrames);
-    if (isStaticPlacement) staticProperties.add(property);
-    framesByProperty.set(property, isStaticPlacement ? lifecycleFrames : [roundedFrame]);
-  }
-
-  const descendants = descendantLayers(composition, layer.id);
-  let staticDeltaX = 0;
-  let staticDeltaY = 0;
-  const affectedFrames = [...new Set([...framesByProperty.values()].flat())].sort((a, b) => a - b);
-  for (const affectedFrame of affectedFrames) {
-    const framePatch = Object.fromEntries(
-      Object.entries(normalizedPatch).filter(([property]) =>
-        framesByProperty.get(property as keyof LayerTransform)?.includes(affectedFrame),
-      ),
-    ) as Partial<LayerTransform>;
-    const before = getLayerTransformAtFrame(layer, affectedFrame);
-    writeLayerTransformAtFrame(composition, layer, affectedFrame, framePatch);
-    const after = getLayerTransformAtFrame(layer, affectedFrame);
-    const deltaX = after.x - before.x;
-    const deltaY = after.y - before.y;
-    if (staticProperties.has('x')) staticDeltaX = deltaX;
-    if (staticProperties.has('y')) staticDeltaY = deltaY;
-    const frameDeltaX = staticProperties.has('x') ? 0 : deltaX;
-    const frameDeltaY = staticProperties.has('y') ? 0 : deltaY;
-    if (frameDeltaX === 0 && frameDeltaY === 0) continue;
-    for (const descendant of descendants) {
-      const pose = getLayerTransformAtFrame(descendant, affectedFrame);
-      writeLayerTransformAtFrame(composition, descendant, affectedFrame, {
-        ...(frameDeltaX !== 0 ? { x: pose.x + frameDeltaX } : {}),
-        ...(frameDeltaY !== 0 ? { y: pose.y + frameDeltaY } : {}),
-      });
-    }
-  }
-  if (staticDeltaX !== 0 || staticDeltaY !== 0) {
-    for (const [property, delta] of [
-      ['x', staticDeltaX],
-      ['y', staticDeltaY],
-    ] as const) {
-      for (const keyframe of layer.loop?.tracks[property] ?? []) keyframe.value += delta;
-    }
-    for (const descendant of descendants) {
-      translateLayerAcrossAllFrames(descendant, staticDeltaX, staticDeltaY);
-    }
+  const autoKeyframe = useTimelineStore.getState().autoKeyframe;
+  const before = getLayerTransformAtFrame(layer, roundedFrame);
+  if (autoKeyframe) writeLayerTransformAtFrame(composition, layer, roundedFrame, patch);
+  else offsetLayerTransform(layer, roundedFrame, patch);
+  const after = getLayerTransformAtFrame(layer, roundedFrame);
+  const deltaX = after.x - before.x,
+    deltaY = after.y - before.y;
+  if (deltaX === 0 && deltaY === 0) return;
+  for (const descendant of descendantLayers(composition, layer.id)) {
+    const pose = getLayerTransformAtFrame(descendant, roundedFrame);
+    const childPatch = {
+      ...(deltaX !== 0 ? { x: pose.x + deltaX } : {}),
+      ...(deltaY !== 0 ? { y: pose.y + deltaY } : {}),
+    };
+    if (autoKeyframe) writeLayerTransformAtFrame(composition, descendant, roundedFrame, childPatch);
+    else offsetLayerTransform(descendant, roundedFrame, childPatch);
   }
 }
 
@@ -1763,6 +1755,12 @@ export const useProjectStore = create<ProjectStore>()(
           if (patch.strokeWidth === undefined) return;
           const numeric = Number(patch.strokeWidth);
           const strokeWidth = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+          if (!useTimelineStore.getState().autoKeyframe) {
+            const before = getLayerPropertyValueAtFrame(layer, 'strokeWidth', frame);
+            offsetExistingPropertyKeys(layer, 'strokeWidth', strokeWidth - before);
+            layer.element.strokeWidth = strokeWidth;
+            return;
+          }
           layer.element.strokeWidth = strokeWidth;
           const roundedFrame = Math.max(
             0,
@@ -1796,6 +1794,22 @@ export const useProjectStore = create<ProjectStore>()(
             getResolvedLayerAnimationTracks(layer),
             roundedFrame,
           );
+          if (!useTimelineStore.getState().autoKeyframe) {
+            if (typeof paint !== 'string' && typeof previousEvaluated !== 'string') {
+              paint.stops.forEach((stop, index) => {
+                const before = previousEvaluated.stops[index]?.offset;
+                if (before !== undefined)
+                  offsetExistingPropertyKeys(
+                    layer,
+                    `fill.stops[${index}].offset`,
+                    stop.offset - before,
+                  );
+              });
+            }
+            layer.element.fill = paint;
+            pruneInvalidGradientStopTracks(layer);
+            return;
+          }
           materializeAnimationTracks(layer);
           if (typeof paint !== 'string' && typeof previous !== 'string') {
             layer.element.fill = {
@@ -1835,6 +1849,28 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId),
             layer = composition.layers.find((l) => l.id === layerId);
           if (!layer || layer.isLocked) return;
+          if (!useTimelineStore.getState().autoKeyframe) {
+            const existingEffect = getEffectStack(layer.effects).find(
+              (effect) => effect.id === effectId,
+            );
+            if (!existingEffect) throw new Error(`Effect not found: ${effectId}`);
+            const before = Object.fromEntries(
+              Object.entries(patch.params ?? {}).flatMap(([param, value]) => {
+                if (typeof value !== 'number') return [];
+                const property = effectProperty(existingEffect, param) as AnimatableLayerProperty;
+                return [[param, getLayerPropertyValueAtFrame(layer, property, frame)]];
+              }),
+            );
+            const effect = updateEffect(layer, effectId, patch);
+            for (const [param, value] of Object.entries(effectParams(effect, layer.effects)))
+              if (typeof value === 'number' && before[param] !== undefined)
+                offsetExistingPropertyKeys(
+                  layer,
+                  effectProperty(effect, param) as AnimatableLayerProperty,
+                  value - before[param]!,
+                );
+            return;
+          }
           const effect = updateEffect(layer, effectId, patch),
             boundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
           for (const [param, value] of Object.entries(patch.params ?? {}))
@@ -1880,6 +1916,18 @@ export const useProjectStore = create<ProjectStore>()(
             normalizeLayerEffects({ ...layer.effects, ...patch }),
             patch,
           );
+          if (!useTimelineStore.getState().autoKeyframe) {
+            for (const property of EFFECT_ANIMATION_PROPERTIES)
+              if (patch[property] !== undefined)
+                offsetExistingPropertyKeys(
+                  layer,
+                  property,
+                  normalized[property] -
+                    getLayerPropertyValueAtFrame(layer, property, roundedFrame),
+                );
+            layer.effects = normalized;
+            return;
+          }
           layer.effects = normalized;
           for (const property of EFFECT_ANIMATION_PROPERTIES) {
             if (patch[property] !== undefined) {
@@ -2299,7 +2347,11 @@ export const useProjectStore = create<ProjectStore>()(
             .map((layer) => ({ id: layer.id, pose: getLayerTransformAtFrame(layer, frame) }));
           for (const [layerId, patch] of alignedPatches(items, mode)) {
             const layer = composition.layers.find((candidate) => candidate.id === layerId);
-            if (layer) writeLayerTransformAtFrame(composition, layer, frame, patch);
+            if (layer) {
+              if (useTimelineStore.getState().autoKeyframe)
+                writeLayerTransformAtFrame(composition, layer, frame, patch);
+              else writeUiLayerTransform(composition, layer, frame, patch);
+            }
           }
         }),
 
@@ -2311,7 +2363,11 @@ export const useProjectStore = create<ProjectStore>()(
             .map((layer) => ({ id: layer.id, pose: getLayerTransformAtFrame(layer, frame) }));
           for (const [layerId, patch] of distributedPatches(items, mode)) {
             const layer = composition.layers.find((candidate) => candidate.id === layerId);
-            if (layer) writeLayerTransformAtFrame(composition, layer, frame, patch);
+            if (layer) {
+              if (useTimelineStore.getState().autoKeyframe)
+                writeLayerTransformAtFrame(composition, layer, frame, patch);
+              else writeUiLayerTransform(composition, layer, frame, patch);
+            }
           }
         }),
 

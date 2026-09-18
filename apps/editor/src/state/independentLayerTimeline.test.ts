@@ -2,9 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { computeKeyframeFrames } from '@ograf-editor/scene-model';
 import { getLayerTransformAtFrame, useProjectStore } from './projectStore';
 import { useSelectionStore } from './selectionStore';
+import { useTimelineStore } from './timelineStore';
 
 describe('project store independent layer timelines', () => {
-  beforeEach(() => useProjectStore.getState().newProject());
+  beforeEach(() => {
+    useProjectStore.getState().newProject();
+    useTimelineStore.getState().setAutoKeyframe(true);
+  });
 
   it('adds ordinary layers fully visible at Start, Step, and End', () => {
     for (const kind of ['rectangle', 'ellipse', 'text'] as const) {
@@ -18,6 +22,7 @@ describe('project store independent layer timelines', () => {
   });
 
   it('keeps initial frame-zero placement static across lifecycle compatibility keys', () => {
+    useTimelineStore.getState().setAutoKeyframe(false);
     const layerId = useProjectStore.getState().addLayer('rectangle');
     useProjectStore.getState().setLayerLoop(layerId, { durationFrames: 10 });
     useProjectStore.getState().setLayerLoopPropertyTrack(layerId, 'x', [
@@ -53,7 +58,10 @@ describe('project store independent layer timelines', () => {
     const layerId = useProjectStore.getState().addLayer('rectangle');
 
     useProjectStore.getState().updateLayerTransform(layerId, 12, { x: 500 });
-    useProjectStore.getState().updateLayerTransform(layerId, 0, { x: 40, y: 210 });
+    useProjectStore.getState().updateLayerTransform(layerId, 0, { x: 40 });
+    useTimelineStore.getState().setAutoKeyframe(false);
+    useProjectStore.getState().updateLayerTransform(layerId, 0, { y: 210 });
+    useTimelineStore.getState().setAutoKeyframe(true);
     useProjectStore.getState().updateLayerTransform(layerId, 7, { y: 777 });
 
     const layer = useProjectStore
@@ -85,6 +93,7 @@ describe('project store independent layer timelines', () => {
       { id: 'loop-end', frame: 10, value: 140, easing: 'linear' },
     ]);
 
+    useTimelineStore.getState().setAutoKeyframe(false);
     useProjectStore.getState().updateLayerTransform(parentId, 0, { x: 180, y: 260 });
 
     const composition = useProjectStore.getState().project.compositions[0]!;

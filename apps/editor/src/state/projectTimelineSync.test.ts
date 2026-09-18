@@ -15,6 +15,7 @@ function installTimelineAtFrame(frame: number): TimelineController {
   useTimelineStore.setState({
     currentFrame: frame,
     isPlaying: true,
+    autoKeyframe: true,
     durationFrames: 120,
     controller,
   });
@@ -25,6 +26,7 @@ describe('project and timeline synchronization', () => {
   beforeEach(() => {
     useTimelineStore.setState({
       currentFrame: 0,
+      autoKeyframe: false,
       isPlaying: false,
       durationFrames: 0,
       controller: null,
@@ -40,6 +42,7 @@ describe('project and timeline synchronization', () => {
     expect(controller.stop).toHaveBeenCalledOnce();
     expect(useTimelineStore.getState()).toMatchObject({
       currentFrame: 0,
+      autoKeyframe: false,
       isPlaying: false,
       durationFrames: 0,
       controller: null,
@@ -60,6 +63,7 @@ describe('project and timeline synchronization', () => {
     expect(controller.stop).toHaveBeenCalledOnce();
     expect(useTimelineStore.getState()).toMatchObject({
       currentFrame: 0,
+      autoKeyframe: false,
       isPlaying: false,
       durationFrames: 0,
       controller: null,
@@ -79,6 +83,7 @@ describe('project and timeline synchronization', () => {
     expect(controller.stop).toHaveBeenCalledOnce();
     expect(useTimelineStore.getState()).toMatchObject({
       currentFrame: 0,
+      autoKeyframe: false,
       isPlaying: false,
       durationFrames: 0,
       controller: null,
@@ -95,6 +100,7 @@ describe('project and timeline synchronization', () => {
     expect(useProjectStore.getState().project.name).toBe('Autosaved project');
     expect(useTimelineStore.getState()).toMatchObject({
       currentFrame: 0,
+      autoKeyframe: false,
       isPlaying: false,
       durationFrames: 0,
       controller: null,

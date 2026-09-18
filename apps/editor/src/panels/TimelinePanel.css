@@ -1091,10 +1091,10 @@
 
 .timeline-layer-span {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 50%;
+  height: 8px;
+  transform: translateY(-50%);
   background: color-mix(in srgb, var(--layer-color) 34%, var(--bg-canvas));
-  border: 1px solid color-mix(in srgb, var(--text-dim) 62%, transparent);
   pointer-events: auto;
   overflow: hidden;
   z-index: 1;

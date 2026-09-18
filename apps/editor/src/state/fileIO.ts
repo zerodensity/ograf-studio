@@ -1,24 +1,25 @@
 import {
-  LEGACY_PROJECT_SOURCE_EXTENSIONS,
   PROJECT_SOURCE_EXTENSION,
+  templateBaseName,
+  templateThumbnailName,
   type Project,
 } from '@ograf-editor/scene-model';
 import { certifyProject } from './ografCompatibility';
+import JSZip from 'jszip';
 
 const AUTOSAVE_KEY = 'ograf-editor:autosave-project';
-const FILE_TYPES = [
-  // Deliberately does not end in .json: ograf-devtool discovers every JSON file in a selected
-  // directory as a possible manifest and would report an editor source file as incompatible.
+const OPEN_FILE_TYPES: FilePickerAcceptType[] = [
   {
-    description: 'OGraf Studio Project Source',
-    accept: { 'application/json': [PROJECT_SOURCE_EXTENSION] },
-  },
-];
-const OPEN_FILE_TYPES = [
-  {
-    description: 'OGraf Studio Project Source',
+    description: 'OGS project files',
     accept: {
-      'application/json': [PROJECT_SOURCE_EXTENSION, ...LEGACY_PROJECT_SOURCE_EXTENSIONS],
+      // A JSON MIME type makes Chromium add .json to this filter automatically.
+      'application/x-ograf-studio-project': [PROJECT_SOURCE_EXTENSION],
+    },
+  },
+  {
+    description: 'JSON files',
+    accept: {
+      'application/json': ['.json'],
     },
   },
 ];
@@ -51,14 +52,13 @@ export function clearAutosave(): void {
   }
 }
 
-function downloadProjectAsFile(project: Project): void {
-  const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+function downloadBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `${project.name || 'untitled'}${PROJECT_SOURCE_EXTENSION}`;
+  anchor.download = name;
   anchor.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 function isAbort(err: unknown): boolean {
@@ -71,28 +71,67 @@ function isAbort(err: unknown): boolean {
  */
 export async function saveProjectToFile(
   project: Project,
+  options: { baseName?: string; downloadOnly?: boolean } = {},
 ): Promise<'saved' | 'cancelled' | 'downloaded'> {
   const snapshot = JSON.parse(JSON.stringify(project)) as Project;
+  const baseName = templateBaseName(options.baseName ?? snapshot.name);
+  let directory: FileSystemDirectoryHandle | undefined;
+  if (window.showDirectoryPicker && !options.downloadOnly) {
+    try {
+      directory = await window.showDirectoryPicker({ mode: 'readwrite', id: 'ograf-templates' });
+    } catch (error) {
+      if (isAbort(error)) return 'cancelled';
+      throw error;
+    }
+  }
+  const { createTemplateThumbnail } = await import('./templateThumbnail');
+  const thumbnail = await createTemplateThumbnail(snapshot);
   const compatibility = await certifyProject(snapshot);
   if (!compatibility.valid) {
     throw new Error(`Save blocked by OGraf compatibility gate: ${compatibility.errors.join(' ')}`);
   }
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: `${snapshot.name || 'untitled'}${PROJECT_SOURCE_EXTENSION}`,
-        types: FILE_TYPES,
-      });
-      const writable = await handle.createWritable();
-      await writable.write(JSON.stringify(snapshot, null, 2));
-      await writable.close();
-      return 'saved';
-    } catch (err) {
-      if (isAbort(err)) return 'cancelled';
-      // Picker exists but writing failed for some other reason — fall through to a plain download.
+  const files = [
+    {
+      name: `${baseName}${PROJECT_SOURCE_EXTENSION}`,
+      data: new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' }),
+    },
+    { name: templateThumbnailName(snapshot), data: thumbnail },
+  ];
+  if (directory) {
+    const existing: string[] = [];
+    for (const file of files) {
+      try {
+        await directory.getFileHandle(file.name);
+        existing.push(file.name);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+      }
     }
+    if (existing.length && !window.confirm(`Replace these existing files?\n${existing.join('\n')}`))
+      return 'cancelled';
+    const streams: FileSystemWritableFileStream[] = [];
+    try {
+      for (const file of files)
+        streams.push(
+          await (await directory.getFileHandle(file.name, { create: true })).createWritable(),
+        );
+      for (let index = 0; index < files.length; index++)
+        await streams[index]!.write(files[index]!.data);
+      for (const stream of streams) await stream.close();
+    } catch (error) {
+      await Promise.allSettled(streams.map((stream) => stream.abort()));
+      throw new Error(
+        `Could not finish saving both template files. Check the selected folder. ${error instanceof Error ? error.message : ''}`,
+      );
+    }
+    return 'saved';
   }
-  downloadProjectAsFile(snapshot);
+  const zip = new JSZip();
+  for (const file of files) zip.file(file.name, await file.data.arrayBuffer());
+  downloadBlob(
+    await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }),
+    `${baseName}.source.zip`,
+  );
   return 'downloaded';
 }
 
@@ -221,12 +260,7 @@ function openProjectViaInputFallback(): Promise<Project | null> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = [
-      PROJECT_SOURCE_EXTENSION,
-      ...LEGACY_PROJECT_SOURCE_EXTENSIONS,
-      '.json',
-      'application/json',
-    ].join(',');
+    input.accept = PROJECT_SOURCE_EXTENSION;
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) {
@@ -248,7 +282,11 @@ function openProjectViaInputFallback(): Promise<Project | null> {
 export async function openProjectFromFile(): Promise<Project | null> {
   if (window.showOpenFilePicker) {
     try {
-      const [handle] = await window.showOpenFilePicker({ types: OPEN_FILE_TYPES, multiple: false });
+      const [handle] = await window.showOpenFilePicker({
+        types: OPEN_FILE_TYPES,
+        excludeAcceptAllOption: false,
+        multiple: false,
+      });
       if (!handle) return null;
       const file = await handle.getFile();
       const text = await file.text();

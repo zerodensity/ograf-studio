@@ -9,7 +9,8 @@ import {
 } from 'react';
 import { useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
-import { openProjectFromFile, openProjectFromUrl, saveProjectToFile } from '../state/fileIO';
+import { openProjectFromFile, openProjectFromUrl } from '../state/fileIO';
+import { TemplateSaveDialog } from '../components/TemplateSaveDialog';
 import {
   getHistorySnapshot,
   redo,
@@ -51,6 +52,7 @@ export function Menubar({
   const selectMany = useSelectionStore((s) => s.selectMany);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const [status, setStatus] = useState('');
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [importReport, setImportReport] = useState<OgrafImportResult | null>(null);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState('');
@@ -197,24 +199,30 @@ export function Menubar({
     }
   };
 
-  const handleSave = async () => {
-    setStatus('Running OGraf compatibility tests…');
-    try {
-      const result = await saveProjectToFile(project);
-      setStatus(
-        result === 'saved'
-          ? 'Project source saved — OGraf certified'
-          : result === 'downloaded'
-            ? 'Project source downloaded — OGraf certified'
-            : 'Save cancelled',
-      );
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : 'Save blocked by compatibility gate');
-    }
-  };
+  const handleSave = () => setSaveDialogOpen(true);
 
   return (
     <header className="menubar" style={style}>
+      {saveDialogOpen ? (
+        <TemplateSaveDialog
+          project={project}
+          onClose={() => setSaveDialogOpen(false)}
+          onSaved={(mode, frame) => {
+            const current = useProjectStore.getState();
+            if (
+              current.project.id === project.id &&
+              (current.project.thumbnailFrame ?? null) !== frame
+            )
+              current.setProjectMeta({ thumbnailFrame: frame });
+            setSaveDialogOpen(false);
+            setStatus(
+              mode === 'saved'
+                ? 'Template + PNG saved (certified)'
+                : 'Template + PNG ZIP downloaded',
+            );
+          }}
+        />
+      ) : null}
       <span className="menubar-brand" aria-label="OGraf Studio">
         <OgrafLogo />
         Studio
@@ -240,7 +248,7 @@ export function Menubar({
         <button
           type="button"
           onClick={handleSave}
-          title="Save editable .ogs source. Use Export .ograf.zip for a playout package."
+          title="Save editable .ogs source with a transparent PNG thumbnail."
         >
           Save Project
         </button>

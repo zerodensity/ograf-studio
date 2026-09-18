@@ -7,6 +7,16 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$agentConfigPath = Join-Path $projectRoot '.ograf-agent.local'
+if (Test-Path -LiteralPath $agentConfigPath) {
+  $agentConfig = Get-Content -Raw -LiteralPath $agentConfigPath | ConvertFrom-Json
+  if ($agentConfig.provider -eq 'codex') {
+    $env:OGRAF_AGENT_PROVIDER = 'codex'
+    $env:OGRAF_AGENT_MODEL = $agentConfig.model
+    $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
+    $env:OGRAF_CODEX_EXECUTABLE = if ($codexCommand) { $codexCommand.Source } else { $agentConfig.codexExecutable }
+  }
+}
 $logDirectory = Join-Path $projectRoot '.logs'
 $editorUrl = 'http://localhost:5173/'
 $mcpHealthUrl = 'http://127.0.0.1:4318/health'

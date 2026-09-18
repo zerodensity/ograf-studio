@@ -6,6 +6,7 @@ import {
   type Layer,
 } from '@ograf-editor/scene-model';
 import { getActiveComposition, useProjectStore } from './projectStore';
+import { useTimelineStore } from './timelineStore';
 
 function activeComposition() {
   const state = useProjectStore.getState();
@@ -41,7 +42,10 @@ function positionSignature(layer: Layer) {
 }
 
 describe('layer editing commands', () => {
-  beforeEach(() => useProjectStore.getState().newProject());
+  beforeEach(() => {
+    useProjectStore.getState().newProject();
+    useTimelineStore.getState().setAutoKeyframe(true);
+  });
 
   it('pastes independent layer copies with fresh IDs and an offset', () => {
     const sourceId = useProjectStore.getState().addLayer('rectangle');

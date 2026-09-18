@@ -12,6 +12,7 @@ interface TimelineState {
   currentFrame: number;
   isPlaying: boolean;
   pauseAtOgrafSteps: boolean;
+  autoKeyframe: boolean;
   durationFrames: number;
   /** Editor-only live preview of one layer's local loop clip. */
   previewLoopLayerId: string | null;
@@ -20,6 +21,7 @@ interface TimelineState {
   setCurrentFrame: (frame: number) => void;
   setPlaying: (isPlaying: boolean) => void;
   setPauseAtOgrafSteps: (pauseAtOgrafSteps: boolean) => void;
+  setAutoKeyframe: (autoKeyframe: boolean) => void;
   setDurationFrames: (frames: number) => void;
   setPreviewLoopLayerId: (layerId: string | null) => void;
   setController: (controller: TimelineController | null) => void;
@@ -30,13 +32,15 @@ interface TimelineState {
 export const useTimelineStore = create<TimelineState>((set, get) => ({
   currentFrame: 0,
   isPlaying: false,
-  pauseAtOgrafSteps: false,
+  pauseAtOgrafSteps: true,
+  autoKeyframe: false,
   durationFrames: 0,
   previewLoopLayerId: null,
   controller: null,
   setCurrentFrame: (frame) => set({ currentFrame: frame }),
   setPlaying: (isPlaying) => set({ isPlaying }),
   setPauseAtOgrafSteps: (pauseAtOgrafSteps) => set({ pauseAtOgrafSteps }),
+  setAutoKeyframe: (autoKeyframe) => set({ autoKeyframe }),
   setDurationFrames: (frames) => set({ durationFrames: frames }),
   setPreviewLoopLayerId: (previewLoopLayerId) => set({ previewLoopLayerId }),
   setController: (controller) => set({ controller }),
@@ -44,6 +48,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     get().controller?.stop();
     set({
       currentFrame: 0,
+      autoKeyframe: false,
       isPlaying: false,
       durationFrames: 0,
       previewLoopLayerId: null,

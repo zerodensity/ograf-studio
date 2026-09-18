@@ -134,6 +134,8 @@ export interface AuthoringProposal {
   frames: number[];
   valid: boolean;
   warnings: string[];
+  project?: Project;
+  compositionId?: string;
 }
 
 export interface ProposalDecisionResult {

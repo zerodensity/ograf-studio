@@ -2,15 +2,10 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { selectedStandaloneTargets } from './standaloneTargets.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
-const artifacts = [
-  { file: 'OGrafStudioServer.exe', format: 'pe', architecture: 'x64' },
-  { file: 'OGrafStudioServer-macos-x64', format: 'mach-o', architecture: 'x64' },
-  { file: 'OGrafStudioServer-macos-arm64', format: 'mach-o', architecture: 'arm64' },
-  { file: 'OGrafStudioServer-linux-x64', format: 'elf', architecture: 'x64' },
-  { file: 'OGrafStudioServer-linux-arm64', format: 'elf', architecture: 'arm64' },
-];
+const artifacts = selectedStandaloneTargets();
 
 const expectedMachine = {
   'mach-o:x64': 0x01000007,
@@ -47,7 +42,7 @@ for (const artifact of artifacts) {
   }
   for (const embeddedText of [
     'OGraf Studio',
-    '0.17',
+    '0.20',
     'standalone server',
     'https://github.com/zerodensity/ograf-studio',
     '<!doctype html>',

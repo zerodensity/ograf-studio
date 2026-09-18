@@ -1,4 +1,5 @@
 import type { AgentProviderConfig } from './config';
+import { CodexAdapter } from './codexAdapter';
 import type {
   AgentMessage,
   AgentToolCall,
@@ -56,6 +57,21 @@ function openAiMessages(messages: AgentMessage[]): unknown[] {
               })),
             }
           : {}),
+      };
+    }
+    if (message.role === 'user' && message.images?.length) {
+      return {
+        role: 'user',
+        content: [
+          { type: 'text', text: message.content },
+          ...message.images.flatMap((image) => [
+            ...(image.label ? [{ type: 'text', text: image.label }] : []),
+            {
+              type: 'image_url',
+              image_url: { url: `data:${image.mimeType};base64,${image.data}` },
+            },
+          ]),
+        ],
       };
     }
     return message;
@@ -140,6 +156,21 @@ function anthropicMessages(messages: AgentMessage[]): unknown[] {
         ],
       };
     }
+    if (message.images?.length) {
+      return {
+        role: 'user',
+        content: [
+          { type: 'text', text: message.content },
+          ...message.images.flatMap((image) => [
+            ...(image.label ? [{ type: 'text', text: image.label }] : []),
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: image.mimeType, data: image.data },
+            },
+          ]),
+        ],
+      };
+    }
     return message;
   });
 }
@@ -197,6 +228,7 @@ class AnthropicAdapter implements ProviderAdapter {
 }
 
 export function createProviderAdapter(config: AgentProviderConfig): ProviderAdapter {
+  if (config.provider === 'codex') return new CodexAdapter(config);
   return config.provider === 'anthropic'
     ? new AnthropicAdapter(config)
     : new OpenAiCompatibleAdapter(config);

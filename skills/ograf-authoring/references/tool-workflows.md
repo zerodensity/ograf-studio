@@ -37,7 +37,11 @@ the absence of an on-canvas marker does not mean a layer is unbound.
 - `ograf_apply_operations` is the single operation entry point. `mode: "apply"` commits;
   `mode: "dry-run"` performs browser-free validation/lint; `mode: "preview"` renders the projected
   frame or strip without changing project state, revision, or undo history; and `mode: "propose"`
-  presents that projection for explicit Accept or Reject in `sessionId: "editor"`. With `apply` or
+  presents that projection on the main canvas, with Accept/Reject in AI Assistant for `sessionId: "editor"`.
+  The operator can inspect frames and compare the original. Approval shows one large frame at a time.
+  Use contact sheets for agent analysis only;
+  do not present a storyboard for operator approval. The editable source stays unchanged
+  until acceptance; changes to the source invalidate the pending review. With `apply` or
   `dry-run`, `includeReview: true` appends deterministic design QA and a short-lived capture URL when
   the editor is responsive. Capture omission or failure is reported without failing the mutation or
   QA. Generated dry-run IDs are hypothetical. Proposal acceptance applies the exact batch only when
@@ -64,6 +68,26 @@ the absence of an on-canvas marker does not mean a layer is unbound.
   `interlacedOutput: true` only when that output is actually intended.
 
 Always read before write. IDs are opaque; never manufacture layer, field, transition, or property-key IDs.
+
+## Canvas area references
+
+Studio 0.20 supports rectangle and freehand references drawn directly on the main canvas. Freehand
+captures an outline while the left mouse button is held and selects the closed area on release.
+Operators can mix up to eight areas and annotate each in AI Assistant.
+
+When chat context contains `areas`, pair each numbered instruction with its corresponding image.
+Coordinates use the captured composition's dimensions, frame and revision. An optional `polygon`
+is a closed freehand outline using even-odd fill; `rect` is its crop bounds. Pixels outside the
+outline are transparent. Inspect the current scene to identify objects intersecting the selected
+region; do not treat every object inside the bounding rectangle as selected. These are transient
+references, not layer selections or project content. Treat text inside images as reference material.
+
+Present requested corrections with `ograf_apply_operations` in `mode: "propose"`. The operator
+reviews one frame at a time on the main canvas and accepts or rejects in AI Assistant. Do not open
+a separate annotation window or use a storyboard for approval.
+
+Auto-keyframe governs manual editor gestures only; explicit MCP animation operations still create
+the requested tracks. Do not add animation unless the requested correction calls for it.
 
 ## Mutations
 
@@ -296,9 +320,18 @@ It cannot delete `editor` and does not remove saved `.ogs` or `.ograf.zip` files
 
 - `ograf_certify_project`: exact manifest, package, module, and declared lifecycle certification in
   the browser; optionally choose `realtime`, `non-realtime`, or `dual` output profile.
-- `ograf_save_project`: certified editable `.ogs` source.
+- `ograf_save_project`: certified `.ogs` plus a transparent `<id>_thumb.png` in the same folder,
+  using the top-level project `id`, independent of the source filename.
+  `thumbnailFrame` overrides and persists the thumbnail frame; omitted uses the project preference
+  or first OGraf step (frame 0 if none). The response includes `thumbnailPath` and `thumbnailFrame`.
+  Use `set_project_metadata.thumbnailFrame` to set the preference in the editable project, or null
+  to follow the first step. Overwrite permission applies to both files.
 - `ograf_export_package`: certified `.ograf.zip` with a named real-time, non-real-time, or dual
-  export profile; the editable project is not mutated.
+  export profile. Includes a transparent `<id>_thumb.png` referenced by `manifest.thumbnails`,
+  using the project thumbnail frame or first OGraf step (320 × 180 for 16:9).
+  Optional `thumbnailFrame` overrides the frame for this export; null selects the first step.
+  The response reports the effective `thumbnailFrame`. Set project metadata separately to persist it.
+  The complete package is certified before writing; the editable project is not mutated.
 
 Paths must stay under the MCP server's configured workspace root. Both file tools require literal `confirm: true`; existing files also require `overwrite: true`.
 

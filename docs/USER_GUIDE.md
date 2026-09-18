@@ -17,8 +17,32 @@ An `.ogs` file is not an OGraf manifest and should not be opened directly in an 
 tool. A `.ograf.zip` is the deployable output, but arbitrary third-party JavaScript cannot always be
 reconstructed as editable layers. The import report lists everything recovered, defaulted, or lost.
 
+The Open dialog offers separate **OGS project files** (`*.ogs`), **JSON files** (`*.json`), and
+**All files** (`*.*`) filters in browsers with native file picker support.
 Opening remains backward-compatible with legacy `.ogeproj` and `.ogeproj.json` source files. New
 browser downloads, picker saves, reference templates, and MCP saves use `.ogs` exclusively.
+
+### Template thumbnails
+
+**Save Project** includes a thumbnail preview and frame selector. By default it uses the first
+OGraf step of the main composition, or frame 0 when there are no steps. Enter another frame to
+override it, or use the previous/next-frame buttons; the choice is stored in the `.ogs` file.
+The preview keeps a fixed size while changing frames.
+
+Save into a chosen folder to keep the source and thumbnail together: `Template Name.ogs` and
+`<id>_thumb.png`, using the top-level project `id` from the saved JSON. Renaming the template does
+not change its thumbnail filename. The PNG has a transparent canvas background, excludes editor guides,
+and keeps the composition's proportions at up to 320 pixels on its longest edge (320 × 180 for 16:9).
+Authored background
+layers remain visible.
+
+**Download ZIP** packages the same two files together. Browsers without folder access use this
+option automatically; extract the archive before opening the `.ogs` source.
+
+**Export .ograf.zip** opens a thumbnail preview and frame selector before exporting. Enter a frame,
+use previous/next-frame buttons, or select **First OGraf step**. A successful export remembers the
+choice for the template; cancelling leaves it unchanged. The ZIP includes `<id>_thumb.png` and
+references it in the OGraf manifest's `thumbnails` list.
 
 ### Remote project URLs
 
@@ -94,9 +118,21 @@ exported graphic in the intended playout environment.
 
 ## Editing and animation
 
+AI proposals appear on the main canvas. Review frames and compare the original, then use
+**Accept changes** or **Reject** in **AI Assistant**. Acceptance creates one undoable history entry.
+
+**Pause at Steps** is enabled by default in the timeline. Uncheck it for continuous playback.
+With the timeline focused, **Space** toggles play/pause and **Left/Right Arrow** steps one frame.
+Enable **Auto-keyframe** beside **Pause at Steps** to create timeline keys and steps, including
+double-click inserts, property tracks, context-menu inserts, and loop keys. It is off by default
+and resets when opening or creating a project. Existing keys can still be selected and edited.
+When off, position, size, rotation, opacity, gradient-stop, stroke-width, and effect edits apply
+across existing keys without inserting a key at the playhead. Static objects stay static; existing
+motion is offset rather than replaced. Enable it to make frame-specific edits.
+
 For vector points and handles, see the [path-editing guide](../skills/ograf-authoring/references/path-editing.md).
 Clicking blank canvas keeps path editing active. Choose **Done** or press **Escape** to finish.
-For recent changes, see the [release notes](releases/0.17.md).
+For recent changes, see the [release notes](releases/0.20.md).
 
 Manage a selected layer's data links under **Properties → Data Bindings**. Binding indicators are
 not drawn over the canvas artwork.

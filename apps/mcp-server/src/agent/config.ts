@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-export type AgentProvider = 'anthropic' | 'openai-compatible';
+export type AgentProvider = 'anthropic' | 'openai-compatible' | 'codex';
 
 export interface AgentProviderConfig {
   provider: AgentProvider;
@@ -53,6 +53,20 @@ async function readWindowsCredential(target: string): Promise<string | null> {
 
 export async function loadAgentProviderConfig(): Promise<AgentProviderConfig | null> {
   const providerValue = process.env.OGRAF_AGENT_PROVIDER?.trim().toLowerCase();
+  if (providerValue === 'codex') {
+    return {
+      provider: 'codex',
+      baseUrl: '',
+      apiKey: '',
+      model: process.env.OGRAF_AGENT_MODEL?.trim() || 'default',
+      effort:
+        process.env.OGRAF_AGENT_EFFORT === 'high'
+          ? 'high'
+          : process.env.OGRAF_AGENT_EFFORT === 'low'
+            ? 'low'
+            : 'medium',
+    };
+  }
   const provider: AgentProvider | null =
     providerValue === 'anthropic' || providerValue === 'openai-compatible' ? providerValue : null;
   const baseUrl = process.env.OGRAF_AGENT_BASE_URL?.trim();

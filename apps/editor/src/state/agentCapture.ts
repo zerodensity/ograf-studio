@@ -1,6 +1,6 @@
 import { toCanvas } from 'html-to-image';
 import { captureMaskedCanvas } from './maskedCapture';
-import { compileDescriptor } from '@ograf-editor/codegen';
+import { compileDescriptor, type CompiledLayer } from '@ograf-editor/codegen';
 import {
   applyAnimatedPaint,
   applyCompiledClipPaths,
@@ -29,7 +29,17 @@ import {
   type FieldValue,
   type Project,
   type TextElement,
+  resolveElementAssetReferences,
 } from '@ograf-editor/scene-model';
+
+/** Bindings can introduce asset: references after descriptor compilation has resolved the base image. */
+export function resolveCaptureElement(
+  layer: CompiledLayer,
+  data: Record<string, unknown>,
+  composition: Composition,
+): Element {
+  return resolveElementAssetReferences(resolveBoundElement(layer, data), composition.assets);
+}
 
 export interface AgentCaptureRequest {
   target: 'composition' | 'viewport';
@@ -371,7 +381,7 @@ function buildCompositionDom(
       transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
       filter: layerEffectsToCssFilter(state.effects),
     });
-    const element = resolveBoundElement(layer, data);
+    const element = resolveCaptureElement(layer, data, composition);
     compositionRoot.appendChild(layerRoot);
     renderElementContent(layerRoot, element, sequenceFrame(element, frame, composition.frameRate));
     setLottieDeterministicRendering(layerRoot, true);
@@ -677,6 +687,22 @@ export async function measureAgentText(
 }
 
 /** Rasterizes the real browser renderer without changing editor state or the authoring revision. */
-export function captureAgentPng(request: AgentCaptureRequest): Promise<AgentCaptureResult> {
-  return request.target === 'viewport' ? captureViewport(request) : captureComposition(request);
+export async function captureAgentPng(request: AgentCaptureRequest): Promise<AgentCaptureResult> {
+  try {
+    return await (request.target === 'viewport'
+      ? captureViewport(request)
+      : captureComposition(request));
+  } catch (cause) {
+    if (cause instanceof Error) throw cause;
+    if (
+      cause &&
+      typeof cause === 'object' &&
+      'message' in cause &&
+      typeof cause.message === 'string'
+    )
+      throw new Error(cause.message);
+    throw new Error(
+      'An image could not be decoded for PNG capture. Check the template’s image assets and image URLs.',
+    );
+  }
 }

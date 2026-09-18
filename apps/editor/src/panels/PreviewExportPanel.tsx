@@ -1,6 +1,7 @@
 import { useEditorWindow } from '../layout/EditorWindow';
 import { PropertyRow } from '../components/PropertyRow';
 import { OgrafLogo } from '../components/OgrafLogo';
+import { TemplateSaveDialog } from '../components/TemplateSaveDialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   assembleManifest,
@@ -16,6 +17,7 @@ import {
   computeKeyframeFrames,
   runBroadcastQa,
   type BroadcastQaIssue,
+  type Project,
 } from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useTestDataStore, type TestValue } from '../state/testDataStore';
@@ -97,6 +99,7 @@ export function PreviewExportPanel() {
   const [dataForm, setDataForm] = useState<Record<string, TestValue>>({});
   const [exportStatus, setExportStatus] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+  const [exportDialogProject, setExportDialogProject] = useState<Project | null>(null);
   const [isCheckingCompatibility, setIsCheckingCompatibility] = useState(false);
   const [compatibility, setCompatibility] = useState<OGrafCompatibilityResult | null>(null);
   const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
@@ -387,11 +390,14 @@ export function PreviewExportPanel() {
     void call('goToTime', params, (g) => g.goToTime(params));
   };
 
-  const handleExport = async () => {
+  const handleExport = async (snapshot: Project) => {
     setIsExporting(true);
     setExportStatus('');
     try {
-      const result = await exportProjectAsZip(project, composition, exportProfile);
+      const exportComposition = snapshot.compositions.find(
+        (item) => item.id === snapshot.mainCompositionId,
+      )!;
+      const result = await exportProjectAsZip(snapshot, exportComposition, exportProfile);
       setCompatibility(result.compatibility);
       if (result.saveResult === 'cancelled') {
         setExportStatus('Export cancelled.');
@@ -400,8 +406,10 @@ export function PreviewExportPanel() {
       } else {
         setExportStatus(result.saveResult === 'saved' ? 'Exported.' : 'Exported (downloaded).');
       }
+      return result.saveResult;
     } catch (err) {
       setExportStatus(err instanceof Error ? err.message : 'Export failed.');
+      throw err;
     } finally {
       setIsExporting(false);
     }
@@ -877,7 +885,11 @@ export function PreviewExportPanel() {
             </button>
             <button
               type="button"
-              onClick={handleExport}
+              onClick={() =>
+                setExportDialogProject(
+                  structuredClone({ ...project, mainCompositionId: composition.id }),
+                )
+              }
               disabled={isExporting || isCheckingCompatibility}
             >
               {isExporting ? 'Testing & exporting…' : 'Export .ograf.zip'}
@@ -890,6 +902,25 @@ export function PreviewExportPanel() {
           {exportStatus && <p className="preview-export-status">{exportStatus}</p>}
         </section>
       </div>
+      {exportDialogProject && (
+        <TemplateSaveDialog
+          project={exportDialogProject}
+          onClose={() => setExportDialogProject(null)}
+          exportOptions={{
+            fileName: `${exportDialogProject.name || 'untitled'}${exportProfile.fileNameSuffix ?? ''}.ograf.zip`,
+            save: handleExport,
+          }}
+          onSaved={(_mode, frame) => {
+            const current = useProjectStore.getState();
+            if (
+              current.project.id === exportDialogProject.id &&
+              (current.project.thumbnailFrame ?? null) !== frame
+            )
+              current.setProjectMeta({ thumbnailFrame: frame });
+            setExportDialogProject(null);
+          }}
+        />
+      )}
     </Panel>
   );
 }

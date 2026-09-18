@@ -54,6 +54,73 @@ function config(provider: AgentProviderConfig['provider'], baseUrl: string): Age
 }
 
 describe('provider adapters', () => {
+  it.each(['anthropic', 'openai-compatible'] as const)(
+    'preserves numbered image/annotation ordering for %s',
+    async (provider) => {
+      const mock = await mockEndpoint(
+        provider === 'anthropic'
+          ? { content: [], usage: {} }
+          : { choices: [{ message: { content: 'ok' } }] },
+      );
+      const images = ['smaller', 'bigger font', 'red'].map((note, index) => ({
+        mimeType: 'image/png' as const,
+        data: Buffer.from(note).toString('base64'),
+        width: 1,
+        height: 1,
+        label: `Area ${index + 1}: ${note}`,
+      }));
+      await createProviderAdapter(config(provider, mock.baseUrl)).complete({
+        system: 'Studio',
+        messages: [{ role: 'user', content: 'Fix these regions', images }],
+        tools: [],
+        signal: new AbortController().signal,
+      });
+      const blocks = (await mock.request).body.messages.find(
+        (message: { role: string }) => message.role === 'user',
+      ).content;
+      expect(blocks).toHaveLength(7);
+      images.forEach((image, index) => {
+        expect(blocks[1 + index * 2]).toEqual({ type: 'text', text: image.label });
+        expect(
+          provider === 'anthropic'
+            ? blocks[2 + index * 2].source.data
+            : blocks[2 + index * 2].image_url.url,
+        ).toBe(provider === 'anthropic' ? image.data : `data:image/png;base64,${image.data}`);
+      });
+    },
+  );
+  it.each(['anthropic', 'openai-compatible'] as const)(
+    'sends visual references as native image content to %s',
+    async (provider) => {
+      const mock = await mockEndpoint(
+        provider === 'anthropic'
+          ? { content: [], usage: {} }
+          : { choices: [{ message: { content: 'ok' } }] },
+      );
+      const adapter = createProviderAdapter(config(provider, mock.baseUrl));
+      await adapter.complete({
+        system: 'Edit the graphic',
+        messages: [
+          {
+            role: 'user',
+            content: 'Fix this area',
+            images: [{ mimeType: 'image/png', data: 'aW1hZ2U=', width: 1, height: 1 }],
+          },
+        ],
+        tools: [],
+        signal: new AbortController().signal,
+      });
+      const sent = (await mock.request).body.messages.find(
+        (message: { role: string; content: unknown }) => message.role === 'user',
+      );
+      expect(sent.content[0]).toEqual({ type: 'text', text: 'Fix this area' });
+      expect(sent.content[1]).toEqual(
+        provider === 'anthropic'
+          ? { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aW1hZ2U=' } }
+          : { type: 'image_url', image_url: { url: 'data:image/png;base64,aW1hZ2U=' } },
+      );
+    },
+  );
   it('uses a configured OpenAI-compatible base URL and normalizes function calls/cache usage', async () => {
     const mock = await mockEndpoint({
       choices: [
