@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main, dev]
+    branches: [stable, main, dev]
 
 permissions:
   contents: read
@@ -21,8 +21,8 @@ jobs:
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           if [ "$BASE_BRANCH" = dev ]; then exit 0; fi
-          if [ "$BASE_BRANCH" = main ] && [ "$HEAD_BRANCH" = dev ] && [ "$HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" ]; then exit 0; fi
-          echo '::error::Please target dev. Only promotions from the repository dev branch should target main.'
+          if [ "$BASE_BRANCH" = stable ] && [ "$HEAD_BRANCH" = dev ] && [ "$HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" ]; then exit 0; fi
+          echo '::error::Please target dev. Only promotions from the repository dev branch should target stable.'
           exit 1
   verify:
     runs-on: ubuntu-latest

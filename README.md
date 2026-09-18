@@ -49,7 +49,7 @@ building executables and verification.
 - [What's new](docs/releases/0.21.md) — highlights in 0.21.
 - [Contributing](CONTRIBUTING.md) — community development and verification.
 
-Contributions target `dev`; maintainers merge tested changes into `main`.
+Contributions target `dev`; maintainers promote tested changes into `stable`, the default branch.
 
 Automated OGraf conformance checks are not EBU certification or a guarantee of compatibility with
 every third-party player.
