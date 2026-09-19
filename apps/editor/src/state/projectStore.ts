@@ -45,8 +45,10 @@ import {
   createLayerLoopClip,
   createLayerOfKind,
   createProject,
+  createRectangleElement,
   inspectShaderElement,
   getElementShaderPaints,
+  shaderParameterTarget,
   isGradientPaint,
   isShaderPaint,
   syncShaderParameterFields,
@@ -288,6 +290,7 @@ interface ProjectActions {
   ) => void;
   updateLayerPaint: (layerId: string, frame: number, paint: Paint | undefined) => void;
   updateShaderResource: (target: ShaderResourceTarget, patch: ShaderResourcePatch) => void;
+  removeShaderResource: (target: ShaderResourceTarget) => void;
   updateLayerEffects: (layerId: string, frame: number, patch: Partial<LayerEffects>) => void;
   addLayerEffect: (layerId: string, type: EffectType) => void;
   updateLayerEffect: (layerId: string, effectId: string, patch: EffectPatch, frame: number) => void;
@@ -1805,6 +1808,54 @@ export const useProjectStore = create<ProjectStore>()(
           } else {
             syncShaderParameterFields(composition, layer);
           }
+        }),
+
+      removeShaderResource: (target) =>
+        set((state) => {
+          const { composition, component, layer } = resolveShaderResource(state.project, target);
+          if (layer.isLocked) throw new Error(`Shader resource object "${layer.name}" is locked.`);
+          if (target.slot === 'stroke') {
+            if (layer.element.type !== 'text')
+              throw new Error('Shader outlines are supported only on text.');
+            delete layer.element.strokePaint;
+          } else if (layer.element.type === 'shader') {
+            // Legacy shader objects become ordinary rectangles; layer identity/animation stay intact.
+            layer.element = createRectangleElement({ fill: '#3b3f4a' });
+          } else if (
+            layer.element.type === 'text' ||
+            layer.element.type === 'image' ||
+            layer.element.type === 'image-sequence' ||
+            layer.element.type === 'lottie'
+          ) {
+            delete layer.element.fill;
+          } else {
+            layer.element.fill = '#3b3f4a';
+          }
+          const prefix = shaderParameterTarget('', target.slot);
+          layer.bindings = layer.bindings.filter(
+            (binding) =>
+              !binding.targetProperty.startsWith(prefix) &&
+              !(target.slot === 'fill' && binding.targetProperty.startsWith('parameters.')),
+          );
+          const layers = component?.layers ?? composition.layers;
+          const used = new Set(
+            layers.flatMap((item) => item.bindings.map((binding) => binding.fieldId)),
+          );
+          if (!component)
+            for (const collection of composition.runtimeCollections) used.add(collection.fieldId);
+          const fields = (component?.dataFields ?? composition.dataFields).filter((field) => {
+            const owner = field.generatedShaderParameter;
+            return (
+              !owner ||
+              owner.layerId !== layer.id ||
+              (owner.paintSlot ?? 'fill') !== target.slot ||
+              used.has(field.id)
+            );
+          });
+          if (component) component.dataFields = fields;
+          else composition.dataFields = fields;
+          if (target.slot === 'fill') pruneInvalidGradientStopTracks(layer);
+          // Do not reconcile either source here: removal must work even if GLSL is currently invalid.
         }),
 
       updateLayerTextStroke: (layerId, frame, patch) =>

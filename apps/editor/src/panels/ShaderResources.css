@@ -43,6 +43,9 @@
 .resources-shader-copy button {
   font-size: 10px;
 }
+.resources-shader-copy .resources-shader-remove {
+  color: #ffb4ac;
+}
 .shader-resource-dialog {
   width: min(900px, calc(100vw - 40px));
   max-height: calc(100vh - 40px);

@@ -8,6 +8,7 @@ import {
 } from '@ograf-editor/scene-model';
 import { isDomElement, useEditorWindow } from '../layout/EditorWindow';
 import { useProjectStore } from '../state/projectStore';
+import { runDiscreteHistoryStep } from '../state/historyStore';
 import { SHADER_RESOURCE_MIME, encodeShaderResourceDrag } from '../state/shaderDrag';
 import {
   collectShaderResources,
@@ -193,6 +194,7 @@ function ShaderResourceDialog({
 
 export function ShaderResources() {
   const project = useProjectStore((state) => state.project);
+  const removeShader = useProjectStore((state) => state.removeShaderResource);
   const resources = useMemo(() => collectShaderResources(project), [project]);
   const [open, setOpen] = useState(false);
   const [editor, setEditor] = useState<ShaderEditorRequest | null>(null);
@@ -285,6 +287,29 @@ export function ShaderResources() {
                         }}
                       >
                         Load GLSL
+                      </button>
+                      <button
+                        type="button"
+                        className="resources-shader-remove"
+                        aria-label={`Remove shader: ${resource.label}${resource.paint.name ? ` — ${resource.usageLabel}` : ''}`}
+                        title={`Remove the shader from ${resource.usageLabel}. Keep the object and return to its solid paint or original pixels. Undo restores the shader.`}
+                        disabled={resource.locked}
+                        onClick={() => {
+                          try {
+                            runDiscreteHistoryStep(
+                              () => removeShader(resource),
+                              `Remove shader “${resource.label}” from ${resource.usageLabel}`,
+                            );
+                            requestVersion.current += 1;
+                            pendingFile.current = null;
+                            if (editor?.key === resource.key) setEditor(null);
+                            setError(null);
+                          } catch (cause) {
+                            setError(cause instanceof Error ? cause.message : String(cause));
+                          }
+                        }}
+                      >
+                        Remove shader
                       </button>
                     </div>
                   </div>

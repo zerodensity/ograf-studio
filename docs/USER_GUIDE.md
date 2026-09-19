@@ -141,6 +141,9 @@ preserve compatible parameter values and keep the current canvas selection.
 Drag a shader entry from Resources onto an object's **Fill** or text **Outline** row to apply a
 copy of its current source, settings, name, and controls. The destination highlights while dragging;
 the original shader stays independent.
+**Remove shader** detaches the selected usage without deleting its object. Text returns to its
+solid fill or outline color, shapes use the default solid fill, and media shows its original pixels.
+Only that usage's shader bindings and unused generated controls are removed. Use **Undo** to restore it.
 
 Mark literal global constants to create editable controls and OGraf data fields automatically:
 
