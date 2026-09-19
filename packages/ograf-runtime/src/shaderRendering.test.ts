@@ -6,6 +6,7 @@ import {
   renderAnimatedElementAtTime,
   renderElementContent,
   resolveBoundElement,
+  applyAnimatedPaint,
 } from './renderElement';
 import {
   createShaderRenderer,
@@ -493,5 +494,45 @@ describe('shader parameter uniforms', () => {
     expect(updateShaderParameters(host, parameterElement, { width: 800, height: 360 })).toBe(false);
     expect(gl.createProgram).toHaveBeenCalledTimes(1);
     disposeShader(host);
+  });
+
+  it('uploads sampled typed shader tracks without recompiling and preserves them through content clock ticks', () => {
+    const { canvas, gl } = mockCanvas();
+    const host = mockHost(canvas);
+    renderElementContent(host, { ...parameterElement, parameters: { tint: [0.1, 0.8, 0.9] } }, 0, {
+      shaderBackingSize: { width: 640, height: 360 },
+    });
+    const tracks = {
+      'fill.parameters.gain': [
+        { id: 'a', frame: 0, value: 0, easing: 'linear' as const },
+        { id: 'b', frame: 10, value: 2, easing: 'linear' as const },
+      ],
+      'fill.parameters.count': [
+        { id: 'c', frame: 0, value: 3, easing: 'linear' as const },
+        { id: 'd', frame: 10, value: 8, easing: 'linear' as const },
+      ],
+      'fill.parameters.enabled': [
+        { id: 'e', frame: 0, value: 1, easing: 'linear' as const },
+        { id: 'f', frame: 10, value: 0, easing: 'linear' as const },
+      ],
+      'fill.parameters.tint.r': [{ id: 'g', frame: 0, value: 0.4, easing: 'linear' as const }],
+    };
+    for (const frame of [5, 2, 5]) {
+      applyAnimatedPaint(host, tracks, frame);
+      renderAnimatedElementAtTime(host, parameterElement, frame * 1000);
+      expect(gl.uniform1f).toHaveBeenLastCalledWith({ name: 'gain' }, frame / 5);
+      expect(gl.uniform1i).toHaveBeenCalledWith({ name: 'count' }, 3);
+      expect(gl.uniform1i).toHaveBeenLastCalledWith({ name: 'enabled' }, 1);
+      expect(gl.uniform3fv).toHaveBeenLastCalledWith({ name: 'tint' }, [0.4, 0.8, 0.9]);
+    }
+    applyAnimatedPaint(host, tracks, 10);
+    expect(gl.uniform1i).toHaveBeenCalledWith({ name: 'count' }, 8);
+    expect(gl.uniform1i).toHaveBeenLastCalledWith({ name: 'enabled' }, 0);
+    applyAnimatedPaint(host, {}, 10);
+    expect(gl.uniform1f).toHaveBeenLastCalledWith({ name: 'gain' }, 0.5);
+    expect(gl.uniform3fv).toHaveBeenLastCalledWith({ name: 'tint' }, [0.1, 0.8, 0.9]);
+    expect(gl.createProgram).toHaveBeenCalledTimes(1);
+    expect(gl.deleteProgram).not.toHaveBeenCalled();
+    disposeElementContent(host);
   });
 });

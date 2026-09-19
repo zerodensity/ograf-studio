@@ -12,6 +12,10 @@ import {
   effectParameterValue,
   sampleEffectStack,
   isGradientStopOffsetProperty,
+  parseShaderAnimationProperty,
+  shaderAnimationPropertySpec,
+  getShaderAnimationValue,
+  getShaderTrackValueAtFrame,
   layerEffectsToCssFilter,
   TRANSFORM_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
@@ -19,7 +23,7 @@ import {
   type LayerEffects,
   type LayerTransform,
 } from '@ograf-editor/scene-model';
-import { applyAnimatedPaint, resolveBoundEffects } from './renderElement';
+import { applyAnimatedPaint, resolveBoundEffects, resolveBoundElement } from './renderElement';
 import { renderPatternAtElapsed } from './patternRendering';
 
 export interface CompiledLayerVisualState {
@@ -89,6 +93,7 @@ export function interpolateCompiledLayerVisualState(
   target: CompiledLayerVisualState,
   progress: number,
   targetFrame: number,
+  data: Record<string, unknown> = {},
 ): CompiledLayerVisualState {
   const clampedProgress = Math.min(1, Math.max(0, progress));
   const transform = { ...source.transform };
@@ -119,16 +124,19 @@ export function interpolateCompiledLayerVisualState(
     ...(Object.keys(source.paintTracks) as AnimatableLayerProperty[]),
     ...(Object.keys(target.paintTracks) as AnimatableLayerProperty[]),
   ]);
+  const boundElement = resolveBoundElement(layer, data);
   for (const property of paintProperties) {
-    if (!isGradientStopOffsetProperty(property) && property !== 'strokeWidth') continue;
-    const from = source.paintTracks[property]?.[0]?.value ?? 0;
-    const to = target.paintTracks[property]?.[0]?.value ?? from;
+    const shader = shaderAnimationPropertySpec(boundElement, property);
+    if (!isGradientStopOffsetProperty(property) && property !== 'strokeWidth' && !shader) continue;
+    const fallback = shader ? getShaderAnimationValue(boundElement, property) : 0;
+    const from = source.paintTracks[property]?.[0]?.value ?? fallback;
+    const to = target.paintTracks[property]?.[0]?.value ?? (shader ? fallback : from);
     const eased = incomingProgress(layer, property, targetFrame, clampedProgress);
     paintTracks[property] = [
       {
         id: `${layer.id}:${property}:transition`,
         frame: 0,
-        value: interpolate(from, to, eased),
+        value: shader?.discrete ? (clampedProgress < 1 ? from : to) : interpolate(from, to, eased),
         easing: 'linear',
       },
     ];
@@ -188,7 +196,8 @@ export function sampleCompiledLayerVisualState(
       if (
         keys.length === 0 ||
         isGradientStopOffsetProperty(property) ||
-        property === 'strokeWidth'
+        property === 'strokeWidth' ||
+        parseShaderAnimationProperty(property)
       ) {
         continue;
       }
@@ -219,8 +228,24 @@ export function sampleCompiledLayerVisualState(
     ...(Object.keys(layer.animationTracks) as AnimatableLayerProperty[]),
     ...(Object.keys(loop?.tracks ?? {}) as AnimatableLayerProperty[]),
   ]);
+  const boundElement = resolveBoundElement(layer, data);
   for (const property of paintProperties) {
-    if (!isGradientStopOffsetProperty(property) && property !== 'strokeWidth') continue;
+    const shader = shaderAnimationPropertySpec(boundElement, property);
+    if (!isGradientStopOffsetProperty(property) && property !== 'strokeWidth' && !shader) continue;
+    const timelineKeys = layer.animationTracks[property] ?? [];
+    const loopKeys = loop?.tracks[property] ?? [];
+    if (shader) {
+      if (!timelineKeys.length && (localFrame === undefined || !loopKeys.length)) continue;
+      const baseValue = getShaderTrackValueAtFrame(boundElement, property, timelineKeys, baseFrame);
+      const value =
+        localFrame !== undefined && loopKeys.length
+          ? getShaderTrackValueAtFrame(boundElement, property, loopKeys, localFrame, baseValue)
+          : baseValue;
+      paintTracks[property] = [
+        { id: `${layer.id}:${property}:sample`, frame: 0, value, easing: 'linear' },
+      ];
+      continue;
+    }
     const fallback =
       property === 'strokeWidth' && layer.element.type === 'text' ? layer.element.strokeWidth : 0;
     const baseValue = getTrackValueAtFrame(
@@ -228,7 +253,6 @@ export function sampleCompiledLayerVisualState(
       baseFrame,
       fallback,
     );
-    const loopKeys = loop?.tracks[property] ?? [];
     const value =
       localFrame !== undefined && loopKeys.length > 0
         ? getTrackValueAtFrame(loopKeys, localFrame, baseValue)

@@ -35,6 +35,11 @@ import {
   updateShaderPaintContent,
   waitForShaderPaintContentReady,
 } from './shaderPaintRendering';
+import {
+  applyShaderPaintTracks,
+  forgetShaderAnimationBase,
+  rememberShaderAnimationBase,
+} from './shaderAnimationRendering';
 
 interface MountedTextFit {
   observer?: ResizeObserver;
@@ -401,6 +406,7 @@ export function findFittedFontSize(options: {
 
 /** Disconnects text-fitting observation before a renderer discards a content host. */
 export function disposeElementContent(container: HTMLElement): void {
+  forgetShaderAnimationBase(container);
   disposeShaderPaintContent(container);
   disposeShader(container);
   const mountedLottie = lottieAnimations.get(container);
@@ -436,11 +442,12 @@ export function applyAnimatedPaint(
   tracks: LayerAnimationTracks,
   frame: number,
 ): void {
-  if (applyPatternPaint(container, tracks, frame)) return;
   const directChild = container.firstElementChild as HTMLElement | null;
   const outerHost = directChild?.classList?.contains('layer-content-host')
     ? directChild
     : container;
+  applyShaderPaintTracks(outerHost, tracks, frame);
+  if (applyPatternPaint(container, tracks, frame)) return;
   const renderHost = shaderPaintBaseHost(outerHost) ?? outerHost;
   const serialized = renderHost.dataset?.ografBasePaint;
   const content = renderHost.firstElementChild as HTMLElement | null;
@@ -493,6 +500,7 @@ export function renderElementContent(
 ): void {
   const shaderFill = element.type !== 'shader' && hasElementShaderPaint(element);
   if (shaderFill && updateShaderPaintContent(container, element, options)) {
+    rememberShaderAnimationBase(container, element);
     container.dataset.ografRenderedElement = JSON.stringify(element);
     return;
   }
@@ -500,6 +508,7 @@ export function renderElementContent(
     element.type === 'shader' &&
     updateShaderParameters(container, element, options.shaderBackingSize)
   ) {
+    rememberShaderAnimationBase(container, element);
     container.dataset.ografRenderedElement = JSON.stringify(element);
     return;
   }
@@ -512,6 +521,7 @@ export function renderElementContent(
   const previousContentOpacity = previousContent?.style.opacity ?? '';
   disposeElementContent(container);
   container.dataset.ografRenderedElement = JSON.stringify(element);
+  rememberShaderAnimationBase(container, element);
   if (shaderFill) {
     mountShaderPaintContent(container, element, options, {
       render: (host, base, baseOptions) =>

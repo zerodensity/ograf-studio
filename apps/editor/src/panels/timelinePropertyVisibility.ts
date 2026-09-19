@@ -1,6 +1,7 @@
 import {
   getLayerAnimatableProperties,
   getResolvedLayerAnimationTracks,
+  parseShaderAnimationProperty,
   type AnimatableLayerProperty,
   type Layer,
 } from '@ograf-editor/scene-model';
@@ -13,6 +14,7 @@ export function isTimelinePropertyMeaningful(
 ): boolean {
   if ((layer.loop?.tracks[property]?.length ?? 0) > 0) return true;
   const keys = getResolvedLayerAnimationTracks(layer)[property] ?? [];
+  if (parseShaderAnimationProperty(property) && keys.length > 0) return true;
   if (keys.some((keyframe) => !lifecycleFrames.has(keyframe.frame))) return true;
   const firstValue = keys[0]?.value;
   return (

@@ -1,8 +1,9 @@
 import gsap from 'gsap';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
-import { createCornerRadii, createTextElement } from '@ograf-editor/scene-model';
+import { createCornerRadii, createTextElement, createShaderPaint } from '@ograf-editor/scene-model';
 import { buildRuntimeTimeline } from './buildRuntimeTimeline';
+import * as shaderAnimationRendering from './shaderAnimationRendering';
 
 function descriptor(): CompiledGraphicDescriptor {
   const transform = {
@@ -87,6 +88,40 @@ function descriptor(): CompiledGraphicDescriptor {
 }
 
 describe('runtime timeline boundary seeking', () => {
+  it('samples shader tracks through the uniform path instead of GSAP numeric targets', () => {
+    const compiled = descriptor();
+    compiled.layers[0]!.element = createTextElement({
+      fill: createShaderPaint({
+        fragmentSource: `#pragma ograf count slider min(0) max(10)
+const int count = 2;
+#pragma ograf gain slider min(0.0) max(2.0)
+const float gain = 0.5;
+void mainImage(out vec4 color, in vec2 coord) { color = vec4(gain); }`,
+      }),
+    });
+    const property = 'fill.parameters.gain';
+    compiled.layers[0]!.animationTracks[property] = [
+      { id: 'a', frame: 0, value: 0, easing: 'linear' },
+      { id: 'b', frame: 10, value: 2, easing: 'linear' },
+    ];
+    compiled.layers[0]!.animationTracks['fill.parameters.count'] = [
+      { id: 'c', frame: 0, value: 2, easing: 'linear' },
+      { id: 'd', frame: 10, value: 8, easing: 'linear' },
+    ];
+    const spy = vi.spyOn(shaderAnimationRendering, 'applyShaderPaintTracks');
+    const element = { style: {} } as unknown as HTMLElement;
+    const timeline = buildRuntimeTimeline(compiled, new Map([['layer', element]]));
+    for (const frame of [5, 2, 5]) {
+      timeline.seek(frame / 25, true);
+      expect(spy.mock.calls.at(-1)?.[1][property]?.[0]?.value).toBe(frame / 5);
+      expect(spy.mock.calls.at(-1)?.[1]['fill.parameters.count']?.[0]?.value).toBe(2);
+    }
+    timeline.seek(10 / 25, true);
+    expect(spy.mock.calls.at(-1)?.[1]['fill.parameters.count']?.[0]?.value).toBe(8);
+    expect(timeline.getChildren().some((tween) => property in tween.vars)).toBe(false);
+    timeline.kill();
+    spy.mockRestore();
+  });
   it('restores a transparent first-frame pose after seeking backwards from a visible frame', () => {
     const setSpy = vi.spyOn(gsap, 'set');
     const element = { style: {} } as unknown as HTMLElement;

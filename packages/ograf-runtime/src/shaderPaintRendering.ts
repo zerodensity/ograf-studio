@@ -393,6 +393,19 @@ export function renderShaderPaintAtTime(container: HTMLElement, elapsedMs: numbe
   return true;
 }
 
+/** Sampled numeric tracks touch only uniforms; authored/data baselines and masks stay intact. */
+export function updateShaderPaintUniforms(container: HTMLElement, element: Element): boolean {
+  const mounted = mountedPaints.get(container);
+  if (!mounted) return false;
+  for (const { slot, paint } of getElementShaderPaints(element)) {
+    const entry = mounted.slots.get(slot);
+    if (!entry || !updateShaderParameters(entry.host, paint)) {
+      throw new Error('Shader animation cannot change its program or paint slot.');
+    }
+  }
+  return true;
+}
+
 export async function waitForShaderPaintContentReady(root: ParentNode): Promise<void> {
   const entries = [root, ...root.querySelectorAll<HTMLElement>('*')]
     .map((element) => mountedPaints.get(element as HTMLElement))

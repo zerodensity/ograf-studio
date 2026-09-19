@@ -17,6 +17,9 @@ import {
   getResolvedLayerAnimationTracks,
   getLayerPropertyValueAtFrame,
   getTrackValueAtFrame,
+  parseShaderAnimationProperty,
+  shaderAnimationPropertySpec,
+  getShaderTrackValueAtFrame,
   type AnimatableLayerProperty,
   type EasingPreset,
 } from '@ograf-editor/scene-model';
@@ -79,6 +82,27 @@ const isSameKeyTrack = (left: SelectedLayerKeyframe, right: SelectedLayerKeyfram
 
 const isSameSelectedKey = (left: SelectedLayerKeyframe, right: SelectedLayerKeyframe) =>
   isSameKeyTrack(left, right) && left.keyframeId === right.keyframeId;
+
+function groupedAnimationProperties(properties: AnimatableLayerProperty[]) {
+  return [
+    {
+      label: 'Object',
+      properties: properties.filter((property) => !parseShaderAnimationProperty(property)),
+    },
+    {
+      label: 'Fill shader',
+      properties: properties.filter(
+        (property) => parseShaderAnimationProperty(property)?.slot === 'fill',
+      ),
+    },
+    {
+      label: 'Outline shader',
+      properties: properties.filter(
+        (property) => parseShaderAnimationProperty(property)?.slot === 'stroke',
+      ),
+    },
+  ].filter((group) => group.properties.length);
+}
 
 function TransportIcon({ name }: { name: TransportIconName }) {
   return (
@@ -151,6 +175,9 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const removeLayerKeyframe = useProjectStore((s) => s.removeLayerKeyframe);
   const updateLayerKeyframeEasing = useProjectStore((s) => s.updateLayerKeyframeEasing);
   const addLayerPropertyKeyframe = useProjectStore((s) => s.addLayerPropertyKeyframe);
+  const updateLayerPropertyKeyframeValue = useProjectStore(
+    (s) => s.updateLayerPropertyKeyframeValue,
+  );
   const moveLayerPropertyKeyframe = useProjectStore((s) => s.moveLayerPropertyKeyframe);
   const removeLayerPropertyKeyframe = useProjectStore((s) => s.removeLayerPropertyKeyframe);
   const updateLayerPropertyKeyframeEasing = useProjectStore(
@@ -186,6 +213,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
       : null;
   const selectedLayerKeyframes = useSelectionStore((s) => s.selectedLayerKeyframes);
   const selectLayer = useSelectionStore((s) => s.select);
+  const selectLayerProperty = useSelectionStore((s) => s.selectLayerProperty);
   const selectManyLayers = useSelectionStore((s) => s.selectMany);
   const toggleManyLayerSelection = useSelectionStore((s) => s.toggleManyLayerSelection);
   const selectLayerKeyframe = useSelectionStore((s) => s.selectLayerKeyframe);
@@ -342,6 +370,10 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
     selectedLayer && selectedLayerProperty
       ? (selectedLayer.loop?.tracks[selectedLayerProperty] ?? [])
       : [];
+  const selectedShaderSpec =
+    selectedLayer && selectedLayerProperty
+      ? shaderAnimationPropertySpec(selectedLayer.element, selectedLayerProperty)
+      : undefined;
   const showKeyEditor = Boolean(
     selectedLayer && (selectedPropertyKeyframe || selectedLayerKeyframe || selectedLayerProperty),
   );
@@ -1120,10 +1152,14 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           <option value="" disabled>
                             +
                           </option>
-                          {hiddenProperties.map((property) => (
-                            <option key={property} value={property}>
-                              {animatablePropertyLabel(property, layer)}
-                            </option>
+                          {groupedAnimationProperties(hiddenProperties).map((group) => (
+                            <optgroup key={group.label} label={group.label}>
+                              {group.properties.map((property) => (
+                                <option key={property} value={property}>
+                                  {animatablePropertyLabel(property, layer)}
+                                </option>
+                              ))}
+                            </optgroup>
                           ))}
                         </select>
                         <button
@@ -1162,7 +1198,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                                 Math.abs(b.frame - displayedFrame),
                             )[0];
                             if (nearest) selectLayerKeyframe(layer.id, nearest.id, property);
-                            else selectLayer(layer.id);
+                            else selectLayerProperty(layer.id, property);
                           }}
                           title={`${layer.name} ${animatablePropertyLabel(property, layer)}`}
                         >
@@ -1501,7 +1537,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                         } as LayerColorStyle
                       }
                       onPointerDown={() => {
-                        selectLayer(layer.id);
+                        selectLayerProperty(layer.id, property);
                       }}
                       onDoubleClick={(event) => {
                         if (!canCreateKeys() || layer.isLocked) return;
@@ -1594,7 +1630,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                                 }
                               } else if (
                                 (event.key === 'Delete' || event.key === 'Backspace') &&
-                                propertyKeys.length > 1
+                                (propertyKeys.length > 1 ||
+                                  !!parseShaderAnimationProperty(property))
                               ) {
                                 event.preventDefault();
                                 removeLayerPropertyKeyframe(layer.id, property, keyframe.id);
@@ -1707,17 +1744,61 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                   <strong>{selectedLayer.name}</strong>
                   <span>
                     {selectedLayerProperty
-                      ? animatablePropertyLabel(selectedLayerProperty)
+                      ? animatablePropertyLabel(selectedLayerProperty, selectedLayer)
                       : 'Layer transform'}
                     {' · frame '}
                     {(selectedPropertyKeyframe ?? selectedLayerKeyframe)!.frame}
                   </span>
                 </div>
+                {selectedPropertyKeyframe && selectedLayerProperty && (
+                  <label>
+                    Value
+                    {selectedShaderSpec?.glslType === 'bool' ? (
+                      <select
+                        aria-label="Selected key value"
+                        value={selectedPropertyKeyframe.value}
+                        onChange={(event) =>
+                          updateLayerPropertyKeyframeValue(
+                            selectedLayer.id,
+                            selectedLayerProperty,
+                            selectedPropertyKeyframe.id,
+                            Number(event.target.value),
+                          )
+                        }
+                      >
+                        <option value={0}>Off</option>
+                        <option value={1}>On</option>
+                      </select>
+                    ) : (
+                      <input
+                        aria-label="Selected key value"
+                        type="number"
+                        step={selectedShaderSpec?.step ?? 'any'}
+                        min={selectedShaderSpec?.min}
+                        max={selectedShaderSpec?.max}
+                        value={selectedPropertyKeyframe.value}
+                        onChange={(event) =>
+                          updateLayerPropertyKeyframeValue(
+                            selectedLayer.id,
+                            selectedLayerProperty,
+                            selectedPropertyKeyframe.id,
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    )}
+                  </label>
+                )}
                 <label>
                   Incoming easing
                   <select
                     aria-label="Selected layer key easing"
-                    value={(selectedPropertyKeyframe ?? selectedLayerKeyframe)!.easing}
+                    disabled={selectedShaderSpec?.discrete}
+                    value={
+                      selectedShaderSpec?.discrete
+                        ? 'linear'
+                        : (selectedPropertyKeyframe ?? selectedLayerKeyframe)!.easing
+                    }
                     onChange={(event) =>
                       selectedLayerProperty && selectedPropertyKeyframe
                         ? updateLayerPropertyKeyframeEasing(
@@ -1734,34 +1815,40 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                           )
                     }
                   >
-                    {EASING_OPTION_GROUPS.map((group) => (
-                      <optgroup key={group.label} label={group.label}>
-                        {group.options.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
+                    {selectedShaderSpec?.discrete ? (
+                      <option value="linear">Hold (stepped)</option>
+                    ) : (
+                      EASING_OPTION_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.options.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))
+                    )}
                   </select>
                 </label>
                 {selectedLayerProperty && selectedPropertyKeyframe && (
                   <>
-                    <details className="timeline-advanced-section">
-                      <summary>Advanced curve</summary>
-                      <EasingCurveEditor
-                        easing={selectedPropertyKeyframe.easing}
-                        curve={selectedPropertyKeyframe.curve}
-                        onChange={(curve) =>
-                          updateLayerPropertyKeyframeCurve(
-                            selectedLayer.id,
-                            selectedLayerProperty,
-                            selectedPropertyKeyframe.id,
-                            curve,
-                          )
-                        }
-                      />
-                    </details>
+                    {!selectedShaderSpec?.discrete && (
+                      <details className="timeline-advanced-section">
+                        <summary>Advanced curve</summary>
+                        <EasingCurveEditor
+                          easing={selectedPropertyKeyframe.easing}
+                          curve={selectedPropertyKeyframe.curve}
+                          onChange={(curve) =>
+                            updateLayerPropertyKeyframeCurve(
+                              selectedLayer.id,
+                              selectedLayerProperty,
+                              selectedPropertyKeyframe.id,
+                              curve,
+                            )
+                          }
+                        />
+                      </details>
+                    )}
                     <details className="timeline-advanced-section">
                       <summary>Track Actions…</summary>
                       <div className="timeline-track-actions">
@@ -1834,7 +1921,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 <div className="timeline-loop-editor-content">
                   {selectedLayer.loop && (
                     <div className="timeline-loop-editor-heading">
-                      <span>{animatablePropertyLabel(selectedLayerProperty)}</span>
+                      <span>{animatablePropertyLabel(selectedLayerProperty, selectedLayer)}</span>
                       <button
                         type="button"
                         className={previewLoopLayerId === selectedLayer.id ? 'active' : ''}
@@ -1974,7 +2061,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                             ]);
                           }}
                         >
-                          Add {animatablePropertyLabel(selectedLayerProperty)} to loop
+                          Add {animatablePropertyLabel(selectedLayerProperty, selectedLayer)} to
+                          loop
                         </button>
                       ) : (
                         <div className="timeline-loop-keys">
@@ -2005,7 +2093,9 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                               <input
                                 aria-label="Loop key value"
                                 type="number"
-                                step="any"
+                                step={selectedShaderSpec?.step ?? 'any'}
+                                min={selectedShaderSpec?.min}
+                                max={selectedShaderSpec?.max}
                                 value={key.value}
                                 onChange={(event) =>
                                   updateSelectedLoopTrack(
@@ -2019,7 +2109,8 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                               />
                               <select
                                 aria-label="Loop key incoming easing"
-                                value={key.easing}
+                                disabled={selectedShaderSpec?.discrete}
+                                value={selectedShaderSpec?.discrete ? 'linear' : key.easing}
                                 onChange={(event) =>
                                   updateSelectedLoopTrack(
                                     selectedLoopTrack.map((candidate) =>
@@ -2034,12 +2125,16 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                                   )
                                 }
                               >
-                                {EASING_OPTION_GROUPS.flatMap((group) => group.options).map(
-                                  (option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ),
+                                {selectedShaderSpec?.discrete ? (
+                                  <option value="linear">Hold (stepped)</option>
+                                ) : (
+                                  EASING_OPTION_GROUPS.flatMap((group) => group.options).map(
+                                    (option) => (
+                                      <option key={option.value} value={option.value}>
+                                        {option.label}
+                                      </option>
+                                    ),
+                                  )
                                 )}
                               </select>
                               <button
@@ -2076,7 +2171,15 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                                   ...selectedLoopTrack,
                                   createLayerPropertyKeyframe(
                                     frame,
-                                    getTrackValueAtFrame(selectedLoopTrack, frame, fallback),
+                                    selectedShaderSpec
+                                      ? getShaderTrackValueAtFrame(
+                                          selectedLayer.element,
+                                          selectedLayerProperty,
+                                          selectedLoopTrack,
+                                          frame,
+                                          fallback,
+                                        )
+                                      : getTrackValueAtFrame(selectedLoopTrack, frame, fallback),
                                   ),
                                 ]);
                               }}
@@ -2147,8 +2250,9 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       disabled:
                         !frameMenuPropertyKeyframe ||
                         frameMenuLayer.isLocked ||
-                        (getResolvedLayerAnimationTracks(frameMenuLayer)[frameMenu.property]
-                          ?.length ?? 0) <= 1,
+                        (!parseShaderAnimationProperty(frameMenu.property) &&
+                          (getResolvedLayerAnimationTracks(frameMenuLayer)[frameMenu.property]
+                            ?.length ?? 0) <= 1),
                       separatorBefore: true,
                       onSelect: () => {
                         if (!frameMenuPropertyKeyframe) return;

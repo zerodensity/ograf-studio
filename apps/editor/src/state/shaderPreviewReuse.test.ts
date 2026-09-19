@@ -6,6 +6,8 @@ import {
   getElementShaderPaint,
   createLayerOfKind,
   createLayerKeyframe,
+  createLayerLoopClip,
+  createLayerPropertyKeyframe,
   defaultTransformForRole,
   syncCompositionShaderParameterFields,
 } from '@ograf-editor/scene-model';
@@ -22,6 +24,27 @@ function fixture() {
 }
 
 describe('on-air shader parameter preview reuse', () => {
+  it('rebuilds when keyframes or local-loop keys change alongside a public uniform value', () => {
+    const previous = fixture();
+    const keyed = structuredClone(previous);
+    getElementShaderPaint(keyed.layers[0]!.element)!.parameters.waveFrequency = 4;
+    keyed.layers[0]!.animationTracks['fill.parameters.waveFrequency'] = [
+      createLayerPropertyKeyframe(0, 2),
+      createLayerPropertyKeyframe(24, 8),
+    ];
+    expect(canReusePreviewForShaderParameters(previous, keyed)).toBe(false);
+    const looped = structuredClone(previous);
+    getElementShaderPaint(looped.layers[0]!.element)!.parameters.waveFrequency = 4;
+    looped.layers[0]!.loop = createLayerLoopClip({
+      tracks: {
+        'fill.parameters.waveFrequency': [
+          createLayerPropertyKeyframe(0, 2),
+          createLayerPropertyKeyframe(24, 8),
+        ],
+      },
+    });
+    expect(canReusePreviewForShaderParameters(previous, looped)).toBe(false);
+  });
   it('keeps fill and outline uniform edits independent on the same text object', () => {
     const composition = createComposition();
     const layer = createLayerOfKind('text');

@@ -20,6 +20,7 @@ interface SelectionState {
   selectedLayerKeyframes: SelectedLayerKeyframe[];
   liveTransform: LiveTransform | null;
   select: (layerId: string | null) => void;
+  selectLayerProperty: (layerId: string, property: AnimatableLayerProperty) => void;
   selectMany: (layerIds: string[]) => void;
   toggleLayerSelection: (layerId: string) => void;
   toggleManyLayerSelection: (layerIds: string[]) => void;
@@ -65,6 +66,15 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       liveTransform: null,
     });
   },
+  selectLayerProperty: (layerId, property) =>
+    set({
+      selectedLayerId: layerId,
+      selectedLayerIds: [layerId],
+      selectedLayerProperty: property,
+      selectedLayerKeyframeId: null,
+      selectedLayerKeyframes: [],
+      liveTransform: null,
+    }),
   toggleLayerSelection: (layerId) =>
     set((state) => {
       const isSelected = state.selectedLayerIds.includes(layerId);

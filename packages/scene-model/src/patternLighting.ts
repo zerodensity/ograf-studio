@@ -10,6 +10,7 @@ import type {
 } from './types';
 import { getLayerPropertyValueAtFrame, getTrackValueAtFrame } from './layerAnimation';
 import { getLoopFrameAtElapsed } from './loopAnimation';
+import { parseShaderAnimationProperty, getShaderTrackValueAtFrame } from './shaderAnimation';
 export type TilingPatternPatch = Omit<Partial<Omit<TilingPattern, 'id'>>, 'lighting'> & {
   lighting?: Partial<PatternLighting> | null;
 };
@@ -161,7 +162,15 @@ export function getLayerPropertyWithLighting(
       settings?.enabled && link
         ? patternLightLoopFrame(layer.loop, settings, link, elapsedFrames)
         : getLoopFrameAtElapsed(layer.loop, elapsedFrames);
-    value = getTrackValueAtFrame(layer.loop.tracks[property] ?? [], local, value);
+    value = parseShaderAnimationProperty(property)
+      ? getShaderTrackValueAtFrame(
+          layer.element,
+          property,
+          layer.loop.tracks[property] ?? [],
+          local,
+          value,
+        )
+      : getTrackValueAtFrame(layer.loop.tracks[property] ?? [], local, value);
   }
   if (!settings?.enabled || !link) return value;
   if (property === 'opacity')

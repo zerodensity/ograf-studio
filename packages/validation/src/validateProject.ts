@@ -5,6 +5,9 @@ import {
   getElementShaderPaint,
   getElementShaderPaints,
   migrateShaderBindingTarget,
+  parseShaderAnimationProperty,
+  shaderAnimationPropertySpec,
+  shaderAnimationValueErrors,
 } from '@ograf-editor/scene-model';
 import {
   effectStackErrors,
@@ -544,6 +547,18 @@ function validateComposition(composition: Composition, errors: string[], warning
           `${prefix}: layer "${layer.name}" references a missing numeric effect parameter ${property}.`,
         );
     const tracks = getResolvedLayerAnimationTracks(layer);
+    for (const property of new Set([
+      ...Object.keys(layer.animationTracks),
+      ...Object.keys(layer.loop?.tracks ?? {}),
+    ])) {
+      if (
+        parseShaderAnimationProperty(property) &&
+        !shaderAnimationPropertySpec(layer.element, property)
+      )
+        errors.push(
+          `${prefix}: layer "${layer.name}" references missing shader animation property "${property}".`,
+        );
+    }
     if (layer.element.type !== 'text' && layer.animationTracks.strokeWidth?.length) {
       errors.push(
         `${prefix}: layer "${layer.name}" cannot animate text stroke width on a ${layer.element.type} element.`,
@@ -567,7 +582,7 @@ function validateComposition(composition: Composition, errors: string[], warning
           );
         }
       }
-      if (propertyKeys.length === 0) {
+      if (propertyKeys.length === 0 && !parseShaderAnimationProperty(property)) {
         errors.push(`${prefix}: layer "${layer.name}" property "${property}" has no keys.`);
       }
       for (const duplicate of duplicates(propertyKeys.map((keyframe) => String(keyframe.frame)))) {
@@ -576,6 +591,12 @@ function validateComposition(composition: Composition, errors: string[], warning
         );
       }
       for (const keyframe of propertyKeys) {
+        if (parseShaderAnimationProperty(property))
+          errors.push(
+            ...shaderAnimationValueErrors(layer.element, property, keyframe.value).map(
+              (error) => `${prefix}: layer "${layer.name}": ${error}`,
+            ),
+          );
         const spec = effectParameterSpec(layer.effects, property);
         if (spec && (keyframe.value < spec.min! || keyframe.value > spec.max!))
           errors.push(
@@ -653,6 +674,12 @@ function validateComposition(composition: Composition, errors: string[], warning
           );
         }
         for (const key of keys) {
+          if (parseShaderAnimationProperty(property))
+            errors.push(
+              ...shaderAnimationValueErrors(layer.element, property, key.value).map(
+                (error) => `${prefix}: layer "${layer.name}" loop: ${error}`,
+              ),
+            );
           const spec = effectParameterSpec(layer.effects, property);
           if (spec && (key.value < spec.min! || key.value > spec.max!))
             errors.push(

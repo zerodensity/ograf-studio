@@ -6,6 +6,7 @@ import {
   getTrackValueAtFrame,
   parseEffectProperty,
   isGradientStopOffsetProperty,
+  parseShaderAnimationProperty,
   layerEffectsToCssFilter,
   TRANSFORM_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
@@ -112,6 +113,7 @@ export function buildRuntimeTimeline(
     for (const property of Object.keys(tracks) as AnimatableLayerProperty[]) {
       if (
         isGradientStopOffsetProperty(property) ||
+        parseShaderAnimationProperty(property) ||
         property === 'strokeWidth' ||
         parseEffectProperty(property)
       )
@@ -158,7 +160,10 @@ export function buildRuntimeTimeline(
         child.style.filter = layerEffectsToCssFilter(
           sampleCompiledLayerVisualState(layer, frame, undefined, dataProvider()).effects,
         );
-      if (child) applyAnimatedPaint(child, layer.animationTracks, frame);
+      if (child) {
+        const sampled = sampleCompiledLayerVisualState(layer, frame, undefined, dataProvider());
+        applyAnimatedPaint(child, sampled.paintTracks, sampled.paintFrame);
+      }
       if (child && layer.element.type === 'pattern')
         renderPatternAtElapsed(child, compiledLoopElapsedFrames(descriptor, layer, frame) ?? 0);
       if (child && layer.lighting)
@@ -227,7 +232,10 @@ export function buildRuntimeTimeline(
       layer.effects.stack?.some((e) => !e.legacy) ||
       layer.isMaskOnly ||
       Object.keys(layer.animationTracks).some(
-        (property) => isGradientStopOffsetProperty(property) || property === 'strokeWidth',
+        (property) =>
+          isGradientStopOffsetProperty(property) ||
+          property === 'strokeWidth' ||
+          !!parseShaderAnimationProperty(property),
       ),
   );
   if (hasDynamicRendering) {

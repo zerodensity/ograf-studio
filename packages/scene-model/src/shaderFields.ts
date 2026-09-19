@@ -1,4 +1,5 @@
 import { createFieldDefinition } from './factory';
+import { pruneInvalidShaderAnimationTracks } from './shaderAnimation';
 import {
   inspectShaderElement,
   inspectShaderSource,
@@ -226,6 +227,7 @@ function syncShaderPaintSlotFields(
 export function syncShaderParameterFields(composition: Composition, layer: Layer): void {
   syncShaderPaintSlotFields(composition, layer, 'fill');
   syncShaderPaintSlotFields(composition, layer, 'stroke');
+  pruneInvalidShaderAnimationTracks(layer);
 }
 
 /** Reconcile copies, removed layers, imported projects, and changes to generated field defaults. */

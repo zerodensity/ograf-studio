@@ -239,6 +239,26 @@ async function waitForRenderableDom(root: HTMLElement): Promise<void> {
   );
 }
 
+/** Layout/font settling may enqueue another shader frame; the PNG must use that completed draw. */
+export async function settleCaptureContent(root: HTMLElement): Promise<void> {
+  await waitForElementContentReady(root);
+  await waitForRenderableDom(root);
+  await waitForElementContentReady(root);
+}
+
+/** Apply the shared property/loop sample before requesting the exact shader/Lottie timestamp. */
+export function renderCaptureElementFrame(
+  host: HTMLElement,
+  element: Element,
+  state: ReturnType<typeof sampleCompiledLayerVisualState>,
+  timestampMs: number,
+): void {
+  setLottieDeterministicRendering(host, true);
+  if (state.patternFrame !== undefined) renderPatternAtElapsed(host, state.patternFrame);
+  applyAnimatedPaint(host, state.paintTracks, state.paintFrame);
+  renderAnimatedElementAtTime(host, element, timestampMs);
+}
+
 function fitPrefixIndex(
   content: HTMLElement,
   text: string,
@@ -396,10 +416,7 @@ function buildCompositionDom(
           shaderStrokePadding: shaderStrokePaddingForLayer(layer),
         },
       );
-      setLottieDeterministicRendering(layerRoot, true);
-      if (state.patternFrame !== undefined) renderPatternAtElapsed(layerRoot, state.patternFrame);
-      renderAnimatedElementAtTime(layerRoot, element, (frame / composition.frameRate) * 1000);
-      applyAnimatedPaint(layerRoot, state.paintTracks, state.paintFrame);
+      renderCaptureElementFrame(layerRoot, element, state, (frame / composition.frameRate) * 1000);
       rendered.set(layer.id, layerRoot);
       states.set(layer.id, state);
     }
@@ -434,8 +451,7 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
   document.body.appendChild(wrapper);
 
   try {
-    await waitForElementContentReady(wrapper);
-    await waitForRenderableDom(wrapper);
+    await settleCaptureContent(wrapper);
     let raster = await rasterize(
       wrapper,
       composition.width,
@@ -458,8 +474,7 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
         request.dataOverrides,
       );
       document.body.appendChild(wrapper);
-      await waitForElementContentReady(wrapper);
-      await waitForRenderableDom(wrapper);
+      await settleCaptureContent(wrapper);
       raster = await rasterize(
         wrapper,
         composition.width,
@@ -503,8 +518,7 @@ async function captureViewport(request: AgentCaptureRequest): Promise<AgentCaptu
   if (!root) throw new Error('Editor root element is unavailable.');
   const originalWidth = window.innerWidth;
   const originalHeight = window.innerHeight;
-  await waitForElementContentReady(root);
-  await waitForRenderableDom(root);
+  await settleCaptureContent(root);
   const raster = await rasterize(root, originalWidth, originalHeight, request.maxDimension);
   return {
     mimeType: 'image/png',

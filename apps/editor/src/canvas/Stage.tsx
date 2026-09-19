@@ -35,7 +35,6 @@ import {
   applyCompiledClipPaths,
   applyCompiledMasks,
   applyCompiledLayerVisualState,
-  compiledLoopElapsedFrames,
   sampleCompiledLayerVisualState,
 } from '@ograf-editor/ograf-runtime';
 import { LayerNode } from './LayerNode';
@@ -70,6 +69,7 @@ import {
 } from './stageZoom';
 import { nextOgrafStepFrame } from './ografStepPlayback';
 import { ShaderPreviewClock } from './shaderPreviewClock';
+import { StageLoopPreviewClock } from './stageLoopPreviewClock';
 import { isInteractiveShortcutTarget } from '../state/keyboardShortcuts';
 import { duplicateLayerSelection } from '../state/editorShortcuts';
 import './Stage.css';
@@ -85,6 +85,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
     compositionId: string;
     frameRate: number;
     clock: ShaderPreviewClock;
+    loopClock: StageLoopPreviewClock;
   } | null>(null);
   if (
     shaderClockRef.current?.compositionId !== composition.id ||
@@ -96,9 +97,11 @@ export function Stage({ style }: { style?: CSSProperties }) {
       clock: new ShaderPreviewClock(
         (useTimelineStore.getState().currentFrame / composition.frameRate) * 1000,
       ),
+      loopClock: new StageLoopPreviewClock(),
     };
   }
   const shaderPreviewClock = shaderClockRef.current.clock;
+  const loopPreviewClock = shaderClockRef.current.loopClock;
   const previewLoopLayerId = useTimelineStore((state) => state.previewLoopLayerId);
   const updateLayerTransform = useProjectStore((s) => s.updateLayerTransform);
   const pasteLayers = useProjectStore((s) => s.pasteLayers);
@@ -768,11 +771,6 @@ export function Stage({ style }: { style?: CSSProperties }) {
       (layer) => layer.loop || layer.lighting || layer.element.type === 'pattern',
     );
     if (loopLayers.length === 0) return;
-    const parkedFrame = useTimelineStore.getState().currentFrame;
-    const parkedAtStep = descriptor.keyframes.some(
-      (keyframe) => keyframe.role === 'step' && Math.abs(keyframe.frame - parkedFrame) < 0.01,
-    );
-    if (!isPlaying && !previewLoopLayerId && !parkedAtStep) return;
     const previewTimeline = timelineRef.current;
     const previewMoveable = moveableRef.current;
     const previewLightingPattern = descriptor.layers.find(
@@ -783,10 +781,10 @@ export function Stage({ style }: { style?: CSSProperties }) {
     const render = (now: number) => {
       const baseFrame = (previewTimeline?.time() ?? 0) * descriptor.frameRate;
       const timelineIsPlaying = useTimelineStore.getState().isPlaying;
-      const heldFrames =
-        !timelineIsPlaying && parkedAtStep ? ((now - epoch) / 1000) * descriptor.frameRate : 0;
+      const contentTimeMs = shaderPreviewClock.sample(now);
       const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
       for (const layer of descriptor.layers) {
+        const activeElapsed = loopPreviewClock.sample(descriptor, layer, baseFrame, contentTimeMs);
         const elapsed =
           (layer.id === previewLoopLayerId ||
             (previewLightingPattern &&
@@ -795,7 +793,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
                   layer.element.patternId === previewLightingPattern)))) &&
           !timelineIsPlaying
             ? ((now - epoch) / 1000) * descriptor.frameRate
-            : compiledLoopElapsedFrames(descriptor, layer, baseFrame, heldFrames);
+            : activeElapsed;
         const state = sampleCompiledLayerVisualState(
           layer,
           baseFrame,
@@ -809,16 +807,33 @@ export function Stage({ style }: { style?: CSSProperties }) {
       applyCompiledClipPaths(descriptor, layerRefs.current, states);
       applyCompiledMasks(descriptor, layerRefs.current, states);
       if (selectedLayerIds.length > 0) previewMoveable?.updateTarget();
-      animationFrame = requestAnimationFrame(render);
+      animationFrame =
+        timelineIsPlaying || shaderPreviewClock.running || previewLoopLayerId
+          ? requestAnimationFrame(render)
+          : 0;
     };
-    animationFrame = requestAnimationFrame(render);
+    const sync = () => {
+      cancelAnimationFrame(animationFrame);
+      render(performance.now());
+    };
+    const unsubscribeClock = shaderPreviewClock.subscribe(sync);
+    sync();
     return () => {
+      unsubscribeClock();
       cancelAnimationFrame(animationFrame);
       const frame = useTimelineStore.getState().currentFrame;
       previewTimeline?.seek(frame / composition.frameRate, true);
       previewMoveable?.updateTarget();
     };
-  }, [composition, isPlaying, previewLoopLayerId, selectedLayerIds]);
+  }, [
+    composition,
+    isPlaying,
+    previewLoopLayerId,
+    selectedLayerIds,
+    shaderPreviewClock,
+    loopPreviewClock,
+    maskTestValues,
+  ]);
 
   // The timeline effect above normalizes percentage transform origins back to pixel values. Its DOM
   // work must finish before Moveable measures the committed target, particularly after north/west

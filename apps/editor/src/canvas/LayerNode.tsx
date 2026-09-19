@@ -117,9 +117,9 @@ export function LayerNode({
         ...(element.type === 'lottie' ? { lottieBackingSize } : {}),
         ...(hasShaderPaint ? { shaderBackingSize, shaderStrokePadding } : {}),
       });
+      applyAnimatedPaint(host, layer.animationTracks, useTimelineStore.getState().currentFrame);
       if (element.type === 'lottie' || hasShaderPaint) watchContentReadiness(host);
       else setContentError(null);
-      applyAnimatedPaint(host, layer.animationTracks, useTimelineStore.getState().currentFrame);
     }
     return () => {
       readinessGeneration.current += 1;
@@ -154,7 +154,10 @@ export function LayerNode({
         try {
           if (element.type === 'lottie')
             setLottieDeterministicRendering(host, !shaderPreviewClock.running);
+          // The master timeline and Stage's local-loop sampler own animated uniforms. This
+          // independent clock advances iTime only, so a held loop's values are never replaced.
           renderAnimatedElementAtTime(host, element, shaderPreviewClock.sample(performance.now()));
+          if (!shaderPreviewClock.running) watchContentReadiness(host);
         } catch (error) {
           setContentError(error instanceof Error ? error.message : String(error));
           // A restored context can resume itself. Compilation/draw failures await a source edit.

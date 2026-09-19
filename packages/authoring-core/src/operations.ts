@@ -6,6 +6,9 @@ import {
   createShaderPaint,
   migrateShaderBindingTarget,
   shaderPaintConflictsWithBinding,
+  parseShaderAnimationProperty,
+  shaderAnimationPropertySpec,
+  shaderAnimationValueErrors,
 } from '@ograf-editor/scene-model';
 import {
   applyPathEdit,
@@ -195,6 +198,15 @@ function assertPropertyApplicable(
   property: AnimatableLayerProperty,
   value?: number,
 ): void {
+  if (parseShaderAnimationProperty(property)) {
+    if (!shaderAnimationPropertySpec(layer.element, property))
+      throw new Error(`Property "${property}" is not exposed by the layer's shader source.`);
+    if (value !== undefined) {
+      const errors = shaderAnimationValueErrors(layer.element, property, value);
+      if (errors.length) throw new Error(errors.join(' '));
+    }
+    return;
+  }
   if (property === 'strokeWidth') {
     if (layer.element.type !== 'text') {
       throw new Error(

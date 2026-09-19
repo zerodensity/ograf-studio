@@ -12,6 +12,7 @@ export * from './layerAnimation';
 export * from './loopAnimation';
 export * from './lottie';
 export * from './shader';
+export * from './shaderAnimation';
 export * from './shaderParameters';
 export * from './shaderFields';
 export * from './layerEffects';

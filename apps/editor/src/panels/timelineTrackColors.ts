@@ -1,10 +1,15 @@
 import {
   gradientStopIndexForProperty,
+  parseShaderAnimationProperty,
   type AnimatableLayerProperty,
   type GradientStopOffsetProperty,
+  type ShaderAnimationProperty,
 } from '@ograf-editor/scene-model';
 
-type FixedTimelineProperty = Exclude<AnimatableLayerProperty, GradientStopOffsetProperty>;
+type FixedTimelineProperty = Exclude<
+  AnimatableLayerProperty,
+  GradientStopOffsetProperty | ShaderAnimationProperty
+>;
 
 /** Parent layer summaries use one consistent colour; property meaning owns child-track colour. */
 export const TIMELINE_LAYER_TRACK_COLOR = '#8a8f99';
@@ -36,6 +41,8 @@ const GRADIENT_STOP_TRACK_COLORS = [
 ] as const;
 
 export function timelineTrackColorForProperty(property: AnimatableLayerProperty): string {
+  const shader = parseShaderAnimationProperty(property);
+  if (shader) return shader.slot === 'fill' ? '#5bd9c1' : '#d9a2ff';
   const stopIndex = gradientStopIndexForProperty(property);
   if (stopIndex !== null) {
     return GRADIENT_STOP_TRACK_COLORS[stopIndex % GRADIENT_STOP_TRACK_COLORS.length]!;

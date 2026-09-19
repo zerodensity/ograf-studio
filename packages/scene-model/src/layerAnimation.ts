@@ -1,4 +1,11 @@
 import { isGradientPaint } from './paint';
+import {
+  parseShaderAnimationProperty,
+  shaderAnimationPropertySpec,
+  getShaderAnimatableProperties,
+  getShaderAnimationValue,
+  getShaderTrackValueAtFrame,
+} from './shaderAnimation';
 import { normalizeLayerEffects } from './layerEffects';
 import {
   effectParameterSpec,
@@ -89,6 +96,7 @@ export function isAnimatableLayerProperty(property: string): property is Animata
   return (
     ANIMATABLE_LAYER_PROPERTIES.includes(property as AnimatableLayerProperty) ||
     isGradientStopOffsetProperty(property) ||
+    parseShaderAnimationProperty(property) !== null ||
     (parseEffectProperty(property) !== null && !property.endsWith('.color'))
   );
 }
@@ -97,6 +105,8 @@ export function isAnimatableLayerPropertyApplicable(
   layer: Layer,
   property: AnimatableLayerProperty,
 ): boolean {
+  if (parseShaderAnimationProperty(property))
+    return shaderAnimationPropertySpec(layer.element, property) !== undefined;
   if (parseEffectProperty(property))
     return typeof effectParameterSpec(layer.effects, property)?.default === 'number';
   if (property === 'blur') return getEffectStack(layer.effects).some((e) => e.legacy === 'blur');
@@ -106,6 +116,10 @@ export function isAnimatableLayerPropertyApplicable(
 }
 
 export function animatablePropertyLabel(property: AnimatableLayerProperty, layer?: Layer): string {
+  if (parseShaderAnimationProperty(property))
+    return layer
+      ? (shaderAnimationPropertySpec(layer.element, property)?.label ?? property)
+      : property;
   const effectPath = parseEffectProperty(property);
   if (effectPath) {
     const effect = layer?.effects.stack?.find((e) => e.id === effectPath.id);
@@ -124,6 +138,7 @@ export function getLayerAnimatableProperties(layer: Layer): AnimatableLayerPrope
     ),
   );
   for (const property of numericEffectProperties(layer.effects)) properties.add(property);
+  for (const property of getShaderAnimatableProperties(layer.element)) properties.add(property);
   const fill =
     layer.element.type === 'rectangle' ||
     layer.element.type === 'ellipse' ||
@@ -320,6 +335,8 @@ export function sortLayerPropertyKeyframes(
 }
 
 function staticPropertyValue(layer: Layer, property: AnimatableLayerProperty): number {
+  if (parseShaderAnimationProperty(property))
+    return getShaderAnimationValue(layer.element, property);
   if (parseEffectProperty(property)) {
     const value = effectParameterValue(layer.effects, property);
     if (typeof value !== 'number')
@@ -369,6 +386,7 @@ export function getResolvedLayerAnimationTracks(layer: Layer): LayerAnimationTra
       tracks[property] = sortLayerPropertyKeyframes(existing);
       continue;
     }
+    if (parseShaderAnimationProperty(property)) continue;
     if (TRANSFORM_ANIMATION_PROPERTIES.includes(property as keyof LayerTransform)) {
       tracks[property] = sortLayerKeyframes(layer.keyframes).map((keyframe) => ({
         id: `${keyframe.id}:${property}`,
@@ -411,6 +429,8 @@ export function getLayerPropertyValueAtFrame(
   frame: number,
 ): number {
   const keyframes = getResolvedLayerAnimationTracks(layer)[property] ?? [];
+  if (parseShaderAnimationProperty(property))
+    return getShaderTrackValueAtFrame(layer.element, property, keyframes, frame);
   return getTrackValueAtFrame(keyframes, frame, staticPropertyValue(layer, property));
 }
 

@@ -4,6 +4,79 @@ import { createProject, DEFAULT_SHADER_FRAGMENT_SOURCE } from '@ograf-editor/sce
 import { AuthoringSession } from './session';
 
 describe('shader authoring', () => {
+  it('authors shader property and loop keys through shared numeric operations and rejects stale targets atomically', () => {
+    const session = new AuthoringSession(createProject(), 'shader-keys');
+    const created = session.apply({
+      expectedRevision: 0,
+      operations: [
+        {
+          type: 'add_layer',
+          kind: 'text',
+          element: { fill: { type: 'shader' }, strokePaint: { type: 'shader' } },
+        },
+      ],
+    });
+    const layer = created.project.compositions[0]!.layers[0]!;
+    expect(layer.animationTracks['fill.parameters.waveFrequency']).toBeUndefined();
+    const keyed = session.apply({
+      expectedRevision: 1,
+      operations: [
+        {
+          type: 'set_property_track',
+          layerId: layer.id,
+          property: 'fill.parameters.waveFrequency',
+          keys: [
+            { frame: 0, value: 2 },
+            { frame: 12, value: 6, easing: 'quad-in' },
+          ],
+        },
+        { type: 'set_layer_loop', layerId: layer.id, durationFrames: 10 },
+        {
+          type: 'set_loop_property_track',
+          layerId: layer.id,
+          property: 'strokePaint.parameters.backgroundColor.r',
+          keys: [
+            { frame: 0, value: 0 },
+            { frame: 10, value: 1 },
+          ],
+        },
+      ],
+    });
+    expect(keyed.validation.errors).toEqual([]);
+    const updated = keyed.project.compositions[0]!.layers[0]!;
+    expect(updated.animationTracks['fill.parameters.waveFrequency']).toHaveLength(2);
+    expect(updated.loop?.tracks['strokePaint.parameters.backgroundColor.r']).toHaveLength(2);
+    expect(() =>
+      session.apply({
+        expectedRevision: 2,
+        operations: [
+          {
+            type: 'set_property_key',
+            layerId: layer.id,
+            property: 'fill.parameters.waveFrequency.x',
+            frame: 5,
+            value: 2,
+          },
+        ],
+      }),
+    ).toThrow(/not exposed/);
+    expect(() =>
+      session.apply({
+        expectedRevision: 2,
+        operations: [
+          {
+            type: 'set_property_key',
+            layerId: layer.id,
+            property: 'fill.parameters.waveFrequency',
+            frame: 5,
+            value: 100,
+          },
+        ],
+      }),
+    ).toThrow(/outside its declared range/);
+    expect(session.revision).toBe(2);
+    expect(session.undo(2).project).toEqual(created.project);
+  });
   it('updates and clears a native text shader outline independently from its shader fill', () => {
     const session = new AuthoringSession(createProject(), 'shader-outline');
     const added = session.apply({

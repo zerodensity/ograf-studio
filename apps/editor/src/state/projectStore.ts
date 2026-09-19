@@ -50,6 +50,14 @@ import {
   createRectangleElement,
   inspectShaderElement,
   getElementShaderPaints,
+  getElementShaderPaint,
+  getShaderAnimatableProperties,
+  getShaderAnimationValue,
+  parseShaderAnimationProperty,
+  shaderAnimationPropertySpec,
+  clampShaderAnimationValue,
+  applyShaderAnimationValues,
+  applyElementDataValue,
   shaderParameterTarget,
   isGradientPaint,
   isShaderPaint,
@@ -102,6 +110,8 @@ import {
   type LottieElement,
   type ShaderElement,
   type ShaderPaint,
+  type ShaderPaintSlot,
+  type ShaderParameterValue,
   type LayerKeyframe,
   type LayerPropertyKeyframe,
   type LayerLoopActivation,
@@ -297,6 +307,19 @@ interface ProjectActions {
   updateLayerPaint: (layerId: string, frame: number, paint: Paint | undefined) => void;
   createShaderResource: (paint?: ShaderPaint) => StoredShaderResourceTarget;
   updateShaderResource: (target: ShaderResourceTarget, patch: ShaderResourcePatch) => void;
+  updateLayerShaderParameter: (
+    layerId: string,
+    frame: number,
+    slot: ShaderPaintSlot,
+    name: string,
+    value: ShaderParameterValue,
+  ) => void;
+  updateLayerPropertyKeyframeValue: (
+    layerId: string,
+    property: AnimatableLayerProperty,
+    keyframeId: string,
+    value: number,
+  ) => void;
   removeShaderResource: (target: ShaderResourceTarget) => void;
   updateLayerEffects: (layerId: string, frame: number, patch: Partial<LayerEffects>) => void;
   addLayerEffect: (layerId: string, type: EffectType) => void;
@@ -569,6 +592,8 @@ function normalizeOffsetProperty(
   property: AnimatableLayerProperty,
   value: number,
 ): number {
+  if (parseShaderAnimationProperty(property))
+    return clampShaderAnimationValue(layer.element, property, value);
   if (['x', 'y', 'width', 'height'].includes(property))
     return normalizeAuthoredTransformPatch({ [property]: value })[
       property as keyof LayerTransform
@@ -1513,6 +1538,11 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
           if (!layer || layer.isLocked) throw new Error(`Layer is missing or locked: ${layerId}`);
+          if (
+            parseShaderAnimationProperty(property) &&
+            !shaderAnimationPropertySpec(layer.element, property)
+          )
+            throw new Error(`Unknown shader animation property "${property}".`);
           const roundedFrame = Math.max(
             0,
             Math.min(getTotalFrames(composition), Math.round(frame)),
@@ -1564,12 +1594,32 @@ export const useProjectStore = create<ProjectStore>()(
           if (!layer || layer.isLocked) return;
           materializeAnimationTracks(layer);
           const track = layer.animationTracks[property] ?? [];
-          if (track.length <= 1) return;
+          if (track.length <= 1 && !parseShaderAnimationProperty(property)) return;
           const removedFrame = track.find((candidate) => candidate.id === keyframeId)?.frame;
           layer.animationTracks[property] = track.filter(
             (candidate) => candidate.id !== keyframeId,
           );
+          if (layer.animationTracks[property]?.length === 0) delete layer.animationTracks[property];
           if (removedFrame !== undefined) removeAggregateKeyframeIfOrphaned(layer, removedFrame);
+        }),
+
+      updateLayerPropertyKeyframeValue: (layerId, property, keyframeId, value) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked || !Number.isFinite(value)) return;
+          if (
+            parseShaderAnimationProperty(property) &&
+            !shaderAnimationPropertySpec(layer.element, property)
+          )
+            return;
+          materializeAnimationTracks(layer);
+          const key = layer.animationTracks[property]?.find(
+            (candidate) => candidate.id === keyframeId,
+          );
+          if (!key) return;
+          key.value = normalizeOffsetProperty(layer, property, value);
+          syncAggregateKeyframe(layer, key.frame, key.easing);
         }),
 
       updateLayerPropertyKeyframeEasing: (layerId, property, keyframeId, easing) =>
@@ -1735,12 +1785,18 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
           if (!layer || layer.isLocked || !layer.loop) return;
+          const shaderSpec = shaderAnimationPropertySpec(layer.element, property);
+          if (parseShaderAnimationProperty(property) && !shaderSpec) return;
           const normalized = sortLayerPropertyKeyframes(
             keys
               .map((key) => ({
                 ...key,
                 frame: Math.max(0, Math.min(layer.loop!.durationFrames, Math.round(key.frame))),
+                ...(shaderSpec
+                  ? { value: clampShaderAnimationValue(layer.element, property, key.value) }
+                  : {}),
                 ...(key.curve ? { curve: { ...key.curve } } : {}),
+                ...(shaderSpec?.discrete ? { easing: 'linear' as const, curve: undefined } : {}),
               }))
               .filter(
                 (key, index, all) =>
@@ -1782,6 +1838,41 @@ export const useProjectStore = create<ProjectStore>()(
             Object.assign(layer.element, patch);
             syncShaderParameterFields(composition, layer);
             pruneInvalidGradientStopTracks(layer);
+          }
+        }),
+
+      updateLayerShaderParameter: (layerId, frame, slot, name, value) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked || !getElementShaderPaint(layer.element, slot)) return;
+          const roundedFrame = Math.max(
+            0,
+            Math.min(getTotalFrames(composition), Math.round(frame)),
+          );
+          const incoming = applyElementDataValue(
+            layer.element,
+            shaderParameterTarget(name, slot),
+            value,
+          );
+          const authoredChanges: Record<string, number> = {};
+          for (const property of getShaderAnimatableProperties(layer.element)) {
+            const parsed = parseShaderAnimationProperty(property)!;
+            if (parsed.slot !== slot || parsed.name !== name) continue;
+            const before = getLayerPropertyValueAtFrame(layer, property, roundedFrame);
+            const next = getShaderAnimationValue(incoming, property);
+            if (Math.abs(next - before) < 1e-9) continue;
+            if (useTimelineStore.getState().autoKeyframe) {
+              const key = upsertPropertyKeyframe(layer, property, roundedFrame, next);
+              syncAggregateKeyframe(layer, roundedFrame, key.easing);
+            } else {
+              offsetExistingPropertyKeys(layer, property, next - before);
+              authoredChanges[property] = next;
+            }
+          }
+          if (Object.keys(authoredChanges).length) {
+            layer.element = applyShaderAnimationValues(layer.element, authoredChanges);
+            syncShaderParameterFields(composition, layer);
           }
         }),
 
@@ -1863,6 +1954,13 @@ export const useProjectStore = create<ProjectStore>()(
             layer.element.fill = '#3b3f4a';
           }
           const prefix = shaderParameterTarget('', target.slot);
+          for (const tracks of [layer.animationTracks, layer.loop?.tracks]) {
+            if (!tracks) continue;
+            for (const property of Object.keys(tracks)) {
+              if (parseShaderAnimationProperty(property)?.slot === target.slot)
+                delete tracks[property as AnimatableLayerProperty];
+            }
+          }
           layer.bindings = layer.bindings.filter(
             (binding) =>
               !binding.targetProperty.startsWith(prefix) &&

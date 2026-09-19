@@ -1,5 +1,11 @@
 import { getTrackValueAtFrame } from './layerAnimation';
-import type { AnimatableLayerProperty, LayerLoopClip, LayerPropertyKeyframe } from './types';
+import { parseShaderAnimationProperty, getShaderTrackValueAtFrame } from './shaderAnimation';
+import type {
+  AnimatableLayerProperty,
+  LayerLoopClip,
+  LayerPropertyKeyframe,
+  Element,
+} from './types';
 
 /** Local clip position derived from absolute elapsed frames; never advances by mutable ticks. */
 export function getLoopFrameAtElapsed(loop: LayerLoopClip, elapsedFrames: number): number {
@@ -16,7 +22,16 @@ export function getLoopPropertyValueAtElapsed(
   property: AnimatableLayerProperty,
   elapsedFrames: number,
   fallback: number,
+  element?: Element,
 ): number {
+  if (element && parseShaderAnimationProperty(property))
+    return getShaderTrackValueAtFrame(
+      element,
+      property,
+      loop.tracks[property] ?? [],
+      getLoopFrameAtElapsed(loop, elapsedFrames),
+      fallback,
+    );
   return getTrackValueAtFrame(
     (loop.tracks[property] ?? []) as LayerPropertyKeyframe[],
     getLoopFrameAtElapsed(loop, elapsedFrames),

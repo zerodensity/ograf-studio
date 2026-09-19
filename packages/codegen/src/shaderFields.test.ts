@@ -1,12 +1,50 @@
 import { getElementShaderPaint } from '@ograf-editor/scene-model';
 import { describe, expect, it } from 'vitest';
-import { createProject, createLayerOfKind, createShaderPaint } from '@ograf-editor/scene-model';
+import {
+  createProject,
+  createLayerOfKind,
+  createShaderPaint,
+  createLayerKeyframe,
+  createLayerPropertyKeyframe,
+  createDefaultTransform,
+  createLayerLoopClip,
+} from '@ograf-editor/scene-model';
 import { compileDescriptor } from './compileDescriptor';
 import { compileDataSchema } from './compileDataSchema';
 import { assembleManifest } from './assembleManifest';
 import { validateManifest } from '@ograf-editor/validation';
 
 describe('shader parameter export', () => {
+  it('preserves explicit shader channels and loop keys without materializing unkeyed parameter defaults', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw new Error('Expected text.');
+    layer.element.fill = createShaderPaint();
+    layer.element.strokePaint = createShaderPaint();
+    layer.keyframes = [createLayerKeyframe(0, createDefaultTransform())];
+    layer.animationTracks['fill.parameters.waveFrequency'] = [
+      createLayerPropertyKeyframe(0, 1),
+      createLayerPropertyKeyframe(12, 3),
+    ];
+    layer.loop = createLayerLoopClip({
+      tracks: {
+        'strokePaint.parameters.backgroundColor.g': [
+          createLayerPropertyKeyframe(0, 0),
+          createLayerPropertyKeyframe(10, 1),
+        ],
+      },
+    });
+    project.compositions[0]!.layers = [layer];
+    const compiled = compileDescriptor(project.compositions[0]!).layers[0]!;
+    expect(compiled.animationTracks['fill.parameters.waveFrequency']).toEqual(
+      layer.animationTracks['fill.parameters.waveFrequency'],
+    );
+    expect(compiled.animationTracks['fill.parameters.highlightColor.r']).toBeUndefined();
+    expect(compiled.loop?.tracks['strokePaint.parameters.backgroundColor.g']).toEqual(
+      layer.loop.tracks['strokePaint.parameters.backgroundColor.g'],
+    );
+    expect(compiled.keyframes[0]!.transform).not.toHaveProperty('fill.parameters.waveFrequency');
+  });
   it('exports independent fill and outline schemas on editable text without renaming fill fields', () => {
     const project = createProject();
     const composition = project.compositions[0]!;

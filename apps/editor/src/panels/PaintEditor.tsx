@@ -7,6 +7,7 @@ import {
   isShaderPaint,
   type GradientPaint,
   type Paint,
+  type ShaderParameterValue,
 } from '@ograf-editor/scene-model';
 import { ShaderSourceEditor } from './ShaderSourceEditor';
 import { shaderPaintWithPatch } from '../state/shaderResources';
@@ -23,6 +24,8 @@ interface PaintEditorProps {
   allowGradient?: boolean;
   label?: string;
   disabled?: boolean;
+  onShaderParameterChange?: (name: string, value: ShaderParameterValue) => void;
+  shaderAnimationActive?: boolean;
 }
 
 const asColor = (value: string) => (/^#[0-9a-f]{6}$/i.test(value) ? value : '#000000');
@@ -35,6 +38,8 @@ export function PaintEditor({
   allowGradient = true,
   label = 'Fill',
   disabled = false,
+  onShaderParameterChange,
+  shaderAnimationActive = false,
 }: PaintEditorProps) {
   const [dragOver, setDragOver] = useState(false);
   const [dropError, setDropError] = useState<string | null>(null);
@@ -132,11 +137,20 @@ export function PaintEditor({
         </p>
       )}
       {isShaderPaint(value) ? (
-        <ShaderSourceEditor
-          element={value}
-          labelPrefix={label === 'Fill' ? 'Shader' : `${label} shader`}
-          onChange={(patch) => onChange(shaderPaintWithPatch(value, patch))}
-        />
+        <>
+          {shaderAnimationActive && (
+            <p className="inspector-hint">
+              Keyframed controls follow Timeline. Use Auto-keyframe for playhead edits, or edit
+              repeating values in the loop editor.
+            </p>
+          )}
+          <ShaderSourceEditor
+            element={value}
+            labelPrefix={label === 'Fill' ? 'Shader' : `${label} shader`}
+            onChange={(patch) => onChange(shaderPaintWithPatch(value, patch))}
+            onParameterChange={onShaderParameterChange}
+          />
+        </>
       ) : typeof value === 'string' ? (
         <PropertyRow
           help={

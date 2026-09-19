@@ -34,6 +34,7 @@ import {
   renderShaderPaintAtTime,
   shaderPaintBaseElement,
   updateShaderPaintContent,
+  updateShaderPaintUniforms,
   waitForShaderPaintContentReady,
   shaderStrokePaddingForLayer,
 } from './shaderPaintRendering';
@@ -88,6 +89,43 @@ beforeEach(() => {
 });
 
 describe('shader fill content lifecycle', () => {
+  it('updates independent slot uniforms without invalidating native layout or coverage', async () => {
+    const mask = { ready: Promise.resolve(), update: vi.fn(async () => null), dispose: vi.fn() };
+    mocks.mask.mockReturnValue(mask);
+    const { container, native } = fixture();
+    const text = createTextLayer().element;
+    if (text.type !== 'text') throw new Error('Expected text');
+    const paint = createShaderElement();
+    const element = { ...text, fill: paint, strokePaint: paint };
+    mountShaderPaintContent(container, element, {}, native);
+    await waitForShaderPaintContentReady(container);
+    const maskCalls = mask.update.mock.calls.length;
+    const animated = {
+      ...element,
+      fill: { ...paint, parameters: { waveFrequency: 3 } },
+      strokePaint: { ...paint, parameters: { waveFrequency: 7 } },
+    };
+    expect(updateShaderPaintUniforms(container, animated)).toBe(true);
+    expect(
+      mocks.update.mock.calls.map((call) => [
+        call[0].dataset.ografShaderSlotHost,
+        call[1].parameters,
+      ]),
+    ).toEqual([
+      ['fill', { waveFrequency: 3 }],
+      ['stroke', { waveFrequency: 7 }],
+    ]);
+    expect(native.render).toHaveBeenCalledTimes(1);
+    expect(mocks.mount).toHaveBeenCalledTimes(2);
+    expect(mocks.mask).toHaveBeenCalledTimes(2);
+    expect(mask.update).toHaveBeenCalledTimes(maskCalls);
+    renderShaderPaintAtTime(container, 5000);
+    await waitForShaderPaintContentReady(container);
+    expect(mocks.update).toHaveBeenCalledTimes(2);
+    expect(mocks.draw.mock.calls.at(-1)?.[1]).toBe(5000);
+    disposeShaderPaintContent(container);
+    expect(mocks.dispose).toHaveBeenCalledTimes(2);
+  });
   it('awaits coverage and coalesces pending frame requests to the latest absolute time', async () => {
     let ready = () => {};
     const gate = new Promise<void>((resolve) => {

@@ -68,7 +68,7 @@ export const gradientPaintSchema = z
 export const propertySchema = z
   .string()
   .regex(
-    /^(x|y|width|height|rotation|opacity|transformOriginX|transformOriginY|strokeWidth|blur|dropShadowOpacity|dropShadowOffsetX|dropShadowOffsetY|dropShadowBlur|fill\.stops\[(0|[1-9]\d*)\]\.offset|effects\.[a-zA-Z0-9_-]+\.(radius|offsetX|offsetY|opacity|amount|angle))$/,
+    /^(x|y|width|height|rotation|opacity|transformOrigin[XY]|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\.stops\[(0|[1-9]\d*)\]\.offset|(fill|strokePaint)\.parameters\.[A-Za-z_]\w*(\.[xyrgba])?|effects\.[\w-]+\.(radius|offset[XY]|opacity|amount|angle))$/,
   )
   .transform((value) => value as AnimatableLayerProperty);
 

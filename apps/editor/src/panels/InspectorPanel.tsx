@@ -32,6 +32,9 @@ import {
   findLayerKeyframeAtFrame,
   getLayerPropertyValueAtFrame,
   getElementFill,
+  getElementShaderPaint,
+  sampleShaderAnimationTracks,
+  parseShaderAnimationProperty,
   isGradientPaint,
   isShaderPaint,
   shaderPaintConflictsWithBinding,
@@ -256,6 +259,7 @@ export function InspectorPanel() {
   const updateLayerElement = useProjectStore((s) => s.updateLayerElement);
   const updateLayerTextStroke = useProjectStore((s) => s.updateLayerTextStroke);
   const updateLayerPaint = useProjectStore((s) => s.updateLayerPaint);
+  const updateLayerShaderParameter = useProjectStore((s) => s.updateLayerShaderParameter);
   const setLayerBindings = useProjectStore((s) => s.setLayerBindings);
   const toggleLayerLock = useProjectStore((s) => s.toggleLayerLock);
   const setLayerParent = useProjectStore((s) => s.setLayerParent);
@@ -294,7 +298,20 @@ export function InspectorPanel() {
       : authoredPose;
   const isLiveTransform = liveTransform?.layerId === layer.id;
   const alphaPercent = opacityToAlphaPercent(pose.opacity);
-  const authoredPaint = getElementFill(layer.element);
+  const sampledShaderElement = sampleShaderAnimationTracks(
+    layer.element,
+    getResolvedLayerAnimationTracks(layer),
+    currentFrame,
+  );
+  const animatedShaderSlots = new Set(
+    [layer.animationTracks, layer.loop?.tracks].flatMap((tracks) =>
+      Object.entries(tracks ?? {})
+        .filter(([, keys]) => keys?.length)
+        .map(([property]) => parseShaderAnimationProperty(property)?.slot)
+        .filter(Boolean),
+    ),
+  );
+  const authoredPaint = getElementFill(sampledShaderElement);
   const evaluatedPaint =
     authoredPaint !== undefined
       ? getPaintAtFrame(authoredPaint, getResolvedLayerAnimationTracks(layer), currentFrame)
@@ -515,7 +532,11 @@ export function InspectorPanel() {
           <PaintEditor
             media
             disabled={layer.isLocked}
-            value={layer.element.fill}
+            value={evaluatedPaint ?? layer.element.fill}
+            shaderAnimationActive={animatedShaderSlots.has('fill')}
+            onShaderParameterChange={(name, value) =>
+              updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+            }
             onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
           />
         )}
@@ -541,6 +562,10 @@ export function InspectorPanel() {
             <PaintEditor
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
+              shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterChange={(name, value) =>
+                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+              }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
             <CornerRadiusEditor
@@ -555,6 +580,10 @@ export function InspectorPanel() {
             <PaintEditor
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
+              shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterChange={(name, value) =>
+                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+              }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
             <PropertyRow
@@ -606,13 +635,23 @@ export function InspectorPanel() {
             <PaintEditor
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.color}
+              shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterChange={(name, value) =>
+                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+              }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
             <PaintEditor
               label="Outline"
               disabled={layer.isLocked}
               allowGradient={false}
-              value={layer.element.strokePaint ?? layer.element.strokeColor}
+              value={
+                getElementShaderPaint(sampledShaderElement, 'stroke') ?? layer.element.strokeColor
+              }
+              shaderAnimationActive={animatedShaderSlots.has('stroke')}
+              onShaderParameterChange={(name, value) =>
+                updateLayerShaderParameter(layer.id, roundedFrame, 'stroke', name, value)
+              }
               onChange={(paint) => {
                 if (isShaderPaint(paint)) setTextStroke({ strokePaint: paint });
                 else if (typeof paint === 'string') setTextStroke({ strokeColor: paint });
@@ -905,6 +944,10 @@ export function InspectorPanel() {
             <PaintEditor
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
+              shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterChange={(name, value) =>
+                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+              }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
             <PropertyRow
@@ -1005,6 +1048,10 @@ export function InspectorPanel() {
             <PaintEditor
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
+              shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterChange={(name, value) =>
+                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+              }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
             <PropertyRow

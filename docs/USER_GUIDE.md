@@ -183,6 +183,19 @@ their data fields and Brand Kit tokens available.
 Text outline parameters use `strokePaint.parameters.NAME` and independent fields, so the same
 parameter name can appear in both shaders without sharing its value.
 
+Exposed shader controls can also own keyframes and local loops. Expand the object in **Timeline**,
+enable **Auto-keyframe**, and use **+ Property → Fill shader** or **Outline shader** to choose a
+control. Move the playhead and adjust the control in Properties, or edit a selected key's **Value**
+in the Keyframe editor. With Auto-keyframe off, changing a keyed control offsets its existing keys.
+Select a property and use its **Loop** section to set repeating values and preview the loop.
+
+Float controls use the usual easing and curves. Integers and toggles hold their values until the
+next key; vectors use X/Y tracks and colors use R/G/B/A tracks. Keys follow the limits declared in
+the shader. Keyed channels take precedence over data-bound values while their tracks are active;
+unkeyed channels remain data-driven. Removing the final key returns that channel to its authored/data value. The shader's
+`iTime` clock continues independently. Animation belongs to the object, not a saved library shader.
+Keep exposed names stable: removing declarations or shader paints removes their matching tracks.
+
 The original source and values are saved in `.ogs` and compiled packages. The supported profile
 provides `iTime` and `iResolution`; texture channels, buffer/feedback passes, audio inputs, mouse
 inputs, and custom uniform declarations are unsupported. Shadertoy Image passes that fit this

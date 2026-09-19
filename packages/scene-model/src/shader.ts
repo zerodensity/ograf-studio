@@ -96,6 +96,25 @@ export interface ShaderInspection {
   adaptedSource: string;
 }
 
+const sourceInspections = new Map<string, { bytes: number; inspection: ShaderInspection }>();
+let sourceInspectionBytes = 0;
+const MAX_CACHED_SHADER_SOURCES = 32;
+const MAX_CACHED_SHADER_BYTES = 8 * 1024 * 1024;
+
+function copyShaderInspection(inspection: ShaderInspection): ShaderInspection {
+  return {
+    ...inspection,
+    errors: [...inspection.errors],
+    warnings: [...inspection.warnings],
+    parameters: inspection.parameters.map((parameter) => ({
+      ...parameter,
+      defaultValue: Array.isArray(parameter.defaultValue)
+        ? [...parameter.defaultValue]
+        : parameter.defaultValue,
+    })),
+  };
+}
+
 /** Supply absent defaults without changing authored source or hiding malformed parameters. */
 export function normalizeShaderElement(element: Partial<ShaderElement> = {}): ShaderElement {
   const name = typeof element.name === 'string' ? element.name.trim() : element.name;
@@ -110,7 +129,7 @@ export function normalizeShaderElement(element: Partial<ShaderElement> = {}): Sh
 }
 
 /** Checks the supported input contract; GLSL syntax and GPU support are checked by WebGL. */
-export function inspectShaderSource(source: unknown): ShaderInspection {
+function inspectShaderSourceUncached(source: unknown): ShaderInspection {
   const errors: string[] = [];
   if (typeof source !== 'string' || !source.trim()) {
     return {
@@ -161,6 +180,30 @@ export function inspectShaderSource(source: unknown): ShaderInspection {
     parameters: parsed.parameters,
     adaptedSource: parsed.adaptedSource,
   };
+}
+
+/** Source contracts are immutable; keyed uniform updates must not reparse unchanged GLSL. */
+export function inspectShaderSource(source: unknown): ShaderInspection {
+  if (typeof source !== 'string' || source.length > MAX_SHADER_SOURCE_BYTES)
+    return inspectShaderSourceUncached(source);
+  const cached = sourceInspections.get(source);
+  if (cached) return copyShaderInspection(cached.inspection);
+  const inspection = inspectShaderSourceUncached(source);
+  const bytes = new TextEncoder().encode(source).byteLength;
+  if (bytes <= MAX_SHADER_SOURCE_BYTES) {
+    while (
+      sourceInspections.size >= MAX_CACHED_SHADER_SOURCES ||
+      sourceInspectionBytes + bytes > MAX_CACHED_SHADER_BYTES
+    ) {
+      const first = sourceInspections.keys().next().value;
+      if (first === undefined) break;
+      sourceInspectionBytes -= sourceInspections.get(first)!.bytes;
+      sourceInspections.delete(first);
+    }
+    sourceInspections.set(source, { bytes, inspection });
+    sourceInspectionBytes += bytes;
+  }
+  return copyShaderInspection(inspection);
 }
 
 export function resolveShaderParameters(

@@ -5,6 +5,9 @@ import {
   createLayerEffects,
   createLayerLoopClip,
   createTextElement,
+  createShaderPaint,
+  applyShaderAnimationValues,
+  sampleShaderAnimationValues,
   createLayerOfKind,
   addEffect,
   effectProperty,
@@ -68,6 +71,68 @@ function layer(): CompiledLayer {
 }
 
 describe('compiled loop sampling', () => {
+  it('samples shader timeline and loop components over bound data with exact backward repeats', () => {
+    const compiled = layer();
+    const paint = createShaderPaint({
+      fragmentSource: `#pragma ograf gain slider min(0.0) max(2.0)
+const float gain = 0.5;
+#pragma ograf count slider min(0) max(10)
+const int count = 2;
+#pragma ograf enabled toggle
+const bool enabled = true;
+#pragma ograf tint color
+const vec3 tint = vec3(0.1, 0.2, 0.3);
+void mainImage(out vec4 color, in vec2 coord) { color = vec4(tint * gain, 1.0); }`,
+    });
+    compiled.element = createTextElement({ fill: paint, strokePaint: paint });
+    compiled.bindings = [
+      { dataKey: 'color', targetProperty: 'fill.parameters.tint' },
+      { dataKey: 'gain', targetProperty: 'fill.parameters.gain' },
+    ];
+    const key = (id: string, frame: number, value: number) => ({
+      id,
+      frame,
+      value,
+      easing: 'linear' as const,
+    });
+    compiled.animationTracks = {
+      'fill.parameters.tint.r': [key('r0', 0, 0), key('r1', 20, 1)],
+      'strokePaint.parameters.gain': [key('s0', 0, 0), key('s1', 20, 2)],
+      'fill.parameters.count': [key('c0', 0, 2), key('c1', 20, 8)],
+      'fill.parameters.enabled': [key('e0', 0, 1), key('e1', 20, 0)],
+    };
+    compiled.loop!.tracks = {
+      'fill.parameters.gain': [key('g0', 0, 0), key('g1', 10, 2), key('g2', 20, 0)],
+    };
+    const data = { color: '#00ff80', gain: 0.8 };
+    const bound = resolveBoundElement(compiled, data);
+    const before = sampleCompiledLayerVisualState(compiled, 10, undefined, data);
+    expect(before.paintTracks['fill.parameters.gain']).toBeUndefined();
+    expect(before.paintTracks['fill.parameters.count']?.[0]?.value).toBe(2);
+    expect(before.paintTracks['fill.parameters.enabled']?.[0]?.value).toBe(1);
+    const first = sampleCompiledLayerVisualState(compiled, 10, 5, data);
+    const rendered = applyShaderAnimationValues(
+      bound,
+      sampleShaderAnimationValues(bound, first.paintTracks, 0),
+    );
+    expect(rendered).toMatchObject({
+      fill: { parameters: { tint: [0.5, 1, 128 / 255], gain: 1, count: 2, enabled: true } },
+      strokePaint: { parameters: { gain: 1 } },
+    });
+    sampleCompiledLayerVisualState(compiled, 2, 1, { color: '#ff0000', gain: 0.1 });
+    expect(sampleCompiledLayerVisualState(compiled, 10, 25, data)).toEqual(first);
+    const end = sampleCompiledLayerVisualState(compiled, 20, undefined, data);
+    expect(end.paintTracks['fill.parameters.count']?.[0]?.value).toBe(8);
+    expect(end.paintTracks['fill.parameters.enabled']?.[0]?.value).toBe(0);
+    const exit = interpolateCompiledLayerVisualState(compiled, first, end, 0.5, 20, data);
+    expect(exit.paintTracks['fill.parameters.gain']?.[0]?.value).toBe(0.9);
+    expect(exit.paintTracks['fill.parameters.count']?.[0]?.value).toBe(2);
+    expect(exit.paintTracks['fill.parameters.enabled']?.[0]?.value).toBe(1);
+    const arrived = interpolateCompiledLayerVisualState(compiled, first, end, 1, 20, data);
+    expect(arrived.paintTracks['fill.parameters.gain']?.[0]?.value).toBe(0.8);
+    expect(arrived.paintTracks['fill.parameters.count']?.[0]?.value).toBe(8);
+    expect(arrived.paintTracks['fill.parameters.enabled']?.[0]?.value).toBe(0);
+  });
   it('samples stacked effect keys, loops, live overrides and direct exits deterministically', () => {
     const authored = createLayerOfKind('rectangle'),
       fx = addEffect(authored, 'glow'),

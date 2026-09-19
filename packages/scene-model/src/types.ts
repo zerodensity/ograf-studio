@@ -431,6 +431,8 @@ export interface ComponentLink {
 
 /** A normalized gradient-stop offset track, where N is the zero-based stop index. */
 export type GradientStopOffsetProperty = `fill.stops[${number}].offset`;
+export type ShaderAnimationProperty =
+  `fill.parameters.${string}` | `strokePaint.parameters.${string}`;
 
 /** Numeric properties that can own keys independently on a layer's shared frame ruler. */
 export type AnimatableLayerProperty =
@@ -442,7 +444,8 @@ export type AnimatableLayerProperty =
   | 'dropShadowOffsetX'
   | 'dropShadowOffsetY'
   | 'dropShadowBlur'
-  | GradientStopOffsetProperty;
+  | GradientStopOffsetProperty
+  | ShaderAnimationProperty;
 
 export type EasingPreset =
   | 'linear'

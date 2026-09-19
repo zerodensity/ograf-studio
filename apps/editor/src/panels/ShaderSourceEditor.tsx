@@ -17,6 +17,7 @@ interface Props {
   draftSource?: string;
   onDraftSourceChange?: (source: string) => void;
   applyLabel?: string;
+  onParameterChange?: (name: string, value: ShaderParameterValue) => void;
   onChange: (patch: Partial<Omit<ShaderPaint, 'type'>>) => void;
 }
 function parameterLabel(name: string): string {
@@ -162,6 +163,7 @@ export function ShaderSourceEditor({
   draftSource,
   onDraftSourceChange,
   applyLabel = 'Apply shader',
+  onParameterChange,
 }: Props) {
   const [source, setSource] = useState(draftSource ?? element.fragmentSource);
   const [error, setError] = useState<string | null>(null);
@@ -209,11 +211,9 @@ export function ShaderSourceEditor({
           value={resolved[definition.name] ?? definition.defaultValue}
           onChange={(value) => {
             try {
-              onChange({
-                parameters: {
-                  [definition.name]: normalizeShaderParameterValue(definition, value),
-                },
-              });
+              const normalized = normalizeShaderParameterValue(definition, value);
+              if (onParameterChange) onParameterChange(definition.name, normalized);
+              else onChange({ parameters: { [definition.name]: normalized } });
               setError(null);
             } catch (cause) {
               setError(cause instanceof Error ? cause.message : String(cause));

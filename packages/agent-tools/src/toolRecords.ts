@@ -1,4 +1,8 @@
 import {
+  getShaderAnimatableProperties,
+  shaderAnimationPropertySpec,
+} from '@ograf-editor/scene-model';
+import {
   getElementShaderPaint,
   getElementShaderPaints,
   hasElementShaderPaint,
@@ -175,7 +179,7 @@ const SHADER_PAINT_CAPABILITIES = {
     portability:
       'The target renderer must support WebGL2. Source inspection is not a GLSL compile or rendering check. SVG-only previews cannot render shader pixels.',
     editing:
-      'Set element.fill to {type:shader, fragmentSource, speed:1, resolutionScale:1, parameters:{}} on an existing shape, text, or media layer. Use update_element.patch.fill for fill edits; text also accepts independent strokePaint with the same shape. Set strokePaint:null to restore its solid strokeColor. Source pragmas define editable parameters and automatically exposed typed runtime bindings. Parameters remain independent of numeric animation tracks.',
+      'Set element.fill to {type:shader, fragmentSource, speed:1, resolutionScale:1, parameters:{}} on an existing shape, text, or media layer. Use update_element.patch.fill for fill edits; text also accepts independent strokePaint with the same shape. Set strokePaint:null to restore its solid strokeColor. Source pragmas define editable parameters and automatically exposed typed runtime bindings. Exposed controls support numeric lifecycle and loop tracks. Scalars use fill.parameters.NAME or strokePaint.parameters.NAME; vec2 uses .x/.y, colors .r/.g/.b/.a. Integer/toggle keys hold until the next key (toggle values0/1). Only keyed channels override data; unkeyed channels retain data/defaults.',
     verification:
       'Inspect shaderPaintInspections.fill and shaderPaintInspections.stroke, then render and certify the exported package in a browser with WebGL2; test representative timestamps and backward seeks.',
   },
@@ -635,6 +639,10 @@ function inspectComposition(composition: Composition) {
       ...(getElementShaderPaint(layer.element)
         ? { shaderInspection: inspectShaderElement(getElementShaderPaint(layer.element)!) }
         : {}),
+      shaderAnimationProperties: getShaderAnimatableProperties(layer.element).map((property) => ({
+        property,
+        ...shaderAnimationPropertySpec(layer.element, property),
+      })),
       ...(hasElementShaderPaint(layer.element)
         ? {
             shaderPaintInspections: Object.fromEntries(
@@ -1839,6 +1847,11 @@ export function createOGrafToolRecords(
         },
         animatableProperties: [...ANIMATABLE_LAYER_PROPERTIES],
         animatablePropertyPatterns: {
+          'fill.parameters.NAME / strokePaint.parameters.NAME':
+            'Exposed float/int/bool scalar; int/bool hold outgoing values until next key. Bool keys are0/1.',
+          'fill.parameters.NAME.CHANNEL / strokePaint.parameters.NAME.CHANNEL':
+            'Exposed vector/color channels: vec2 x/y; color r/g/b/a. Ease numeric channels and clamp declared limits. Existing keyframe and loop operations apply. Only keyed channels override data; empty tracks do not override.',
+
           'effects.ID.PARAM':
             'Stable per-effect numeric target, independent of stack order; add_effect results and inspect_scene return exact property paths.',
           'fill.stops[N].offset':
@@ -2291,7 +2304,7 @@ export function createOGrafToolRecords(
     {
       title: 'Get editable OGraf project',
       description:
-        'Read project and revision. Omit filters for full data; use include and tracks for compact output. Preserve IDs.',
+        'Read project/revision. Omit filters for full data; include/tracks narrow it. Preserve IDs.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         include: z.array(z.enum(PROJECT_INCLUDE_SECTIONS)).min(1).optional(),
