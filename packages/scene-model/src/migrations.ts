@@ -26,6 +26,7 @@ import {
   isShaderPaint,
 } from './shader';
 import { compositionWithShaderParameterFields } from './shaderFields';
+import { parseShaderAnimationProperty } from './shaderAnimation';
 import type {
   Composition,
   Element,
@@ -305,7 +306,11 @@ function normalizeComposition(composition: LegacyComposition): Composition {
           ...getLayerAnimatableProperties(normalizedLayer),
           ...Object.keys(legacyLayer.animationTracks ?? {}).filter(isAnimatableLayerProperty),
         ]),
-      ];
+      ].filter(
+        (property) =>
+          !parseShaderAnimationProperty(property) ||
+          (legacyLayer.animationTracks?.[property]?.length ?? 0) > 0,
+      );
       const hasAnimationTracks = trackProperties.some(
         (property) => (legacyLayer.animationTracks?.[property]?.length ?? 0) > 0,
       );
@@ -413,6 +418,12 @@ function normalizeComposition(composition: LegacyComposition): Composition {
         const normalizedLayer: Layer = {
           ...layer,
           element: normalizeElement(layer.element),
+          animationTracks: Object.fromEntries(
+            Object.entries(layer.animationTracks ?? {}).filter(
+              ([property, keys]) =>
+                !parseShaderAnimationProperty(property) || (keys?.length ?? 0) > 0,
+            ),
+          ),
           bindings: layer.bindings.map((binding) => ({
             ...binding,
             targetProperty: migrateShaderBindingTarget(binding.targetProperty),

@@ -6,6 +6,7 @@ import {
   getLayerPropertyValueAtFrame,
   getResolvedLayerAnimationTracks,
   sampleShaderAnimationTracks,
+  applyElementDataValue,
 } from '@ograf-editor/scene-model';
 import { useProjectStore } from './projectStore';
 import { useTimelineStore } from './timelineStore';
@@ -40,6 +41,23 @@ beforeEach(() => {
   useTimelineStore.getState().setAutoKeyframe(false);
 });
 describe('shader animation authoring', () => {
+  it('deleting an aggregate frame removes its lone shader key and restores data control', () => {
+    const { store, id, layer } = setup();
+    useTimelineStore.getState().setAutoKeyframe(true);
+    store.updateLayerShaderParameter(id, 5, 'fill', 'yaw', 30);
+    store.updateLayerShaderParameter(id, 7, 'fill', 'pitch', 10);
+    const frame = layer().keyframes.find((key) => key.frame === 5)!;
+    const otherTrack = structuredClone(layer().animationTracks['fill.parameters.pitch']);
+    const strokeTrack = structuredClone(layer().animationTracks.strokeWidth);
+    store.removeLayerKeyframe(id, frame.id);
+    expect(layer().keyframes.some((key) => key.frame === 5)).toBe(false);
+    expect(layer().animationTracks['fill.parameters.yaw']).toBeUndefined();
+    expect(layer().animationTracks['fill.parameters.pitch']).toEqual(otherTrack);
+    expect(layer().animationTracks.strokeWidth).toEqual(strokeTrack);
+    const data = applyElementDataValue(layer().element, 'fill.parameters.yaw', 45);
+    const sampled = sampleShaderAnimationTracks(data, getResolvedLayerAnimationTracks(layer()), 5);
+    expect(getElementShaderPaint(sampled)!.parameters.yaw).toBe(45);
+  });
   it('auto-keys only the edited exposed parameter without changing its GDD default', () => {
     const { store, id, layer, composition } = setup();
     useTimelineStore.getState().setAutoKeyframe(true);

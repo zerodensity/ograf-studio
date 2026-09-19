@@ -4,14 +4,58 @@ import {
   createFieldDefinition,
   createKeyframe,
   createLayerKeyframe,
+  createLayerPropertyKeyframe,
   createLayerOfKind,
   createProject,
   createTransition,
 } from './factory';
 import { migrateProject } from './migrations';
+import { createShaderPaint } from './shader';
+import { getShaderAnimatableProperties } from './shaderAnimation';
 import type { LayerTransform, Project } from './types';
 
 describe('migrateProject', () => {
+  it('never materializes unkeyed shader tracks during reload and preserves explicitly authored constant keys', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw new Error('Expected text.');
+    layer.element.fill = createShaderPaint();
+    layer.element.strokePaint = createShaderPaint();
+    layer.keyframes = [
+      createLayerKeyframe(0, {
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        rotation: 0,
+        opacity: 1,
+        transformOriginX: 0.5,
+        transformOriginY: 0.5,
+      }),
+    ];
+    layer.animationTracks.x = [createLayerPropertyKeyframe(0, 0)];
+    project.compositions[0]!.layers = [layer];
+    for (const property of getShaderAnimatableProperties(layer.element))
+      layer.animationTracks[property] = [];
+    const explicit = createLayerPropertyKeyframe(0, 8);
+    layer.animationTracks['strokePaint.parameters.waveFrequency'] = [explicit];
+    project.compositions[0]!.components = [
+      { id: 'component', name: 'Saved shader', layers: [structuredClone(layer)], dataFields: [] },
+    ];
+    const before = JSON.stringify(project);
+    const migrated = migrateProject(project);
+    for (const restored of [
+      migrated.compositions[0]!.layers[0]!,
+      migrated.compositions[0]!.components[0]!.layers[0]!,
+    ]) {
+      const shaderTracks = Object.keys(restored.animationTracks).filter((property) =>
+        property.includes('.parameters.'),
+      );
+      expect(shaderTracks).toEqual(['strokePaint.parameters.waveFrequency']);
+      expect(restored.animationTracks['strokePaint.parameters.waveFrequency']).toEqual([explicit]);
+    }
+    expect(JSON.stringify(project)).toBe(before);
+  });
   it('preserves a still presentation image while upgrading its layout fields', () => {
     const project = createProject();
     project.documentVersion = 24;

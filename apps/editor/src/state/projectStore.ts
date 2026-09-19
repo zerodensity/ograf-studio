@@ -1508,10 +1508,15 @@ export const useProjectStore = create<ProjectStore>()(
           materializeAnimationTracks(layer);
           for (const property of Object.keys(layer.animationTracks) as AnimatableLayerProperty[]) {
             const track = layer.animationTracks[property] ?? [];
-            if (track.length > 1) {
+            if (track.length > 1 || parseShaderAnimationProperty(property)) {
               layer.animationTracks[property] = track.filter(
                 (keyframe) => keyframe.frame !== removed.frame,
               );
+              if (
+                parseShaderAnimationProperty(property) &&
+                layer.animationTracks[property]?.length === 0
+              )
+                delete layer.animationTracks[property];
             }
           }
         }),
