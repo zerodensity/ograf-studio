@@ -256,13 +256,22 @@ export function ShaderResources() {
                   <ShaderThumbnail paint={resource.paint} label={resource.label} />
                   <div className="resources-shader-copy">
                     <strong title={resource.label}>{resource.label}</strong>
-                    <span title={`${resource.compositionName} · ${resource.usageLabel}`}>
-                      {resource.compositionName}
-                      {resource.paint.name ? ` · ${resource.usageLabel}` : ''}
-                      {resource.componentName ? ` · ${resource.componentName}` : ''}
-                      {resource.locked ? ' · Locked' : ''}
-                    </span>
-                    <div className="resources-tree-actions wrap">
+                    {(project.compositions.length > 1 ||
+                      resource.paint.name ||
+                      resource.componentName ||
+                      resource.locked) && (
+                      <span title={`${resource.compositionName} · ${resource.usageLabel}`}>
+                        {[
+                          project.compositions.length > 1 ? resource.compositionName : '',
+                          resource.paint.name ? resource.usageLabel : '',
+                          resource.componentName ?? '',
+                          resource.locked ? 'Locked' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    )}
+                    <div className="resources-tree-actions">
                       <button
                         type="button"
                         aria-label={`Edit shader: ${resource.label}${resource.paint.name ? ` — ${resource.usageLabel}` : ''}`}
@@ -273,7 +282,7 @@ export function ShaderResources() {
                           setEditor(editorRequest(resource));
                         }}
                       >
-                        Edit shader
+                        Edit
                       </button>
                       <button
                         type="button"
@@ -286,7 +295,7 @@ export function ShaderResources() {
                           input.current?.click();
                         }}
                       >
-                        Load GLSL
+                        Load
                       </button>
                       <button
                         type="button"
@@ -309,7 +318,20 @@ export function ShaderResources() {
                           }
                         }}
                       >
-                        Remove shader
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.7"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                          focusable="false"
+                        >
+                          <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" />
+                        </svg>
                       </button>
                     </div>
                   </div>

@@ -133,7 +133,7 @@ Width** to animate its border separately from the fill. The object remains edita
 to Content, font, sizing, or alignment update both paints. Solid and shader paints can be mixed.
 
 **Resources → Shader** lists the project's fill and outline shaders, including saved component
-definitions. Each entry has a thumbnail, **Edit shader**, and **Load GLSL**. The editor has an
+definitions. Each entry has a thumbnail, **Edit**, **Load**, and a remove icon. The editor has an
 editable shader name and a larger animated preview. Changes stay in the window until **Save
 shader**; **Cancel** discards them. **Preview shader** tests source changes in the preview, and
 loading a file opens a draft. Entries are independent, even when their source is identical. Edits
@@ -141,7 +141,7 @@ preserve compatible parameter values and keep the current canvas selection.
 Drag a shader entry from Resources onto an object's **Fill** or text **Outline** row to apply a
 copy of its current source, settings, name, and controls. The destination highlights while dragging;
 the original shader stays independent.
-**Remove shader** detaches the selected usage without deleting its object. Text returns to its
+The trash icon (**Remove shader**) detaches the selected usage without deleting its object. Text returns to its
 solid fill or outline color, shapes use the default solid fill, and media shows its original pixels.
 Only that usage's shader bindings and unused generated controls are removed. Use **Undo** to restore it.
 

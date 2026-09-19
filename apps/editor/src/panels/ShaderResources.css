@@ -1,9 +1,9 @@
 .resources-shader-item {
   display: grid;
-  grid-template-columns: 10px 80px minmax(0, 1fr);
+  grid-template-columns: 8px 64px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  padding: 7px 4px;
+  gap: 6px;
+  padding: 5px 3px;
   border-bottom: 1px solid var(--border);
   cursor: grab;
 }
@@ -12,14 +12,19 @@
 }
 .resources-shader-grip {
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: 12px;
+}
+.resources-shader-item .shader-thumbnail {
+  flex-basis: 64px;
+  width: 64px;
+  height: 36px;
 }
 .resources-shader-item:last-child {
   border-bottom: 0;
 }
 .resources-shader-copy {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 .resources-shader-copy > strong,
@@ -39,12 +44,29 @@
 }
 .resources-shader-copy .resources-tree-actions {
   gap: 4px;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
 }
-.resources-shader-copy button {
+.resources-shader-copy .resources-tree-actions > button {
   font-size: 10px;
+  min-height: 22px;
+  padding: 2px 5px;
+  line-height: 14px;
+  white-space: nowrap;
+  flex: none;
 }
-.resources-shader-copy .resources-shader-remove {
+.resources-shader-copy .resources-tree-actions > .resources-shader-remove {
   color: #ffb4ac;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.resources-shader-copy .resources-tree-actions > .resources-shader-remove:disabled {
+  color: var(--text-dim);
 }
 .shader-resource-dialog {
   width: min(900px, calc(100vw - 40px));
