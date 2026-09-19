@@ -10,6 +10,8 @@ import {
   createLayerKeyframe,
   createDefaultTransform,
   createLayerPropertyKeyframe,
+  createProject,
+  createShaderResource,
 } from '@ograf-editor/scene-model';
 import { createOGrafAuthoringHost } from './index';
 import {
@@ -22,6 +24,27 @@ describe('OGraf MCP authoring host', () => {
   const host = createOGrafAuthoringHost();
   const client = new Client({ name: 'ograf-mcp-test', version: '1.0.0' });
   let testEditorSocket: WebSocket | null = null;
+  it('reads saved unused shaders as a project section without inventing layers or data fields', async () => {
+    const resource = createShaderResource();
+    resource.paint.name = 'Saved library shader';
+    const project = createProject({ shaders: [resource] });
+    host.workspace.create('shader-library-read', project);
+    const result = await client.callTool({
+      name: 'ograf_get_project',
+      arguments: { sessionId: 'shader-library-read', include: ['shaders'], tracks: 'none' },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      project: { shaders: [resource] },
+      validation: { valid: true },
+    });
+    expect(
+      host.workspace.get('shader-library-read').snapshot().project.compositions[0]!.layers,
+    ).toEqual([]);
+    expect(
+      host.workspace.get('shader-library-read').snapshot().project.compositions[0]!.dataFields,
+    ).toEqual([]);
+  });
   it('applies and edits pack colors through existing GDD bindings and restores their defaults', async () => {
     const sessionId = 'pack-colors-test';
     await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });

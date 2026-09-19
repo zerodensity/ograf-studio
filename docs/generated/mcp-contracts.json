@@ -77,7 +77,7 @@
     {
       "name": "ograf_get_project",
       "title": "Get editable OGraf project",
-      "description": "Read project and revision. Omit filters for full data; include sections and tracks=animated-only reduce output. Preserve IDs.",
+      "description": "Read project and revision. Omit filters for full data; use include and tracks for compact output. Preserve IDs.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -95,7 +95,8 @@
                 "dataFields",
                 "transitions",
                 "layout",
-                "patterns"
+                "patterns",
+                "shaders"
               ]
             }
           },

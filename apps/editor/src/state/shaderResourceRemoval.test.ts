@@ -16,7 +16,19 @@ import {
 import { useProjectStore } from './projectStore';
 import { useSelectionStore } from './selectionStore';
 import { useTimelineStore } from './timelineStore';
-import { collectShaderResources, type ShaderResourceTarget } from './shaderResources';
+import {
+  collectShaderResources,
+  isStoredShaderResourceTarget,
+  type ShaderResourceTarget,
+  type ShaderUsageTarget,
+} from './shaderResources';
+
+function inlineShaderResources(project: Parameters<typeof collectShaderResources>[0]) {
+  return collectShaderResources(project).filter(
+    (resource): resource is Extract<typeof resource, ShaderUsageTarget> =>
+      !isStoredShaderResourceTarget(resource),
+  );
+}
 
 function fixture(kind: NewLayerKind = 'text') {
   const project = createProject();
@@ -58,7 +70,7 @@ describe('shader resource removal', () => {
       const { project } = fixture(kind);
       useProjectStore.getState().loadProject(project);
       const state = useProjectStore.getState();
-      const target = collectShaderResources(state.project).find((item) => item.slot === 'fill')!;
+      const target = inlineShaderResources(state.project).find((item) => item.slot === 'fill')!;
       const before = structuredClone(state.project.compositions[0]!.layers[0]!);
       const otherFields = state.project.compositions[0]!.dataFields.filter(
         (field) => field.generatedShaderParameter?.paintSlot === 'stroke',
@@ -101,7 +113,7 @@ describe('shader resource removal', () => {
   it('removes only an outline and retains the original solid stroke settings and fill controls', () => {
     useProjectStore.getState().loadProject(fixture().project);
     const before = useProjectStore.getState().project.compositions[0]!;
-    const target = collectShaderResources(useProjectStore.getState().project).find(
+    const target = inlineShaderResources(useProjectStore.getState().project).find(
       (item) => item.slot === 'stroke',
     )!;
     const fillFields = before.dataFields.filter(
@@ -139,7 +151,7 @@ describe('shader resource removal', () => {
       buildComponentDefinition(composition, [layer.id, other.id], 'Saved shader', 'component'),
     );
     useProjectStore.getState().loadProject(project);
-    const target = collectShaderResources(useProjectStore.getState().project).find(
+    const target = inlineShaderResources(useProjectStore.getState().project).find(
       (item) => item.componentId && item.slot === 'fill',
     )!;
     const liveBefore = JSON.stringify(useProjectStore.getState().project.compositions[0]!.layers);
@@ -171,7 +183,7 @@ describe('shader resource removal', () => {
     const outlineFields = project.compositions[0]!.dataFields.filter(
       (field) => field.generatedShaderParameter?.paintSlot === 'stroke',
     );
-    const target = collectShaderResources(project).find((item) => item.slot === 'fill')!;
+    const target = inlineShaderResources(project).find((item) => item.slot === 'fill')!;
     expect(() => useProjectStore.getState().removeShaderResource(target)).not.toThrow();
     const after = useProjectStore.getState().project.compositions[0]!;
     expect(getElementShaderPaint(after.layers[0]!.element, 'stroke')).toEqual(outlineBefore);
@@ -192,7 +204,7 @@ describe('shader resource removal', () => {
     }));
     useProjectStore.setState({ project });
     const before = structuredClone(layer);
-    useProjectStore.getState().removeShaderResource(collectShaderResources(project)[0]!);
+    useProjectStore.getState().removeShaderResource(inlineShaderResources(project)[0]!);
     const after = useProjectStore.getState().project.compositions[0]!.layers[0]!;
     expect(after.element).toMatchObject({ type: 'rectangle', fill: '#3b3f4a', strokeWidth: 0 });
     expect(after.id).toBe(before.id);
@@ -208,7 +220,7 @@ describe('shader resource removal', () => {
     project.compositions.push(secondary);
     syncShaderParameterFields(secondary, secondary.layers[0]!);
     useProjectStore.getState().loadProject(project);
-    const target = collectShaderResources(useProjectStore.getState().project)[0]!;
+    const target = inlineShaderResources(useProjectStore.getState().project)[0]!;
     useProjectStore.getState().toggleLayerLock(target.layerId);
     const lockedBefore = JSON.stringify(useProjectStore.getState().project);
     expect(() => useProjectStore.getState().removeShaderResource(target)).toThrow(/locked/);

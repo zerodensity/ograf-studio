@@ -1,3 +1,11 @@
+.resources-tree-branch > summary > .resources-new-shader {
+  flex: none;
+  min-height: 22px;
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+}
 .resources-shader-item {
   display: grid;
   grid-template-columns: 8px 64px minmax(0, 1fr);

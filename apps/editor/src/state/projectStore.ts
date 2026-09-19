@@ -45,6 +45,8 @@ import {
   createLayerLoopClip,
   createLayerOfKind,
   createProject,
+  createShaderPaint,
+  createShaderResource as createStoredShaderResource,
   createRectangleElement,
   inspectShaderElement,
   getElementShaderPaints,
@@ -99,6 +101,7 @@ import {
   type ImageSequenceElement,
   type LottieElement,
   type ShaderElement,
+  type ShaderPaint,
   type LayerKeyframe,
   type LayerPropertyKeyframe,
   type LayerLoopActivation,
@@ -134,10 +137,13 @@ import { planLifecycleRetime, type LifecycleRetimePlan } from './lifecycleRetime
 import { buildSvgBundle } from './svgBundleImport';
 import { placeImages, prepareImage, readImageSize, type ImagePlacement } from './imageImport';
 import {
+  defaultShaderResourceName,
+  isStoredShaderResourceTarget,
   resolveShaderResource,
   shaderPaintWithPatch,
   type ShaderResourceTarget,
   type ShaderResourcePatch,
+  type StoredShaderResourceTarget,
 } from './shaderResources';
 
 export type { NewLayerKind } from '@ograf-editor/scene-model';
@@ -289,6 +295,7 @@ interface ProjectActions {
     patch: Partial<Pick<TextElement, 'strokeColor' | 'strokeWidth' | 'strokePaint'>>,
   ) => void;
   updateLayerPaint: (layerId: string, frame: number, paint: Paint | undefined) => void;
+  createShaderResource: (paint?: ShaderPaint) => StoredShaderResourceTarget;
   updateShaderResource: (target: ShaderResourceTarget, patch: ShaderResourcePatch) => void;
   removeShaderResource: (target: ShaderResourceTarget) => void;
   updateLayerEffects: (layerId: string, frame: number, patch: Partial<LayerEffects>) => void;
@@ -1778,8 +1785,25 @@ export const useProjectStore = create<ProjectStore>()(
           }
         }),
 
+      createShaderResource: (paint) => {
+        let target: StoredShaderResourceTarget | undefined;
+        set((state) => {
+          const next = shaderPaintWithPatch(paint ?? createShaderPaint(), {});
+          if (!next.name) next.name = defaultShaderResourceName(state.project);
+          const resource = createStoredShaderResource({ paint: next });
+          state.project.shaders.push(resource);
+          target = { shaderId: resource.id };
+        });
+        return target!;
+      },
+
       updateShaderResource: (target, patch) =>
         set((state) => {
+          if (isStoredShaderResourceTarget(target)) {
+            const { resource, paint } = resolveShaderResource(state.project, target);
+            resource.paint = shaderPaintWithPatch(paint, patch);
+            return;
+          }
           const { composition, component, layer, paint } = resolveShaderResource(
             state.project,
             target,
@@ -1812,6 +1836,13 @@ export const useProjectStore = create<ProjectStore>()(
 
       removeShaderResource: (target) =>
         set((state) => {
+          if (isStoredShaderResourceTarget(target)) {
+            resolveShaderResource(state.project, target);
+            state.project.shaders = state.project.shaders.filter(
+              (resource) => resource.id !== target.shaderId,
+            );
+            return;
+          }
           const { composition, component, layer } = resolveShaderResource(state.project, target);
           if (layer.isLocked) throw new Error(`Shader resource object "${layer.name}" is locked.`);
           if (target.slot === 'stroke') {

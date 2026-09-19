@@ -87,7 +87,7 @@ describe('shared pattern lighting authoring', () => {
     old.documentVersion = 28;
     const p = setTilingPattern(old.compositions[0]!, {});
     const migrated = migrateProject(old);
-    expect(migrated.documentVersion).toBe(32);
+    expect(migrated.documentVersion).toBe(33);
     expect(migrated.compositions[0]!.patterns[0]).toEqual(p);
     expect(migrated.compositions[0]!.patterns[0]!.lighting).toBeUndefined();
     setTilingPattern(old.compositions[0]!, { lighting: {} }, p.id);

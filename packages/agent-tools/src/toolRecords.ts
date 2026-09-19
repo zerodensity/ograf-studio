@@ -113,6 +113,13 @@ interface ToolRegistrar {
 
 const SHADER_PAINT_CAPABILITIES = {
   type: 'shader',
+  library: {
+    storage: 'project.shaders',
+    shape: '{id,paint:ShaderPaint}',
+    read: 'ograf_get_project include:["shaders"]',
+    semantics:
+      'Saved unused shaders are authoring resources, with no layer or OGraf data fields. Applying a library shader copies its paint independently into an object.',
+  },
   slots: {
     fill: 'All listed elements',
     stroke: 'Text only, stored in element.strokePaint; absent uses strokeColor.',
@@ -734,6 +741,7 @@ const PROJECT_INCLUDE_SECTIONS = [
   'transitions',
   'layout',
   'patterns',
+  'shaders',
 ] as const;
 type ProjectIncludeSection = (typeof PROJECT_INCLUDE_SECTIONS)[number];
 type ProjectTracksMode = 'none' | 'animated-only' | 'full';
@@ -846,6 +854,7 @@ function projectSnapshotProjection(
       return projectedComposition;
     }),
   };
+  if (sections.has('shaders')) projectedProject.shaders = project.shaders;
   if (sections.has('metadata')) {
     projectedProject.documentVersion = project.documentVersion;
     projectedProject.name = project.name;
@@ -2282,7 +2291,7 @@ export function createOGrafToolRecords(
     {
       title: 'Get editable OGraf project',
       description:
-        'Read project and revision. Omit filters for full data; include sections and tracks=animated-only reduce output. Preserve IDs.',
+        'Read project and revision. Omit filters for full data; use include and tracks for compact output. Preserve IDs.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         include: z.array(z.enum(PROJECT_INCLUDE_SECTIONS)).min(1).optional(),

@@ -246,6 +246,12 @@ export interface ShaderPaint {
 /** @deprecated Import compatibility only; current scenes use a rectangle with ShaderPaint. */
 export type ShaderElement = ShaderPaint;
 
+/** An authoring-only reusable shader; applying it creates an independent inline paint copy. */
+export interface ShaderResource {
+  id: string;
+  paint: ShaderPaint;
+}
+
 export type Element =
   | RectangleElement
   | EllipseElement
@@ -827,4 +833,5 @@ export interface Project {
   supportsNonRealTime: boolean;
   mainCompositionId: string;
   compositions: Composition[];
+  shaders: ShaderResource[];
 }

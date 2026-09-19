@@ -179,7 +179,7 @@ describe('shader paint model', () => {
     const source = structuredClone(project);
     const migrated = migrateProject(project);
     const restored = migrated.compositions[0]!.layers[0]!;
-    expect(migrated.documentVersion).toBe(32);
+    expect(migrated.documentVersion).toBe(33);
     expect(restored.id).toBe(layer.id);
     expect(getElementShaderPaint(restored.element)?.name).toBe('Legacy background');
     expect(restored.keyframes).toEqual(layer.keyframes);

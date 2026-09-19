@@ -1116,6 +1116,36 @@ function validateComposition(composition: Composition, errors: string[], warning
 export function validateProject(project: Project): ProjectValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
+  if (!Array.isArray(project.shaders)) {
+    errors.push('Project shader library must be an array.');
+  } else {
+    const shaderIds: string[] = [];
+    for (const [index, resource] of project.shaders.entries()) {
+      if (!resource || typeof resource !== 'object' || Array.isArray(resource)) {
+        errors.push(`Shader library entry ${index + 1} must be an object.`);
+        continue;
+      }
+      if (typeof resource.id !== 'string' || !resource.id.trim())
+        errors.push(`Shader library entry ${index + 1} requires a non-empty id.`);
+      else shaderIds.push(resource.id);
+      if (!isShaderPaint(resource.paint)) {
+        errors.push(`Shader library entry "${resource.id || index + 1}" requires a shader paint.`);
+        continue;
+      }
+      const inspection = inspectShaderElement(resource.paint);
+      errors.push(
+        ...inspection.errors.map(
+          (error) => `Shader library entry "${resource.id || index + 1}": ${error}`,
+        ),
+      );
+      warnings.push(
+        ...inspection.warnings.map(
+          (warning) => `Shader library entry "${resource.id || index + 1}": ${warning}`,
+        ),
+      );
+    }
+    for (const id of duplicates(shaderIds)) errors.push(`Duplicate shader resource id "${id}".`);
+  }
   if (!project.id.trim()) errors.push('Project id is required.');
   if (!project.name.trim()) errors.push('Project name is required.');
   if (!project.supportsRealTime && !project.supportsNonRealTime) {

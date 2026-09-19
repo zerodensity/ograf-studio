@@ -1,5 +1,9 @@
 import type { Project, ShaderPaint } from '@ograf-editor/scene-model';
-import { resolveShaderResource, type ShaderResourceTarget } from './shaderResources';
+import {
+  resolveShaderResource,
+  shaderResourceTarget,
+  type ShaderResourceTarget,
+} from './shaderResources';
 
 export const SHADER_RESOURCE_MIME = 'application/x-ograf-shader-resource';
 const MAX_PAYLOAD_BYTES = 4096;
@@ -30,6 +34,12 @@ function validateReference(value: unknown): ShaderResourceDragReference {
     throw new Error('Invalid shader resource drag reference.');
   }
   const target = value.target;
+  if ('shaderId' in target) {
+    if (Object.keys(target).some((key) => key !== 'shaderId') || !identifier(target.shaderId)) {
+      throw new Error('Invalid project shader resource drag target.');
+    }
+    return { projectId: value.projectId, target: { shaderId: target.shaderId } };
+  }
   if (
     Object.keys(target).some(
       (key) => !['compositionId', 'layerId', 'slot', 'componentId'].includes(key),
@@ -66,12 +76,7 @@ function assertPayloadSize(payload: string): void {
 export function encodeShaderResourceDrag(projectId: string, target: ShaderResourceTarget): string {
   const reference = validateReference({
     projectId,
-    target: {
-      compositionId: target.compositionId,
-      layerId: target.layerId,
-      slot: target.slot,
-      ...(target.componentId !== undefined ? { componentId: target.componentId } : {}),
-    },
+    target: shaderResourceTarget(target),
   });
   const payload = JSON.stringify(reference);
   assertPayloadSize(payload);

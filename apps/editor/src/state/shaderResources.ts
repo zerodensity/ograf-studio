@@ -11,19 +11,43 @@ import {
   type ShaderPaint,
   type ShaderPaintSlot,
   type ShaderParameterValue,
+  type ShaderResource,
 } from '@ograf-editor/scene-model';
 
 /** Persist only identity when opening a resource editor; resolve the current paint before writing. */
-export interface ShaderResourceTarget {
+export interface ShaderUsageTarget {
   compositionId: string;
   layerId: string;
   slot: ShaderPaintSlot;
   componentId?: string;
 }
 
+export interface StoredShaderResourceTarget {
+  shaderId: string;
+}
+export type ShaderResourceTarget = ShaderUsageTarget | StoredShaderResourceTarget;
+
+export function isStoredShaderResourceTarget(
+  target: ShaderResourceTarget,
+): target is StoredShaderResourceTarget {
+  return 'shaderId' in target;
+}
+
+/** Drop display metadata when retaining or transferring a resource identity. */
+export function shaderResourceTarget(target: ShaderResourceTarget): ShaderResourceTarget {
+  return isStoredShaderResourceTarget(target)
+    ? { shaderId: target.shaderId }
+    : {
+        compositionId: target.compositionId,
+        layerId: target.layerId,
+        slot: target.slot,
+        ...(target.componentId === undefined ? {} : { componentId: target.componentId }),
+      };
+}
+
 export type ShaderResourcePatch = Partial<Omit<ShaderPaint, 'type'>>;
 
-export interface ShaderResourceUsage extends ShaderResourceTarget {
+export type ShaderResourceUsage = ShaderResourceTarget & {
   key: string;
   label: string;
   usageLabel: string;
@@ -31,9 +55,10 @@ export interface ShaderResourceUsage extends ShaderResourceTarget {
   locked: boolean;
   compositionName: string;
   componentName?: string;
-}
+};
 
 export function shaderResourceKey(target: ShaderResourceTarget): string {
+  if (isStoredShaderResourceTarget(target)) return JSON.stringify(['library', target.shaderId]);
   return JSON.stringify([
     target.compositionId,
     target.componentId ?? null,
@@ -44,46 +69,98 @@ export function shaderResourceKey(target: ShaderResourceTarget): string {
 
 /** Each usage is independent, even when two objects use identical GLSL or share a source layer ID. */
 export function collectShaderResources(project: Project): ShaderResourceUsage[] {
-  return project.compositions.flatMap((composition) => {
-    const collect = (layers: Layer[], component?: ComponentDefinition) =>
-      layers.flatMap((layer) =>
-        getElementShaderPaints(layer.element).map(({ slot, paint }) => {
-          const target: ShaderResourceTarget = {
-            compositionId: composition.id,
-            layerId: layer.id,
-            slot,
-            ...(component ? { componentId: component.id } : {}),
-          };
-          const usageLabel = `${layer.name} · ${slot === 'stroke' ? 'Outline' : 'Fill'}`;
-          return {
-            ...target,
-            key: shaderResourceKey(target),
-            label: (typeof paint.name === 'string' ? paint.name.trim() : '') || usageLabel,
-            usageLabel,
-            paint,
-            locked: layer.isLocked,
-            compositionName: composition.name,
-            ...(component ? { componentName: component.name } : {}),
-          };
-        }),
-      );
-    return [
-      ...collect(composition.layers),
-      ...composition.components.flatMap((component) => collect(component.layers, component)),
-    ];
-  });
+  const stored: ShaderResourceUsage[] = (project.shaders ?? []).map((resource) => ({
+    shaderId: resource.id,
+    key: shaderResourceKey({ shaderId: resource.id }),
+    label:
+      (typeof resource.paint.name === 'string' ? resource.paint.name.trim() : '') ||
+      'Project shader',
+    usageLabel: 'Project shader',
+    compositionName: 'Project library',
+    paint: resource.paint,
+    locked: false,
+  }));
+  return [
+    ...stored,
+    ...project.compositions.flatMap((composition) => {
+      const collect = (layers: Layer[], component?: ComponentDefinition) =>
+        layers.flatMap((layer) =>
+          getElementShaderPaints(layer.element).map(({ slot, paint }) => {
+            const target: ShaderResourceTarget = {
+              compositionId: composition.id,
+              layerId: layer.id,
+              slot,
+              ...(component ? { componentId: component.id } : {}),
+            };
+            const usageLabel = `${layer.name} · ${slot === 'stroke' ? 'Outline' : 'Fill'}`;
+            return {
+              ...target,
+              key: shaderResourceKey(target),
+              label: (typeof paint.name === 'string' ? paint.name.trim() : '') || usageLabel,
+              usageLabel,
+              paint,
+              locked: layer.isLocked,
+              compositionName: composition.name,
+              ...(component ? { componentName: component.name } : {}),
+            };
+          }),
+        );
+      return [
+        ...collect(composition.layers),
+        ...composition.components.flatMap((component) => collect(component.layers, component)),
+      ];
+    }),
+  ];
+}
+
+export function defaultShaderResourceName(project: Project): string {
+  const names = new Set(
+    collectShaderResources(project).map((resource) => resource.label.toLowerCase()),
+  );
+  let index = 1;
+  let name = 'New Shader';
+  while (names.has(name.toLowerCase())) {
+    index += 1;
+    name = `New Shader ${index}`;
+  }
+  return name;
+}
+
+interface ResolvedShaderUsage {
+  scope: 'usage';
+  composition: Composition;
+  component?: ComponentDefinition;
+  layer: Layer;
+  paint: ShaderPaint;
+}
+interface ResolvedStoredShader {
+  scope: 'library';
+  resource: ShaderResource;
+  paint: ShaderPaint;
 }
 
 /** Read-only lookup; callers decide whether viewing a locked resource is useful. */
 export function resolveShaderResource(
   project: Project,
+  target: StoredShaderResourceTarget,
+): ResolvedStoredShader;
+export function resolveShaderResource(
+  project: Project,
+  target: ShaderUsageTarget,
+): ResolvedShaderUsage;
+export function resolveShaderResource(
+  project: Project,
   target: ShaderResourceTarget,
-): {
-  composition: Composition;
-  component?: ComponentDefinition;
-  layer: Layer;
-  paint: ShaderPaint;
-} {
+): ResolvedShaderUsage | ResolvedStoredShader;
+export function resolveShaderResource(
+  project: Project,
+  target: ShaderResourceTarget,
+): ResolvedShaderUsage | ResolvedStoredShader {
+  if (isStoredShaderResourceTarget(target)) {
+    const resource = project.shaders?.find((item) => item.id === target.shaderId);
+    if (!resource) throw new Error('The project shader resource no longer exists.');
+    return { scope: 'library', resource, paint: resource.paint };
+  }
   if (target.slot !== 'fill' && target.slot !== 'stroke')
     throw new Error('Unknown shader paint slot.');
   const composition = project.compositions.find((item) => item.id === target.compositionId);
@@ -100,7 +177,7 @@ export function resolveShaderResource(
   if (!layer) throw new Error('The shader resource object no longer exists.');
   const paint = getElementShaderPaint(layer.element, target.slot);
   if (!paint) throw new Error('This object no longer uses a shader in the selected paint slot.');
-  return { composition, component, layer, paint };
+  return { scope: 'usage', composition, component, layer, paint };
 }
 
 /** Preserve compatible controls using the latest values, dropping removed or retyped symbols. */

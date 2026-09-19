@@ -4,6 +4,7 @@ import { createShaderRenderer } from '@ograf-editor/ograf-runtime';
 import {
   MAX_SHADER_SOURCE_BYTES,
   MAX_SHADER_NAME_LENGTH,
+  createShaderPaint,
   type ShaderPaint,
 } from '@ograf-editor/scene-model';
 import { isDomElement, useEditorWindow } from '../layout/EditorWindow';
@@ -14,6 +15,9 @@ import {
   collectShaderResources,
   shaderPaintWithPatch,
   shaderResourcePatchBetween,
+  shaderResourceTarget,
+  defaultShaderResourceName,
+  isStoredShaderResourceTarget,
   type ShaderResourceTarget,
   type ShaderResourceUsage,
 } from '../state/shaderResources';
@@ -24,7 +28,7 @@ import './ShaderResources.css';
 
 interface ShaderEditorRequest {
   key: string;
-  target: ShaderResourceTarget;
+  target?: ShaderResourceTarget;
   label: string;
   initialPaint: ShaderPaint;
   draftSource?: string;
@@ -32,10 +36,9 @@ interface ShaderEditorRequest {
 }
 
 function editorRequest(resource: ShaderResourceUsage): ShaderEditorRequest {
-  const { compositionId, layerId, slot, componentId } = resource;
   return {
     key: resource.key,
-    target: { compositionId, layerId, slot, ...(componentId ? { componentId } : {}) },
+    target: shaderResourceTarget(resource),
     label: resource.label,
     initialPaint: structuredClone(resource.paint),
   };
@@ -53,6 +56,8 @@ function ShaderResourceDialog({
   const { document } = useEditorWindow();
   const dialog = useRef<HTMLDialogElement>(null);
   const updateShader = useProjectStore((state) => state.updateShaderResource);
+  const createShader = useProjectStore((state) => state.createShaderResource);
+  const isNew = request.target === undefined;
   const [baseline] = useState(() => request.initialPaint);
   const [draft, setDraft] = useState(() => {
     try {
@@ -68,11 +73,13 @@ function ShaderResourceDialog({
   const sourceRef = useRef(source);
   const [error, setError] = useState<string | null>(null);
   const dirty =
-    source !== baseline.fragmentSource || JSON.stringify(draft) !== JSON.stringify(baseline);
+    isNew ||
+    source !== baseline.fragmentSource ||
+    JSON.stringify(draft) !== JSON.stringify(baseline);
   const save = () => {
     try {
       const next = shaderPaintWithPatch(draftRef.current, { fragmentSource: sourceRef.current });
-      if (next.fragmentSource !== baseline.fragmentSource) {
+      if (isNew || next.fragmentSource !== baseline.fragmentSource) {
         const canvas = document.createElement('canvas');
         const renderer = createShaderRenderer(canvas, next, { width: 4, height: 4 });
         try {
@@ -81,7 +88,14 @@ function ShaderResourceDialog({
           renderer.dispose();
         }
       }
-      updateShader(request.target, shaderResourcePatchBetween(baseline, next));
+      const target = request.target;
+      runDiscreteHistoryStep(
+        () => {
+          if (target) updateShader(target, shaderResourcePatchBetween(baseline, next));
+          else createShader(next);
+        },
+        `${isNew ? 'Create' : 'Edit'} shader “${next.name || request.label}”`,
+      );
       onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -109,10 +123,19 @@ function ShaderResourceDialog({
       onKeyDown={(event) => event.stopPropagation()}
     >
       <header className="shader-resource-dialog-header">
-        {resource && <ShaderLivePreview paint={draft} label={draft.name || resource.usageLabel} />}
+        {(isNew || resource) && (
+          <ShaderLivePreview
+            paint={draft}
+            label={draft.name || resource?.usageLabel || request.label}
+          />
+        )}
         <div className="shader-resource-heading">
-          <h2 id="shader-resource-dialog-title">Edit shader</h2>
-          <p>{resource?.usageLabel ?? request.label}</p>
+          <h2 id="shader-resource-dialog-title">{isNew ? 'New Shader' : 'Edit shader'}</h2>
+          <p>
+            {isNew
+              ? 'Save it, then drag it onto Fill or Outline.'
+              : (resource?.usageLabel ?? request.label)}
+          </p>
           <label className="shader-resource-name">
             Shader name
             <input
@@ -120,7 +143,7 @@ function ShaderResourceDialog({
               value={draft.name ?? ''}
               placeholder={resource?.usageLabel ?? request.label}
               maxLength={MAX_SHADER_NAME_LENGTH}
-              disabled={!resource || resource.locked}
+              disabled={(!isNew && !resource) || resource?.locked}
               onChange={(event) => {
                 const next = { ...draftRef.current, name: event.target.value };
                 draftRef.current = next;
@@ -136,18 +159,18 @@ function ShaderResourceDialog({
         </button>
       </header>
       <div className="shader-resource-dialog-body">
-        {!resource ? (
+        {!isNew && !resource ? (
           <p role="alert">This shader is no longer in the project.</p>
         ) : (
           <>
             <p className="shader-resource-context">
-              {resource.compositionName}
-              {resource.componentName ? ` · Component: ${resource.componentName}` : ''}
+              {resource?.compositionName ?? 'Project shader'}
+              {resource?.componentName ? ` · Component: ${resource.componentName}` : ''}
             </p>
-            {resource.locked && (
+            {resource?.locked && (
               <p role="status">This object is locked. Unlock it to edit its shader.</p>
             )}
-            <fieldset disabled={resource.locked}>
+            <fieldset disabled={resource?.locked}>
               <ShaderSourceEditor
                 element={draft}
                 draftSource={source}
@@ -181,7 +204,7 @@ function ShaderResourceDialog({
         <button
           type="button"
           className="shader-resource-save"
-          disabled={!dirty || !resource || resource.locked}
+          disabled={!dirty || (!isNew && !resource) || resource?.locked}
           onClick={save}
         >
           Save shader
@@ -220,17 +243,37 @@ export function ShaderResources() {
       <details
         className="resources-tree-branch"
         role="treeitem"
+        open={open}
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
         <summary>
-          <span className="resources-tree-label">Shader</span>
+          <span className="resources-tree-label">Shaders</span>
           <span className="resources-tree-count">{resources.length}</span>
+          <button
+            type="button"
+            className="resources-new-shader"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              requestVersion.current += 1;
+              pendingFile.current = null;
+              setError(null);
+              setOpen(true);
+              setEditor({
+                key: 'new-shader',
+                label: 'New Shader',
+                initialPaint: createShaderPaint({ name: defaultShaderResourceName(project) }),
+              });
+            }}
+          >
+            New Shader
+          </button>
         </summary>
         <div className="resources-tree-group" role="group">
           {open &&
             (resources.length === 0 ? (
               <p className="panel-placeholder">
-                Choose Shader in an object's Fill or text Outline to add it here.
+                Create a shader, then drag it onto Fill or Outline.
               </p>
             ) : (
               resources.map((resource) => (
@@ -301,13 +344,19 @@ export function ShaderResources() {
                         type="button"
                         className="resources-shader-remove"
                         aria-label={`Remove shader: ${resource.label}${resource.paint.name ? ` — ${resource.usageLabel}` : ''}`}
-                        title={`Remove the shader from ${resource.usageLabel}. Keep the object and return to its solid paint or original pixels. Undo restores the shader.`}
+                        title={
+                          isStoredShaderResourceTarget(resource)
+                            ? 'Remove this project shader. Objects using copies keep their shaders. Undo restores it.'
+                            : `Remove the shader from ${resource.usageLabel}. Keep the object and return to its solid paint or original pixels. Undo restores the shader.`
+                        }
                         disabled={resource.locked}
                         onClick={() => {
                           try {
                             runDiscreteHistoryStep(
                               () => removeShader(resource),
-                              `Remove shader “${resource.label}” from ${resource.usageLabel}`,
+                              isStoredShaderResourceTarget(resource)
+                                ? `Remove shader “${resource.label}”`
+                                : `Remove shader “${resource.label}” from ${resource.usageLabel}`,
                             );
                             requestVersion.current += 1;
                             pendingFile.current = null;

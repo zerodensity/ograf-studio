@@ -23,6 +23,7 @@ import {
   migrateShaderElement,
   migrateShaderBindingTarget,
   getElementShaderPaint,
+  isShaderPaint,
 } from './shader';
 import { compositionWithShaderParameterFields } from './shaderFields';
 import type {
@@ -116,12 +117,13 @@ type LegacyFieldDefinition = Omit<
 
 type LegacyProject = Omit<
   Project,
-  'documentVersion' | 'compositions' | 'supportsRealTime' | 'supportsNonRealTime'
+  'documentVersion' | 'compositions' | 'supportsRealTime' | 'supportsNonRealTime' | 'shaders'
 > & {
   documentVersion?: number;
   supportsRealTime?: boolean;
   supportsNonRealTime?: boolean;
   compositions: LegacyComposition[];
+  shaders?: Project['shaders'];
 };
 
 function cloneProject(project: LegacyProject): LegacyProject {
@@ -467,6 +469,8 @@ function normalizeComposition(composition: LegacyComposition): Composition {
 /** Upgrade an editor project without mutating the parsed/autosaved source object. */
 export function migrateProject(project: Project | LegacyProject): Project {
   const cloned = cloneProject(project as LegacyProject);
+  if (cloned.shaders !== undefined && !Array.isArray(cloned.shaders))
+    throw new Error('Project shader library must be an array.');
   if (
     cloned.thumbnailFrame != null &&
     (!Number.isInteger(cloned.thumbnailFrame) || cloned.thumbnailFrame < 0)
@@ -477,6 +481,11 @@ export function migrateProject(project: Project | LegacyProject): Project {
     documentVersion: PROJECT_DOCUMENT_VERSION,
     supportsRealTime: cloned.supportsRealTime ?? true,
     supportsNonRealTime: cloned.supportsNonRealTime ?? true,
+    shaders: (cloned.shaders ?? []).map((resource) =>
+      resource && typeof resource === 'object' && isShaderPaint(resource.paint)
+        ? { ...resource, paint: normalizeShaderElement(resource.paint) }
+        : resource,
+    ),
     compositions: cloned.compositions.map((composition) =>
       compositionWithShaderParameterFields(normalizeComposition(composition)),
     ),
