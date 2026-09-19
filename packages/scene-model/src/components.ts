@@ -79,10 +79,15 @@ export function instantiateComponentDefinition(
     definition.dataFields.map((field) => [field.id, createId('field')]),
   );
   const usedFieldKeys = new Set(composition.dataFields.map((field) => field.key));
-  const dataFields = definition.dataFields.map((source) => ({
-    ...cloneFieldDefinitionWithFreshIds(source, fieldIds[source.id]!),
-    key: uniqueFieldKey(source.key, usedFieldKeys),
-  }));
+  const dataFields = definition.dataFields.map((source) => {
+    const field = cloneFieldDefinitionWithFreshIds(source, fieldIds[source.id]!);
+    field.key = uniqueFieldKey(source.key, usedFieldKeys);
+    const shaderOwner = field.generatedShaderParameter;
+    if (shaderOwner && layerIds[shaderOwner.layerId]) {
+      shaderOwner.layerId = layerIds[shaderOwner.layerId]!;
+    }
+    return field;
+  });
   const groupId = createId('group');
   const instanceId = createId('component-instance');
   const sourceIds = new Set(definition.layers.map((layer) => layer.id));

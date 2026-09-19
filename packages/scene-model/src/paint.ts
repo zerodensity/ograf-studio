@@ -1,4 +1,14 @@
 import type { GradientPaint, GradientStop, Paint } from './types';
+import { isShaderPaint, inspectShaderElement } from './shader';
+
+export function isGradientPaint(value: unknown): value is GradientPaint {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'type' in value &&
+    ['linear', 'radial', 'conic'].includes(String(value.type))
+  );
+}
 
 function stopColor(stop: GradientStop): string {
   const opacity = Math.max(0, Math.min(1, stop.opacity));
@@ -13,6 +23,7 @@ function stopColor(stop: GradientStop): string {
 
 export function paintToCss(paint: Paint): string {
   if (typeof paint === 'string') return paint;
+  if (isShaderPaint(paint)) return 'transparent';
   const stops = [...paint.stops]
     .sort((a, b) => a.offset - b.offset)
     .map((stop) => `${stopColor(stop)} ${Math.max(0, Math.min(1, stop.offset)) * 100}%`)
@@ -35,6 +46,9 @@ export function createDefaultGradient(type: GradientPaint['type'] = 'linear'): G
 
 export function validatePaint(paint: Paint): string[] {
   if (typeof paint === 'string') return paint.trim() ? [] : ['solid paint cannot be empty'];
+  if (isShaderPaint(paint)) return inspectShaderElement(paint).errors;
+  if (!paint || typeof paint !== 'object')
+    return ['paint must be a solid color, gradient, or shader'];
   const errors: string[] = [];
   if (!['linear', 'radial', 'conic'].includes(paint.type)) errors.push('gradient type is invalid');
   if (!Number.isFinite(paint.angle)) errors.push('gradient angle must be finite');

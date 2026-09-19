@@ -1,0 +1,35 @@
+.shader-live-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 140px;
+  max-height: 200px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle, #3c4654);
+  border-radius: 5px;
+  background: repeating-conic-gradient(#39414b 0 25%, #252d36 0 50%) 0 / 16px 16px;
+}
+.shader-live-preview-surface {
+  position: absolute;
+  inset: 0;
+}
+.shader-live-preview-surface canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.shader-live-preview-error {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  color: #ffc0bd;
+  background: #38262bef;
+  font-size: 11px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}

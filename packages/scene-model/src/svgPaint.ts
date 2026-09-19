@@ -1,5 +1,6 @@
 import { roundedRectangleSvgPath } from './cornerRadii';
 import type { Element, Paint } from './types';
+import { isShaderPaint } from './shader';
 
 export const escapeSvgAttribute = (value: unknown): string =>
   String(value)
@@ -17,6 +18,8 @@ export function svgPaint(
   id: string,
 ): { defs: string; fill: string } {
   if (typeof paint === 'string') return { defs: '', fill: escapeSvgAttribute(paint) };
+  // WebGL paint is unavailable in pure SVG diagnostics; never pretend it has solid alpha.
+  if (isShaderPaint(paint)) return { defs: '', fill: 'none' };
   const stops = [...paint.stops].sort((a, b) => a.offset - b.offset);
   const content = stops
     .map(

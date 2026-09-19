@@ -607,7 +607,12 @@ function materializeLayerStyle(
 ): boolean {
   let affected = false;
   if (layer.isMaskOnly || layer.semantics.role === 'mask' || layer.lighting) return false;
-  if ('fill' in layer.element && typeof layer.element.fill !== 'string') return false;
+  if (
+    'fill' in layer.element &&
+    layer.element.fill !== undefined &&
+    typeof layer.element.fill !== 'string'
+  )
+    return false;
   if (layer.element.type === 'rectangle') {
     affected = bind(composition, layer, tokenByKey, 'fill') || affected;
     affected = bind(composition, layer, tokenByKey, 'borderRadius') || affected;
@@ -698,6 +703,7 @@ export function applyStylePack(
       if (
         binding.targetProperty === 'fill' &&
         'fill' in layer.element &&
+        layer.element.fill !== undefined &&
         typeof layer.element.fill !== 'string'
       )
         continue;

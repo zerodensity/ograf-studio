@@ -1,3 +1,4 @@
+import { getElementShaderPaint } from '@ograf-editor/scene-model';
 import { describe, expect, it } from 'vitest';
 import {
   createComposition,
@@ -12,6 +13,7 @@ import {
   type Layer,
 } from '@ograf-editor/scene-model';
 import { compileDescriptor } from './compileDescriptor';
+import { generateMainJs } from './buildExportArtifacts';
 
 function compositionWith(layers: Layer[], overrides: Partial<Composition> = {}): Composition {
   const composition = createComposition({ layers, ...overrides });
@@ -33,6 +35,20 @@ const POSE = {
 };
 
 describe('compileDescriptor', () => {
+  it('preserves shader source and playback controls in the compiled and exported descriptor', () => {
+    const shader = createLayerOfKind('shader');
+    const paint = getElementShaderPaint(shader.element)!;
+    paint.fragmentSource =
+      '// Author comment\r\nvoid mainImage(out vec4 c, in vec2 p) { c = vec4(p / iResolution.xy, sin(iTime), 1.); }\n';
+    paint.speed = 0.5;
+    paint.resolutionScale = 0.75;
+    const descriptor = compileDescriptor(compositionWith([shader]));
+    expect(descriptor.layers[0]!.element).toEqual(shader.element);
+    const mainJs = generateMainJs(descriptor, 'class GraphicElement {}');
+    const exported = JSON.parse(mainJs.match(/const exportedDescriptor = (.*);/)![1]!);
+    expect(exported.layers[0].element).toEqual(shader.element);
+  });
+
   it('carries composition settings through to the descriptor', () => {
     const composition = compositionWith([], { width: 1280, height: 720, frameRate: 50 });
     const descriptor = compileDescriptor(composition);

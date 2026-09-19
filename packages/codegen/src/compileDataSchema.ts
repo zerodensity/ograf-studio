@@ -1,8 +1,9 @@
-import type {
-  Composition,
-  CustomActionDefinition,
-  FieldDefinition,
-  FieldType,
+import {
+  compositionWithShaderParameterFields,
+  type Composition,
+  type CustomActionDefinition,
+  type FieldDefinition,
+  type FieldType,
 } from '@ograf-editor/scene-model';
 
 export interface JSONSchemaProperty {
@@ -25,6 +26,8 @@ export interface JSONSchemaProperty {
   maximum?: number;
   pattern?: string;
   multipleOf?: number;
+  /** Authoring ownership preserved when recovering an editable shader from its package. */
+  v_ografShaderParameter?: FieldDefinition['generatedShaderParameter'];
 }
 
 /** Shaped to slot directly into an OGraf manifest's `schema` field. */
@@ -113,7 +116,13 @@ function propertyFor(field: FieldDefinition): JSONSchemaProperty {
   if (constraints.step !== undefined) property.multipleOf = constraints.step;
   if (constraints.minItems !== undefined) property.minItems = constraints.minItems;
   if (constraints.maxItems !== undefined) property.maxItems = constraints.maxItems;
-  if (field.type === 'color') property.pattern = '^#[0-9a-f]{6}$';
+  if (field.type === 'color') {
+    const alpha = field.generatedShaderParameter?.glslType === 'vec4';
+    property.pattern = alpha ? '^#[0-9a-f]{8}$' : '^#[0-9a-f]{6}$';
+    if (alpha) property.gddType = 'color-rrggbbaa';
+  }
+  if (field.generatedShaderParameter)
+    property.v_ografShaderParameter = structuredClone(field.generatedShaderParameter);
   if (field.type === 'file-path' || field.type === 'image-url') {
     property.gddOptions = field.fileExtensions.length ? { extensions: field.fileExtensions } : {};
   }
@@ -160,6 +169,7 @@ function propertyFor(field: FieldDefinition): JSONSchemaProperty {
 
 /** Composition's Field Definitions -> the JSON Schema an OGraf manifest's `schema` describes. */
 export function compileDataSchema(composition: Composition): DataJSONSchema {
+  composition = compositionWithShaderParameterFields(composition);
   const properties: Record<string, JSONSchemaProperty> = {};
   const required: string[] = [];
   for (const field of composition.dataFields) {

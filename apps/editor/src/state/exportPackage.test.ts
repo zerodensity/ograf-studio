@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createAsset,
   createFieldDefinition,
@@ -11,9 +11,129 @@ import {
 import { buildExportArtifacts, exportProjectAsZip } from './exportPackage';
 import {
   certificationSeekTimestamps,
+  canvasPixelSignatures,
   certifyExportArtifacts,
   certifyProject,
 } from './ografCompatibility';
+
+describe('canvas pixel certification', () => {
+  function webglFixture() {
+    const pixels = new Uint8ClampedArray([10, 20, 30, 255]);
+    const drawImage = vi.fn();
+    const snapshotContext = { drawImage, getImageData: () => ({ data: pixels }) };
+    const snapshot = { width: 0, height: 0, getContext: vi.fn(() => snapshotContext) };
+    const binding = {};
+    const gl = {
+      READ_FRAMEBUFFER_BINDING: 1,
+      READ_FRAMEBUFFER: 2,
+      RGBA: 3,
+      UNSIGNED_BYTE: 4,
+      NO_ERROR: 0,
+      isContextLost: vi.fn(() => false),
+      getParameter: vi.fn(() => binding),
+      bindFramebuffer: vi.fn(),
+      readPixels: vi.fn(
+        (
+          _x: number,
+          _y: number,
+          _w: number,
+          _h: number,
+          _format: number,
+          _type: number,
+          target: Uint8Array,
+        ) => target.set(pixels),
+      ),
+      getError: vi.fn(() => 0),
+    };
+    const source = {
+      width: 1,
+      height: 1,
+      getContext: vi.fn((kind: string) => (kind === 'webgl2' ? gl : null)),
+      hasAttribute: (name: string): boolean => name === 'data-ograf-shader-canvas',
+      ownerDocument: { createElement: vi.fn(() => snapshot) },
+    };
+    const graphic = {
+      shadowRoot: { querySelectorAll: () => [source] },
+    } as unknown as Parameters<typeof canvasPixelSignatures>[0];
+    return { pixels, drawImage, source, graphic, gl, binding };
+  }
+
+  it('hashes exact preserved GPU bytes, restores read bindings and detects changed frames', async () => {
+    const fixture = webglFixture();
+    const first = await canvasPixelSignatures(fixture.graphic);
+    const repeated = await canvasPixelSignatures(fixture.graphic);
+    expect(first.errors).toEqual([]);
+    expect(first.shaderCanvasCount).toBe(1);
+    expect(first.signatures[0]).toMatch(/^1x1:[0-9a-f]{64}$/);
+    expect(repeated.signatures).toEqual(first.signatures);
+    expect(fixture.source.getContext).toHaveBeenCalledWith('webgl2');
+    expect(fixture.drawImage).not.toHaveBeenCalled();
+    expect(fixture.gl.bindFramebuffer).toHaveBeenLastCalledWith(
+      fixture.gl.READ_FRAMEBUFFER,
+      fixture.binding,
+    );
+
+    fixture.pixels[0] = 11;
+    const changed = await canvasPixelSignatures(fixture.graphic);
+    expect(changed.signatures).not.toEqual(first.signatures);
+  });
+
+  it('does not count a shader whose pixels cannot be inspected', async () => {
+    const fixture = webglFixture();
+    fixture.gl.readPixels.mockImplementation(() => {
+      throw new Error('Drawing buffer unavailable');
+    });
+    const result = await canvasPixelSignatures(fixture.graphic);
+    expect(result.signatures).toEqual([]);
+    expect(result.shaderCanvasCount).toBe(0);
+    expect(result.errors).toEqual([
+      'Canvas 1 pixels could not be inspected: Drawing buffer unavailable',
+    ]);
+  });
+  it('rejects lost contexts and GPU read errors instead of certifying blank pixels', async () => {
+    const fixture = webglFixture();
+    fixture.gl.isContextLost.mockReturnValue(true);
+    expect((await canvasPixelSignatures(fixture.graphic)).shaderCanvasCount).toBe(0);
+    fixture.gl.isContextLost.mockReturnValue(false);
+    fixture.gl.getError.mockReturnValue(1282);
+    const failed = await canvasPixelSignatures(fixture.graphic);
+    expect(failed.shaderCanvasCount).toBe(0);
+    expect(failed.errors[0]).toContain('WebGL error 1282');
+    expect(fixture.gl.bindFramebuffer).toHaveBeenLastCalledWith(
+      fixture.gl.READ_FRAMEBUFFER,
+      fixture.binding,
+    );
+  });
+  it('freezes all canvas bytes before hashing can yield to another render', async () => {
+    const first = webglFixture(),
+      second = webglFixture();
+    const expected = (await canvasPixelSignatures(first.graphic)).signatures[0];
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementation((algorithm, data) => {
+      queueMicrotask(() => {
+        second.pixels[0] = 99;
+      });
+      return digest(algorithm, data);
+    });
+    try {
+      const graphic = {
+        shadowRoot: { querySelectorAll: () => [first.source, second.source] },
+      } as unknown as Parameters<typeof canvasPixelSignatures>[0];
+      expect((await canvasPixelSignatures(graphic)).signatures).toEqual([expected, expected]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+  it('still reads ordinary Canvas2D artwork through a separate canvas', async () => {
+    const fixture = webglFixture();
+    fixture.source.hasAttribute = () => false;
+    const result = await canvasPixelSignatures(fixture.graphic);
+    expect(result.signatures).toHaveLength(1);
+    expect(result.shaderCanvasCount).toBe(0);
+    expect(fixture.source.getContext).not.toHaveBeenCalled();
+    expect(fixture.drawImage).toHaveBeenCalledWith(fixture.source, 0, 0);
+  });
+});
 
 describe('export package artifacts', () => {
   it('chooses a non-period-aligned Canvas seek for a one-second Lottie loop', () => {
@@ -60,13 +180,13 @@ describe('export package artifacts', () => {
     expect(artifacts.resources).toHaveLength(1);
     expect(artifacts.manifestFileName).toBe(`${project.id}.ograf.json`);
     expect(artifacts.mainJs).not.toContain(dataUri);
-    expect(artifacts.mainJs).toContain('new URL(layer.element.src, exportedModuleBaseUrl)');
+    expect(artifacts.mainJs).toContain('new URL(value, exportedModuleBaseUrl)');
   });
 
   it('resolves every relative packaged font path against the exported module', () => {
     const project = createProject();
     const artifacts = buildExportArtifacts(project, project.compositions[0]!);
-    expect(artifacts.mainJs).toContain('new URL(font.source, exportedModuleBaseUrl)');
+    expect(artifacts.mainJs).toContain('font.source = exportedRelativeResourceUrl(font.source)');
     expect(artifacts.mainJs).not.toContain("font.source?.startsWith('assets/')");
   });
 

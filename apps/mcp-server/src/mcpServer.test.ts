@@ -559,6 +559,17 @@ describe('OGraf MCP authoring host', () => {
     expect(result.isError).not.toBe(true);
     expect(result.structuredContent).toMatchObject({
       editor: { certificationReady: false, certificationLikelyCause: expect.any(String) },
+      paintSchemas: {
+        shader: {
+          speed: { default: 1, minimum: 0, maximum: 10 },
+          resolutionScale: { default: 1, minimum: 0.25, maximum: 1 },
+          runtimeProfile: {
+            renderer: 'WebGL2',
+            passes: 1,
+            supportedInputs: ['iTime', 'iResolution'],
+          },
+        },
+      },
       elementSchemas: {
         rectangle: {
           defaultTransform: { width: 200, height: 200, shape: 'square' },
@@ -651,10 +662,18 @@ describe('OGraf MCP authoring host', () => {
         ]),
         gdd: expect.any(String),
         targetProperties: {
-          text: ['content', 'color', 'strokeColor', 'dropShadowColor'],
-          image: ['src', 'dropShadowColor'],
-          'image-sequence': ['dropShadowColor'],
-          lottie: ['dropShadowColor'],
+          text: [
+            'content',
+            'color',
+            'fill',
+            'fill.parameters.NAME',
+            'strokePaint.parameters.NAME',
+            'strokeColor',
+            'dropShadowColor',
+          ],
+          image: ['src', 'fill.parameters.NAME', 'dropShadowColor'],
+          'image-sequence': ['fill.parameters.NAME', 'dropShadowColor'],
+          lottie: ['fill.parameters.NAME', 'dropShadowColor'],
         },
       },
       canvasLayout: {
@@ -741,6 +760,78 @@ describe('OGraf MCP authoring host', () => {
       },
     });
     expect(bad.isError).toBe(true);
+  });
+
+  it('authors and inspects a shader through canonical MCP operations', async () => {
+    const sessionId = 'shader-inspection-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    const created = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [{ type: 'add_layer', kind: 'shader', name: 'Shader background' }],
+      },
+    });
+    expect(created.isError).not.toBe(true);
+    const edited = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        operations: [
+          {
+            type: 'update_element',
+            layerName: 'Shader background',
+            patch: {
+              speed: 0.5,
+              resolutionScale: 0.5,
+              fragmentSource: `#pragma ograf amount slider min(0) max(1) step(0.1)
+const float amount = 0.5;
+void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
+              parameters: { amount: 0.7 },
+            },
+          },
+        ],
+      },
+    });
+    expect(edited.isError).not.toBe(true);
+    const shaderComposition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    expect(shaderComposition.dataFields).toHaveLength(1);
+    expect(shaderComposition.dataFields[0]).toMatchObject({
+      type: 'number',
+      defaultValue: 0.7,
+      generatedShaderParameter: { name: 'amount' },
+    });
+    expect(shaderComposition.layers[0]!.bindings).toEqual([
+      { fieldId: shaderComposition.dataFields[0]!.id, targetProperty: 'fill.parameters.amount' },
+    ]);
+    const inspected = await client.callTool({
+      name: 'ograf_inspect_scene',
+      arguments: { sessionId },
+    });
+    expect(inspected.structuredContent).toMatchObject({
+      compositions: [
+        { layers: [{ type: 'rectangle', shaderInspection: { valid: true, errors: [] } }] },
+      ],
+    });
+    const queried = await client.callTool({
+      name: 'ograf_query_scene',
+      arguments: { sessionId, elementTypes: ['rectangle'] },
+    });
+    expect(queried.isError).not.toBe(true);
+    const rejected = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 2,
+        operations: [
+          { type: 'update_element', layerName: 'Shader background', patch: { speed: -1 } },
+        ],
+      },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(host.workspace.get(sessionId).revision).toBe(2);
   });
 
   it('derives Lottie compatibility details during scene inspection', async () => {

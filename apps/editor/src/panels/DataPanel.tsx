@@ -5,6 +5,7 @@ import {
   defaultConstraintsForFieldType,
   defaultOptionsForFieldType,
   defaultValueForFieldType,
+  isShaderPaint,
   type FieldConstraints,
   type FieldDefinition,
   type GradientPaint,
@@ -147,6 +148,7 @@ export function DataPanel() {
                       <td>
                         <select
                           value={field.type}
+                          disabled={!!field.generatedShaderParameter}
                           onChange={(e) => {
                             const type = e.target.value as FieldType;
                             const options = defaultOptionsForFieldType(type);
@@ -212,6 +214,12 @@ export function DataPanel() {
                         <button
                           type="button"
                           className="data-table-delete"
+                          disabled={!!field.generatedShaderParameter}
+                          title={
+                            field.generatedShaderParameter
+                              ? 'Remove its #pragma ograf declaration in the shader to remove this field.'
+                              : undefined
+                          }
                           onClick={() => removeDataField(field.id)}
                         >
                           {'✕'}
@@ -220,7 +228,14 @@ export function DataPanel() {
                     </tr>
                     <tr className="data-field-details-row">
                       <td colSpan={6}>
-                        <FieldDetails field={field} update={updateDataField} />
+                        {field.generatedShaderParameter ? (
+                          <p className="inspector-hint">
+                            Defined by #pragma ograf {field.generatedShaderParameter.name}. Edit the
+                            shader declaration to change its type or range.
+                          </p>
+                        ) : (
+                          <FieldDetails field={field} update={updateDataField} />
+                        )}
                       </td>
                     </tr>
                   </Fragment>
@@ -552,7 +567,13 @@ function DefaultValueInput({
   }
   if (type === 'gradient') {
     return value && typeof value === 'object' && !Array.isArray(value) && 'stops' in value ? (
-      <PaintEditor value={value as GradientPaint} onChange={onChange} />
+      <PaintEditor
+        allowShader={false}
+        value={value as GradientPaint}
+        onChange={(paint) => {
+          if (paint !== undefined && !isShaderPaint(paint)) onChange(paint);
+        }}
+      />
     ) : null;
   }
   if (type === 'select') {

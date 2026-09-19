@@ -16,6 +16,7 @@ import {
 import { buildRuntimeTimeline } from './buildRuntimeTimeline';
 import { applyCompiledMasks } from './maskRendering';
 import { resolvePlayTarget } from './lifecycle';
+import { ShaderContextLostError, shaderBackingSizeForLayer } from './shaderRendering';
 import {
   applyAnimatedPaint,
   disposeElementContent,
@@ -28,7 +29,13 @@ import {
   setLottieDeterministicRendering,
   waitForElementContentReady,
 } from './renderElement';
-import { layerEffectsToCssFilter } from '@ograf-editor/scene-model';
+import {
+  getElementShaderPaints,
+  hasElementShaderPaint,
+  layerEffectsToCssFilter,
+  resolveShaderParameters,
+} from '@ograf-editor/scene-model';
+import { shaderStrokePaddingForLayer } from './shaderPaintRendering';
 import {
   EFFECT_ANIMATION_PROPERTIES,
   numericEffectProperties,
@@ -52,6 +59,20 @@ function errorPayload(err: unknown): ReturnPayload {
   return {
     statusCode: GRAPHIC_ERROR_STATUS_CODE,
     statusMessage: err instanceof Error ? err.message : String(err),
+  };
+}
+
+function contentOptions(layer: CompiledGraphicDescriptor['layers'][number]) {
+  return {
+    ...(layer.element.type === 'lottie'
+      ? { lottieBackingSize: lottieBackingSizeForLayer(layer) }
+      : {}),
+    ...(hasElementShaderPaint(layer.element)
+      ? {
+          shaderBackingSize: shaderBackingSizeForLayer(layer),
+          shaderStrokePadding: shaderStrokePaddingForLayer(layer),
+        }
+      : {}),
   };
 }
 
@@ -567,9 +588,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         el,
         resolveBoundElement(layer, this.#lastData),
         0,
-        layer.element.type === 'lottie'
-          ? { lottieBackingSize: lottieBackingSizeForLayer(layer) }
-          : undefined,
+        contentOptions(layer),
       );
       this.#layerEls.set(layer.id, el);
     }
@@ -592,14 +611,21 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     if (this.#contentPlaybackError) throw this.#contentPlaybackError;
   }
 
-  #remountLottieContent(): void {
+  #remountAnimatedCanvasContent(): void {
     for (const layer of this.activeDescriptor.layers) {
-      if (layer.element.type !== 'lottie' || !layer.element.animationData) continue;
+      if (
+        !hasElementShaderPaint(layer.element) &&
+        (layer.element.type !== 'lottie' || !layer.element.animationData)
+      )
+        continue;
       const element = this.#layerEls.get(layer.id);
       if (!element) continue;
-      renderElementContent(element, resolveBoundElement(layer, this.#lastData), 0, {
-        lottieBackingSize: lottieBackingSizeForLayer(layer),
-      });
+      renderElementContent(
+        element,
+        resolveBoundElement(layer, this.#lastData),
+        0,
+        contentOptions(layer),
+      );
     }
   }
 
@@ -608,7 +634,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     const layers = this.activeDescriptor.layers.filter(
       (layer) =>
         (layer.element.type === 'image-sequence' && layer.element.frames.length > 0) ||
-        (layer.element.type === 'lottie' && !!layer.element.animationData),
+        (layer.element.type === 'lottie' && !!layer.element.animationData) ||
+        hasElementShaderPaint(layer.element),
     );
     if (layers.length === 0 || typeof requestAnimationFrame === 'undefined') return;
     const epoch = performance.now();
@@ -618,12 +645,16 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       try {
         this.#renderAnimatedContentAt(elapsedMs);
       } catch (error) {
+        if (error instanceof ShaderContextLostError) {
+          this.#contentAnimationFrame = this.#requestFrame(render);
+          return;
+        }
         this.#contentPlaybackError = error instanceof Error ? error : new Error(String(error));
         return;
       }
       const shouldContinue = layers.some((layer) => {
         const element = layer.element;
-        if (element.type === 'lottie') return true;
+        if (element.type === 'lottie' || hasElementShaderPaint(element)) return true;
         if (element.type !== 'image-sequence') return false;
         return element.loop || elapsedMs / 1000 < element.frames.length / Math.max(1, element.fps);
       });
@@ -634,9 +665,16 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   #renderAnimatedContentAt(timestampMs: number): void {
     for (const layer of this.activeDescriptor.layers) {
-      if (layer.element.type !== 'image-sequence' && layer.element.type !== 'lottie') continue;
+      if (
+        layer.element.type !== 'image-sequence' &&
+        layer.element.type !== 'lottie' &&
+        !hasElementShaderPaint(layer.element)
+      )
+        continue;
       const el = this.#layerEls.get(layer.id);
       if (!el) continue;
+      // Shader uniforms belong to the mounted, data-resolved element. Frame ticks only advance
+      // time; passing the authored descriptor here must never reset a live parameter binding.
       renderAnimatedElementAtTime(el, layer.element, timestampMs);
     }
   }
@@ -654,14 +692,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         const element = resolveBoundElement(layer, this.#lastData);
         const serialized = JSON.stringify(element);
         if (el.dataset.ografRenderedElement !== serialized) {
-          renderElementContent(
-            el,
-            element,
-            0,
-            element.type === 'lottie'
-              ? { lottieBackingSize: lottieBackingSizeForLayer(layer) }
-              : undefined,
-          );
+          renderElementContent(el, element, 0, contentOptions(layer));
           setLottieDeterministicRendering(el, this.#renderType === 'non-realtime');
         }
         const state = sampleCompiledLayerVisualState(
@@ -692,15 +723,25 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   #applyData(data: unknown): void {
     if (!data || typeof data !== 'object') return;
-    this.#lastData = { ...this.#lastData, ...(data as Record<string, unknown>) };
+    const nextData = { ...this.#lastData, ...(data as Record<string, unknown>) };
+    this.#lastData = nextData;
     this.#refreshBoundLayers();
     this.#renderLoopSnapshot(typeof performance !== 'undefined' ? performance.now() : Date.now());
   }
 
   #replaceData(data: unknown): void {
-    this.#lastData =
+    const nextData =
       data && typeof data === 'object' ? { ...(data as Record<string, unknown>) } : {};
+    this.#validateShaderData(nextData);
+    this.#lastData = nextData;
     this.#refreshBoundLayers();
+  }
+
+  #validateShaderData(data: Record<string, unknown>): void {
+    for (const layer of this.activeDescriptor.layers) {
+      const element = resolveBoundElement(layer, data);
+      for (const { paint } of getElementShaderPaints(element)) resolveShaderParameters(paint);
+    }
   }
 
   async #seekToKeyframeId(
@@ -753,8 +794,9 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#clearContentAnimationFrames();
       this.#contentPlaybackError = null;
       this.#renderType = params.renderType;
+      if (!this.#timeline) this.#buildDom();
       this.#replaceData(params.data);
-      this.#remountLottieContent();
+      this.#remountAnimatedCanvasContent();
       this.#setContentRenderingMode();
       this.#renderAnimatedContentAt(0);
       await this.#awaitContentReady();
@@ -765,6 +807,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#directLifecycleTransition = null;
       await this.#seekToKeyframeId(this.descriptor.startKeyframeId, true);
       this.#renderLoopSnapshot(0, new Map());
+      await this.#awaitContentReady();
       if (this.#renderType === 'realtime') this.#startRealtimeContentAnimations();
       return { statusCode: 200 };
     } catch (err) {
@@ -787,6 +830,9 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#cancelUpdateAnimations();
       this.#schedule = [];
       this.#directLifecycleTransition = null;
+      for (const element of this.#layerEls.values()) disposeElementContent(element);
+      this.#layerEls.clear();
+      this.#renderDescriptor = null;
       return { statusCode: 200 };
     } catch (err) {
       return errorPayload(err);
@@ -800,6 +846,12 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   async #updateActionUnlocked(params: UpdateActionParams): Promise<ReturnPayload | undefined> {
     try {
       await this.#awaitContentReady();
+      if (params.data && typeof params.data === 'object') {
+        this.#validateShaderData({
+          ...this.#lastData,
+          ...(params.data as Record<string, unknown>),
+        });
+      }
       this.#cancelUpdateAnimations();
       const keys = this.#changedBindingKeys(params.data);
       const durationMs =
@@ -1168,6 +1220,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   async #goToTimeUnlocked(params: GoToTimeParams): Promise<ReturnPayload | undefined> {
     try {
+      this.#clearContentAnimationFrames();
       this.#timeline?.pause();
       this.#activeTween?.kill();
       this.#activeTween = null;
@@ -1179,6 +1232,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#renderAnimatedContentAt(params.timestamp);
       if (this.#schedule.length > 0) this.#applySchedule(params.timestamp);
       else this.#renderLoopSnapshot(params.timestamp, new Map());
+      await this.#awaitContentReady();
       return { statusCode: 200 };
     } catch (err) {
       return errorPayload(err);

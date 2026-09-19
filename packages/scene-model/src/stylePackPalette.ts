@@ -1,3 +1,4 @@
+import { isGradientPaint } from './paint';
 import { getEffectStack, effectParams, effectProperty } from './effectStack';
 import {
   colorLinkKey,
@@ -75,7 +76,8 @@ export function planStylePackPalette(
     const properties: DesignTokenTargetProperty[] = [];
     if ('fill' in layer.element) {
       if (typeof layer.element.fill === 'string') properties.push('fill');
-      else layer.element.fill.stops.forEach((_, i) => properties.push(`fill.stops[${i}].color`));
+      else if (isGradientPaint(layer.element.fill))
+        layer.element.fill.stops.forEach((_, i) => properties.push(`fill.stops[${i}].color`));
     }
     if (layer.element.type === 'text') properties.push('color');
     if ('strokeColor' in layer.element && layer.element.strokeWidth > 0)
@@ -130,7 +132,7 @@ export function planStylePackPalette(
     const highlightGradient =
       maximum > 127 &&
       'fill' in layer.element &&
-      typeof layer.element.fill !== 'string' &&
+      isGradientPaint(layer.element.fill) &&
       layer.element.fill.stops.some((s) => s.opacity < 0.05) &&
       layer.element.fill.stops.some((s) => s.opacity > 0.1);
     for (const use of uses) {

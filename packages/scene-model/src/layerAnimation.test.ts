@@ -1,3 +1,4 @@
+import { isGradientPaint } from './paint';
 import { describe, expect, it } from 'vitest';
 import { createLayerKeyframe, createLayerOfKind, createLayerPropertyKeyframe } from './factory';
 import {
@@ -114,7 +115,7 @@ describe('independent layer animation', () => {
 
     expect(getLayerAnimatableProperties(layer)).toContain('fill.stops[1].offset');
     const paint = getPaintAtFrame(layer.element.fill, getResolvedLayerAnimationTracks(layer), 5);
-    expect(typeof paint === 'string' ? null : paint.stops[1]?.offset).toBe(0.5);
+    expect(isGradientPaint(paint) ? paint.stops[1]?.offset : null).toBe(0.5);
   });
 
   it('exposes and samples text stroke width without creating invalid image tracks', () => {

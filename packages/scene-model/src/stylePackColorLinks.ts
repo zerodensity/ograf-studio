@@ -1,3 +1,4 @@
+import { isGradientPaint } from './paint';
 import { applyElementDataValue } from './boundPaint';
 import { effectParameterValue, parseEffectProperty, withEffectParameter } from './effectStack';
 import type { Composition, Layer, StylePackColorLink } from './types';
@@ -56,7 +57,7 @@ export function layerColorValue(layer: Layer, property: string): string | undefi
   }
   if (property === 'dropShadowColor') return layer.effects.dropShadowColor;
   const stop = /^fill\.stops\[(\d+)\]\.color$/.exec(property);
-  if (stop && 'fill' in layer.element && typeof layer.element.fill !== 'string')
+  if (stop && 'fill' in layer.element && isGradientPaint(layer.element.fill))
     return layer.element.fill.stops[Number(stop[1])]?.color;
   if (['fill', 'color', 'strokeColor'].includes(property) && property in layer.element) {
     const value = (layer.element as unknown as Record<string, unknown>)[property];

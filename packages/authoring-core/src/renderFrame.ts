@@ -1,3 +1,4 @@
+import { getElementFill, hasElementShaderPaint, svgPaint } from '@ograf-editor/scene-model';
 import {
   effectStackToSvg,
   effectStackPadding,
@@ -50,6 +51,8 @@ function elementSvg(
   compositionFrameRate: number,
   svgId = 'diagnostic-path',
 ): string {
+  if (hasElementShaderPaint(element))
+    return `<rect width="${width}" height="${height}" fill="transparent"/>`;
   switch (element.type) {
     case 'pattern':
       return element.definition
@@ -64,6 +67,8 @@ function elementSvg(
         ? `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${escapeXml(element.fill)}" stroke="${escapeXml(element.strokeColor)}" stroke-width="${element.strokeWidth}"/>`
         : `<foreignObject width="${width}" height="${height}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:100%;height:100%;box-sizing:border-box;background:${escapeXml(paintToCss(element.fill))};border:${element.strokeWidth}px solid ${escapeXml(element.strokeColor)};border-radius:50%"></div></foreignObject>`;
     case 'text': {
+      const paint = svgPaint(getElementFill(element)!, width, height, `${svgId}-text-fill`);
+      const paintDefs = paint.defs ? `<defs>${paint.defs}</defs>` : '';
       const transformed =
         element.textTransform === 'uppercase'
           ? element.content.toUpperCase()
@@ -92,7 +97,7 @@ function elementSvg(
         );
         const scaleX = width / naturalWidth;
         const scaleY = height / Math.max(1, blockHeight + element.strokeWidth);
-        return `<g transform="scale(${scaleX} ${scaleY})"><text x="0" y="${element.fontSize + element.baselineShift}" fill="${escapeXml(element.color)}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="start">${lines.map((line, index) => `<tspan x="0" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text></g>`;
+        return `${paintDefs}<g transform="scale(${scaleX} ${scaleY})"><text x="0" y="${element.fontSize + element.baselineShift}" fill="${paint.fill}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="start">${lines.map((line, index) => `<tspan x="0" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text></g>`;
       }
       const verticalOffset =
         element.verticalAlign === 'middle'
@@ -100,7 +105,7 @@ function elementSvg(
           : element.verticalAlign === 'bottom'
             ? Math.max(0, height - blockHeight)
             : 0;
-      return `<text x="${x}" y="${verticalOffset + element.baselineShift + element.fontSize}" fill="${escapeXml(element.color)}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="${anchor}">${lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>`;
+      return `${paintDefs}<text x="${x}" y="${verticalOffset + element.baselineShift + element.fontSize}" fill="${paint.fill}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="${anchor}">${lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>`;
     }
     case 'image':
       return element.src
@@ -119,6 +124,9 @@ function elementSvg(
         ? `<image width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet" href="${escapeXml(src)}"/>`
         : '';
     }
+    case 'shader':
+      // WebGL pixels require the authoritative browser capture path.
+      return `<rect width="${width}" height="${height}" fill="transparent"/>`;
     case 'lottie':
       // The authoritative DOM/canvas capture path renders the exact Lottie frame. This lightweight
       // pure-SVG authoring overview cannot run a Canvas2D player, so retain the layer bounds.
@@ -192,6 +200,15 @@ function layerSvg(
       ? {
           ...resolvedElement,
           strokeWidth: getLayerPropertyValueAtFrame(layer, 'strokeWidth', frame),
+          ...(resolvedElement.fill !== undefined
+            ? {
+                fill: getPaintAtFrame(
+                  resolvedElement.fill,
+                  getResolvedLayerAnimationTracks(layer),
+                  frame,
+                ),
+              }
+            : {}),
         }
       : (resolvedElement.type === 'rectangle' ||
             resolvedElement.type === 'ellipse' ||

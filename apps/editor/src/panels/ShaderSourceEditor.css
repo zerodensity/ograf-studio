@@ -1,0 +1,53 @@
+.shader-source-editor {
+  min-width: 0;
+}
+.shader-source-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+}
+.shader-source-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px;
+}
+.shader-source-label textarea {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  box-sizing: border-box;
+  font:
+    11px/1.5 Consolas,
+    monospace;
+  tab-size: 2;
+  white-space: pre;
+}
+.shader-source-error {
+  color: #ff9f96;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 6px;
+}
+.shader-number-control {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 6px;
+}
+.shader-number-control input[type='range'] {
+  flex: 1;
+  min-width: 40px;
+}
+.shader-number-control input[type='number'] {
+  width: 64px;
+  min-width: 0;
+}
+.shader-render-settings {
+  padding: 6px 0;
+}
+.shader-render-settings summary {
+  cursor: pointer;
+  padding: 6px;
+  color: var(--text-muted);
+}

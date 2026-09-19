@@ -9,13 +9,16 @@ export interface ExportArtifacts {
   manifest: OGrafManifest;
   manifestFileName: string;
   mainJs: string;
-  resources: Array<{ path: string; data: string; base64: boolean }>;
+  resources: Array<{ path: string; data: string; base64: boolean; mimeType?: string }>;
   projectErrors: string[];
   manifestErrors: string[];
   valid: boolean;
   errors: string[];
   profile?: ExportProfile;
 }
+
+/** A blob-mounted package supplies exact resource URLs without borrowing the host page's base. */
+export const EXPORTED_RESOURCE_URLS_KEY = '__ografPackageResourceUrls';
 
 const EXTENSION_BY_MIME: Record<string, string> = {
   'image/png': 'png',
@@ -34,26 +37,67 @@ const EXTENSION_BY_MIME: Record<string, string> = {
 export function generateMainJs(
   descriptor: CompiledGraphicDescriptor,
   graphicRuntimeSource: string,
+  resourcePaths: readonly string[] = [],
 ): string {
   return `${graphicRuntimeSource}
 const exportedDescriptor = ${JSON.stringify(descriptor)};
-const exportedModuleBaseUrl = import.meta.url.startsWith('blob:') ? document.baseURI : import.meta.url;
-for (const layer of exportedDescriptor.layers) {
-  if (layer.element.type === 'image' && layer.element.src?.startsWith('assets/')) {
-    layer.element.src = new URL(layer.element.src, exportedModuleBaseUrl).href;
+const exportedModuleBaseUrl = import.meta.url;
+const exportedResourcePaths = new Set(${JSON.stringify(resourcePaths)});
+function exportedRelativeResourceUrl(value) {
+  if (exportedModuleBaseUrl.startsWith('blob:')) {
+    const resourceUrl = globalThis[${JSON.stringify(EXPORTED_RESOURCE_URLS_KEY)}]?.[exportedModuleBaseUrl]?.[value];
+    if (!resourceUrl) throw new Error('Packaged resource is unavailable in the blob module: ' + value);
+    return resourceUrl;
+  }
+  return new URL(value, exportedModuleBaseUrl).href;
+}
+function exportedResourceUrl(value) {
+  if (typeof value !== 'string' || (!exportedResourcePaths.has(value) && !value.startsWith('assets/'))) return value;
+  return exportedRelativeResourceUrl(value);
+}
+const exportedLayers = [...exportedDescriptor.layers, ...(exportedDescriptor.collections ?? []).flatMap((collection) => collection.prototypeLayers)];
+const exportedImageBindings = [];
+for (const layer of exportedLayers) {
+  if (layer.element.type === 'image') {
+    layer.element.src = exportedResourceUrl(layer.element.src);
+    for (const binding of layer.bindings ?? (layer.binding ? [layer.binding] : [])) {
+      if (binding.targetProperty !== 'src') continue;
+      exportedImageBindings.push(binding);
+      if (binding.valueMap) binding.valueMap = Object.fromEntries(Object.entries(binding.valueMap).map(([key, value]) => [key, exportedResourceUrl(value)]));
+    }
   } else if (layer.element.type === 'image-sequence') {
-    layer.element.frames = layer.element.frames.map((frame) =>
-      frame.startsWith('assets/') ? new URL(frame, exportedModuleBaseUrl).href : frame
-    );
+    layer.element.frames = layer.element.frames.map(exportedResourceUrl);
   }
 }
 for (const font of exportedDescriptor.fonts ?? []) {
   if (font.source && !/^[a-z][a-z0-9+.-]*:/i.test(font.source)) {
-    font.source = new URL(font.source, exportedModuleBaseUrl).href;
+    font.source = exportedRelativeResourceUrl(font.source);
   }
+}
+function exportedImageValue(value, path) {
+  if (Array.isArray(value)) return value.map((item) => exportedImageValue(item, path));
+  if (path.length === 0) return exportedResourceUrl(value);
+  if (!value || typeof value !== 'object' || !Object.prototype.hasOwnProperty.call(value, path[0])) return value;
+  return { ...value, [path[0]]: exportedImageValue(value[path[0]], path.slice(1)) };
+}
+function exportedData(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+  const resolved = { ...data };
+  for (const binding of exportedImageBindings) {
+    if (Object.prototype.hasOwnProperty.call(resolved, binding.dataKey))
+      resolved[binding.dataKey] = exportedImageValue(resolved[binding.dataKey], binding.sourcePath ?? []);
+  }
+  return resolved;
 }
 class ExportedGraphic extends GraphicElement {
   static descriptor = exportedDescriptor;
+  load(params) { return super.load({ ...params, data: exportedData(params?.data) }); }
+  updateAction(params) { return super.updateAction({ ...params, data: exportedData(params?.data) }); }
+  setActionsSchedule(params) {
+    return super.setActionsSchedule({ ...params, schedule: Array.isArray(params?.schedule) ? params.schedule.map((scheduled) =>
+      scheduled?.action?.type === 'updateAction' ? { ...scheduled, action: { ...scheduled.action, params: { ...scheduled.action.params, data: exportedData(scheduled.action.params?.data) } } } : scheduled
+    ) : params?.schedule });
+  }
 }
 export default ExportedGraphic;
 `;
@@ -77,7 +121,11 @@ function packageDescriptorResources(
   const parseDataUri = (uri: string) => {
     const match = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(uri);
     if (!match) throw new Error('Cannot package a malformed data URI resource.');
-    return { mimeType: match[1]!, base64: match[2] === ';base64', data: match[3]! };
+    return {
+      mimeType: match[1]!,
+      base64: match[2] === ';base64',
+      data: match[2] ? match[3]! : decodeURIComponent(match[3]!),
+    };
   };
 
   for (const asset of composition.assets) {
@@ -89,7 +137,12 @@ function packageDescriptorResources(
       continue;
     }
     const path = asset.packagePath?.trim() || `assets/${asset.id}.${extension}`;
-    resources.push({ path, data: parsed.data, base64: parsed.base64 });
+    resources.push({
+      path,
+      data: parsed.data,
+      base64: parsed.base64,
+      mimeType: asset.mimeType || parsed.mimeType,
+    });
     pathByAssetId.set(asset.id, path);
     pathByDataUri.set(asset.dataUri, path);
     if (asset.licenseText?.trim()) {
@@ -115,7 +168,7 @@ function packageDescriptorResources(
     const basename = registered?.id ?? `embedded-${fallbackCounter++}`;
     const extension = EXTENSION_BY_MIME[parsed.mimeType] ?? 'bin';
     const path = `assets/${basename}.${extension}`;
-    resources.push({ path, data: parsed.data, base64: parsed.base64 });
+    resources.push({ path, data: parsed.data, base64: parsed.base64, mimeType: parsed.mimeType });
     pathByDataUri.set(uri, path);
     return path;
   };
@@ -176,7 +229,11 @@ export function buildExportArtifactsWithRuntime(
   return {
     manifest,
     manifestFileName: `${manifest.id}.ograf.json`,
-    mainJs: generateMainJs(packaged.descriptor, graphicRuntimeSource),
+    mainJs: generateMainJs(
+      packaged.descriptor,
+      graphicRuntimeSource,
+      packaged.resources.map((resource) => resource.path),
+    ),
     resources: packaged.resources,
     projectErrors: projectValidation.errors,
     manifestErrors: manifestValidation.errors,

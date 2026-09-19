@@ -45,6 +45,12 @@ import {
   createLayerLoopClip,
   createLayerOfKind,
   createProject,
+  inspectShaderElement,
+  getElementShaderPaints,
+  isGradientPaint,
+  isShaderPaint,
+  syncShaderParameterFields,
+  syncCompositionShaderParameterFields,
   createTransition,
   defaultTransformForRole,
   findLayerKeyframeAtFrame,
@@ -90,6 +96,7 @@ import {
   type ImageElement,
   type ImageSequenceElement,
   type LottieElement,
+  type ShaderElement,
   type LayerKeyframe,
   type LayerPropertyKeyframe,
   type LayerLoopActivation,
@@ -124,17 +131,24 @@ import { useLayerClipboardStore } from './layerClipboardStore';
 import { planLifecycleRetime, type LifecycleRetimePlan } from './lifecycleRetime';
 import { buildSvgBundle } from './svgBundleImport';
 import { placeImages, prepareImage, readImageSize, type ImagePlacement } from './imageImport';
+import {
+  resolveShaderResource,
+  shaderPaintWithPatch,
+  type ShaderResourceTarget,
+  type ShaderResourcePatch,
+} from './shaderResources';
 
 export type { NewLayerKind } from '@ograf-editor/scene-model';
 
 export type ElementFields = { fill: Paint } & Omit<RectangleElement, 'type' | 'fill'> & {
     patternId: string;
   } & Omit<EllipseElement, 'type' | 'fill'> &
-  Omit<TextElement, 'type'> &
-  Omit<ImageElement, 'type'> &
+  Omit<TextElement, 'type' | 'fill'> &
+  Omit<ImageElement, 'type' | 'fill'> &
   Omit<PathElement, 'type' | 'fill'> &
-  Omit<ImageSequenceElement, 'type'> &
-  Omit<LottieElement, 'type'>;
+  Omit<ImageSequenceElement, 'type' | 'fill'> &
+  Omit<LottieElement, 'type' | 'fill'> &
+  Omit<ShaderElement, 'type'>;
 
 interface ProjectState {
   project: Project;
@@ -270,9 +284,10 @@ interface ProjectActions {
   updateLayerTextStroke: (
     layerId: string,
     frame: number,
-    patch: Partial<Pick<TextElement, 'strokeColor' | 'strokeWidth'>>,
+    patch: Partial<Pick<TextElement, 'strokeColor' | 'strokeWidth' | 'strokePaint'>>,
   ) => void;
-  updateLayerPaint: (layerId: string, frame: number, paint: Paint) => void;
+  updateLayerPaint: (layerId: string, frame: number, paint: Paint | undefined) => void;
+  updateShaderResource: (target: ShaderResourceTarget, patch: ShaderResourcePatch) => void;
   updateLayerEffects: (layerId: string, frame: number, patch: Partial<LayerEffects>) => void;
   addLayerEffect: (layerId: string, type: EffectType) => void;
   updateLayerEffect: (layerId: string, effectId: string, patch: EffectPatch, frame: number) => void;
@@ -863,6 +878,7 @@ function appendLayerCopies(
     composition.layers.push(...copiedLayers);
   }
 
+  syncCompositionShaderParameterFields(composition);
   return copiedIds;
 }
 
@@ -911,6 +927,8 @@ export const useProjectStore = create<ProjectStore>()(
         useTimelineStore.getState().resetForProjectLoad();
         set((state) => {
           const migrated = migrateProject(project);
+          for (const candidate of migrated.compositions)
+            syncCompositionShaderParameterFields(candidate);
           state.project = migrated;
           state.activeCompositionId = migrated.mainCompositionId;
           const composition = getActiveComposition(migrated, migrated.mainCompositionId);
@@ -1014,6 +1032,7 @@ export const useProjectStore = create<ProjectStore>()(
           }
           materializeAnimationTracks(layer);
           composition.layers.push(layer);
+          syncShaderParameterFields(composition, layer);
         });
         return layer.id;
       },
@@ -1163,6 +1182,7 @@ export const useProjectStore = create<ProjectStore>()(
           if (composition.layers.find((layer) => layer.id === layerId)?.isLocked) return;
           assertMaskSourcesRemovable(composition, new Set([layerId]));
           composition.layers = composition.layers.filter((l) => l.id !== layerId);
+          syncCompositionShaderParameterFields(composition);
           for (const layer of composition.layers) {
             if (layer.parentId === layerId) layer.parentId = null;
           }
@@ -1741,8 +1761,49 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((l) => l.id === layerId);
           if (layer && !layer.isLocked) {
+            const shaderPaints = getElementShaderPaints({
+              ...layer.element,
+              ...patch,
+            } as typeof layer.element);
+            for (const { paint } of shaderPaints) {
+              const inspection = inspectShaderElement(paint);
+              if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
+            }
             Object.assign(layer.element, patch);
+            syncShaderParameterFields(composition, layer);
             pruneInvalidGradientStopTracks(layer);
+          }
+        }),
+
+      updateShaderResource: (target, patch) =>
+        set((state) => {
+          const { composition, component, layer, paint } = resolveShaderResource(
+            state.project,
+            target,
+          );
+          if (layer.isLocked) throw new Error(`Shader resource object "${layer.name}" is locked.`);
+          const next = shaderPaintWithPatch(paint, patch);
+          if (target.slot === 'stroke') {
+            if (layer.element.type !== 'text')
+              throw new Error('Shader outlines are supported only on text.');
+            layer.element.strokePaint = next;
+          } else if (layer.element.type === 'shader') {
+            layer.element = next;
+          } else {
+            layer.element.fill = next;
+          }
+          if (component) {
+            const scope: Composition = {
+              ...composition,
+              layers: component.layers,
+              dataFields: component.dataFields,
+              runtimeCollections: [],
+              components: [],
+            };
+            syncShaderParameterFields(scope, layer);
+            component.dataFields = scope.dataFields;
+          } else {
+            syncShaderParameterFields(composition, layer);
           }
         }),
 
@@ -1751,7 +1812,18 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
           if (!layer || layer.isLocked || layer.element.type !== 'text') return;
-          if (patch.strokeColor !== undefined) layer.element.strokeColor = patch.strokeColor;
+          if (patch.strokeColor !== undefined) {
+            layer.element.strokeColor = patch.strokeColor;
+            delete layer.element.strokePaint;
+          }
+          if ('strokePaint' in patch) {
+            if (patch.strokePaint) {
+              const inspection = inspectShaderElement(patch.strokePaint);
+              if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
+              layer.element.strokePaint = patch.strokePaint;
+            } else delete layer.element.strokePaint;
+          }
+          syncShaderParameterFields(composition, layer);
           if (patch.strokeWidth === undefined) return;
           const numeric = Number(patch.strokeWidth);
           const strokeWidth = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
@@ -1780,22 +1852,56 @@ export const useProjectStore = create<ProjectStore>()(
             (layer.element.type !== 'rectangle' &&
               layer.element.type !== 'ellipse' &&
               layer.element.type !== 'path' &&
-              layer.element.type !== 'pattern')
+              layer.element.type !== 'pattern' &&
+              layer.element.type !== 'text' &&
+              layer.element.type !== 'image' &&
+              layer.element.type !== 'image-sequence' &&
+              layer.element.type !== 'lottie')
           ) {
+            return;
+          }
+          const element = layer.element;
+          if (
+            element.type === 'image' ||
+            element.type === 'image-sequence' ||
+            element.type === 'lottie'
+          ) {
+            if (paint !== undefined && !isShaderPaint(paint))
+              throw new Error('Media fill must be a shader or original pixels.');
+            if (isShaderPaint(paint)) {
+              const inspection = inspectShaderElement(paint);
+              if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
+              element.fill = paint;
+            } else delete element.fill;
+            syncShaderParameterFields(composition, layer);
+            return;
+          }
+          if (paint === undefined) return;
+          if (isShaderPaint(paint)) {
+            const inspection = inspectShaderElement(paint);
+            if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
+          }
+          if (element.type === 'text') {
+            if (typeof paint === 'string') {
+              element.color = paint;
+              delete element.fill;
+            } else element.fill = paint;
+            syncShaderParameterFields(composition, layer);
+            pruneInvalidGradientStopTracks(layer);
             return;
           }
           const roundedFrame = Math.max(
             0,
             Math.min(getTotalFrames(composition), Math.round(frame)),
           );
-          const previous = layer.element.fill;
+          const previous = element.fill;
           const previousEvaluated = getPaintAtFrame(
             previous,
             getResolvedLayerAnimationTracks(layer),
             roundedFrame,
           );
           if (!useTimelineStore.getState().autoKeyframe) {
-            if (typeof paint !== 'string' && typeof previousEvaluated !== 'string') {
+            if (isGradientPaint(paint) && isGradientPaint(previousEvaluated)) {
               paint.stops.forEach((stop, index) => {
                 const before = previousEvaluated.stops[index]?.offset;
                 if (before !== undefined)
@@ -1806,20 +1912,21 @@ export const useProjectStore = create<ProjectStore>()(
                   );
               });
             }
-            layer.element.fill = paint;
+            element.fill = paint;
+            syncShaderParameterFields(composition, layer);
             pruneInvalidGradientStopTracks(layer);
             return;
           }
           materializeAnimationTracks(layer);
-          if (typeof paint !== 'string' && typeof previous !== 'string') {
-            layer.element.fill = {
+          if (isGradientPaint(paint) && isGradientPaint(previous)) {
+            element.fill = {
               ...paint,
               stops: paint.stops.map((stop, index) => ({
                 ...stop,
                 offset: previous.stops[index]?.offset ?? stop.offset,
               })),
             };
-            if (typeof previousEvaluated !== 'string') {
+            if (isGradientPaint(previousEvaluated)) {
               paint.stops.forEach((stop, index) => {
                 if (previousEvaluated.stops[index]?.offset === stop.offset) return;
                 const keyframe = upsertPropertyKeyframe(
@@ -1832,8 +1939,9 @@ export const useProjectStore = create<ProjectStore>()(
               });
             }
           } else {
-            layer.element.fill = paint;
+            element.fill = paint;
           }
+          syncShaderParameterFields(composition, layer);
           pruneInvalidGradientStopTracks(layer);
         }),
 
@@ -2516,6 +2624,10 @@ export const useProjectStore = create<ProjectStore>()(
       removeDataField: (fieldId) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
+          if (
+            composition.dataFields.find((field) => field.id === fieldId)?.generatedShaderParameter
+          )
+            return;
           composition.dataFields = composition.dataFields.filter((f) => f.id !== fieldId);
           composition.runtimeCollections = composition.runtimeCollections.filter(
             (collection) => collection.fieldId !== fieldId,
@@ -2562,13 +2674,17 @@ export const useProjectStore = create<ProjectStore>()(
           ) {
             collection.capacity = maxItems;
           }
+          if (field.generatedShaderParameter) syncCompositionShaderParameterFields(composition);
         }),
 
       setLayerBindings: (layerId, bindings) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((l) => l.id === layerId);
-          if (layer && !layer.isLocked) layer.bindings = bindings;
+          if (layer && !layer.isLocked) {
+            layer.bindings = bindings;
+            syncShaderParameterFields(composition, layer);
+          }
         }),
 
       addRuntimeCollection: (fieldId, prototypeLayerIds, offsetPerItem, capacity) => {

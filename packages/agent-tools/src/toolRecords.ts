@@ -1,3 +1,8 @@
+import {
+  getElementShaderPaint,
+  getElementShaderPaints,
+  hasElementShaderPaint,
+} from '@ograf-editor/scene-model';
 import { parseEditablePath, pathConversionError } from '@ograf-editor/scene-model';
 import { access, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
@@ -43,6 +48,8 @@ import {
   getTotalFrames,
   intersectConvexPolygons,
   inspectLottieAnimationData,
+  inspectShaderElement,
+  MAX_SHADER_SOURCE_BYTES,
   LOTTIE_READY_TIMEOUT_MS,
   PROJECT_SOURCE_EXTENSION,
   MOTION_PRESET_NAMES,
@@ -104,6 +111,69 @@ interface ToolRegistrar {
   ): void;
 }
 
+const SHADER_PAINT_CAPABILITIES = {
+  type: 'shader',
+  slots: {
+    fill: 'All listed elements',
+    stroke: 'Text only, stored in element.strokePaint; absent uses strokeColor.',
+  },
+  supportedElements: [
+    'rectangle',
+    'ellipse',
+    'path',
+    'pattern',
+    'text',
+    'image',
+    'image-sequence',
+    'lottie',
+  ],
+  shape:
+    'Shader RGBA is multiplied by the object shape or source alpha; original media colors are replaced. Text outlines can use an independent strokePaint shader clipped by native glyph stroke alpha. User source receives no source texture channel.',
+  fragmentSource: {
+    type: 'string',
+    maximumBytes: MAX_SHADER_SOURCE_BYTES,
+    description:
+      'Self-contained GLSL Image pass defining mainImage(out vec4 fragColor, in vec2 fragCoord), preserved verbatim. The runtime supplies main, version, iTime and iResolution. Mark literal global constants with #pragma ograf NAME CONTROL options to generate controls and OGraf fields automatically; omit custom uniform declarations.',
+  },
+  speed: { type: 'number', default: 1, minimum: 0, maximum: 10 },
+  resolutionScale: { type: 'number', default: 1, minimum: 0.25, maximum: 1 },
+  parameters: {
+    type: 'object',
+    default: {},
+    values: 'number, boolean, or numeric vector, keyed by a marked source symbol',
+    pragma: '#pragma ograf NAME slider|color|toggle|vector2 min(N) max(N) step(N)',
+    declarations:
+      'Literal global float/int/bool/vec2/vec3/vec4 constants or object-like #define constants. slider: float/int; color: vec3/vec4; toggle: bool; vector2: vec2.',
+    exposure:
+      'Every marked parameter automatically gets an ordinary typed OGraf data field and fill.parameters.NAME or strokePaint.parameters.NAME binding. Identical parameter names in fill and outline remain independent. No separate expose option or manual field creation is needed. Removed symbols remove only unused generated fields; copies get independent fields.',
+    dataTypes:
+      'float: number; int: integer; bool: boolean; vec3/vec4 colors: #rrggbb/#rrggbbaa; vec2: object with numeric x and y properties.',
+  },
+  runtimeProfile: {
+    renderer: 'WebGL2',
+    passes: 1,
+    supportedInputs: ['iTime', 'iResolution'],
+    unsupported: [
+      'texture channels',
+      'audio',
+      'buffer passes',
+      'feedback',
+      'mouse',
+      'date',
+      'frame counters',
+      'custom uniforms',
+    ],
+    timing:
+      'iTime is absolute composition elapsed seconds multiplied by speed; deterministic backward and repeated seeking.',
+    portability:
+      'The target renderer must support WebGL2. Source inspection is not a GLSL compile or rendering check. SVG-only previews cannot render shader pixels.',
+    editing:
+      'Set element.fill to {type:shader, fragmentSource, speed:1, resolutionScale:1, parameters:{}} on an existing shape, text, or media layer. Use update_element.patch.fill for fill edits; text also accepts independent strokePaint with the same shape. Set strokePaint:null to restore its solid strokeColor. Source pragmas define editable parameters and automatically exposed typed runtime bindings. Parameters remain independent of numeric animation tracks.',
+    verification:
+      'Inspect shaderPaintInspections.fill and shaderPaintInspections.stroke, then render and certify the exported package in a browser with WebGL2; test representative timestamps and backward seeks.',
+  },
+};
+
 const CAPABILITY_SECTIONS = [
   'elements',
   'easing',
@@ -120,6 +190,7 @@ const CAPABILITY_SECTION_KEYS: Record<CapabilitySection, readonly string[]> = {
   elements: [
     'elementTypes',
     'elementSchemas',
+    'paintSchemas',
     'animatableProperties',
     'animatablePropertyPatterns',
     'blendModes',
@@ -552,6 +623,19 @@ function inspectComposition(composition: Composition) {
                   outPoint: layer.element.animationData.op,
                 }
               : null,
+          }
+        : {}),
+      ...(getElementShaderPaint(layer.element)
+        ? { shaderInspection: inspectShaderElement(getElementShaderPaint(layer.element)!) }
+        : {}),
+      ...(hasElementShaderPaint(layer.element)
+        ? {
+            shaderPaintInspections: Object.fromEntries(
+              getElementShaderPaints(layer.element).map(({ slot, paint }) => [
+                slot,
+                inspectShaderElement(paint),
+              ]),
+            ),
           }
         : {}),
       effectStack: getEffectStack(layer.effects).map((e) => ({
@@ -1532,6 +1616,7 @@ export function createOGrafToolRecords(
           'image-sequence',
           'lottie',
         ],
+        paintSchemas: { shader: SHADER_PAINT_CAPABILITIES },
         elementSchemas: {
           rectangle: {
             defaultTransform: { width: 200, height: 200, shape: 'square' },
@@ -1542,6 +1627,7 @@ export function createOGrafToolRecords(
                 'linear-gradient',
                 'radial-gradient',
                 'conic-gradient',
+                'shader',
               ],
               default: '#3b3f4a',
               gradientShape: {
@@ -1569,6 +1655,7 @@ export function createOGrafToolRecords(
                 'linear-gradient',
                 'radial-gradient',
                 'conic-gradient',
+                'shader',
               ],
               default: '#3b3f4a',
               gradientShape: {
@@ -1581,6 +1668,15 @@ export function createOGrafToolRecords(
             strokeWidth: { type: 'number', default: 0, minimum: 0 },
           },
           text: {
+            strokePaint: {
+              type: 'shader-or-omitted',
+              description:
+                'Independent shader outline on editable text, using strokeWidth and glyph stroke alpha. Omitted uses strokeColor.',
+            },
+            fill: {
+              type: 'paint-or-omitted',
+              description: 'Solid, gradient, or shader clipped by glyph alpha; omitted uses color.',
+            },
             content: { type: 'string', default: 'Text' },
             color: { type: 'color', default: '#ffffff' },
             strokeColor: { type: 'color', default: 'transparent' },
@@ -1619,6 +1715,7 @@ export function createOGrafToolRecords(
             },
           },
           image: {
+            fill: { type: 'shader-or-omitted' },
             src: {
               type: 'string-or-null',
               default: null,
@@ -1668,6 +1765,7 @@ export function createOGrafToolRecords(
                 'linear-gradient',
                 'radial-gradient',
                 'conic-gradient',
+                'shader',
               ],
               gradientShape: {
                 type: 'linear | radial | conic',
@@ -1682,6 +1780,7 @@ export function createOGrafToolRecords(
             viewBoxHeight: { type: 'number', default: 100, exclusiveMinimum: 0 },
           },
           'image-sequence': {
+            fill: { type: 'shader-or-omitted' },
             frames: {
               type: 'string-array',
               default: [],
@@ -1691,6 +1790,11 @@ export function createOGrafToolRecords(
             loop: { type: 'boolean', default: true },
           },
           lottie: {
+            fill: {
+              type: 'shader-or-omitted',
+              description:
+                'Shader paint replaces color through source alpha; omitted preserves original pixels.',
+            },
             animationData: {
               type: 'object-or-null',
               default: null,
@@ -1897,14 +2001,46 @@ export function createOGrafToolRecords(
           effectParameters:
             'Color/number fields may bind effects.ID.PARAM from the effect catalog. Live values override the sampled parameter; updating data does not restart an effect loop.',
           targetProperties: {
-            rectangle: ['fill', 'fill.stops[N].color', 'strokeColor', 'dropShadowColor'],
-            ellipse: ['fill', 'fill.stops[N].color', 'strokeColor', 'dropShadowColor'],
-            text: ['content', 'color', 'strokeColor', 'dropShadowColor'],
-            image: ['src', 'dropShadowColor'],
-            path: ['fill', 'fill.stops[N].color', 'strokeColor', 'dropShadowColor'],
-            pattern: ['fill', 'fill.stops[N].color', 'strokeColor', 'dropShadowColor'],
-            'image-sequence': ['dropShadowColor'],
-            lottie: ['dropShadowColor'],
+            rectangle: [
+              'fill',
+              'fill.stops[N].color',
+              'fill.parameters.NAME',
+              'strokeColor',
+              'dropShadowColor',
+            ],
+            ellipse: [
+              'fill',
+              'fill.stops[N].color',
+              'fill.parameters.NAME',
+              'strokeColor',
+              'dropShadowColor',
+            ],
+            text: [
+              'content',
+              'color',
+              'fill',
+              'fill.parameters.NAME',
+              'strokePaint.parameters.NAME',
+              'strokeColor',
+              'dropShadowColor',
+            ],
+            image: ['src', 'fill.parameters.NAME', 'dropShadowColor'],
+            path: [
+              'fill',
+              'fill.stops[N].color',
+              'fill.parameters.NAME',
+              'strokeColor',
+              'dropShadowColor',
+            ],
+            pattern: [
+              'fill',
+              'fill.stops[N].color',
+              'fill.parameters.NAME',
+              'strokeColor',
+              'dropShadowColor',
+            ],
+            'image-sequence': ['fill.parameters.NAME', 'dropShadowColor'],
+            lottie: ['fill.parameters.NAME', 'dropShadowColor'],
           },
         },
         editorParity: {
@@ -2010,7 +2146,9 @@ export function createOGrafToolRecords(
             'hideSource defaults true and sets source.isMaskOnly. This suppresses source output without disabling masks; isVisible:false disables the source. set_layer_flags isMaskOnly:false shows the source again. Detaching does not change source visibility.',
           dependencies:
             'Same composition. No self/cycles, guide sources or cross-runtime-collection references. Source tracks/loops are sampled independently. Include sources when saving components; duplication remaps internal references. Detach consumers before deleting a source.',
-          unsupportedSources: ['text', 'image-sequence', 'lottie'],
+          unsupportedSources: ['text', 'image-sequence', 'lottie', 'shader'],
+          shaderPaint:
+            'Shader-painted layers may receive masks and provide geometric path masks; alpha-mask sourcing is unsupported.',
           conicAlpha:
             'SVG alpha masks tessellate conic paint at half-degree intervals; visible path paint uses native CSS gradients.',
         },
@@ -2188,7 +2326,7 @@ export function createOGrafToolRecords(
     {
       title: 'Query OGraf scene by semantic intent',
       description:
-        'Find layer IDs by semantics, name, type, bindings, visibility or motion; includes frame geometry, masks and authoring links.',
+        'Find layers by semantics, name, type, bindings, visibility or motion, with geometry, masks and authoring links.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2271,7 +2409,8 @@ export function createOGrafToolRecords(
           if (normalizedTagsAny && !normalizedTagsAny.some((tag) => tags.includes(tag)))
             return null;
           if (lowerName && !layer.name.toLocaleLowerCase().includes(lowerName)) return null;
-          if (elementTypes && !elementTypes.includes(layer.element.type)) return null;
+          if (elementTypes && !elementTypes.some((type) => type === layer.element.type))
+            return null;
           if (visible !== undefined && layer.isVisible !== visible) return null;
           if (
             animated !== undefined &&

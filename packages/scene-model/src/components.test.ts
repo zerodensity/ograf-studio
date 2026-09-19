@@ -6,9 +6,46 @@ import {
   createProject,
   createTextLayer,
   instantiateComponentDefinition,
+  createLayerOfKind,
+  syncCompositionShaderParameterFields,
+  createShaderPaint,
 } from './index';
 
 describe('reusable components', () => {
+  it('preserves returned shader field identities and user labels through component reconciliation', () => {
+    const composition = createProject().compositions[0]!;
+    const layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw new Error('Expected text.');
+    layer.element.fill = createShaderPaint();
+    layer.element.strokePaint = createShaderPaint();
+    composition.layers = [layer];
+    syncCompositionShaderParameterFields(composition);
+    composition.dataFields[0]!.key = 'custom_frequency';
+    composition.dataFields[0]!.label = 'Frequency';
+    const definition = buildComponentDefinition(composition, [layer.id], 'Shader component');
+    const before = structuredClone(definition);
+    const instance = instantiateComponentDefinition(composition, definition);
+    expect(instance.dataFields).toHaveLength(6);
+    const expectedFields = structuredClone(instance.dataFields);
+    composition.layers.push(...instance.layers);
+    composition.dataFields.push(...instance.dataFields);
+    syncCompositionShaderParameterFields(composition);
+    for (const original of definition.dataFields) {
+      const id = instance.fieldIds[original.id]!;
+      const field = composition.dataFields.find((candidate) => candidate.id === id);
+      expect(field).toEqual(expectedFields.find((candidate) => candidate.id === id));
+      expect(field?.generatedShaderParameter?.layerId).toBe(instance.layerIds[layer.id]);
+    }
+    expect(instance.layers[0]!.bindings.map((binding) => binding.fieldId)).toEqual(
+      Object.values(instance.fieldIds),
+    );
+    expect(
+      composition.dataFields.find(
+        (field) => field.id === instance.fieldIds[definition.dataFields[0]!.id],
+      ),
+    ).toMatchObject({ key: 'custom_frequency_2', label: 'Frequency' });
+    expect(definition).toEqual(before);
+  });
   it('snapshots selected layers and instantiates independent grouped OGraf layers and fields', () => {
     const project = createProject();
     const composition = project.compositions[0]!;

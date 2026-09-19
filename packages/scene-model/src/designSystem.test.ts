@@ -1,3 +1,4 @@
+import { isGradientPaint } from './paint';
 import { describe, expect, it } from 'vitest';
 import { createLayerOfKind, createProject, createFieldDefinition } from './factory';
 import {
@@ -51,7 +52,7 @@ describe('Brand Kit gradient and shadow colors', () => {
       token,
     );
     const expected = structuredClone(before);
-    if (expected.element.type === 'pattern' && typeof expected.element.fill !== 'string')
+    if (expected.element.type === 'pattern' && isGradientPaint(expected.element.fill))
       expected.element.fill.stops[1]!.color = '#cc6622';
     expect(layer).toEqual(expected);
   });

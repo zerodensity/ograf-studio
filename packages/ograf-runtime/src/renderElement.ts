@@ -6,6 +6,8 @@ import {
   withEffectParameter,
   getTrackValueAtFrame,
   cornerRadiiToCss,
+  hasElementShaderPaint,
+  isGradientPaint,
   LOTTIE_READY_TIMEOUT_MS,
   lottiePlayerFrameAtTime,
   paintToCss,
@@ -18,6 +20,21 @@ import { valueAtSourcePath } from '@ograf-editor/scene-model';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light_canvas.js';
 import { mountPattern, applyPatternPaint } from './patternRendering';
+import {
+  assertShadersReady,
+  disposeShader,
+  mountShader,
+  renderShaderAtTime,
+  updateShaderParameters,
+} from './shaderRendering';
+import {
+  disposeShaderPaintContent,
+  mountShaderPaintContent,
+  renderShaderPaintAtTime,
+  shaderPaintBaseHost,
+  updateShaderPaintContent,
+  waitForShaderPaintContentReady,
+} from './shaderPaintRendering';
 
 interface MountedTextFit {
   observer?: ResizeObserver;
@@ -68,6 +85,9 @@ interface LottieSizedLayer {
 
 export interface ElementContentRenderOptions {
   lottieBackingSize?: { width: number; height: number };
+  shaderBackingSize?: { width: number; height: number };
+  shaderStrokePadding?: number;
+  requiresImageAlpha?: boolean;
 }
 
 function constrainLottieBackingSize(
@@ -268,12 +288,14 @@ function mountedLottiesWithin(root: ParentNode): MountedLottie[] {
   return mounted;
 }
 
-/** Waits until every Canvas Lottie below `root` has loaded its embedded assets and built its DOM. */
+/** Waits for embedded assets and surfaces shader compilation, context, and draw failures. */
 export async function waitForElementContentReady(root: ParentNode): Promise<void> {
   const mounted = mountedLottiesWithin(root);
   await Promise.all(mounted.map((entry) => entry.readiness));
   const failure = mounted.find((entry) => entry.error)?.error;
   if (failure) throw failure;
+  await waitForShaderPaintContentReady(root);
+  assertShadersReady(root);
 }
 
 /** Rebuilds Canvas state between changed frames for repeatable non-realtime seeks. */
@@ -379,6 +401,8 @@ export function findFittedFontSize(options: {
 
 /** Disconnects text-fitting observation before a renderer discards a content host. */
 export function disposeElementContent(container: HTMLElement): void {
+  disposeShaderPaintContent(container);
+  disposeShader(container);
   const mountedLottie = lottieAnimations.get(container);
   if (mountedLottie) {
     if (!mountedLottie.settled) {
@@ -414,9 +438,10 @@ export function applyAnimatedPaint(
 ): void {
   if (applyPatternPaint(container, tracks, frame)) return;
   const directChild = container.firstElementChild as HTMLElement | null;
-  const renderHost = directChild?.classList?.contains('layer-content-host')
+  const outerHost = directChild?.classList?.contains('layer-content-host')
     ? directChild
     : container;
+  const renderHost = shaderPaintBaseHost(outerHost) ?? outerHost;
   const serialized = renderHost.dataset?.ografBasePaint;
   const content = renderHost.firstElementChild as HTMLElement | null;
   if (!content) return;
@@ -466,6 +491,18 @@ export function renderElementContent(
   frameIndex = 0,
   options: ElementContentRenderOptions = {},
 ): void {
+  const shaderFill = element.type !== 'shader' && hasElementShaderPaint(element);
+  if (shaderFill && updateShaderPaintContent(container, element, options)) {
+    container.dataset.ografRenderedElement = JSON.stringify(element);
+    return;
+  }
+  if (
+    element.type === 'shader' &&
+    updateShaderParameters(container, element, options.shaderBackingSize)
+  ) {
+    container.dataset.ografRenderedElement = JSON.stringify(element);
+    return;
+  }
   const auxiliaryChildren = [...container.children].filter(
     (child) => child.getAttribute('data-ograf-runtime-auxiliary') === 'true',
   );
@@ -475,446 +512,473 @@ export function renderElementContent(
   const previousContentOpacity = previousContent?.style.opacity ?? '';
   disposeElementContent(container);
   container.dataset.ografRenderedElement = JSON.stringify(element);
-  switch (element.type) {
-    case 'pattern': {
-      mountPattern(container, element);
-      break;
-    }
-    case 'rectangle': {
-      const content = document.createElement('div');
-      applyContentBaseStyle(content);
-      content.style.background = paintToCss(element.fill);
-      rememberPaint(container, element.fill);
-      content.style.borderRadius = cornerRadiiToCss(element.borderRadius);
-      if (element.strokeWidth > 0) {
-        content.style.border = `${element.strokeWidth}px solid ${element.strokeColor}`;
+  if (shaderFill) {
+    mountShaderPaintContent(container, element, options, {
+      render: (host, base, baseOptions) =>
+        renderElementContent(host, base, frameIndex, baseOptions),
+      renderAtTime: renderAnimatedElementAtTime,
+      ready: waitForElementContentReady,
+      refreshLayout: (host) => textFitCallbacks.get(host)?.(),
+      dispose: disposeElementContent,
+    });
+  } else
+    switch (element.type) {
+      case 'shader': {
+        mountShader(container, element, options.shaderBackingSize);
+        break;
       }
-      container.appendChild(content);
-      break;
-    }
-    case 'ellipse': {
-      const content = document.createElement('div');
-      applyContentBaseStyle(content);
-      content.style.background = paintToCss(element.fill);
-      rememberPaint(container, element.fill);
-      content.style.borderRadius = '50%';
-      if (element.strokeWidth > 0) {
-        content.style.border = `${element.strokeWidth}px solid ${element.strokeColor}`;
+      case 'pattern': {
+        mountPattern(container, element);
+        break;
       }
-      container.appendChild(content);
-      break;
-    }
-    case 'text': {
-      const content = document.createElement('div');
-      applyContentBaseStyle(content);
-      content.style.color = element.color;
-      applyTextStrokeStyle(content.style, element.strokeColor, element.strokeWidth);
-      content.style.fontFamily = element.fontFamily;
-      content.style.fontSize = `${element.fontSize}px`;
-      content.style.fontWeight = String(element.fontWeight);
-      content.style.textAlign = element.textAlign;
-      content.style.letterSpacing = `${element.letterSpacing}px`;
-      content.style.textTransform = element.textTransform;
-      const squeeze = element.autoFit === 'squeeze';
-      content.style.display = squeeze ? 'block' : 'flex';
-      content.style.flexDirection = squeeze ? '' : 'column';
-      content.style.justifyContent = squeeze
-        ? ''
-        : element.verticalAlign === 'middle'
-          ? 'center'
-          : element.verticalAlign === 'bottom'
-            ? 'flex-end'
-            : 'flex-start';
-      content.style.transform = squeeze ? 'none' : `translateY(${element.baselineShift}px)`;
-      content.style.whiteSpace =
-        element.autoFit === 'auto-size' ||
-        element.autoFit === 'fit-to-width' ||
-        element.autoFit === 'squeeze'
-          ? 'pre'
-          : element.overflowPolicy === 'ellipsis'
-            ? 'nowrap'
-            : 'pre-wrap';
-      // Shrink-to-fit changes glyph size, not the authored line grid. Keeping the line height in
-      // pixels prevents subsequent lines/baselines from moving vertically as longer data forces a
-      // smaller fitted font. Other modes retain normal proportional line-height behavior.
-      content.style.lineHeight =
-        element.autoFit === 'shrink-to-fit'
-          ? `${element.fontSize * element.lineHeight}px`
-          : String(element.lineHeight);
-      content.style.overflow =
-        element.autoFit === 'shrink-to-fit' ||
-        element.autoFit === 'fit-to-width' ||
-        element.autoFit === 'squeeze' ||
-        element.overflowPolicy !== 'visible'
-          ? 'hidden'
-          : 'visible';
-      content.style.textOverflow = element.overflowPolicy === 'ellipsis' ? 'ellipsis' : 'clip';
-      if (squeeze) {
-        Object.assign(content.style, {
-          position: 'absolute',
-          left: '0',
-          top: '0',
-          width: 'max-content',
-          height: 'max-content',
-          minWidth: '1px',
-          minHeight: '1px',
-          maxWidth: 'none',
-          maxHeight: 'none',
-          transformOrigin: '0 0',
-          overflow: 'visible',
-        });
-      }
-      content.textContent = element.content;
-      container.appendChild(content);
-      if (
-        element.autoFit === 'shrink-to-fit' ||
-        element.autoFit === 'fit-to-width' ||
-        element.autoFit === 'squeeze'
-      ) {
-        const fitMode = element.autoFit;
-        const mounted: MountedTextFit = {};
-        if (fitMode === 'fit-to-width') {
-          const probe = content.cloneNode(true) as HTMLElement;
-          Object.assign(probe.style, {
-            position: 'fixed',
-            left: '-100000px',
-            top: '0',
-            visibility: 'hidden',
-            pointerEvents: 'none',
-            transform: 'none',
-            zIndex: '-1',
-          });
-          (document.body ?? document.documentElement).appendChild(probe);
-          mounted.probe = probe;
+      case 'rectangle': {
+        const content = document.createElement('div');
+        applyContentBaseStyle(content);
+        content.style.background = paintToCss(element.fill);
+        rememberPaint(container, element.fill);
+        content.style.borderRadius = cornerRadiiToCss(element.borderRadius);
+        if (element.strokeWidth > 0) {
+          content.style.border = `${element.strokeWidth}px solid ${element.strokeColor}`;
         }
-        const fit = () => {
-          if (textFitCallbacks.get(container) !== fit) return;
-          if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
-          if (element.content.length === 0) {
-            content.style.fontSize = `${element.fontSize}px`;
-            content.style.transform = 'none';
-            content.dataset.ografAppliedFontSize = String(element.fontSize);
-            content.dataset.ografFitRatio = '1';
-            content.dataset.ografFitDegenerate = 'false';
-            return;
-          }
-          const strokeExpansion = Math.max(
-            0,
-            Number.parseFloat(content.style.webkitTextStrokeWidth) || element.strokeWidth,
-          );
-          if (fitMode === 'squeeze') {
-            content.style.transform = 'none';
-            const result = calculateTextSqueezeScale({
-              boxWidth: container.clientWidth,
-              boxHeight: container.clientHeight,
-              naturalWidth: content.scrollWidth + strokeExpansion,
-              naturalHeight: content.scrollHeight + strokeExpansion,
+        container.appendChild(content);
+        break;
+      }
+      case 'ellipse': {
+        const content = document.createElement('div');
+        applyContentBaseStyle(content);
+        content.style.background = paintToCss(element.fill);
+        rememberPaint(container, element.fill);
+        content.style.borderRadius = '50%';
+        if (element.strokeWidth > 0) {
+          content.style.border = `${element.strokeWidth}px solid ${element.strokeColor}`;
+        }
+        container.appendChild(content);
+        break;
+      }
+      case 'text': {
+        const content = document.createElement('div');
+        applyContentBaseStyle(content);
+        const fill = element.fill ?? element.color;
+        content.style.color = typeof fill === 'string' ? fill : 'transparent';
+        if (isGradientPaint(fill)) {
+          content.style.background = paintToCss(fill);
+          content.style.backgroundClip = 'text';
+          content.style.webkitBackgroundClip = 'text';
+          rememberPaint(container, fill);
+        }
+        applyTextStrokeStyle(content.style, element.strokeColor, element.strokeWidth);
+        content.style.fontFamily = element.fontFamily;
+        content.style.fontSize = `${element.fontSize}px`;
+        content.style.fontWeight = String(element.fontWeight);
+        content.style.textAlign = element.textAlign;
+        content.style.letterSpacing = `${element.letterSpacing}px`;
+        content.style.textTransform = element.textTransform;
+        const squeeze = element.autoFit === 'squeeze';
+        content.style.display = squeeze ? 'block' : 'flex';
+        content.style.flexDirection = squeeze ? '' : 'column';
+        content.style.justifyContent = squeeze
+          ? ''
+          : element.verticalAlign === 'middle'
+            ? 'center'
+            : element.verticalAlign === 'bottom'
+              ? 'flex-end'
+              : 'flex-start';
+        content.style.transform = squeeze ? 'none' : `translateY(${element.baselineShift}px)`;
+        content.style.whiteSpace =
+          element.autoFit === 'auto-size' ||
+          element.autoFit === 'fit-to-width' ||
+          element.autoFit === 'squeeze'
+            ? 'pre'
+            : element.overflowPolicy === 'ellipsis'
+              ? 'nowrap'
+              : 'pre-wrap';
+        // Shrink-to-fit changes glyph size, not the authored line grid. Keeping the line height in
+        // pixels prevents subsequent lines/baselines from moving vertically as longer data forces a
+        // smaller fitted font. Other modes retain normal proportional line-height behavior.
+        content.style.lineHeight =
+          element.autoFit === 'shrink-to-fit'
+            ? `${element.fontSize * element.lineHeight}px`
+            : String(element.lineHeight);
+        content.style.overflow =
+          element.autoFit === 'shrink-to-fit' ||
+          element.autoFit === 'fit-to-width' ||
+          element.autoFit === 'squeeze' ||
+          element.overflowPolicy !== 'visible'
+            ? 'hidden'
+            : 'visible';
+        content.style.textOverflow = element.overflowPolicy === 'ellipsis' ? 'ellipsis' : 'clip';
+        if (squeeze) {
+          Object.assign(content.style, {
+            position: 'absolute',
+            left: '0',
+            top: '0',
+            width: 'max-content',
+            height: 'max-content',
+            minWidth: '1px',
+            minHeight: '1px',
+            maxWidth: 'none',
+            maxHeight: 'none',
+            transformOrigin: '0 0',
+            overflow: 'visible',
+          });
+        }
+        content.textContent = element.content;
+        container.appendChild(content);
+        if (
+          element.autoFit === 'shrink-to-fit' ||
+          element.autoFit === 'fit-to-width' ||
+          element.autoFit === 'squeeze'
+        ) {
+          const fitMode = element.autoFit;
+          const mounted: MountedTextFit = {};
+          if (fitMode === 'fit-to-width') {
+            const probe = content.cloneNode(true) as HTMLElement;
+            Object.assign(probe.style, {
+              position: 'fixed',
+              left: '-100000px',
+              top: '0',
+              visibility: 'hidden',
+              pointerEvents: 'none',
+              transform: 'none',
+              zIndex: '-1',
             });
-            content.style.transform = `scale(${result.scaleX}, ${result.scaleY}) translateY(${element.baselineShift}px)`;
-            content.dataset.ografAppliedFontSize = String(element.fontSize);
-            content.dataset.ografFitRatio = String(Math.min(result.scaleX, result.scaleY));
-            content.dataset.ografFitDegenerate = String(result.degenerate);
-            content.dataset.ografSqueezeScaleX = String(result.scaleX);
-            content.dataset.ografSqueezeScaleY = String(result.scaleY);
-            return;
+            (document.body ?? document.documentElement).appendChild(probe);
+            mounted.probe = probe;
           }
-          const fits = (fontSize: number) => {
-            if (fitMode === 'shrink-to-fit') {
-              content.style.fontSize = `${fontSize}px`;
+          const fit = () => {
+            if (textFitCallbacks.get(container) !== fit) return;
+            if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
+            if (element.content.length === 0) {
+              content.style.fontSize = `${element.fontSize}px`;
+              content.style.transform = 'none';
+              content.dataset.ografAppliedFontSize = String(element.fontSize);
+              content.dataset.ografFitRatio = '1';
+              content.dataset.ografFitDegenerate = 'false';
+              return;
+            }
+            const currentStrokeWidth = Number.parseFloat(content.style.webkitTextStrokeWidth);
+            const strokeExpansion = Math.max(
+              0,
+              Number.isFinite(currentStrokeWidth) ? currentStrokeWidth : element.strokeWidth,
+            );
+            if (fitMode === 'squeeze') {
+              content.style.transform = 'none';
+              const result = calculateTextSqueezeScale({
+                boxWidth: container.clientWidth,
+                boxHeight: container.clientHeight,
+                naturalWidth: content.scrollWidth + strokeExpansion,
+                naturalHeight: content.scrollHeight + strokeExpansion,
+              });
+              content.style.transform = `scale(${result.scaleX}, ${result.scaleY}) translateY(${element.baselineShift}px)`;
+              content.dataset.ografAppliedFontSize = String(element.fontSize);
+              content.dataset.ografFitRatio = String(Math.min(result.scaleX, result.scaleY));
+              content.dataset.ografFitDegenerate = String(result.degenerate);
+              content.dataset.ografSqueezeScaleX = String(result.scaleX);
+              content.dataset.ografSqueezeScaleY = String(result.scaleY);
+              return;
+            }
+            const fits = (fontSize: number) => {
+              if (fitMode === 'shrink-to-fit') {
+                content.style.fontSize = `${fontSize}px`;
+                return (
+                  content.scrollWidth + strokeExpansion <= container.clientWidth + 0.5 &&
+                  content.scrollHeight + strokeExpansion <= container.clientHeight + 0.5
+                );
+              }
+              const probe = mounted.probe;
+              if (!probe) return false;
+              probe.style.width = `${container.clientWidth}px`;
+              probe.style.height = `${container.clientHeight}px`;
+              probe.style.fontSize = `${fontSize}px`;
+              probe.style.webkitTextStrokeWidth = content.style.webkitTextStrokeWidth;
+              const range = document.createRange();
+              range.selectNodeContents(probe);
+              const bounds = range.getBoundingClientRect();
+              range.detach();
+              const availableHeight = Math.max(
+                0,
+                container.clientHeight - Math.abs(element.baselineShift),
+              );
               return (
-                content.scrollWidth + strokeExpansion <= container.clientWidth + 0.5 &&
-                content.scrollHeight + strokeExpansion <= container.clientHeight + 0.5
+                bounds.width + strokeExpansion <= container.clientWidth + 0.5 &&
+                bounds.height + strokeExpansion <= availableHeight + 0.5
+              );
+            };
+            const result = findFittedFontSize({
+              mode: fitMode,
+              authoredFontSize: element.fontSize,
+              minFontSize: element.minFontSize,
+              fits,
+            });
+            content.style.fontSize = `${result.fontSize}px`;
+            content.dataset.ografAppliedFontSize = String(result.fontSize);
+            content.dataset.ografFitRatio = String(result.ratio);
+            content.dataset.ografFitDegenerate = String(result.degenerate);
+            if (fitMode === 'shrink-to-fit') {
+              content.dataset.ografShrinkRatio = String(result.ratio);
+              content.dataset.ografShrinkDegenerate = String(result.degenerate);
+            }
+          };
+          textFitCallbacks.set(container, fit);
+          textFits.set(container, mounted);
+          fit();
+          if (typeof ResizeObserver !== 'undefined') {
+            const observer = new ResizeObserver(fit);
+            observer.observe(container);
+            mounted.observer = observer;
+          }
+          if (typeof document !== 'undefined' && document.fonts) {
+            const onFontsLoaded = () => fit();
+            document.fonts.addEventListener('loadingdone', onFontsLoaded);
+            void document.fonts.ready.then(fit);
+            mounted.fontSet = document.fonts;
+            mounted.onFontsLoaded = onFontsLoaded;
+          }
+        }
+        break;
+      }
+      case 'image': {
+        if (element.src) {
+          const img = document.createElement('img');
+          applyContentBaseStyle(img);
+          img.style.objectFit = 'contain';
+          if (options.requiresImageAlpha && /^https?:/i.test(element.src))
+            img.crossOrigin = 'anonymous';
+          img.src = element.src;
+          img.alt = '';
+          img.draggable = false;
+          container.appendChild(img);
+        }
+        break;
+      }
+      case 'path': {
+        // Expand only opted-in, point-edited paths. The layer's authored transform stays unchanged.
+        let bounds = { x: 0, y: 0, width: element.viewBoxWidth, height: element.viewBoxHeight };
+        if (element.overflow === 'visible') {
+          try {
+            bounds = editablePathBounds(element);
+          } catch {
+            /* Raw/imported SVG still renders normally. */
+          }
+        }
+        const root = document.createElement('div');
+        applyContentBaseStyle(root);
+        Object.assign(root.style, {
+          position: 'absolute',
+          left: `${(bounds.x / element.viewBoxWidth) * 100}%`,
+          top: `${(bounds.y / element.viewBoxHeight) * 100}%`,
+          width: `${(bounds.width / element.viewBoxWidth) * 100}%`,
+          height: `${(bounds.height / element.viewBoxHeight) * 100}%`,
+        });
+        container.appendChild(root);
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(SVG_NS, 'svg');
+        applyContentBaseStyle(svg);
+        svg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+        svg.setAttribute('preserveAspectRatio', 'none');
+        if (element.overflow === 'visible') svg.style.overflow = 'visible';
+        const path = document.createElementNS(SVG_NS, 'path');
+        path.setAttribute('d', element.d);
+        path.setAttribute('fill', typeof element.fill === 'string' ? element.fill : 'none');
+        path.setAttribute('fill-rule', element.fillRule ?? 'nonzero');
+        path.setAttribute('stroke', element.strokeWidth > 0 ? element.strokeColor : 'none');
+        path.setAttribute('stroke-width', String(element.strokeWidth));
+        svg.appendChild(path);
+        if (typeof element.fill === 'string') {
+          root.appendChild(svg);
+        } else {
+          const host = document.createElement('div');
+          applyContentBaseStyle(host);
+          host.style.position = 'relative';
+          const fill = document.createElement('div');
+          applyContentBaseStyle(fill);
+          fill.dataset.ografPathFill = 'true';
+          fill.style.background = paintToCss(element.fill);
+          const maskSvg = svg.cloneNode(true) as SVGSVGElement;
+          const maskPath = maskSvg.querySelector('path')!;
+          maskPath.setAttribute('fill', 'white');
+          maskPath.setAttribute('stroke', 'none');
+          maskSvg.setAttribute('xmlns', SVG_NS);
+          fill.style.maskImage = `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(maskSvg))}")`;
+          fill.style.maskSize = '100% 100%';
+          fill.style.maskRepeat = 'no-repeat';
+          Object.assign(svg.style, { position: 'absolute', inset: '0' });
+          host.append(fill, svg);
+          root.appendChild(host);
+          rememberPaint(container, element.fill);
+        }
+        break;
+      }
+      case 'image-sequence': {
+        const src =
+          element.frames.length > 0
+            ? element.frames[frameIndex % element.frames.length]
+            : undefined;
+        if (src) {
+          const img = document.createElement('img');
+          applyContentBaseStyle(img);
+          img.style.objectFit = 'contain';
+          if (options.requiresImageAlpha && /^https?:/i.test(src)) img.crossOrigin = 'anonymous';
+          img.src = src;
+          img.alt = '';
+          img.draggable = false;
+          container.appendChild(img);
+        }
+        break;
+      }
+      case 'lottie': {
+        if (!element.animationData) break;
+        const content = document.createElement('div');
+        applyContentBaseStyle(content);
+        Object.assign(content.style, { position: 'relative', overflow: 'hidden' });
+        const canvas = document.createElement('canvas');
+        const dpr = Math.max(1, container.ownerDocument.defaultView?.devicePixelRatio ?? 1);
+        const requestedSize = lottieCanvasSize(
+          container,
+          element.animationData,
+          options.lottieBackingSize,
+        );
+        const size = constrainLottieBackingSize(requestedSize, dpr);
+        canvas.width = size.width;
+        canvas.height = size.height;
+        canvas.dataset.ografLottieCanvas = 'true';
+        Object.assign(canvas.style, {
+          position: 'absolute',
+          display: 'block',
+          pointerEvents: 'none',
+          userSelect: 'none',
+        });
+        content.appendChild(canvas);
+        container.appendChild(content);
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Lottie Canvas rendering is unavailable in this browser.');
+        // The light canvas build excludes the expression engine. Clone because lottie-web mutates
+        // parts of animationData while preparing a composition, and project state is immutable input.
+        // Supplying our own positive-sized context also keeps the player from deriving a 0x0 canvas
+        // while a layer is detached/hidden. The canvas remains fixed after setup and CSS performs
+        // presentation scaling; lottie-web resize() resets cached gradient/context state.
+        const animationConfig = {
+          container: undefined as unknown as HTMLElement,
+          renderer: 'canvas',
+          loop: false,
+          autoplay: false,
+          autoloadSegments: false,
+          animationData: JSON.parse(
+            JSON.stringify(element.animationData),
+          ) as typeof element.animationData,
+          rendererSettings: {
+            clearCanvas: true,
+            context,
+            dpr,
+            preserveAspectRatio: 'xMidYMid meet',
+          },
+        } as const;
+        const animation = lottie.loadAnimation<'canvas'>(animationConfig);
+        animation.setSubframe(true);
+        let resolveReadiness = () => {};
+        const readiness = new Promise<void>((resolve) => {
+          resolveReadiness = resolve;
+        });
+        const mounted: MountedLottie = {
+          container,
+          element,
+          animation,
+          canvas,
+          requestedWidth: requestedSize.width,
+          requestedHeight: requestedSize.height,
+          baseWidth: size.width,
+          baseHeight: size.height,
+          sourceWidth: element.animationData.w,
+          sourceHeight: element.animationData.h,
+          dpr,
+          desiredFrame: 0,
+          deterministic: false,
+          ready: false,
+          settled: false,
+          readiness,
+          resolveReadiness,
+          removeListeners: [],
+        };
+        lottieAnimations.set(container, mounted);
+        const embeddedImageReadiness = decodeEmbeddedLottieImages(
+          element.animationData,
+          container.ownerDocument,
+        ).then(
+          () => null,
+          (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+        );
+        void embeddedImageReadiness.then((error) => {
+          if (error) failMountedLottie(mounted, error.message);
+        });
+        positionLottieCanvas(container, mounted);
+        if (typeof ResizeObserver !== 'undefined') {
+          mounted.observer = new ResizeObserver(() => {
+            if (lottieAnimations.get(container) !== mounted) return;
+            const currentDpr = Math.max(
+              1,
+              container.ownerDocument.defaultView?.devicePixelRatio ?? 1,
+            );
+            if (Math.abs(currentDpr - mounted.dpr) > 1e-6) remountMountedLottie(mounted);
+            else positionLottieCanvas(container, mounted);
+          });
+          mounted.observer.observe(container);
+        }
+        const ownerWindow = container.ownerDocument.defaultView ?? undefined;
+        if (ownerWindow) {
+          mounted.ownerWindow = ownerWindow;
+          mounted.onWindowResize = () => {
+            if (lottieAnimations.get(container) !== mounted) return;
+            const currentDpr = Math.max(1, ownerWindow.devicePixelRatio || 1);
+            if (Math.abs(currentDpr - mounted.dpr) > 1e-6) remountMountedLottie(mounted);
+            else positionLottieCanvas(container, mounted);
+          };
+          ownerWindow.addEventListener('resize', mounted.onWindowResize);
+        }
+        const onReady = () => {
+          if (mounted.ready || mounted.error) return;
+          void embeddedImageReadiness.then((imageError) => {
+            if (imageError || mounted.error) return;
+            mounted.ready = true;
+            try {
+              renderMountedLottieFrame(mounted);
+              settleLottieReadiness(mounted);
+            } catch (error) {
+              failMountedLottie(
+                mounted,
+                `Lottie Canvas initialization failed: ${error instanceof Error ? error.message : String(error)}`,
               );
             }
-            const probe = mounted.probe;
-            if (!probe) return false;
-            probe.style.width = `${container.clientWidth}px`;
-            probe.style.height = `${container.clientHeight}px`;
-            probe.style.fontSize = `${fontSize}px`;
-            probe.style.webkitTextStrokeWidth = content.style.webkitTextStrokeWidth;
-            const range = document.createRange();
-            range.selectNodeContents(probe);
-            const bounds = range.getBoundingClientRect();
-            range.detach();
-            const availableHeight = Math.max(
-              0,
-              container.clientHeight - Math.abs(element.baselineShift),
-            );
-            return (
-              bounds.width + strokeExpansion <= container.clientWidth + 0.5 &&
-              bounds.height + strokeExpansion <= availableHeight + 0.5
-            );
-          };
-          const result = findFittedFontSize({
-            mode: fitMode,
-            authoredFontSize: element.fontSize,
-            minFontSize: element.minFontSize,
-            fits,
           });
-          content.style.fontSize = `${result.fontSize}px`;
-          content.dataset.ografAppliedFontSize = String(result.fontSize);
-          content.dataset.ografFitRatio = String(result.ratio);
-          content.dataset.ografFitDegenerate = String(result.degenerate);
-          if (fitMode === 'shrink-to-fit') {
-            content.dataset.ografShrinkRatio = String(result.ratio);
-            content.dataset.ografShrinkDegenerate = String(result.degenerate);
-          }
         };
-        textFitCallbacks.set(container, fit);
-        textFits.set(container, mounted);
-        fit();
-        if (typeof ResizeObserver !== 'undefined') {
-          const observer = new ResizeObserver(fit);
-          observer.observe(container);
-          mounted.observer = observer;
-        }
-        if (typeof document !== 'undefined' && document.fonts) {
-          const onFontsLoaded = () => fit();
-          document.fonts.addEventListener('loadingdone', onFontsLoaded);
-          void document.fonts.ready.then(fit);
-          mounted.fontSet = document.fonts;
-          mounted.onFontsLoaded = onFontsLoaded;
-        }
-      }
-      break;
-    }
-    case 'image': {
-      if (element.src) {
-        const img = document.createElement('img');
-        applyContentBaseStyle(img);
-        img.style.objectFit = 'contain';
-        img.src = element.src;
-        img.alt = '';
-        img.draggable = false;
-        container.appendChild(img);
-      }
-      break;
-    }
-    case 'path': {
-      // Expand only opted-in, point-edited paths. The layer's authored transform stays unchanged.
-      let bounds = { x: 0, y: 0, width: element.viewBoxWidth, height: element.viewBoxHeight };
-      if (element.overflow === 'visible') {
-        try {
-          bounds = editablePathBounds(element);
-        } catch {
-          /* Raw/imported SVG still renders normally. */
-        }
-      }
-      const root = document.createElement('div');
-      applyContentBaseStyle(root);
-      Object.assign(root.style, {
-        position: 'absolute',
-        left: `${(bounds.x / element.viewBoxWidth) * 100}%`,
-        top: `${(bounds.y / element.viewBoxHeight) * 100}%`,
-        width: `${(bounds.width / element.viewBoxWidth) * 100}%`,
-        height: `${(bounds.height / element.viewBoxHeight) * 100}%`,
-      });
-      container.appendChild(root);
-      const SVG_NS = 'http://www.w3.org/2000/svg';
-      const svg = document.createElementNS(SVG_NS, 'svg');
-      applyContentBaseStyle(svg);
-      svg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
-      svg.setAttribute('preserveAspectRatio', 'none');
-      if (element.overflow === 'visible') svg.style.overflow = 'visible';
-      const path = document.createElementNS(SVG_NS, 'path');
-      path.setAttribute('d', element.d);
-      path.setAttribute('fill', typeof element.fill === 'string' ? element.fill : 'none');
-      path.setAttribute('fill-rule', element.fillRule ?? 'nonzero');
-      path.setAttribute('stroke', element.strokeWidth > 0 ? element.strokeColor : 'none');
-      path.setAttribute('stroke-width', String(element.strokeWidth));
-      svg.appendChild(path);
-      if (typeof element.fill === 'string') {
-        root.appendChild(svg);
-      } else {
-        const host = document.createElement('div');
-        applyContentBaseStyle(host);
-        host.style.position = 'relative';
-        const fill = document.createElement('div');
-        applyContentBaseStyle(fill);
-        fill.dataset.ografPathFill = 'true';
-        fill.style.background = paintToCss(element.fill);
-        const maskSvg = svg.cloneNode(true) as SVGSVGElement;
-        const maskPath = maskSvg.querySelector('path')!;
-        maskPath.setAttribute('fill', 'white');
-        maskPath.setAttribute('stroke', 'none');
-        maskSvg.setAttribute('xmlns', SVG_NS);
-        fill.style.maskImage = `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(maskSvg))}")`;
-        fill.style.maskSize = '100% 100%';
-        fill.style.maskRepeat = 'no-repeat';
-        Object.assign(svg.style, { position: 'absolute', inset: '0' });
-        host.append(fill, svg);
-        root.appendChild(host);
-        rememberPaint(container, element.fill);
-      }
-      break;
-    }
-    case 'image-sequence': {
-      const src =
-        element.frames.length > 0 ? element.frames[frameIndex % element.frames.length] : undefined;
-      if (src) {
-        const img = document.createElement('img');
-        applyContentBaseStyle(img);
-        img.style.objectFit = 'contain';
-        img.src = src;
-        img.alt = '';
-        img.draggable = false;
-        container.appendChild(img);
-      }
-      break;
-    }
-    case 'lottie': {
-      if (!element.animationData) break;
-      const content = document.createElement('div');
-      applyContentBaseStyle(content);
-      Object.assign(content.style, { position: 'relative', overflow: 'hidden' });
-      const canvas = document.createElement('canvas');
-      const dpr = Math.max(1, container.ownerDocument.defaultView?.devicePixelRatio ?? 1);
-      const requestedSize = lottieCanvasSize(
-        container,
-        element.animationData,
-        options.lottieBackingSize,
-      );
-      const size = constrainLottieBackingSize(requestedSize, dpr);
-      canvas.width = size.width;
-      canvas.height = size.height;
-      canvas.dataset.ografLottieCanvas = 'true';
-      Object.assign(canvas.style, {
-        position: 'absolute',
-        display: 'block',
-        pointerEvents: 'none',
-        userSelect: 'none',
-      });
-      content.appendChild(canvas);
-      container.appendChild(content);
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('Lottie Canvas rendering is unavailable in this browser.');
-      // The light canvas build excludes the expression engine. Clone because lottie-web mutates
-      // parts of animationData while preparing a composition, and project state is immutable input.
-      // Supplying our own positive-sized context also keeps the player from deriving a 0x0 canvas
-      // while a layer is detached/hidden. The canvas remains fixed after setup and CSS performs
-      // presentation scaling; lottie-web resize() resets cached gradient/context state.
-      const animationConfig = {
-        container: undefined as unknown as HTMLElement,
-        renderer: 'canvas',
-        loop: false,
-        autoplay: false,
-        autoloadSegments: false,
-        animationData: JSON.parse(
-          JSON.stringify(element.animationData),
-        ) as typeof element.animationData,
-        rendererSettings: {
-          clearCanvas: true,
-          context,
-          dpr,
-          preserveAspectRatio: 'xMidYMid meet',
-        },
-      } as const;
-      const animation = lottie.loadAnimation<'canvas'>(animationConfig);
-      animation.setSubframe(true);
-      let resolveReadiness = () => {};
-      const readiness = new Promise<void>((resolve) => {
-        resolveReadiness = resolve;
-      });
-      const mounted: MountedLottie = {
-        container,
-        element,
-        animation,
-        canvas,
-        requestedWidth: requestedSize.width,
-        requestedHeight: requestedSize.height,
-        baseWidth: size.width,
-        baseHeight: size.height,
-        sourceWidth: element.animationData.w,
-        sourceHeight: element.animationData.h,
-        dpr,
-        desiredFrame: 0,
-        deterministic: false,
-        ready: false,
-        settled: false,
-        readiness,
-        resolveReadiness,
-        removeListeners: [],
-      };
-      lottieAnimations.set(container, mounted);
-      const embeddedImageReadiness = decodeEmbeddedLottieImages(
-        element.animationData,
-        container.ownerDocument,
-      ).then(
-        () => null,
-        (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
-      );
-      void embeddedImageReadiness.then((error) => {
-        if (error) failMountedLottie(mounted, error.message);
-      });
-      positionLottieCanvas(container, mounted);
-      if (typeof ResizeObserver !== 'undefined') {
-        mounted.observer = new ResizeObserver(() => {
-          if (lottieAnimations.get(container) !== mounted) return;
-          const currentDpr = Math.max(
-            1,
-            container.ownerDocument.defaultView?.devicePixelRatio ?? 1,
-          );
-          if (Math.abs(currentDpr - mounted.dpr) > 1e-6) remountMountedLottie(mounted);
-          else positionLottieCanvas(container, mounted);
-        });
-        mounted.observer.observe(container);
-      }
-      const ownerWindow = container.ownerDocument.defaultView ?? undefined;
-      if (ownerWindow) {
-        mounted.ownerWindow = ownerWindow;
-        mounted.onWindowResize = () => {
-          if (lottieAnimations.get(container) !== mounted) return;
-          const currentDpr = Math.max(1, ownerWindow.devicePixelRatio || 1);
-          if (Math.abs(currentDpr - mounted.dpr) > 1e-6) remountMountedLottie(mounted);
-          else positionLottieCanvas(container, mounted);
-        };
-        ownerWindow.addEventListener('resize', mounted.onWindowResize);
-      }
-      const onReady = () => {
-        if (mounted.ready || mounted.error) return;
-        void embeddedImageReadiness.then((imageError) => {
-          if (imageError || mounted.error) return;
-          mounted.ready = true;
-          try {
-            renderMountedLottieFrame(mounted);
-            settleLottieReadiness(mounted);
-          } catch (error) {
+        mounted.removeListeners.push(
+          animation.addEventListener('DOMLoaded', onReady),
+          animation.addEventListener('data_failed', () =>
             failMountedLottie(
               mounted,
-              `Lottie Canvas initialization failed: ${error instanceof Error ? error.message : String(error)}`,
+              'Lottie data failed to load; use one complete self-contained JSON document.',
+            ),
+          ),
+          animation.addEventListener('error', (event) => {
+            const nativeError = (event as unknown as { nativeError?: unknown } | undefined)
+              ?.nativeError;
+            failMountedLottie(
+              mounted,
+              `Lottie Canvas playback failed while rendering a frame${nativeError ? `: ${nativeError instanceof Error ? nativeError.message : String(nativeError)}` : '.'}`,
             );
-          }
-        });
-      };
-      mounted.removeListeners.push(
-        animation.addEventListener('DOMLoaded', onReady),
-        animation.addEventListener('data_failed', () =>
-          failMountedLottie(
-            mounted,
-            'Lottie data failed to load; use one complete self-contained JSON document.',
-          ),
-        ),
-        animation.addEventListener('error', (event) => {
-          const nativeError = (event as unknown as { nativeError?: unknown } | undefined)
-            ?.nativeError;
-          failMountedLottie(
-            mounted,
-            `Lottie Canvas playback failed while rendering a frame${nativeError ? `: ${nativeError instanceof Error ? nativeError.message : String(nativeError)}` : '.'}`,
-          );
-        }),
-      );
-      mounted.timeout = setTimeout(
-        () =>
-          failMountedLottie(
-            mounted,
-            `Lottie did not become ready within ${LOTTIE_READY_TIMEOUT_MS} ms.`,
-          ),
-        LOTTIE_READY_TIMEOUT_MS,
-      );
-      if (animation.isLoaded) queueMicrotask(onReady);
-      break;
+          }),
+        );
+        mounted.timeout = setTimeout(
+          () =>
+            failMountedLottie(
+              mounted,
+              `Lottie did not become ready within ${LOTTIE_READY_TIMEOUT_MS} ms.`,
+            ),
+          LOTTIE_READY_TIMEOUT_MS,
+        );
+        if (animation.isLoaded) queueMicrotask(onReady);
+        break;
+      }
     }
-  }
   const replacementContent = container.firstElementChild as HTMLElement | SVGElement | null;
   if (replacementContent && previousContentOpacity) {
     replacementContent.style.opacity = previousContentOpacity;
@@ -928,6 +992,11 @@ export function renderAnimatedElementAtTime(
   element: Element,
   elapsedMs: number,
 ): void {
+  if (renderShaderPaintAtTime(container, elapsedMs)) return;
+  if (element.type === 'shader') {
+    renderShaderAtTime(container, elapsedMs);
+    return;
+  }
   if (element.type === 'image-sequence') {
     if (element.frames.length === 0) return;
     const rawFrame = Math.max(0, Math.floor((elapsedMs / 1000) * Math.max(1, element.fps)));
@@ -936,8 +1005,14 @@ export function renderAnimatedElementAtTime(
       : Math.min(rawFrame, element.frames.length - 1);
     const image = container.firstElementChild as HTMLImageElement | null;
     const src = element.frames[frameIndex];
-    if (image?.tagName === 'IMG' && src) image.src = src;
-    else renderElementContent(container, element, frameIndex);
+    if (image?.tagName === 'IMG' && src) {
+      if (container.dataset.ografShaderBase === 'true' && /^https?:/i.test(src))
+        image.crossOrigin = 'anonymous';
+      image.src = src;
+    } else
+      renderElementContent(container, element, frameIndex, {
+        requiresImageAlpha: container.dataset.ografShaderBase === 'true',
+      });
     return;
   }
   if (element.type === 'lottie' && element.animationData) {

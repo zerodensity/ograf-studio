@@ -6,6 +6,7 @@ import {
   type PatternElement,
   type LayerAnimationTracks,
 } from '@ograf-editor/scene-model';
+import { shaderPaintBaseHost } from './shaderPaintRendering';
 const mounted = new WeakMap<
   HTMLElement,
   {
@@ -20,7 +21,8 @@ const mounted = new WeakMap<
 let nextPattern = 0;
 function host(container: HTMLElement): HTMLElement {
   const first = container.firstElementChild as HTMLElement | null;
-  return first?.classList?.contains('layer-content-host') ? first : container;
+  const outer = first?.classList?.contains('layer-content-host') ? first : container;
+  return shaderPaintBaseHost(outer) ?? outer;
 }
 export function mountPattern(container: HTMLElement, element: PatternElement): void {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

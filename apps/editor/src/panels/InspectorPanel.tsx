@@ -31,6 +31,10 @@ import {
   createCornerRadii,
   findLayerKeyframeAtFrame,
   getLayerPropertyValueAtFrame,
+  getElementFill,
+  isGradientPaint,
+  isShaderPaint,
+  shaderPaintConflictsWithBinding,
   getPaintAtFrame,
   listFieldLeafPaths,
   getResolvedLayerAnimationTracks,
@@ -290,12 +294,10 @@ export function InspectorPanel() {
       : authoredPose;
   const isLiveTransform = liveTransform?.layerId === layer.id;
   const alphaPercent = opacityToAlphaPercent(pose.opacity);
+  const authoredPaint = getElementFill(layer.element);
   const evaluatedPaint =
-    layer.element.type === 'rectangle' ||
-    layer.element.type === 'ellipse' ||
-    layer.element.type === 'path' ||
-    layer.element.type === 'pattern'
-      ? getPaintAtFrame(layer.element.fill, getResolvedLayerAnimationTracks(layer), currentFrame)
+    authoredPaint !== undefined
+      ? getPaintAtFrame(authoredPaint, getResolvedLayerAnimationTracks(layer), currentFrame)
       : null;
   const evaluatedTextStrokeWidth =
     layer.element.type === 'text'
@@ -326,7 +328,9 @@ export function InspectorPanel() {
     }
   };
 
-  const setTextStroke = (patch: Partial<Pick<TextElement, 'strokeColor' | 'strokeWidth'>>) => {
+  const setTextStroke = (
+    patch: Partial<Pick<TextElement, 'strokeColor' | 'strokeWidth' | 'strokePaint'>>,
+  ) => {
     if (layer.element.type !== 'text') return;
     updateLayerTextStroke(layer.id, roundedFrame, patch);
     if (patch.strokeWidth !== undefined && layer.element.autoFit === 'auto-size') {
@@ -356,11 +360,13 @@ export function InspectorPanel() {
     tokenType: DesignTokenType;
   }> = [
     ...(layer.element.type in DESIGN_TOKEN_TARGETS
-      ? DESIGN_TOKEN_TARGETS[layer.element.type as keyof typeof DESIGN_TOKEN_TARGETS]
+      ? DESIGN_TOKEN_TARGETS[layer.element.type as keyof typeof DESIGN_TOKEN_TARGETS].filter(
+          (target) => !shaderPaintConflictsWithBinding(layer.element, target.property),
+        )
       : []),
     { property: 'dropShadowColor', label: 'Shadow colour', tokenType: 'color' },
   ];
-  if ('fill' in layer.element && typeof layer.element.fill !== 'string') {
+  if ('fill' in layer.element && isGradientPaint(layer.element.fill)) {
     tokenTargets.push(
       ...layer.element.fill.stops.map((_, index) => ({
         property: `fill.stops[${index}].color` as const,
@@ -503,6 +509,16 @@ export function InspectorPanel() {
         {layer.element.type === 'image' && (
           <ImageSourceEditor key={`image-${layer.id}`} layer={layer} assets={composition.assets} />
         )}
+        {(layer.element.type === 'image' ||
+          layer.element.type === 'image-sequence' ||
+          layer.element.type === 'lottie') && (
+          <PaintEditor
+            media
+            disabled={layer.isLocked}
+            value={layer.element.fill}
+            onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+          />
+        )}
         {layer.element.type !== 'image' && (
           <h3 className="inspector-section">{elementSectionLabel(layer.element.type)}</h3>
         )}
@@ -523,6 +539,7 @@ export function InspectorPanel() {
         {layer.element.type === 'rectangle' && (
           <>
             <PaintEditor
+              disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
@@ -536,6 +553,7 @@ export function InspectorPanel() {
         {layer.element.type === 'ellipse' && (
           <>
             <PaintEditor
+              disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
@@ -585,36 +603,21 @@ export function InspectorPanel() {
                 onChange={(e) => setTextElement({ content: e.target.value })}
               />
             </PropertyRow>
-            <PropertyRow
-              help={
-                'Fill color of the text characters. A Brand Kit token or runtime color binding can control this value.'
-              }
-              className="inspector-row"
-            >
-              <span>Color</span>
-              <input
-                type="color"
-                value={layer.element.color}
-                onChange={(e) => setTextElement({ color: e.target.value })}
-              />
-            </PropertyRow>
-            <PropertyRow
-              help={
-                'Color of the outline around the text characters. Use Stroke Width to set its thickness.'
-              }
-              className="inspector-row"
-            >
-              <span>Stroke Color</span>
-              <input
-                type="color"
-                value={
-                  layer.element.strokeColor === 'transparent'
-                    ? '#000000'
-                    : layer.element.strokeColor
-                }
-                onChange={(event) => setTextStroke({ strokeColor: event.target.value })}
-              />
-            </PropertyRow>
+            <PaintEditor
+              disabled={layer.isLocked}
+              value={evaluatedPaint ?? layer.element.color}
+              onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+            />
+            <PaintEditor
+              label="Outline"
+              disabled={layer.isLocked}
+              allowGradient={false}
+              value={layer.element.strokePaint ?? layer.element.strokeColor}
+              onChange={(paint) => {
+                if (isShaderPaint(paint)) setTextStroke({ strokePaint: paint });
+                else if (typeof paint === 'string') setTextStroke({ strokeColor: paint });
+              }}
+            />
             <PropertyRow
               help={
                 'Thickness of the text outline in pixels. Zero removes the outline; larger values can improve separation from the background.'
@@ -900,6 +903,7 @@ export function InspectorPanel() {
               />
             </PropertyRow>
             <PaintEditor
+              disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
@@ -999,6 +1003,7 @@ export function InspectorPanel() {
               </select>
             </PropertyRow>
             <PaintEditor
+              disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />

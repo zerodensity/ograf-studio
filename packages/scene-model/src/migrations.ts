@@ -18,6 +18,13 @@ import {
 import { normalizeAuthoredTransform } from './authoredTransform';
 import { normalizeLayerEffects } from './layerEffects';
 import { normalizeCornerRadii } from './cornerRadii';
+import {
+  normalizeShaderElement,
+  migrateShaderElement,
+  migrateShaderBindingTarget,
+  getElementShaderPaint,
+} from './shader';
+import { compositionWithShaderParameterFields } from './shaderFields';
 import type {
   Composition,
   Element,
@@ -147,6 +154,13 @@ function normalizeFieldDefinition(field: LegacyFieldDefinition): FieldDefinition
 }
 
 function normalizeElement(element: Element): Element {
+  if (element.type === 'shader') return migrateShaderElement(element);
+  const shader = getElementShaderPaint(element);
+  if (shader && 'fill' in element)
+    element = { ...element, fill: normalizeShaderElement(shader) } as Element;
+  const strokeShader = getElementShaderPaint(element, 'stroke');
+  if (element.type === 'text' && strokeShader)
+    element = { ...element, strokePaint: normalizeShaderElement(strokeShader) };
   if (element.type === 'path') return { ...element, fillRule: element.fillRule ?? 'nonzero' };
   if (element.type === 'rectangle') {
     const legacy = element as Element & { borderRadius?: number | Record<string, unknown> };
@@ -225,6 +239,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       legacyLayer.bindings ?? (legacyLayer.binding ? [legacyLayer.binding] : [])
     ).map((binding) => ({
       ...binding,
+      targetProperty: migrateShaderBindingTarget(binding.targetProperty),
       sourcePath: binding.sourcePath ?? [],
       ...(binding.valueMap ? { valueMap: { ...binding.valueMap } } : {}),
     }));
@@ -396,6 +411,10 @@ function normalizeComposition(composition: LegacyComposition): Composition {
         const normalizedLayer: Layer = {
           ...layer,
           element: normalizeElement(layer.element),
+          bindings: layer.bindings.map((binding) => ({
+            ...binding,
+            targetProperty: migrateShaderBindingTarget(binding.targetProperty),
+          })),
           isMaskOnly: layer.isMaskOnly ?? false,
           mask: layer.mask ?? null,
           blendMode: layer.blendMode ?? 'normal',
@@ -458,6 +477,8 @@ export function migrateProject(project: Project | LegacyProject): Project {
     documentVersion: PROJECT_DOCUMENT_VERSION,
     supportsRealTime: cloned.supportsRealTime ?? true,
     supportsNonRealTime: cloned.supportsNonRealTime ?? true,
-    compositions: cloned.compositions.map(normalizeComposition),
+    compositions: cloned.compositions.map((composition) =>
+      compositionWithShaderParameterFields(normalizeComposition(composition)),
+    ),
   };
 }

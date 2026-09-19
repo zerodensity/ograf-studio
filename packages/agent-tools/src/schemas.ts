@@ -587,6 +587,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
       'pattern',
       'image-sequence',
       'lottie',
+      'shader',
     ]),
     name: z.string().optional(),
     transform: transform.optional(),

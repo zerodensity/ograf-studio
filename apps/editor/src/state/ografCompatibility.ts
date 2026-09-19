@@ -1,6 +1,7 @@
 import graphicRuntimeSource from '@ograf-editor/ograf-runtime/dist/graphic-runtime.js?raw';
 import {
   buildExportArtifactsWithRuntime,
+  EXPORTED_RESOURCE_URLS_KEY,
   validatePackageLayout,
   type ExportArtifacts,
   type ExportProfile,
@@ -8,10 +9,12 @@ import {
 import type { CompiledGraphicDescriptor, Graphic, OGrafManifest } from '@ograf-editor/ograf-types';
 import {
   lottiePlayerFrameAtTime,
+  getElementShaderPaints,
   type Composition,
   type Element,
   type Project,
 } from '@ograf-editor/scene-model';
+import { createCertificationResourceUrls } from './certificationResources';
 
 export type { ExportArtifacts } from '@ograf-editor/codegen';
 
@@ -131,11 +134,12 @@ function validateReturnPayload(
 
 type CallableGraphic = HTMLElement & Graphic & Record<string, unknown>;
 
-async function canvasPixelSignatures(
-  graphic: CallableGraphic,
-): Promise<{ signatures: string[]; errors: string[] }> {
-  const signatures: string[] = [];
+export async function canvasPixelSignatures(
+  graphic: Pick<CallableGraphic, 'shadowRoot'>,
+): Promise<{ signatures: string[]; shaderCanvasCount: number; errors: string[] }> {
+  const snapshots: Array<{ width: number; height: number; pixels: Uint8Array }> = [];
   const errors: string[] = [];
+  let shaderCanvasCount = 0;
   const canvases = [...(graphic.shadowRoot?.querySelectorAll<HTMLCanvasElement>('canvas') ?? [])];
   for (const [index, canvas] of canvases.entries()) {
     if (canvas.width <= 0 || canvas.height <= 0) {
@@ -145,24 +149,51 @@ async function canvasPixelSignatures(
       continue;
     }
     try {
-      const context = canvas.getContext('2d');
-      if (!context) {
-        errors.push(`Canvas ${index + 1} does not expose a 2D rendering context.`);
-        continue;
+      let pixels: Uint8Array;
+      const isShader = canvas.hasAttribute('data-ograf-shader-canvas');
+      if (isShader) {
+        // Inspect the actual preserved GPU buffer, without a browser presentation/alpha conversion.
+        const gl = canvas.getContext('webgl2');
+        if (!gl || gl.isContextLost()) throw new Error('Shader WebGL context is unavailable.');
+        pixels = new Uint8Array(canvas.width * canvas.height * 4);
+        const previous = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
+        try {
+          gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+          gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          const error = gl.getError();
+          if (error !== gl.NO_ERROR)
+            throw new Error(`Shader pixel read failed (WebGL error ${error}).`);
+        } finally {
+          gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previous);
+        }
+      } else {
+        const snapshot = canvas.ownerDocument.createElement('canvas');
+        snapshot.width = canvas.width;
+        snapshot.height = canvas.height;
+        const context = snapshot.getContext('2d');
+        if (!context) throw new Error('Could not create a 2D pixel inspection context.');
+        context.drawImage(canvas, 0, 0);
+        pixels = new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
       }
-      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-      const digest = await crypto.subtle.digest('SHA-256', pixels);
-      const hash = [...new Uint8Array(digest)]
-        .map((value) => value.toString(16).padStart(2, '0'))
-        .join('');
-      signatures.push(`${canvas.width}x${canvas.height}:${hash}`);
+      snapshots.push({ width: canvas.width, height: canvas.height, pixels });
+      if (isShader) shaderCanvasCount += 1;
     } catch (error) {
       errors.push(
         `Canvas ${index + 1} pixels could not be inspected: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
-  return { signatures, errors };
+  // Take every snapshot in the same synchronous turn before hashing can yield to rendering.
+  const signatures = await Promise.all(
+    snapshots.map(async ({ width, height, pixels }) => {
+      const digest = await crypto.subtle.digest('SHA-256', pixels as Uint8Array<ArrayBuffer>);
+      const hash = [...new Uint8Array(digest)]
+        .map((value) => value.toString(16).padStart(2, '0'))
+        .join('');
+      return `${width}x${height}:${hash}`;
+    }),
+  );
+  return { signatures, shaderCanvasCount, errors };
 }
 
 interface CertificationRealm {
@@ -241,8 +272,13 @@ async function validateModuleAndLifecycle(
   const lifecycleErrors: string[] = [];
   const moduleUrl = URL.createObjectURL(new Blob([artifacts.mainJs], { type: 'text/javascript' }));
   let realm: CertificationRealm | null = null;
+  let resources: ReturnType<typeof createCertificationResourceUrls> | null = null;
   try {
+    resources = createCertificationResourceUrls(artifacts.resources);
     realm = createCertificationRealm();
+    (realm.window as unknown as Record<string, unknown>)[EXPORTED_RESOURCE_URLS_KEY] = {
+      [moduleUrl]: resources.urls,
+    };
     const graphicModule = await importModuleInRealm(realm, moduleUrl);
     if (typeof graphicModule.default !== 'function') {
       moduleErrors.push('main.js must default-export a Graphic custom-element class.');
@@ -296,6 +332,22 @@ async function validateModuleAndLifecycle(
             ).length,
         0,
       ) ?? 0);
+    const expectedShaderCanvases =
+      (compiledDescriptor?.layers.reduce(
+        (count, layer) => count + getElementShaderPaints(layer.element).length,
+        0,
+      ) ?? 0) +
+      (compiledDescriptor?.collections?.reduce(
+        (count, collection) =>
+          count +
+          collection.capacity *
+            collection.prototypeLayers.reduce(
+              (total, layer) => total + getElementShaderPaints(layer.element).length,
+              0,
+            ),
+        0,
+      ) ?? 0);
+    const expectedCanvases = expectedLottieCanvases + expectedShaderCanvases;
     const reducedArrayData = Object.fromEntries(
       Object.entries(initialData).map(([key, value]) => [
         key,
@@ -342,9 +394,14 @@ async function validateModuleAndLifecycle(
         );
         const canvasSnapshot = await canvasPixelSignatures(graphic);
         lifecycleErrors.push(...canvasSnapshot.errors);
-        if (canvasSnapshot.signatures.length < expectedLottieCanvases) {
+        if (canvasSnapshot.signatures.length < expectedCanvases) {
           lifecycleErrors.push(
-            `Expected at least ${expectedLottieCanvases} Lottie Canvas${expectedLottieCanvases === 1 ? '' : 'es'}, found ${canvasSnapshot.signatures.length}.`,
+            `Expected at least ${expectedCanvases} rendered Canvas${expectedCanvases === 1 ? '' : 'es'}, found ${canvasSnapshot.signatures.length}.`,
+          );
+        }
+        if (canvasSnapshot.shaderCanvasCount < expectedShaderCanvases) {
+          lifecycleErrors.push(
+            `Expected ${expectedShaderCanvases} shader canvases, found ${canvasSnapshot.shaderCanvasCount} with inspectable pixels.`,
           );
         }
         const collectionSnapshot = [
@@ -380,9 +437,14 @@ async function validateModuleAndLifecycle(
         }
         const replayedCanvasSnapshot = await canvasPixelSignatures(graphic);
         lifecycleErrors.push(...replayedCanvasSnapshot.errors);
-        if (replayedCanvasSnapshot.signatures.length < expectedLottieCanvases) {
+        if (replayedCanvasSnapshot.signatures.length < expectedCanvases) {
           lifecycleErrors.push(
-            `Expected at least ${expectedLottieCanvases} replayed Lottie Canvas${expectedLottieCanvases === 1 ? '' : 'es'}, found ${replayedCanvasSnapshot.signatures.length}.`,
+            `Expected at least ${expectedCanvases} replayed Canvas${expectedCanvases === 1 ? '' : 'es'}, found ${replayedCanvasSnapshot.signatures.length}.`,
+          );
+        }
+        if (replayedCanvasSnapshot.shaderCanvasCount < expectedShaderCanvases) {
+          lifecycleErrors.push(
+            `Expected ${expectedShaderCanvases} replayed shader canvases, found ${replayedCanvasSnapshot.shaderCanvasCount} with inspectable pixels.`,
           );
         }
         if (
@@ -390,8 +452,11 @@ async function validateModuleAndLifecycle(
           JSON.stringify(canvasSnapshot.signatures) !==
             JSON.stringify(replayedCanvasSnapshot.signatures)
         ) {
+          const changed = canvasSnapshot.signatures.flatMap((signature, index) =>
+            signature !== replayedCanvasSnapshot.signatures[index] ? [index + 1] : [],
+          );
           lifecycleErrors.push(
-            'Canvas pixels changed after backward and repeated non-realtime goToTime seeking.',
+            `Canvas pixels changed after backward and repeated non-realtime goToTime seeking (canvases ${changed.join(', ')}).`,
           );
         }
       }
@@ -406,6 +471,7 @@ async function validateModuleAndLifecycle(
     moduleErrors.push(`main.js could not be imported: ${detail}${recovery}`);
   } finally {
     realm?.frame.remove();
+    resources?.dispose();
     URL.revokeObjectURL(moduleUrl);
   }
   return { moduleErrors, lifecycleErrors };

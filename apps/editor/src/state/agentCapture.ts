@@ -12,6 +12,8 @@ import {
   renderElementContent,
   resolveBoundElement,
   setLottieDeterministicRendering,
+  shaderBackingSizeForLayer,
+  shaderStrokePaddingForLayer,
   sampleCompiledLayerVisualState,
   waitForElementContentReady,
   compiledLoopElapsedFrames,
@@ -249,9 +251,10 @@ function fitPrefixIndex(
   while (lower < upper) {
     const candidate = Math.ceil((lower + upper) / 2);
     content.textContent = text.slice(0, candidate);
+    const measured = renderedTextMetrics(content);
     if (
-      content.scrollWidth + strokeExpansion <= width + 0.5 &&
-      content.scrollHeight + strokeExpansion <= height + 0.5
+      measured.width + strokeExpansion <= width + 0.5 &&
+      measured.height + strokeExpansion <= height + 0.5
     ) {
       lower = candidate;
     } else {
@@ -355,45 +358,62 @@ function buildCompositionDom(
   const descriptor = expandRuntimeCollections(compileDescriptor(composition));
   const rendered = new Map<string, HTMLElement>();
   const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
-  for (const layer of descriptor.layers) {
-    if (!layer.isVisible || !isRuntimeCollectionLayerActive(layer, data)) {
-      continue;
+  try {
+    for (const layer of descriptor.layers) {
+      if (!layer.isVisible || !isRuntimeCollectionLayerActive(layer, data)) {
+        continue;
+      }
+      const state = sampleCompiledLayerVisualState(
+        layer,
+        frame,
+        compiledLoopElapsedFrames(descriptor, layer, frame),
+        data,
+      );
+      const transform = state.transform;
+      const layerRoot = document.createElement('div');
+      layerRoot.dataset.agentCaptureLayer = 'true';
+      Object.assign(layerRoot.style, {
+        position: 'absolute',
+        left: '0',
+        top: '0',
+        boxSizing: 'border-box',
+        width: `${transform.width}px`,
+        height: `${transform.height}px`,
+        opacity: String(transform.opacity),
+        mixBlendMode: layer.blendMode === 'normal' ? '' : layer.blendMode,
+        transform: `translate(${transform.x}px, ${transform.y}px) rotate(${transform.rotation}deg)`,
+        transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
+        filter: layerEffectsToCssFilter(state.effects),
+      });
+      const element = resolveCaptureElement(layer, data, composition);
+      compositionRoot.appendChild(layerRoot);
+      renderElementContent(
+        layerRoot,
+        element,
+        sequenceFrame(element, frame, composition.frameRate),
+        {
+          shaderBackingSize: shaderBackingSizeForLayer(layer),
+          shaderStrokePadding: shaderStrokePaddingForLayer(layer),
+        },
+      );
+      setLottieDeterministicRendering(layerRoot, true);
+      if (state.patternFrame !== undefined) renderPatternAtElapsed(layerRoot, state.patternFrame);
+      renderAnimatedElementAtTime(layerRoot, element, (frame / composition.frameRate) * 1000);
+      applyAnimatedPaint(layerRoot, state.paintTracks, state.paintFrame);
+      rendered.set(layer.id, layerRoot);
+      states.set(layer.id, state);
     }
-    const state = sampleCompiledLayerVisualState(
-      layer,
-      frame,
-      compiledLoopElapsedFrames(descriptor, layer, frame),
-      data,
-    );
-    const transform = state.transform;
-    const layerRoot = document.createElement('div');
-    layerRoot.dataset.agentCaptureLayer = 'true';
-    Object.assign(layerRoot.style, {
-      position: 'absolute',
-      left: '0',
-      top: '0',
-      boxSizing: 'border-box',
-      width: `${transform.width}px`,
-      height: `${transform.height}px`,
-      opacity: String(transform.opacity),
-      mixBlendMode: layer.blendMode === 'normal' ? '' : layer.blendMode,
-      transform: `translate(${transform.x}px, ${transform.y}px) rotate(${transform.rotation}deg)`,
-      transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
-      filter: layerEffectsToCssFilter(state.effects),
-    });
-    const element = resolveCaptureElement(layer, data, composition);
-    compositionRoot.appendChild(layerRoot);
-    renderElementContent(layerRoot, element, sequenceFrame(element, frame, composition.frameRate));
-    setLottieDeterministicRendering(layerRoot, true);
-    if (state.patternFrame !== undefined) renderPatternAtElapsed(layerRoot, state.patternFrame);
-    renderAnimatedElementAtTime(layerRoot, element, (frame / composition.frameRate) * 1000);
-    applyAnimatedPaint(layerRoot, state.paintTracks, state.paintFrame);
-    rendered.set(layer.id, layerRoot);
-    states.set(layer.id, state);
+    applyCompiledClipPaths(descriptor, rendered, states);
+    applyCompiledMasks(descriptor, rendered, states, data);
+    return root;
+  } catch (error) {
+    // Shader compilation/drawing can fail before the detached capture tree is returned.
+    // Release every context mounted so far, including the layer that failed to render.
+    for (const layer of root.querySelectorAll<HTMLElement>('[data-agent-capture-layer]')) {
+      disposeElementContent(layer);
+    }
+    throw error;
   }
-  applyCompiledClipPaths(descriptor, rendered, states);
-  applyCompiledMasks(descriptor, rendered, states, data);
-  return root;
 }
 
 async function captureComposition(request: AgentCaptureRequest): Promise<AgentCaptureResult> {
@@ -629,16 +649,18 @@ export async function measureAgentText(
   renderElementContent(host, element);
   document.body.appendChild(host);
   try {
+    await waitForElementContentReady(host);
     await waitForRenderableDom(host);
-    const content = host.firstElementChild as HTMLElement | null;
+    const nativeHost = host.querySelector<HTMLElement>('[data-ograf-shader-base]') ?? host;
+    const content = nativeHost.firstElementChild as HTMLElement | null;
     if (!content) throw new Error('Browser text renderer produced no measurable content.');
     const layout = renderedTextMetrics(content);
     const strokeExpansion = Math.max(0, element.strokeWidth);
     const overflowsParent =
       element.autoFit === 'squeeze'
         ? false
-        : content.scrollWidth + strokeExpansion > host.clientWidth + 0.5 ||
-          content.scrollHeight + strokeExpansion > host.clientHeight + 0.5;
+        : layout.width + strokeExpansion > host.clientWidth + 0.5 ||
+          layout.height + strokeExpansion > host.clientHeight + 0.5;
     const appliedFontSize = Number(content.dataset.ografAppliedFontSize ?? element.fontSize);
     const appliedFitRatio = Number(content.dataset.ografFitRatio ?? 1);
     const appliedShrinkRatio =

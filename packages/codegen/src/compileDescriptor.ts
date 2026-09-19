@@ -1,5 +1,7 @@
+import { migrateShaderElement, migrateShaderBindingTarget } from '@ograf-editor/scene-model';
 import {
   computeKeyframeFrames,
+  compositionWithShaderParameterFields,
   getResolvedLayerAnimationTracks,
   resolveElementAssetReferences,
   resolvePatternElement,
@@ -28,6 +30,7 @@ export function compileDescriptor(
   composition: Composition,
   options: { includeGuides?: boolean } = {},
 ): CompiledGraphicDescriptor {
+  composition = compositionWithShaderParameterFields(composition);
   const keyframeFrames = computeKeyframeFrames(composition);
   const frameByKeyframeId = new Map(keyframeFrames.map((k) => [k.keyframeId, k.frame]));
   const fieldKeyById = new Map(composition.dataFields.map((f) => [f.id, f.key]));
@@ -59,7 +62,7 @@ export function compileDescriptor(
       isVisible: layer.isVisible,
       blendMode: layer.blendMode,
       element: resolvePatternElement(
-        resolveElementAssetReferences(layer.element, composition.assets),
+        resolveElementAssetReferences(migrateShaderElement(layer.element), composition.assets),
         composition.patterns,
       ),
       effects: layer.effects,
@@ -107,7 +110,7 @@ export function compileDescriptor(
           : [
               {
                 dataKey,
-                targetProperty: binding.targetProperty,
+                targetProperty: migrateShaderBindingTarget(binding.targetProperty),
                 ...(binding.sourcePath?.length ? { sourcePath: [...binding.sourcePath] } : {}),
                 ...(binding.valueMap ? { valueMap: structuredClone(binding.valueMap) } : {}),
               },

@@ -1,0 +1,10 @@
+.paint-shader-drop {
+  transition:
+    background-color 100ms ease,
+    outline-color 100ms ease;
+}
+.paint-shader-drop.is-drag-over {
+  background: color-mix(in srgb, var(--accent-focus) 20%, var(--bg-panel));
+  outline: 2px solid var(--accent-focus);
+  outline-offset: -2px;
+}

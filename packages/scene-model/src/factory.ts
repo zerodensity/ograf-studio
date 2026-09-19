@@ -13,6 +13,7 @@ import type {
   ImageElement,
   ImageSequenceElement,
   LottieElement,
+  ShaderElement,
   Keyframe,
   KeyframeRole,
   Layer,
@@ -32,6 +33,7 @@ import type {
 } from './types';
 import { normalizeAuthoredTransform } from './authoredTransform';
 import { normalizeCornerRadii } from './cornerRadii';
+import { normalizeShaderElement } from './shader';
 
 const BASE_TRANSFORM: LayerTransform = {
   x: 100,
@@ -160,6 +162,10 @@ export function createLottieElement(overrides: Partial<LottieElement> = {}): Lot
   };
 }
 
+export function createShaderElement(overrides: Partial<ShaderElement> = {}): ShaderElement {
+  return normalizeShaderElement(overrides);
+}
+
 function createLayer(name: string, element: Element): Layer {
   return {
     id: createId('layer'),
@@ -187,7 +193,15 @@ function createLayer(name: string, element: Element): Layer {
 }
 
 export type NewLayerKind =
-  'rectangle' | 'ellipse' | 'text' | 'image' | 'path' | 'pattern' | 'image-sequence' | 'lottie';
+  | 'rectangle'
+  | 'ellipse'
+  | 'text'
+  | 'image'
+  | 'path'
+  | 'pattern'
+  | 'image-sequence'
+  | 'lottie'
+  | 'shader';
 
 /** The starting pose for a freshly created layer of this kind — a fresh object every call. */
 export function defaultTransformFor(kind: NewLayerKind): LayerTransform {
@@ -231,6 +245,10 @@ export function createLottieLayer(): Layer {
   return createLayer('Lottie', createLottieElement());
 }
 
+export function createShaderLayer(): Layer {
+  return createLayer('Shader', createRectangleElement({ fill: createShaderElement() }));
+}
+
 export function createLayerOfKind(kind: NewLayerKind): Layer {
   switch (kind) {
     case 'rectangle':
@@ -255,6 +273,8 @@ export function createLayerOfKind(kind: NewLayerKind): Layer {
       return createImageSequenceLayer();
     case 'lottie':
       return createLottieLayer();
+    case 'shader':
+      return createShaderLayer();
   }
 }
 
@@ -501,7 +521,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
   };
 }
 
-export const PROJECT_DOCUMENT_VERSION = 31;
+export const PROJECT_DOCUMENT_VERSION = 32;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
   const mainComposition = createComposition({ name: 'Main' });

@@ -11,6 +11,8 @@ import {
   defaultValueForFieldType,
   getResolvedLayerAnimationTracks,
   isProjectSourcePath,
+  migrateProject,
+  PROJECT_DOCUMENT_VERSION,
   type Element,
   type FieldDefinition,
   type FieldType,
@@ -33,6 +35,7 @@ const SUPPORTED_ELEMENTS = new Set<Element['type']>([
   'image-sequence',
   'lottie',
   'pattern',
+  'shader',
 ]);
 
 type UnknownRecord = Record<string, unknown>;
@@ -334,6 +337,42 @@ function coerceFieldDefault(
   return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
+function importedShaderParameter(value: unknown): FieldDefinition['generatedShaderParameter'] {
+  if (
+    !isRecord(value) ||
+    typeof value.layerId !== 'string' ||
+    typeof value.name !== 'string' ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(value.name) ||
+    !['float', 'int', 'bool', 'vec2', 'vec3', 'vec4'].includes(String(value.glslType)) ||
+    !['slider', 'color', 'toggle', 'vector2'].includes(String(value.control))
+  )
+    return undefined;
+  const storedValue = value.value;
+  const validValue =
+    typeof storedValue === 'boolean' ||
+    (typeof storedValue === 'number' && Number.isFinite(storedValue)) ||
+    (Array.isArray(storedValue) &&
+      storedValue.length >= 2 &&
+      storedValue.length <= 4 &&
+      storedValue.every(
+        (component) => typeof component === 'number' && Number.isFinite(component),
+      ));
+  return {
+    layerId: value.layerId,
+    name: value.name,
+    glslType: value.glslType as NonNullable<
+      FieldDefinition['generatedShaderParameter']
+    >['glslType'],
+    control: value.control as NonNullable<FieldDefinition['generatedShaderParameter']>['control'],
+    ...(value.paintSlot === 'fill' || value.paintSlot === 'stroke'
+      ? { paintSlot: value.paintSlot }
+      : {}),
+    ...(validValue
+      ? { value: storedValue as NonNullable<FieldDefinition['generatedShaderParameter']>['value'] }
+      : {}),
+  };
+}
+
 function fieldsFromManifest(manifest: OGrafManifest, warnings: string[]): FieldDefinition[] {
   if (!isRecord(manifest.schema) || !isRecord(manifest.schema.properties)) return [];
   const required = new Set(
@@ -364,6 +403,7 @@ function fieldsFromManifest(manifest: OGrafManifest, warnings: string[]): FieldD
       type === 'array' && isRecord(value.items)
         ? fieldFromSchema('item', value.items, true)
         : undefined;
+    const generatedShaderParameter = importedShaderParameter(value.v_ografShaderParameter);
     return createFieldDefinition(type, {
       key,
       label: typeof value.title === 'string' ? value.title : key,
@@ -406,6 +446,7 @@ function fieldsFromManifest(manifest: OGrafManifest, warnings: string[]): FieldD
           : [],
       properties,
       ...(items ? { items } : {}),
+      ...(generatedShaderParameter ? { generatedShaderParameter } : {}),
     });
   };
 
@@ -974,6 +1015,14 @@ async function importEntries(entries: Map<string, Uint8Array>): Promise<OgrafImp
 }
 
 function finalizeImport(result: OgrafImportResult): OgrafImportResult {
+  if (
+    result.project.documentVersion < PROJECT_DOCUMENT_VERSION ||
+    result.project.compositions.some((composition) =>
+      composition.layers.some((layer) => layer.element.type === 'shader'),
+    )
+  ) {
+    result.project = migrateProject(result.project);
+  }
   const validation = validateProject(result.project);
   for (const error of validation.errors)
     result.warnings.push(`Converted project validation: ${error}`);

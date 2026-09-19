@@ -23,7 +23,7 @@ export interface GradientPaint {
   stops: GradientStop[];
 }
 
-export type Paint = string | GradientPaint;
+export type Paint = string | GradientPaint | ShaderPaint;
 
 export interface CornerRadii {
   topLeft: number;
@@ -51,8 +51,12 @@ export interface TextElement {
   type: 'text';
   content: string;
   color: string;
+  /** Absent retains the legacy solid text color. */
+  fill?: Paint;
   /** Glyph outline colour; transparent with zero width preserves legacy rendering. */
   strokeColor: string;
+  /** Independent procedural glyph outline; absent uses strokeColor. */
+  strokePaint?: ShaderPaint;
   /** Full CSS/SVG text-stroke width in authored composition pixels. */
   strokeWidth: number;
   fontFamily: string;
@@ -77,6 +81,8 @@ export interface TextElement {
 export interface ImageElement {
   type: 'image';
   src: string | null;
+  /** Procedural paint clipped by the source image alpha; absent retains source pixels. */
+  fill?: ShaderPaint;
 }
 
 /**
@@ -186,6 +192,7 @@ export interface ImageSequenceElement {
   frames: string[];
   fps: number;
   loop: boolean;
+  fill?: ShaderPaint;
 }
 
 /** A self-contained Bodymovin/Lottie document rendered from the composition's absolute clock. */
@@ -208,7 +215,36 @@ export interface LottieElement {
   type: 'lottie';
   animationData: LottieAnimationData | null;
   speed: number;
+  fill?: ShaderPaint;
 }
+
+/** Self-contained single-pass GLSL mainImage, driven by the composition clock in WebGL2. */
+export type ShaderParameterValue = number | boolean | number[];
+
+export interface ShaderParameterDefinition {
+  name: string;
+  glslType: 'float' | 'int' | 'bool' | 'vec2' | 'vec3' | 'vec4';
+  control: 'slider' | 'color' | 'toggle' | 'vector2';
+  defaultValue: ShaderParameterValue;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export type ShaderPaintSlot = 'fill' | 'stroke';
+
+export interface ShaderPaint {
+  type: 'shader';
+  /** Optional author-facing resource name; absent uses the object and paint slot. */
+  name?: string;
+  fragmentSource: string;
+  speed: number;
+  resolutionScale: number;
+  parameters: Record<string, ShaderParameterValue>;
+}
+
+/** @deprecated Import compatibility only; current scenes use a rectangle with ShaderPaint. */
+export type ShaderElement = ShaderPaint;
 
 export type Element =
   | RectangleElement
@@ -218,7 +254,8 @@ export type Element =
   | PathElement
   | PatternElement
   | ImageSequenceElement
-  | LottieElement;
+  | LottieElement
+  | ShaderElement;
 export type ElementType = Element['type'];
 
 /** Which data Field drives a property of this layer, and which property. */
@@ -604,6 +641,15 @@ export interface FieldDefinition {
   defaultValue: FieldValue;
   /** Authoring-only link: a color Brand Kit token materializes this field's default. */
   defaultTokenId?: string | null;
+  /** Identifies fields generated from explicitly annotated shader parameters. */
+  generatedShaderParameter?: {
+    layerId: string;
+    name: string;
+    glslType: ShaderParameterDefinition['glslType'];
+    control: ShaderParameterDefinition['control'];
+    value?: ShaderParameterValue;
+    paintSlot?: ShaderPaintSlot;
+  };
   required: boolean;
   /** Ordered values/labels for select and select-multiple controls. */
   options: FieldOption[];

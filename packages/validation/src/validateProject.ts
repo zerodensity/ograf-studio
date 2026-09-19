@@ -1,4 +1,12 @@
 import {
+  isGradientPaint,
+  isShaderPaint,
+  getElementFill,
+  getElementShaderPaint,
+  getElementShaderPaints,
+  migrateShaderBindingTarget,
+} from '@ograf-editor/scene-model';
+import {
   effectStackErrors,
   parseEffectProperty,
   effectParameterSpec,
@@ -11,6 +19,10 @@ import {
   applyDesignTokenBinding,
   BLEND_MODES,
   inspectLottieAnimationData,
+  inspectShaderElement,
+  inspectShaderSource,
+  normalizeShaderParameterValue,
+  valueAtSourcePath,
   getLayerAnimatableProperties,
   gradientStopIndexForProperty,
   getResolvedLayerAnimationTracks,
@@ -468,9 +480,10 @@ function validateComposition(composition: Composition, errors: string[], warning
       layer.element.type === 'rectangle' ||
       layer.element.type === 'ellipse' ||
       layer.element.type === 'path' ||
-      layer.element.type === 'pattern'
+      layer.element.type === 'pattern' ||
+      layer.element.type === 'text'
     ) {
-      for (const problem of validatePaint(layer.element.fill)) {
+      for (const problem of validatePaint(getElementFill(layer.element)!)) {
         errors.push(`${prefix}: layer "${layer.name}" ${problem}.`);
       }
     }
@@ -544,10 +557,11 @@ function validateComposition(composition: Composition, errors: string[], warning
           layer.element.type === 'rectangle' ||
           layer.element.type === 'ellipse' ||
           layer.element.type === 'path' ||
-          layer.element.type === 'pattern'
+          layer.element.type === 'pattern' ||
+          layer.element.type === 'text'
             ? layer.element.fill
             : null;
-        if (!fill || typeof fill === 'string' || !fill.stops[stopIndex]) {
+        if (!isGradientPaint(fill) || !fill.stops[stopIndex]) {
           errors.push(
             `${prefix}: layer "${layer.name}" property "${property}" references a missing gradient stop.`,
           );
@@ -894,7 +908,7 @@ function validateComposition(composition: Composition, errors: string[], warning
       if (
         gradientColor &&
         (!('fill' in layer.element) ||
-          typeof layer.element.fill === 'string' ||
+          !isGradientPaint(layer.element.fill) ||
           !layer.element.fill.stops[Number(gradientColor[1])])
       )
         errors.push(`${prefix}: layer "${layer.name}" binds a missing gradient color stop.`);
@@ -908,10 +922,68 @@ function validateComposition(composition: Composition, errors: string[], warning
         continue;
       }
       const resolved = fieldDefinitionAtPath(field, binding.sourcePath ?? [], { fromArrayItem });
-      if (!resolved || resolved.type === 'object' || resolved.type === 'array') {
+      const shaderTarget = /^(fill|strokePaint)\.parameters\.(.+)$/.exec(
+        migrateShaderBindingTarget(binding.targetProperty),
+      );
+      const boundShader = shaderTarget
+        ? getElementShaderPaint(
+            layer.element,
+            shaderTarget[1] === 'strokePaint' ? 'stroke' : 'fill',
+          )
+        : undefined;
+      const shaderParameter = boundShader
+        ? inspectShaderSource(boundShader.fragmentSource).parameters.find(
+            (parameter) => parameter.name === shaderTarget![2],
+          )
+        : undefined;
+      if (shaderTarget && !shaderParameter) {
+        errors.push(
+          `${prefix}: layer "${layer.name}" binds an unmarked shader parameter "${binding.targetProperty}".`,
+        );
+      }
+      const vectorObject =
+        shaderParameter?.control === 'vector2' &&
+        resolved?.type === 'object' &&
+        ['x', 'y'].every((axis) =>
+          resolved.properties.some(
+            (child) => child.key === axis && (child.type === 'number' || child.type === 'integer'),
+          ),
+        );
+      if (!resolved || (resolved.type === 'object' && !vectorObject) || resolved.type === 'array') {
         errors.push(
           `${prefix}: layer "${layer.name}" binding path for field "${field.key}" must resolve to a scalar leaf.`,
         );
+      }
+      if (shaderParameter && resolved) {
+        const compatible =
+          shaderParameter.control === 'vector2'
+            ? vectorObject
+            : shaderParameter.control === 'color'
+              ? resolved.type === 'color'
+              : shaderParameter.control === 'toggle'
+                ? resolved.type === 'boolean'
+                : shaderParameter.glslType === 'int'
+                  ? resolved.type === 'integer'
+                  : resolved.type === 'number' || resolved.type === 'integer';
+        if (!compatible)
+          errors.push(
+            `${prefix}: layer "${layer.name}" shader parameter "${shaderParameter.name}" has an incompatible field type.`,
+          );
+        try {
+          const rootValue =
+            fromArrayItem && Array.isArray(field.defaultValue)
+              ? field.defaultValue[0]
+              : field.defaultValue;
+          if (rootValue !== undefined)
+            normalizeShaderParameterValue(
+              shaderParameter,
+              valueAtSourcePath(rootValue, binding.sourcePath),
+            );
+        } catch (error) {
+          errors.push(
+            `${prefix}: layer "${layer.name}" shader parameter "${shaderParameter.name}" field default: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       }
     }
     for (const targetProperty of duplicates(
@@ -921,12 +993,41 @@ function validateComposition(composition: Composition, errors: string[], warning
         `${prefix}: layer "${layer.name}" binds target property "${targetProperty}" more than once.`,
       );
     }
+    for (const { slot, paint } of getElementShaderPaints(layer.element)) {
+      errors.push(
+        ...inspectShaderElement(paint).errors.map(
+          (error) => `${prefix}: layer "${layer.name}" ${slot} paint: ${error}`,
+        ),
+      );
+    }
+    if (
+      'strokePaint' in layer.element &&
+      layer.element.strokePaint !== undefined &&
+      (layer.element.type !== 'text' || !isShaderPaint(layer.element.strokePaint))
+    ) {
+      errors.push(
+        `${prefix}: layer "${layer.name}" strokePaint must be a shader paint on a text layer, or omitted.`,
+      );
+    }
+    if (
+      ['image', 'image-sequence', 'lottie'].includes(layer.element.type) &&
+      'fill' in layer.element &&
+      layer.element.fill !== undefined &&
+      !isShaderPaint(layer.element.fill)
+    ) {
+      errors.push(`${prefix}: layer "${layer.name}" media fill must be a shader paint or omitted.`);
+    }
     if (layer.element.type === 'image' && layer.element.src) {
       validateAssetReference(layer.element.src, `layer "${layer.name}"`);
     } else if (layer.element.type === 'image-sequence') {
       for (const frame of layer.element.frames) {
         validateAssetReference(frame, `layer "${layer.name}"`);
       }
+    } else if (layer.element.type === 'shader') {
+      const inspection = inspectShaderElement(layer.element);
+      errors.push(
+        ...inspection.errors.map((error) => `${prefix}: layer "${layer.name}": ${error}`),
+      );
     } else if (layer.element.type === 'lottie') {
       if (!layer.element.animationData) {
         errors.push(`${prefix}: Lottie layer "${layer.name}" has no animation JSON.`);

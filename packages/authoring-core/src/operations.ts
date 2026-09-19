@@ -1,4 +1,13 @@
 import {
+  isGradientPaint,
+  getElementShaderPaint,
+  getElementShaderPaints,
+  isShaderPaint,
+  createShaderPaint,
+  migrateShaderBindingTarget,
+  shaderPaintConflictsWithBinding,
+} from '@ograf-editor/scene-model';
+import {
   applyPathEdit,
   EFFECT_ANIMATION_PROPERTIES,
   assertMaskSourcesRemovable,
@@ -48,6 +57,9 @@ import {
   normalizeAuthoredTransformPatch,
   normalizeCornerRadii,
   normalizeLayerEffects,
+  inspectShaderElement,
+  syncShaderParameterFields,
+  syncCompositionShaderParameterFields,
   instantiateComponentDefinition,
   materializeBug,
   materializeClock,
@@ -200,10 +212,11 @@ function assertPropertyApplicable(
     layer.element.type === 'rectangle' ||
     layer.element.type === 'ellipse' ||
     layer.element.type === 'path' ||
-    layer.element.type === 'pattern'
+    layer.element.type === 'pattern' ||
+    layer.element.type === 'text'
       ? layer.element.fill
       : null;
-  if (!fill || typeof fill === 'string' || !fill.stops[stopIndex]) {
+  if (!isGradientPaint(fill) || !fill.stops[stopIndex]) {
     throw new Error(
       `Property "${property}" requires gradient stop ${stopIndex} on layer "${layer.name}".`,
     );
@@ -385,11 +398,32 @@ function addLayer(
     );
   }
   if (operation.element) {
-    const elementPatch = { ...operation.element };
+    const elementPatch =
+      operation.kind === 'shader'
+        ? ({ fill: createShaderPaint(operation.element) } as Record<string, unknown>)
+        : { ...operation.element };
+    if ('type' in elementPatch && elementPatch.type !== operation.kind) {
+      throw new Error('An element patch cannot change the layer element type.');
+    }
     if (layer.element.type === 'rectangle' && elementPatch.borderRadius !== undefined) {
       elementPatch.borderRadius = normalizeCornerRadii(elementPatch.borderRadius as never);
     }
+    if (isShaderPaint(elementPatch.fill)) elementPatch.fill = createShaderPaint(elementPatch.fill);
+    if ('strokePaint' in elementPatch && layer.element.type !== 'text')
+      throw new Error('Shader outlines are supported only on text layers.');
+    if (isShaderPaint(elementPatch.strokePaint))
+      elementPatch.strokePaint = createShaderPaint(elementPatch.strokePaint);
+    if (
+      layer.element.type === 'text' &&
+      elementPatch.strokePaint != null &&
+      !isShaderPaint(elementPatch.strokePaint)
+    )
+      throw new Error('Text strokePaint must be a shader paint or omitted.');
     Object.assign(layer.element, elementPatch);
+  }
+  for (const { paint } of getElementShaderPaints(layer.element)) {
+    const inspection = inspectShaderElement(paint);
+    if (!inspection.valid) throw new Error(inspection.errors.join(' '));
   }
   if (operation.effects)
     layer.effects = normalizeLayerEffects({ ...layer.effects, ...operation.effects });
@@ -399,6 +433,7 @@ function addLayer(
     Math.min(composition.layers.length, operation.index ?? composition.layers.length),
   );
   composition.layers.splice(index, 0, layer);
+  syncShaderParameterFields(composition, layer);
   return layer.id;
 }
 
@@ -502,6 +537,7 @@ function duplicateGroup(
         const sourceField = composition.dataFields.find((field) => field.id === sourceFieldId);
         if (!sourceField)
           throw new Error(`duplicate_group binding field not found: ${sourceFieldId}`);
+        if (sourceField.generatedShaderParameter) continue;
         const field = cloneFieldDefinitionWithFreshIds(sourceField);
         field.key = literalRewrite(sourceField.key, operation.fieldKeyRewrite, n);
         field.label = literalRewrite(sourceField.label, operation.labelRewrite, n);
@@ -625,7 +661,7 @@ function duplicateGroup(
       else if (bindings === 'clone') {
         layer.bindings = layer.bindings.map((binding) => ({
           ...binding,
-          fieldId: fieldIds[binding.fieldId]!,
+          fieldId: fieldIds[binding.fieldId] ?? binding.fieldId,
         }));
       }
       summary.generatedIds.push({ operationIndex, kind: 'layer', id: layer.id });
@@ -633,6 +669,19 @@ function duplicateGroup(
       return layer;
     });
     composition.layers.push(...clones);
+    for (const layer of clones) {
+      syncShaderParameterFields(composition, layer);
+      for (const binding of layer.bindings) {
+        const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
+        if (field?.generatedShaderParameter?.layerId !== layer.id) continue;
+        summary.generatedIds.push({ operationIndex, kind: 'field', id: field.id });
+        const source = sources.find((candidate) => layerIds[candidate.id] === layer.id);
+        const original = source?.bindings.find(
+          (candidate) => candidate.targetProperty === binding.targetProperty,
+        );
+        if (original) fieldIds[original.fieldId] = field.id;
+      }
+    }
     copies.push({ n, groupId, layers: layerIds, fields: fieldIds });
   }
   summary.duplicateGroups.push({ operationIndex, copies });
@@ -1559,7 +1608,15 @@ export function applyAuthoringOperations(
       case 'update_element': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
-        if ('type' in operation.patch && operation.patch.type !== layer.element.type) {
+        const legacyShaderPatch =
+          operation.patch.type === 'shader' &&
+          layer.element.type === 'rectangle' &&
+          !!getElementShaderPaint(layer.element);
+        if (
+          'type' in operation.patch &&
+          operation.patch.type !== layer.element.type &&
+          !legacyShaderPatch
+        ) {
           throw new Error('An element patch cannot change the layer element type.');
         }
         const previousStrokeWidth =
@@ -1572,6 +1629,74 @@ export function applyAuthoringOperations(
           assertPropertyApplicable(layer, 'strokeWidth', strokeWidth);
         }
         const elementPatch = { ...operation.patch };
+        if (legacyShaderPatch) delete elementPatch.type;
+        const previousShader = getElementShaderPaint(layer.element);
+        const previousStrokeShader = getElementShaderPaint(layer.element, 'stroke');
+        // Older clients patched shader-layer fields directly; retain that route on migrated fills.
+        if (
+          layer.element.type === 'rectangle' &&
+          previousShader &&
+          ['fragmentSource', 'parameters', 'resolutionScale', 'speed'].some(
+            (key) => key in elementPatch,
+          )
+        ) {
+          const legacy: Record<string, unknown> = {};
+          for (const key of ['fragmentSource', 'parameters', 'resolutionScale', 'speed']) {
+            if (key in elementPatch) {
+              legacy[key] = elementPatch[key];
+              delete elementPatch[key];
+            }
+          }
+          elementPatch.fill = { ...previousShader, ...legacy };
+        }
+        if (isShaderPaint(elementPatch.fill)) {
+          const incoming = elementPatch.fill;
+          const sourceChanged =
+            incoming.fragmentSource !== undefined &&
+            incoming.fragmentSource !== previousShader?.fragmentSource;
+          elementPatch.fill = createShaderPaint({
+            ...previousShader,
+            ...incoming,
+            parameters: {
+              ...(sourceChanged ? {} : previousShader?.parameters),
+              ...incoming.parameters,
+            },
+          });
+        }
+        if (
+          isShaderPaint(elementPatch.fill) &&
+          elementPatch.fill.parameters !== undefined &&
+          elementPatch.fill.fragmentSource === previousShader?.fragmentSource
+        ) {
+          const inspection = inspectShaderElement(elementPatch.fill);
+          if (!inspection.valid) throw new Error(inspection.errors.join(' '));
+        }
+        if ('strokePaint' in elementPatch) {
+          if (layer.element.type !== 'text')
+            throw new Error('Shader outlines are supported only on text layers.');
+          if (elementPatch.strokePaint != null && !isShaderPaint(elementPatch.strokePaint))
+            throw new Error('Text strokePaint must be a shader paint or omitted.');
+          if (isShaderPaint(elementPatch.strokePaint)) {
+            const incoming = elementPatch.strokePaint;
+            const sourceChanged =
+              incoming.fragmentSource !== undefined &&
+              incoming.fragmentSource !== previousStrokeShader?.fragmentSource;
+            elementPatch.strokePaint = createShaderPaint({
+              ...previousStrokeShader,
+              ...incoming,
+              parameters: {
+                ...(sourceChanged ? {} : previousStrokeShader?.parameters),
+                ...incoming.parameters,
+              },
+            });
+            if (!sourceChanged) {
+              const inspection = inspectShaderElement(
+                elementPatch.strokePaint as ReturnType<typeof createShaderPaint>,
+              );
+              if (!inspection.valid) throw new Error(inspection.errors.join(' '));
+            }
+          }
+        }
         if (layer.element.type === 'rectangle' && elementPatch.borderRadius !== undefined) {
           const radiusPatch = elementPatch.borderRadius;
           elementPatch.borderRadius = normalizeCornerRadii(
@@ -1581,6 +1706,41 @@ export function applyAuthoringOperations(
           );
         }
         Object.assign(layer.element, elementPatch);
+        if (
+          (layer.element.type === 'text' ||
+            layer.element.type === 'image' ||
+            layer.element.type === 'image-sequence' ||
+            layer.element.type === 'lottie') &&
+          elementPatch.fill == null &&
+          'fill' in elementPatch
+        )
+          delete layer.element.fill;
+        if (
+          layer.element.type === 'text' &&
+          'strokePaint' in elementPatch &&
+          elementPatch.strokePaint == null
+        )
+          delete layer.element.strokePaint;
+        const paints = getElementShaderPaints(layer.element);
+        if (
+          paints.some(
+            ({ slot, paint }) =>
+              paint.fragmentSource !==
+              (slot === 'stroke' ? previousStrokeShader : previousShader)?.fragmentSource,
+          )
+        )
+          syncShaderParameterFields(composition, layer);
+        for (const { paint } of paints) {
+          const inspection = inspectShaderElement(paint);
+          if (!inspection.valid) throw new Error(inspection.errors.join(' '));
+        }
+        syncShaderParameterFields(composition, layer);
+        if (
+          layer.element.type === 'text' &&
+          elementPatch.color !== undefined &&
+          typeof layer.element.fill === 'string'
+        )
+          layer.element.fill = String(elementPatch.color);
         if (layer.element.type === 'text' && operation.patch.strokeWidth !== undefined) {
           const track = layer.animationTracks.strokeWidth;
           if (!track?.length) materializeTracks(layer);
@@ -1888,6 +2048,21 @@ export function applyAuthoringOperations(
           (candidate) => candidate.id === operation.fieldId,
         );
         if (!field) throw new Error(`Data field not found: ${operation.fieldId}`);
+        if (
+          field.generatedShaderParameter &&
+          [
+            operation.fieldType,
+            operation.constraints,
+            operation.properties,
+            operation.items,
+            operation.options,
+            operation.fileExtensions,
+          ].some((value) => value !== undefined)
+        ) {
+          throw new Error(
+            'Shader field types and ranges are defined by #pragma ograf in the layer source. Edit the declaration to change them.',
+          );
+        }
         const runtimeCollection = composition.runtimeCollections.find(
           (collection) => collection.fieldId === field.id,
         );
@@ -1961,6 +2136,10 @@ export function applyAuthoringOperations(
           (candidate) => candidate.id === operation.fieldId,
         );
         if (!field) throw new Error(`Data field not found: ${operation.fieldId}`);
+        if (field.generatedShaderParameter)
+          throw new Error(
+            'Remove the corresponding #pragma ograf declaration from the shader source to remove its generated data field.',
+          );
         const consumers = composition.layers.filter((layer) =>
           layer.bindings.some((binding) => binding.fieldId === operation.fieldId),
         );
@@ -2012,16 +2191,38 @@ export function applyAuthoringOperations(
         assertUnlocked(layer);
         if (
           operation.binding &&
+          shaderPaintConflictsWithBinding(layer.element, operation.binding.targetProperty)
+        )
+          throw new Error(
+            'A shader paint cannot bind its whole fill or gradient stops; bind a shader parameter instead.',
+          );
+        if (
+          operation.binding &&
           !composition.dataFields.some((field) => field.id === operation.binding?.fieldId)
         ) {
           throw new Error(`Binding references unknown field: ${operation.binding.fieldId}`);
         }
-        layer.bindings = operation.binding ? [clone(operation.binding)] : [];
+        layer.bindings = operation.binding
+          ? [
+              {
+                ...clone(operation.binding),
+                targetProperty: migrateShaderBindingTarget(operation.binding.targetProperty),
+              },
+            ]
+          : [];
         break;
       }
       case 'set_layer_bindings': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
+        if (
+          operation.bindings.some((binding) =>
+            shaderPaintConflictsWithBinding(layer.element, binding.targetProperty),
+          )
+        )
+          throw new Error(
+            'A shader paint cannot bind its whole fill or gradient stops; bind a shader parameter instead.',
+          );
         for (const binding of operation.bindings) {
           if (!composition.dataFields.some((field) => field.id === binding.fieldId)) {
             throw new Error(`Binding references unknown field: ${binding.fieldId}`);
@@ -2031,7 +2232,10 @@ export function applyAuthoringOperations(
         if (new Set(targets).size !== targets.length) {
           throw new Error('A layer cannot bind the same target property more than once.');
         }
-        layer.bindings = clone(operation.bindings);
+        layer.bindings = clone(operation.bindings).map((binding) => ({
+          ...binding,
+          targetProperty: migrateShaderBindingTarget(binding.targetProperty),
+        }));
         break;
       }
       case 'create_runtime_collection': {
@@ -2242,6 +2446,7 @@ export function applyAuthoringOperations(
     }
   });
 
+  for (const composition of project.compositions) syncCompositionShaderParameterFields(composition);
   summary.operationTypes = [...new Set(summary.operationTypes)];
   summary.affectedCompositionIds = [...new Set(summary.affectedCompositionIds)];
   summary.affectedLayerIds = [...new Set(summary.affectedLayerIds)];

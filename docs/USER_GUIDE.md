@@ -116,6 +116,73 @@ A small compatible animation is included at `examples/lottie/pulse.json`. Marker
 playback, dynamic Lottie text/data binding and renderer selection are not supported. Test your
 exported graphic in the intended playout environment.
 
+### Shader fills
+
+Choose **Shader** in an object's **Fill** selector to render a self-contained GLSL `mainImage`
+pass in WebGL 2. Shapes, text, images, image sequences, Lottie, and tiled patterns support shader
+fills. The shader follows the object's shape or source alpha, including animated silhouettes;
+its output alpha preserves transparency. For a full-screen background or rain overlay, use a
+rectangle sized to the composition. Existing shader layers open as rectangles with shader fills.
+
+Edit the source and its declared controls in Properties. Shaders use composition time for
+repeatable scrubbing and OGraf `goToTime()` seeking. For media, choose **Original pixels** to
+remove the shader fill. Shader fills replace visible color; they do not filter source pixels.
+
+Text also has an independent **Outline** paint selector. Choose **Shader** there and set **Stroke
+Width** to animate its border separately from the fill. The object remains editable text: changes
+to Content, font, sizing, or alignment update both paints. Solid and shader paints can be mixed.
+
+**Resources → Shader** lists the project's fill and outline shaders, including saved component
+definitions. Each entry has a thumbnail, **Edit shader**, and **Load GLSL**. The editor has an
+editable shader name and a larger animated preview. Changes stay in the window until **Save
+shader**; **Cancel** discards them. **Preview shader** tests source changes in the preview, and
+loading a file opens a draft. Entries are independent, even when their source is identical. Edits
+preserve compatible parameter values and keep the current canvas selection.
+Drag a shader entry from Resources onto an object's **Fill** or text **Outline** row to apply a
+copy of its current source, settings, name, and controls. The destination highlights while dragging;
+the original shader stays independent.
+
+Mark literal global constants to create editable controls and OGraf data fields automatically:
+
+```glsl
+#pragma ograf intensity slider min(0) max(2) step(0.1)
+const float intensity = 0.5;
+#pragma ograf tint color
+const vec3 tint = vec3(0.1, 0.3, 0.6);
+#pragma ograf enabled toggle
+const bool enabled = true;
+#pragma ograf offset vector2 min(-1) max(1) step(0.01)
+const vec2 offset = vec2(0.0);
+
+void mainImage(out vec4 color, in vec2 coord) {
+  vec2 uv = coord / iResolution.xy + offset;
+  float wave = 0.5 + 0.5 * sin(uv.x * 8.0 - iTime);
+  color = vec4(tint * intensity * wave, enabled ? 1.0 : 0.0);
+}
+```
+
+`slider` supports `float` and `int`, `color` supports `vec3` and `vec4`, `toggle` supports `bool`,
+and `vector2` supports `vec2`. Literal object-like `#define` constants are also accepted. The
+optional `min(...)`, `max(...)`, and `step(...)` annotations set numeric control limits. Marked
+symbols must be read-only; expressions, conditional declarations, and values needed as compile-time
+constants are rejected when they cannot safely become uniforms.
+
+Every marked symbol gets a normal field in **Data** and a `fill.parameters.NAME` binding. Colors use
+hexadecimal RGB/RGBA strings in OGraf data; vectors use `{ "x": 0, "y": 0 }`. Control edits and
+field defaults stay synchronized. Field keys and labels may be renamed; change the source pragma
+to change a field's type, limits, or presence. Duplicated objects get independent shader fields.
+Changing to Shader detaches incompatible whole-fill and gradient-stop bindings while keeping
+their data fields and Brand Kit tokens available.
+Text outline parameters use `strokePaint.parameters.NAME` and independent fields, so the same
+parameter name can appear in both shaders without sharing its value.
+
+The original source and values are saved in `.ogs` and compiled packages. The supported profile
+provides `iTime` and `iResolution`; texture channels, buffer/feedback passes, audio inputs, mouse
+inputs, and custom uniform declarations are unsupported. Shadertoy Image passes that fit this
+profile can be adapted; check their individual licences. Export certification checks rendering
+and repeated seeks, but the destination player must still support WebGL 2. Shader-filled objects
+can use geometric masks, but cannot currently supply an alpha mask for another object.
+
 ## Editing and animation
 
 AI proposals appear on the main canvas. Review frames and compare the original, then use

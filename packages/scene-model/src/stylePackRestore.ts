@@ -1,3 +1,4 @@
+import { isGradientPaint } from './paint';
 import { applyDesignTokenBinding } from './designSystem';
 import { effectParameterValue, parseEffectProperty, withEffectParameter } from './effectStack';
 import type {
@@ -38,7 +39,7 @@ function styleValue(
   if (parseEffectProperty(property)) return effectParameterValue(layer.effects, property);
   if (property === 'dropShadowColor') return layer.effects.dropShadowColor;
   const stop = /^fill\.stops\[(\d+)\]\.color$/.exec(property);
-  if (stop && 'fill' in layer.element && typeof layer.element.fill !== 'string')
+  if (stop && 'fill' in layer.element && isGradientPaint(layer.element.fill))
     return layer.element.fill.stops[Number(stop[1])]?.color;
   if (Object.hasOwn(CORNERS, property) && layer.element.type === 'rectangle')
     return layer.element.borderRadius[CORNERS[property as keyof typeof CORNERS]];
@@ -143,7 +144,7 @@ function restoreProperty(layer: Layer, entry: StylePackPropertyRestore): void {
     layer.element.borderRadius[CORNERS[property as keyof typeof CORNERS]] = Number(value);
   else {
     const stop = /^fill\.stops\[(\d+)\]\.color$/.exec(property);
-    if (stop && 'fill' in layer.element && typeof layer.element.fill !== 'string')
+    if (stop && 'fill' in layer.element && isGradientPaint(layer.element.fill))
       layer.element.fill.stops[Number(stop[1])]!.color = String(value);
     else if (ELEMENT_PROPERTIES.includes(property as (typeof ELEMENT_PROPERTIES)[number]))
       (layer.element as unknown as Record<string, unknown>)[property] = copyStyleData(value);

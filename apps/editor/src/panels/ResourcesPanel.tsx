@@ -10,6 +10,7 @@ import { useSelectionStore } from '../state/selectionStore';
 import { ResourceTreeBranch, ResourceTreeItem } from './ResourceTreeComponents';
 import { Panel } from './Panel';
 import { TilingPatternEditor } from './TilingPatternEditor';
+import { ShaderResources } from './ShaderResources';
 import { partitionResourceAssets } from './resourceTree';
 import './ResourcesPanel.css';
 import { useImagePlacement } from '../state/useImagePlacement';
@@ -117,6 +118,7 @@ export function ResourcesPanel() {
     <Panel title="Resources">
       <div className="resources-panel">
         <div className="resources-tree" role="tree" aria-label="Project resources">
+          <ShaderResources />
           <ResourceTreeBranch label="Patterns" count={composition.patterns.length}>
             <button
               onClick={() => {

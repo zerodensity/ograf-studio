@@ -1,3 +1,5 @@
+import { isGradientPaint } from './paint';
+import { shaderPaintConflictsWithBinding } from './shader';
 import type {
   Composition,
   DesignToken,
@@ -43,6 +45,10 @@ function assertTokenValue(type: DesignTokenType, value: DesignTokenValue): void 
 
 function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: DesignToken): void {
   const property = binding.targetProperty;
+  if (shaderPaintConflictsWithBinding(layer.element, property))
+    throw new Error(
+      'A shader paint cannot bind its whole fill or gradient stops; bind a generated shader parameter field instead.',
+    );
   if (parseEffectProperty(property)) {
     const spec = effectParameterSpec(layer.effects, property);
     if (!spec) throw Error(`Effect parameter not found: ${property}`);
@@ -61,7 +67,7 @@ function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: Desi
   if (stopIndex !== null) {
     if (
       !('fill' in layer.element) ||
-      typeof layer.element.fill === 'string' ||
+      !isGradientPaint(layer.element.fill) ||
       !layer.element.fill.stops[stopIndex]
     ) {
       throw new Error(`Property ${property} requires an existing gradient stop.`);
@@ -75,7 +81,7 @@ function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: Desi
     return;
   }
   if (property === 'fill') {
-    if (!['rectangle', 'ellipse', 'path', 'pattern'].includes(layer.element.type)) {
+    if (!['rectangle', 'ellipse', 'path', 'pattern', 'text'].includes(layer.element.type)) {
       throw new Error(`Property fill is not supported by ${layer.element.type} layers.`);
     }
     if (token.type !== 'color') throw new Error('Property fill requires a color design token.');
@@ -159,7 +165,7 @@ export function applyDesignTokenBinding(
     return;
   }
   const stopIndex = gradientColorIndex(property);
-  if (stopIndex !== null && 'fill' in layer.element && typeof layer.element.fill !== 'string') {
+  if (stopIndex !== null && 'fill' in layer.element && isGradientPaint(layer.element.fill)) {
     layer.element.fill.stops[stopIndex]!.color = String(value);
     return;
   }
@@ -168,7 +174,15 @@ export function applyDesignTokenBinding(
     return;
   }
   const previousStrokeWidth = 'strokeWidth' in layer.element ? layer.element.strokeWidth : null;
-  if (property === 'fill' && 'fill' in layer.element) layer.element.fill = String(value);
+  if (
+    property === 'fill' &&
+    (layer.element.type === 'rectangle' ||
+      layer.element.type === 'ellipse' ||
+      layer.element.type === 'path' ||
+      layer.element.type === 'pattern' ||
+      layer.element.type === 'text')
+  )
+    layer.element.fill = String(value);
   else if (property === 'strokeColor' && 'strokeColor' in layer.element) {
     layer.element.strokeColor = String(value);
   } else if (property === 'strokeWidth' && 'strokeWidth' in layer.element) {
@@ -189,6 +203,7 @@ export function applyDesignTokenBinding(
     layer.element.borderRadius.bottomLeft = Math.max(0, Number(value));
   } else if (property === 'color' && layer.element.type === 'text') {
     layer.element.color = String(value);
+    if (typeof layer.element.fill === 'string') layer.element.fill = String(value);
   } else if (property === 'fontFamily' && layer.element.type === 'text') {
     layer.element.fontFamily = String(value);
   } else if (property === 'fontSize' && layer.element.type === 'text') {

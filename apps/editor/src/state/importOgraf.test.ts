@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
 import {
   createCustomActionDefinition,
+  createShaderPaint,
+  getElementShaderPaint,
   createFieldDefinition,
   createLayerKeyframe,
   createLayerOfKind,
@@ -12,6 +14,7 @@ import {
   setTilingPattern,
   setLayerLighting,
   createLayerLoopClip,
+  syncCompositionShaderParameterFields,
 } from '@ograf-editor/scene-model';
 import { assembleManifest, compileDescriptor, generateMainJs } from '@ograf-editor/codegen';
 import { OGRAF_MANIFEST_SCHEMA_URL, type OGrafManifest } from '@ograf-editor/ograf-types';
@@ -22,6 +25,81 @@ async function packageBytes(files: Record<string, string>): Promise<Uint8Array> 
   for (const [path, contents] of Object.entries(files)) zip.file(path, contents);
   return zip.generateAsync({ type: 'uint8array' });
 }
+
+it('imports editable text with independent fill and outline shader fields', async () => {
+  const project = createProject();
+  const composition = project.compositions[0]!;
+  const layer = createLayerOfKind('text');
+  if (layer.element.type !== 'text') throw new Error('Expected text');
+  layer.element.content = 'Editable OGraf Studio';
+  layer.element.fill = createShaderPaint();
+  layer.element.strokePaint = createShaderPaint();
+  layer.element.strokeWidth = 32;
+  layer.keyframes = [createLayerKeyframe(0, defaultTransformFor('text'))];
+  composition.layers = [layer];
+  const descriptor = compileDescriptor(composition);
+  const manifest = assembleManifest(project, composition, descriptor);
+  const imported = await importOgrafData(
+    'editable-title.ograf.zip',
+    await packageBytes({
+      [`${manifest.id}.ograf.json`]: JSON.stringify(manifest),
+      'main.js': generateMainJs(descriptor, ''),
+    }),
+  );
+  const restored = imported.project.compositions[0]!;
+  expect(restored.layers[0]!.element).toMatchObject({
+    type: 'text',
+    content: 'Editable OGraf Studio',
+    strokeWidth: 32,
+  });
+  expect(
+    restored.dataFields.filter((field) => field.generatedShaderParameter?.paintSlot === 'stroke'),
+  ).toHaveLength(3);
+  expect(restored.dataFields).toHaveLength(6);
+  const fillIds = restored.dataFields
+    .filter((field) => field.generatedShaderParameter?.paintSlot === 'fill')
+    .map((field) => field.id);
+  const text = restored.layers[0]!.element;
+  if (text.type !== 'text') throw new Error('Expected native text');
+  delete text.strokePaint;
+  syncCompositionShaderParameterFields(restored);
+  expect(restored.dataFields.map((field) => field.id)).toEqual(fillIds);
+  expect(getElementShaderPaint(text)).toBeDefined();
+});
+
+it('preserves generated pragma field ownership through compiled package import and source removal', async () => {
+  const project = createProject();
+  const composition = project.compositions[0]!;
+  const shader = createLayerOfKind('shader');
+  const shaderPaint = getElementShaderPaint(shader.element)!;
+  shaderPaint.fragmentSource = `#pragma ograf gain slider min(0.0) max(1.0) step(0.1)
+const float gain = 0.5;
+void mainImage(out vec4 c, in vec2 p) { c = vec4(vec3(gain), 1.0); }`;
+  shader.keyframes = [createLayerKeyframe(0, defaultTransformFor('shader'))];
+  composition.layers = [shader];
+  const descriptor = compileDescriptor(composition);
+  const manifest = assembleManifest(project, composition, descriptor);
+  const imported = await importOgrafData(
+    'pragma.ograf.zip',
+    await packageBytes({
+      [`${manifest.id}.ograf.json`]: JSON.stringify(manifest),
+      'main.js': generateMainJs(descriptor, ''),
+    }),
+  );
+  const restored = imported.project.compositions[0]!;
+  expect(restored.dataFields).toHaveLength(1);
+  expect(restored.dataFields[0]!.generatedShaderParameter).toMatchObject({
+    layerId: shader.id,
+    name: 'gain',
+  });
+  expect(restored.layers[0]!.bindings).toHaveLength(1);
+  const element = getElementShaderPaint(restored.layers[0]!.element)!;
+  if (element.type !== 'shader') throw new Error('Expected imported shader');
+  element.fragmentSource = element.fragmentSource.replace(/^#pragma[^\n]*\n/, '');
+  syncCompositionShaderParameterFields(restored);
+  expect(restored.dataFields).toHaveLength(0);
+  expect(restored.layers[0]!.bindings).toHaveLength(0);
+});
 
 it('round-trips a light controller even when no geometry instance is exported', async () => {
   const project = createProject(),
@@ -109,6 +187,41 @@ function editableFixture() {
 }
 
 describe('best-effort OGraf import', () => {
+  it('restores editable shader source and controls from a compiled package without source data', async () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('shader');
+    const paint = getElementShaderPaint(layer.element)!;
+    paint.fragmentSource = `// Preserve GLSL comments, braces { }, quotes " and newlines.
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 uv = fragCoord / iResolution.xy;
+  fragColor = vec4(uv, 0.5 + 0.5 * sin(iTime), 1.0);
+}`;
+    paint.speed = 0.75;
+    paint.resolutionScale = 0.5;
+    layer.keyframes = [createLayerKeyframe(0, defaultTransformFor('shader'))];
+    composition.layers = [layer];
+    const descriptor = compileDescriptor(composition);
+    const manifest = assembleManifest(project, composition, descriptor);
+    const imported = await importOgrafData(
+      'shader.ograf.zip',
+      await packageBytes({
+        [`${manifest.id}.ograf.json`]: JSON.stringify(manifest),
+        'main.js': generateMainJs(descriptor, ''),
+      }),
+    );
+
+    expect(imported.mode).toBe('compiled-descriptor');
+    expect(
+      imported.warnings.filter((warning) => /unsupported|shader|validation/i.test(warning)),
+    ).toEqual([]);
+    expect(imported.project.compositions[0]!.layers).toHaveLength(1);
+    expect(imported.project.compositions[0]!.layers[0]!.element).toEqual(layer.element);
+    expect(compileDescriptor(imported.project.compositions[0]!).layers[0]!.element).toEqual(
+      descriptor.layers[0]!.element,
+    );
+  });
+
   it('restores one shared editable pattern from linked compiled instances', async () => {
     const project = createProject(),
       composition = project.compositions[0]!;

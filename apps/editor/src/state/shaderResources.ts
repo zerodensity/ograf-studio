@@ -1,0 +1,218 @@
+import {
+  getElementShaderPaint,
+  getElementShaderPaints,
+  inspectShaderElement,
+  inspectShaderSource,
+  normalizeShaderParameterValue,
+  type ComponentDefinition,
+  type Composition,
+  type Layer,
+  type Project,
+  type ShaderPaint,
+  type ShaderPaintSlot,
+  type ShaderParameterValue,
+} from '@ograf-editor/scene-model';
+
+/** Persist only identity when opening a resource editor; resolve the current paint before writing. */
+export interface ShaderResourceTarget {
+  compositionId: string;
+  layerId: string;
+  slot: ShaderPaintSlot;
+  componentId?: string;
+}
+
+export type ShaderResourcePatch = Partial<Omit<ShaderPaint, 'type'>>;
+
+export interface ShaderResourceUsage extends ShaderResourceTarget {
+  key: string;
+  label: string;
+  usageLabel: string;
+  paint: ShaderPaint;
+  locked: boolean;
+  compositionName: string;
+  componentName?: string;
+}
+
+export function shaderResourceKey(target: ShaderResourceTarget): string {
+  return JSON.stringify([
+    target.compositionId,
+    target.componentId ?? null,
+    target.layerId,
+    target.slot,
+  ]);
+}
+
+/** Each usage is independent, even when two objects use identical GLSL or share a source layer ID. */
+export function collectShaderResources(project: Project): ShaderResourceUsage[] {
+  return project.compositions.flatMap((composition) => {
+    const collect = (layers: Layer[], component?: ComponentDefinition) =>
+      layers.flatMap((layer) =>
+        getElementShaderPaints(layer.element).map(({ slot, paint }) => {
+          const target: ShaderResourceTarget = {
+            compositionId: composition.id,
+            layerId: layer.id,
+            slot,
+            ...(component ? { componentId: component.id } : {}),
+          };
+          const usageLabel = `${layer.name} · ${slot === 'stroke' ? 'Outline' : 'Fill'}`;
+          return {
+            ...target,
+            key: shaderResourceKey(target),
+            label: (typeof paint.name === 'string' ? paint.name.trim() : '') || usageLabel,
+            usageLabel,
+            paint,
+            locked: layer.isLocked,
+            compositionName: composition.name,
+            ...(component ? { componentName: component.name } : {}),
+          };
+        }),
+      );
+    return [
+      ...collect(composition.layers),
+      ...composition.components.flatMap((component) => collect(component.layers, component)),
+    ];
+  });
+}
+
+/** Read-only lookup; callers decide whether viewing a locked resource is useful. */
+export function resolveShaderResource(
+  project: Project,
+  target: ShaderResourceTarget,
+): {
+  composition: Composition;
+  component?: ComponentDefinition;
+  layer: Layer;
+  paint: ShaderPaint;
+} {
+  if (target.slot !== 'fill' && target.slot !== 'stroke')
+    throw new Error('Unknown shader paint slot.');
+  const composition = project.compositions.find((item) => item.id === target.compositionId);
+  if (!composition) throw new Error('The shader resource composition no longer exists.');
+  const component =
+    target.componentId === undefined
+      ? undefined
+      : composition.components.find((item) => item.id === target.componentId);
+  if (target.componentId !== undefined && !component)
+    throw new Error('The saved shader component no longer exists.');
+  const layer = (component?.layers ?? composition.layers).find(
+    (item) => item.id === target.layerId,
+  );
+  if (!layer) throw new Error('The shader resource object no longer exists.');
+  const paint = getElementShaderPaint(layer.element, target.slot);
+  if (!paint) throw new Error('This object no longer uses a shader in the selected paint slot.');
+  return { composition, component, layer, paint };
+}
+
+/** Preserve compatible controls using the latest values, dropping removed or retyped symbols. */
+export function preserveShaderParameterValues(
+  previous: ShaderPaint,
+  nextSource: string,
+): Record<string, ShaderParameterValue> {
+  const next = inspectShaderSource(nextSource);
+  if (!next.valid) throw new Error(next.errors.join('\n'));
+  const before = new Map(
+    inspectShaderSource(previous.fragmentSource).parameters.map((definition) => [
+      definition.name,
+      definition,
+    ]),
+  );
+  const parameters: Record<string, ShaderParameterValue> = {};
+  for (const definition of next.parameters) {
+    const oldDefinition = before.get(definition.name);
+    if (
+      oldDefinition?.glslType !== definition.glslType ||
+      oldDefinition.control !== definition.control
+    )
+      continue;
+    const value = previous.parameters?.[definition.name];
+    if (value === undefined) continue;
+    try {
+      parameters[definition.name] = normalizeShaderParameterValue(definition, value);
+    } catch {
+      // A newly compatible source can repair a stale malformed value using its own default.
+    }
+  }
+  return parameters;
+}
+
+/** Merge a minimal edit into the latest paint; never replace unrelated values from a dialog snapshot. */
+export function shaderPaintWithPatch(
+  current: ShaderPaint,
+  patch: ShaderResourcePatch,
+): ShaderPaint {
+  if ('type' in patch) throw new Error('A shader resource edit cannot change its paint type.');
+  for (const key of Object.keys(patch)) {
+    if (!['name', 'fragmentSource', 'speed', 'resolutionScale', 'parameters'].includes(key))
+      throw new Error(`Unknown shader resource property: ${key}.`);
+  }
+  if (
+    patch.parameters !== undefined &&
+    (!patch.parameters || typeof patch.parameters !== 'object' || Array.isArray(patch.parameters))
+  )
+    throw new Error('Shader parameter edits must be an object keyed by exposed name.');
+  const source = patch.fragmentSource ?? current.fragmentSource;
+  const parameters =
+    source !== current.fragmentSource
+      ? preserveShaderParameterValues(current, source)
+      : Object.fromEntries(
+          Object.entries(current.parameters ?? {}).map(([name, value]) => [
+            name,
+            Array.isArray(value) ? [...value] : value,
+          ]),
+        );
+  for (const [name, value] of Object.entries(patch.parameters ?? {}))
+    parameters[name] = Array.isArray(value) ? [...value] : value;
+  const suppliedName = patch.name !== undefined ? patch.name : current.name;
+  if (suppliedName !== undefined && typeof suppliedName !== 'string')
+    throw new Error('Shader name must be a string.');
+  const name = suppliedName?.trim();
+  const next: ShaderPaint = {
+    type: 'shader',
+    ...(name ? { name } : {}),
+    fragmentSource: source,
+    speed: patch.speed ?? current.speed,
+    resolutionScale: patch.resolutionScale ?? current.resolutionScale,
+    parameters,
+  };
+  const inspection = inspectShaderElement(next);
+  if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
+  return next;
+}
+
+/** Build a save delta against the opening snapshot, so untouched current values are retained. */
+export function shaderResourcePatchBetween(
+  baseline: ShaderPaint,
+  draft: ShaderPaint,
+): ShaderResourcePatch {
+  const patch: ShaderResourcePatch = {};
+  for (const key of ['fragmentSource', 'speed', 'resolutionScale'] as const) {
+    if (draft[key] !== baseline[key]) Object.assign(patch, { [key]: draft[key] });
+  }
+  const draftName = draft.name?.trim() ?? '';
+  if (draftName !== (baseline.name?.trim() ?? '')) patch.name = draftName;
+
+  const inspection = inspectShaderSource(draft.fragmentSource);
+  if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
+  const preserved =
+    draft.fragmentSource === baseline.fragmentSource
+      ? baseline.parameters
+      : preserveShaderParameterValues(baseline, draft.fragmentSource);
+  const parameters: Record<string, ShaderParameterValue> = {};
+  for (const definition of inspection.parameters) {
+    const before = preserved?.[definition.name] ?? definition.defaultValue;
+    const after = draft.parameters?.[definition.name] ?? definition.defaultValue;
+    // A raw source draft may still carry its opening values before adaptation. Those values
+    // are not explicit edits, even if a declaration changed type or narrowed its range.
+    if (
+      draft.fragmentSource !== baseline.fragmentSource &&
+      draft.parameters?.[definition.name] !== undefined &&
+      JSON.stringify(draft.parameters[definition.name]) ===
+        JSON.stringify(baseline.parameters?.[definition.name])
+    )
+      continue;
+    if (JSON.stringify(before) !== JSON.stringify(after))
+      parameters[definition.name] = Array.isArray(after) ? [...after] : after;
+  }
+  if (Object.keys(parameters).length) patch.parameters = parameters;
+  return patch;
+}

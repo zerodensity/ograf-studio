@@ -5,6 +5,13 @@ export { GraphicElement } from './GraphicElement';
 export { buildRuntimeTimeline } from './buildRuntimeTimeline';
 export { applyCompiledMasks } from './maskRendering';
 export { renderPatternAtElapsed } from './patternRendering';
+export { shaderStrokePaddingForLayer } from './shaderPaintRendering';
+export {
+  createShaderRenderer,
+  shaderBackingSizeForLayer,
+  shaderTimeSeconds,
+  updateShaderParameters,
+} from './shaderRendering';
 export {
   applyAnimatedPaint,
   disposeElementContent,

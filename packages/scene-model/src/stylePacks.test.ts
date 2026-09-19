@@ -1,3 +1,4 @@
+import { isGradientPaint } from './paint';
 import { describe, expect, it } from 'vitest';
 import {
   createComposition,
@@ -95,9 +96,7 @@ describe('broadcast style packs', () => {
       expect(c.layers[0]!.mask).toEqual(original[0]!.mask);
       const fill = c.layers[0]!.element.type === 'rectangle' ? c.layers[0]!.element.fill : null;
       expect(
-        fill && typeof fill !== 'string'
-          ? fill.stops.map(({ color: _color, ...stop }) => stop)
-          : null,
+        isGradientPaint(fill) ? fill.stops.map(({ color: _color, ...stop }) => stop) : null,
       ).toEqual([
         { offset: 0, opacity: 0 },
         { offset: 0.5, opacity: 0.8 },

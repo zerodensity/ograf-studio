@@ -1,45 +1,143 @@
 import { PropertyRow } from '../components/PropertyRow';
-import { createDefaultGradient, type GradientPaint, type Paint } from '@ograf-editor/scene-model';
+import { useState } from 'react';
+import {
+  createDefaultGradient,
+  createShaderPaint,
+  isGradientPaint,
+  isShaderPaint,
+  type GradientPaint,
+  type Paint,
+} from '@ograf-editor/scene-model';
+import { ShaderSourceEditor } from './ShaderSourceEditor';
+import { shaderPaintWithPatch } from '../state/shaderResources';
+import { SHADER_RESOURCE_MIME, shaderPaintFromResourceDrag } from '../state/shaderDrag';
+import { useProjectStore } from '../state/projectStore';
+import './PaintEditor.css';
 
 interface PaintEditorProps {
-  value: Paint;
-  onChange: (value: Paint) => void;
+  value: Paint | undefined;
+  onChange: (value: Paint | undefined) => void;
+  /** Media keeps its original pixels until a shader fill is chosen. */
+  media?: boolean;
+  allowShader?: boolean;
+  allowGradient?: boolean;
+  label?: string;
+  disabled?: boolean;
 }
 
 const asColor = (value: string) => (/^#[0-9a-f]{6}$/i.test(value) ? value : '#000000');
 
-export function PaintEditor({ value, onChange }: PaintEditorProps) {
-  const kind = typeof value === 'string' ? 'solid' : value.type;
-  const gradient = typeof value === 'string' ? null : value;
+export function PaintEditor({
+  value,
+  onChange,
+  media = false,
+  allowShader = true,
+  allowGradient = true,
+  label = 'Fill',
+  disabled = false,
+}: PaintEditorProps) {
+  const [dragOver, setDragOver] = useState(false);
+  const [dropError, setDropError] = useState<string | null>(null);
+  const kind = value === undefined ? 'original' : typeof value === 'string' ? 'solid' : value.type;
+  const gradient = isGradientPaint(value) ? value : null;
   const updateGradient = (patch: Partial<GradientPaint>) => {
     if (gradient) onChange({ ...gradient, ...patch });
   };
 
   return (
     <div className="paint-editor">
-      <PropertyRow
-        help={
-          'Choose a solid, linear, radial or conic fill. Gradient fills expose colors and stops so light and shading can vary across the shape.'
-        }
-        className="inspector-row"
-      >
-        <span>Fill</span>
-        <select
-          value={kind}
-          onChange={(event) => {
-            const next = event.target.value;
-            onChange(
-              next === 'solid' ? '#3b3f4a' : createDefaultGradient(next as GradientPaint['type']),
+      <div
+        className={`paint-shader-drop${dragOver ? ' is-drag-over' : ''}`}
+        data-shader-drop-slot={allowShader ? label.toLowerCase() : undefined}
+        onDragEnter={(event) => {
+          if (!allowShader || !event.dataTransfer.types.includes(SHADER_RESOURCE_MIME)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = disabled ? 'none' : 'copy';
+          setDragOver(!disabled);
+        }}
+        onDragOver={(event) => {
+          if (!allowShader || !event.dataTransfer.types.includes(SHADER_RESOURCE_MIME)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = disabled ? 'none' : 'copy';
+          setDragOver(!disabled);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false);
+        }}
+        onDrop={(event) => {
+          if (!allowShader || !event.dataTransfer.types.includes(SHADER_RESOURCE_MIME)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setDragOver(false);
+          if (disabled) return;
+          try {
+            const paint = shaderPaintFromResourceDrag(
+              useProjectStore.getState().project,
+              event.dataTransfer.getData(SHADER_RESOURCE_MIME),
             );
-          }}
+            onChange(paint);
+            setDropError(null);
+          } catch (cause) {
+            setDropError(cause instanceof Error ? cause.message : String(cause));
+          }
+        }}
+      >
+        <PropertyRow
+          help={
+            label === 'Outline'
+              ? 'Choose the text outline paint. Its shader follows editable characters and uses the Stroke Width below. Drop a shader from Resources onto this row to replace it.'
+              : 'Choose the object fill. Drop a shader from Resources onto this row to apply it. Shader controls are declared with #pragma ograf.'
+          }
+          className="inspector-row"
         >
-          <option value="solid">Solid</option>
-          <option value="linear">Linear gradient</option>
-          <option value="radial">Radial gradient</option>
-          <option value="conic">Conic gradient</option>
-        </select>
-      </PropertyRow>
-      {typeof value === 'string' ? (
+          <span>{label}</span>
+          <select
+            value={kind}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onChange(
+                next === 'original'
+                  ? undefined
+                  : next === 'shader'
+                    ? createShaderPaint()
+                    : next === 'solid'
+                      ? '#3b3f4a'
+                      : createDefaultGradient(next as GradientPaint['type']),
+              );
+            }}
+          >
+            {media && <option value="original">Original pixels</option>}
+            {!media && (
+              <>
+                <option value="solid">Solid</option>
+                {allowGradient && (
+                  <>
+                    <option value="linear">Linear gradient</option>
+                    <option value="radial">Radial gradient</option>
+                    <option value="conic">Conic gradient</option>
+                  </>
+                )}
+              </>
+            )}
+            {allowShader && <option value="shader">Shader</option>}
+          </select>
+        </PropertyRow>
+      </div>
+      {dropError && (
+        <p className="shader-source-error" role="alert">
+          {dropError}
+        </p>
+      )}
+      {isShaderPaint(value) ? (
+        <ShaderSourceEditor
+          element={value}
+          labelPrefix={label === 'Fill' ? 'Shader' : `${label} shader`}
+          onChange={(patch) => onChange(shaderPaintWithPatch(value, patch))}
+        />
+      ) : typeof value === 'string' ? (
         <PropertyRow
           help={
             'Solid fill color inside the shape. For multiple colors or moving highlights, switch the fill type to a gradient.'
@@ -53,7 +151,7 @@ export function PaintEditor({ value, onChange }: PaintEditorProps) {
             onChange={(event) => onChange(event.target.value)}
           />
         </PropertyRow>
-      ) : (
+      ) : isGradientPaint(value) ? (
         <>
           {value.type !== 'radial' && (
             <PropertyRow
@@ -152,7 +250,7 @@ export function PaintEditor({ value, onChange }: PaintEditorProps) {
             </button>
           </div>
         </>
-      )}
+      ) : null}
     </div>
   );
 }

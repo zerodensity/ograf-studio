@@ -1,3 +1,4 @@
+import { getElementShaderPaint } from '@ograf-editor/scene-model';
 import { describe, expect, it } from 'vitest';
 import { assembleManifest, compileDescriptor } from '@ograf-editor/codegen';
 import {
@@ -10,11 +11,59 @@ import {
   createProject,
   createTransition,
   defaultTransformForRole,
+  syncShaderParameterFields,
 } from '@ograf-editor/scene-model';
 import { validateManifest } from './validateManifest';
 import { validateProject } from './validateProject';
 
 describe('canonical OGraf validation', () => {
+  it('accepts typed vector object bindings and rejects mismatched shader parameter field types', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('shader');
+    const shader = getElementShaderPaint(layer.element)!;
+    shader.fragmentSource = `#pragma ograf offset vector2 min(-1) max(1)
+const vec2 offset = vec2(0.0);
+void mainImage(out vec4 c, in vec2 p) { c = vec4(offset, 0.0, 1.0); }`;
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(
+        computeKeyframeFrames(composition)[index]!.frame,
+        defaultTransformForRole('shader', keyframe.role),
+      ),
+    );
+    composition.layers.push(layer);
+    syncShaderParameterFields(composition, layer);
+    expect(validateProject(project).errors).toEqual([]);
+    const wrong = createFieldDefinition('number', { key: 'wrong', defaultValue: 0.5 });
+    composition.dataFields.push(wrong);
+    layer.bindings = [{ fieldId: wrong.id, targetProperty: 'fill.parameters.offset' }];
+    expect(validateProject(project).errors.join(' ')).toContain('incompatible field type');
+    layer.bindings = [{ fieldId: wrong.id, targetProperty: 'fill.parameters.missing' }];
+    expect(validateProject(project).errors.join(' ')).toContain('unmarked shader parameter');
+  });
+
+  it('rejects unsupported shader inputs and parameter ranges in loaded projects', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('shader');
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(
+        computeKeyframeFrames(composition)[index]!.frame,
+        defaultTransformForRole('shader', keyframe.role),
+      ),
+    );
+    composition.layers.push(layer);
+    expect(validateProject(project).valid).toBe(true);
+    const shader = getElementShaderPaint(layer.element)!;
+    shader.fragmentSource += '\nfloat unsupported = iMouse.x;';
+    shader.speed = -1;
+    shader.resolutionScale = 2;
+    const errors = validateProject(project).errors.join(' ');
+    expect(errors).toContain('Unsupported shader inputs: iMouse');
+    expect(errors).toContain('Shader speed');
+    expect(errors).toContain('Shader resolutionScale');
+  });
+
   it('accepts an assembled project and rejects the legacy thumbnail shape', () => {
     const project = createProject();
     const composition = project.compositions[0]!;

@@ -1,6 +1,6 @@
 {
   "contractVersion": 1,
-  "server": { "name": "ograf-editor", "version": "0.21.0" },
+  "server": { "name": "ograf-editor", "version": "0.22.0-rc.1" },
   "tools": [
     {
       "name": "ograf_get_capabilities",
@@ -138,7 +138,7 @@
     {
       "name": "ograf_query_scene",
       "title": "Query OGraf scene by semantic intent",
-      "description": "Find layer IDs by semantics, name, type, bindings, visibility or motion; includes frame geometry, masks and authoring links.",
+      "description": "Find layers by semantics, name, type, bindings, visibility or motion, with geometry, masks and authoring links.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1060,7 +1060,8 @@
                         "path",
                         "pattern",
                         "image-sequence",
-                        "lottie"
+                        "lottie",
+                        "shader"
                       ]
                     },
                     "name": { "type": "string" },
