@@ -116,6 +116,32 @@ A small compatible animation is included at `examples/lottie/pulse.json`. Marker
 playback, dynamic Lottie text/data binding and renderer selection are not supported. Test your
 exported graphic in the intended playout environment.
 
+### Procedural patterns
+
+Choose **Resources → Patterns → Add pattern**, or the pattern tool above the canvas. Pick a
+visual preset—Dots, Stripes, Chevrons, Diamonds, Checkerboard, or Monogram—and choose **Create
+pattern**. Leave **Add to canvas** enabled to place it immediately, or disable it to keep a
+reusable resource for later.
+
+To start from your artwork, select rectangles, ellipses, or paths before opening the picker and
+choose **Use selected shapes**. Their vector silhouettes become the repeating sequence; the
+original objects remain unchanged. In the pattern editor, symbol previews let you replace a
+shape, use a selected vector, or import an SVG silhouette. Text, images, and artwork with unsupported
+SVG features need conversion to plain vector paths first. Source colors belong to the pattern
+layer's fill, so imported symbols supply geometry rather than separate paints.
+
+Adjust size, rows, spacing, row offset, and variation while watching the preview. **Shuffle**
+changes the arrangement's seed. Enable **Animate**, choose a direction and loop duration in
+seconds, and use **Play preview** to inspect motion without moving the main timeline. The
+exported pattern moves while the graphic is on-air and keeps its seamless loop. Detailed SVG
+source, per-row overrides, and shared lighting remain under **Advanced**.
+
+Resources shows each pattern's preview and usage count. **Add to canvas** creates another linked
+layer; **Duplicate** creates a separate resource. Editing shared symbols, layout, or motion updates
+every linked instance. Each layer keeps its own fill, outline, transform, and effects. Choose
+**Make independent** in a pattern layer's Properties to give it its own editable copy. Existing
+patterns retain their original settings until you edit them or choose a preset.
+
 ### Shader fills
 
 Choose **Shader** in an object's **Fill** selector to render a self-contained GLSL `mainImage`

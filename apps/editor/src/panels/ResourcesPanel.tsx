@@ -9,7 +9,7 @@ import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { ResourceTreeBranch, ResourceTreeItem } from './ResourceTreeComponents';
 import { Panel } from './Panel';
-import { TilingPatternEditor } from './TilingPatternEditor';
+import { PatternResources } from './PatternResources';
 import { ShaderResources } from './ShaderResources';
 import { partitionResourceAssets } from './resourceTree';
 import './ResourcesPanel.css';
@@ -24,9 +24,6 @@ const formatBytes = (bytes = 0) => {
 export function ResourcesPanel() {
   const imagePlacement = useImagePlacement();
   const composition = useActiveComposition();
-  const addPattern = useProjectStore((s) => s.addLayer);
-  const addPatternInstance = useProjectStore((s) => s.addPatternInstance);
-  const removePattern = useProjectStore((s) => s.removeTilingPattern);
   const importAsset = useProjectStore((s) => s.importAsset);
   const importSvgBundle = useProjectStore((s) => s.importSvgBundle);
   const updateAsset = useProjectStore((s) => s.updateAsset);
@@ -119,37 +116,7 @@ export function ResourcesPanel() {
       <div className="resources-panel">
         <div className="resources-tree" role="tree" aria-label="Project resources">
           <ShaderResources />
-          <ResourceTreeBranch label="Patterns" count={composition.patterns.length}>
-            <button
-              onClick={() => {
-                const id = addPattern('pattern');
-                selectMany([id]);
-              }}
-            >
-              Add procedural pattern
-            </button>
-            {composition.patterns.map((pattern) => (
-              <ResourceTreeItem key={pattern.id} label={pattern.name} meta={`${pattern.rows} rows`}>
-                <div className="resources-tree-toolbar">
-                  <button onClick={() => selectMany([addPatternInstance(pattern.id)])}>
-                    Add linked layer
-                  </button>
-                  <button
-                    disabled={[
-                      ...composition.layers,
-                      ...composition.components.flatMap((c) => c.layers),
-                    ].some(
-                      (l) => l.element.type === 'pattern' && l.element.patternId === pattern.id,
-                    )}
-                    onClick={() => removePattern(pattern.id)}
-                  >
-                    Remove pattern
-                  </button>
-                </div>
-                <TilingPatternEditor pattern={pattern} frameRate={composition.frameRate} />
-              </ResourceTreeItem>
-            ))}
-          </ResourceTreeBranch>
+          <PatternResources />
 
           <ResourceTreeBranch label="Components" count={composition.components.length}>
             <div className="resources-tree-toolbar">

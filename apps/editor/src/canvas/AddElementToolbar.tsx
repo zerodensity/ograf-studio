@@ -7,6 +7,7 @@ import { useTimelineStore } from '../state/timelineStore';
 import { isPersistentGroupSelection } from './groupSelection';
 import { arrangeSelectedLayers, type LayerArrangeAction } from '../state/layerZOrder';
 import './AddElementToolbar.css';
+import { usePatternDialogStore } from '../state/patternDialogStore';
 
 const KINDS: { kind: NewLayerKind; label: string }[] = [
   { kind: 'rectangle', label: 'Rectangle' },
@@ -200,7 +201,11 @@ export function AddElementToolbar() {
             aria-label={`Add ${label}`}
             title={`Add ${label}`}
             data-tooltip={label}
-            onClick={() => (kind === 'image' ? setImagePickerOpen(true) : select(addLayer(kind)))}
+            onClick={() => {
+              if (kind === 'image') setImagePickerOpen(true);
+              else if (kind === 'pattern') usePatternDialogStore.getState().open();
+              else select(addLayer(kind));
+            }}
           >
             <ElementIcon kind={kind} />
           </button>

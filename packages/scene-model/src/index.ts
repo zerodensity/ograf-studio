@@ -26,6 +26,7 @@ export * from './masking';
 export * from './svgPaint';
 export * from './svgMask';
 export * from './tiling';
+export * from './patternPresets';
 export * from './tilingSvg';
 export * from './migrations';
 export * from './semanticRecipes';

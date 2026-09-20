@@ -7,6 +7,7 @@ import { useAgentReviewStore } from '../state/agentReviewStore';
 import { DockWorkspace, type DockPaneCommand } from './DockWorkspace';
 import type { DockPaneId } from './dockModel';
 import { NumericScrubController } from '../components/NumericScrubController';
+import { PatternDialogHost } from '../panels/PatternResources';
 import './AppShell.css';
 
 export function AppShell() {
@@ -61,6 +62,7 @@ export function AppShell() {
           }
         />
         <NumericScrubController />
+        <PatternDialogHost />
       </div>
     </DetachedWindowsProvider>
   );

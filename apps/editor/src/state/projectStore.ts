@@ -24,6 +24,7 @@ import {
   stylePackColorUsesToken,
   applyStylePack,
   setTilingPattern,
+  getPatternPresetPatch,
   setLayerLighting,
   layerLightingErrors,
   type PatternLightingLink,
@@ -213,6 +214,12 @@ interface ProjectActions {
   setTilingPattern: (patch: TilingPatternPatch, patternId?: string) => string;
   removeTilingPattern: (patternId: string) => void;
   addPatternInstance: (patternId: string) => string;
+  createPatternResource: (
+    patch: TilingPatternPatch,
+    addToCanvas?: boolean,
+  ) => { patternId: string; layerId?: string };
+  duplicatePatternResource: (patternId: string) => string;
+  makePatternIndependent: (layerId: string) => string;
   addLowerThird: () => MaterializedLowerThird;
   addBug: () => MaterializedBroadcastRecipe;
   addTicker: () => MaterializedBroadcastRecipe;
@@ -1042,7 +1049,10 @@ export const useProjectStore = create<ProjectStore>()(
           let id = '';
           set((state) => {
             const c = getActiveComposition(state.project, state.activeCompositionId);
-            const p = setTilingPattern(c, {});
+            const p = setTilingPattern(
+              c,
+              getPatternPresetPatch('dots', c.width, c.height, c.frameRate),
+            );
             id = addTilingPatternLayer(c, p.id);
           });
           return id;
@@ -1105,6 +1115,57 @@ export const useProjectStore = create<ProjectStore>()(
             getActiveComposition(state.project, state.activeCompositionId),
             patternId,
           );
+        });
+        return id;
+      },
+      createPatternResource: (patch, addToCanvas = true) => {
+        let result!: { patternId: string; layerId?: string };
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const baseName = patch.name?.trim() || 'Pattern';
+          let name = baseName;
+          let suffix = 2;
+          while (composition.patterns.some((pattern) => pattern.name === name))
+            name = `${baseName} ${suffix++}`;
+          const pattern = setTilingPattern(composition, { ...patch, name });
+          result = { patternId: pattern.id };
+          if (addToCanvas) result.layerId = addTilingPatternLayer(composition, pattern.id);
+        });
+        return result;
+      },
+      duplicatePatternResource: (patternId) => {
+        const state = get();
+        const source = getActiveComposition(state.project, state.activeCompositionId).patterns.find(
+          (pattern) => pattern.id === patternId,
+        );
+        if (!source) throw new Error('This pattern no longer exists.');
+        const { id: _id, ...copy } = structuredClone(source);
+        return get().createPatternResource({ ...copy, name: `${source.name} copy` }, false)
+          .patternId;
+      },
+      makePatternIndependent: (layerId) => {
+        const state = get();
+        const composition = getActiveComposition(state.project, state.activeCompositionId);
+        const layer = composition.layers.find((candidate) => candidate.id === layerId);
+        if (!layer || layer.element.type !== 'pattern') throw new Error('Select a pattern layer.');
+        if (layer.isLocked) throw new Error('Unlock this layer before making it independent.');
+        const sourcePatternId = layer.element.patternId;
+        const source = composition.patterns.find((pattern) => pattern.id === sourcePatternId);
+        if (!source) throw new Error('This pattern no longer exists.');
+        const { id: _id, ...copy } = structuredClone(source);
+        let id = '';
+        set((draft) => {
+          const current = getActiveComposition(draft.project, draft.activeCompositionId);
+          const target = current.layers.find((candidate) => candidate.id === layerId)!;
+          if (target.element.type !== 'pattern') return;
+          const baseName = `${source.name} copy`;
+          let name = baseName;
+          let suffix = 2;
+          while (current.patterns.some((pattern) => pattern.name === name))
+            name = `${baseName} ${suffix++}`;
+          id = setTilingPattern(current, { ...copy, name }).id;
+          target.element.patternId = id;
+          if (target.lighting?.patternId === source.id) target.lighting.patternId = id;
         });
         return id;
       },

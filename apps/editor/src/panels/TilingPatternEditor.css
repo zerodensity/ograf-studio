@@ -1,0 +1,244 @@
+.tiling-pattern-editor {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  color: var(--text);
+  container-type: inline-size;
+}
+.pattern-editor-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.pattern-editor-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.pattern-editor-section h3,
+.pattern-editor-section h4 {
+  margin: 0;
+  color: var(--text-heading);
+  font-size: 12px;
+  font-weight: 600;
+}
+.pattern-control {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  min-width: 0;
+}
+.pattern-control > input,
+.pattern-control > select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.pattern-controls-grid {
+  display: grid;
+  gap: 9px;
+}
+.pattern-control-range > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pattern-control-range input {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--accent-focus);
+}
+.pattern-control-range output {
+  width: 34px;
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pattern-variation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.pattern-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.pattern-toggle input {
+  accent-color: var(--accent-focus);
+}
+.pattern-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.pattern-preset-picker > summary {
+  cursor: pointer;
+  color: var(--text-heading);
+  font-size: 12px;
+}
+.pattern-preset-picker[open] > :not(summary) {
+  margin-top: 10px;
+}
+.tiling-pattern-editor .pattern-preset {
+  display: grid;
+  gap: 5px;
+  padding: 5px;
+  min-width: 0;
+  font-size: 11px;
+  text-align: center;
+}
+.pattern-preset .pattern-preview {
+  pointer-events: none;
+  border: 0;
+  width: 100%;
+}
+.pattern-preset[aria-pressed='true'] {
+  outline: 1px solid var(--accent-focus);
+  background: var(--bg-hover);
+}
+.pattern-symbols {
+  display: grid;
+  gap: 8px;
+}
+.pattern-symbol-card {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.pattern-symbol-preview {
+  display: block;
+  width: 44px;
+  height: 44px;
+  padding: 5px;
+  box-sizing: border-box;
+  background: #141a27;
+  border-radius: 3px;
+  color: #a6bbff;
+  overflow: visible;
+}
+.pattern-symbol-tools {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.pattern-symbol-tools > strong {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.pattern-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pattern-button-row > button {
+  flex: 1;
+}
+.pattern-sequence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+.pattern-sequence-entry {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font-size: 10px;
+}
+.pattern-sequence-entry > div {
+  display: flex;
+  gap: 2px;
+}
+.tiling-pattern-editor .pattern-sequence-entry button {
+  min-height: 23px;
+  padding: 0 5px;
+}
+.pattern-sequence-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  font-size: 11px;
+}
+.pattern-sequence-add button {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.pattern-sequence-add .pattern-symbol-preview {
+  width: 23px;
+  height: 23px;
+  padding: 2px;
+}
+.pattern-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  font-size: 11px;
+}
+.pattern-advanced > summary {
+  cursor: pointer;
+  color: var(--text-heading);
+  padding: 4px 0;
+}
+.pattern-advanced[open] > .pattern-editor-hint {
+  margin: 8px 0;
+}
+.pattern-editor-error {
+  padding: 8px;
+  margin: 0;
+  color: #ffb4ac;
+  background: #381f25;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+}
+.tiling-pattern-editor button {
+  min-height: 28px;
+  padding: 4px 8px;
+  background: var(--bg-panel-raised);
+  color: var(--text-heading);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.tiling-pattern-editor :is(input:not([type='checkbox']):not([type='range']), select, textarea) {
+  min-height: 28px;
+  padding: 4px 7px;
+  background: var(--bg-input, var(--bg-canvas));
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.tiling-pattern-editor button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent-focus);
+}
+.tiling-pattern-editor :is(button, input, select, summary):focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 1px;
+}
+.tiling-pattern-editor :disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+@container (min-width: 600px) {
+  .pattern-controls-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

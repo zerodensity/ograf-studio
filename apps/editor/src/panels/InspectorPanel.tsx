@@ -8,6 +8,7 @@ import { getEffectStack, EFFECT_CATALOG, effectProperty } from '@ograf-editor/sc
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { LayerMaskEditor } from './LayerMaskEditor';
 import { TilingPatternEditor } from './TilingPatternEditor';
+import { PatternInstanceActions } from './PatternResources';
 import { usePathEditStore } from '../state/pathEditStore';
 import { pathConversionError } from '@ograf-editor/scene-model';
 import {
@@ -1026,6 +1027,11 @@ export function InspectorPanel() {
         )}
         {layer.element.type === 'pattern' && (
           <>
+            <PatternInstanceActions
+              layerId={layer.id}
+              patternId={layer.element.patternId}
+              locked={layer.isLocked}
+            />
             <PropertyRow
               help={
                 'Shared procedural pattern used by this layer. Editing that pattern updates all linked fills, outlines and masks.'
