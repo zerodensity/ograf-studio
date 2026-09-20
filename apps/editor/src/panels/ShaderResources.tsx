@@ -249,12 +249,11 @@ export function ShaderResources() {
         <summary>
           <span className="resources-tree-label">Shaders</span>
           <span className="resources-tree-count">{resources.length}</span>
+        </summary>
+        <div className="resources-tree-group" role="group">
           <button
             type="button"
-            className="resources-new-shader"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
+            onClick={() => {
               requestVersion.current += 1;
               pendingFile.current = null;
               setError(null);
@@ -268,8 +267,6 @@ export function ShaderResources() {
           >
             New Shader
           </button>
-        </summary>
-        <div className="resources-tree-group" role="group">
           {open &&
             (resources.length === 0 ? (
               <p className="panel-placeholder">
