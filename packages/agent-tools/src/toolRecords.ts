@@ -35,6 +35,8 @@ import {
   effectParams,
   patternRows,
   patternRowOffset,
+  PATTERN_PRESETS,
+  getPatternPresetPatch,
   BLEND_MODES,
   buildSvgBundle,
   computeKeyframeFrames,
@@ -123,6 +125,8 @@ const SHADER_PAINT_CAPABILITIES = {
     read: 'ograf_get_project include:["shaders"]',
     semantics:
       'Saved unused shaders are authoring resources, with no layer or OGraf data fields. Applying a library shader copies its paint independently into an object.',
+    authoring:
+      'Read project.shaders, then copy resource.paint into update_element.patch.fill or text strokePaint. New Shader, rename, Load GLSL, Save shader and library removal are editor UI actions; no dedicated shader-library mutation operation is exposed.',
   },
   slots: {
     fill: 'All listed elements',
@@ -140,6 +144,10 @@ const SHADER_PAINT_CAPABILITIES = {
   ],
   shape:
     'Shader RGBA is multiplied by the object shape or source alpha; original media colors are replaced. Text outlines can use an independent strokePaint shader clipped by native glyph stroke alpha. User source receives no source texture channel.',
+  editor:
+    'Resources > Shaders provides saved shaders and object usages with previews, Edit/Load/remove and drag to Fill or text Outline. Shader source edits use Save shader; copying a resource creates an independent paint. Auto-keyframe and Timeline + Property expose declared channels; local loops have their own preview.',
+  animation:
+    'Use set_property_track for lifecycle keys, or set_layer_loop plus set_loop_property_track for ambient motion. Inspect shaderAnimationProperties for exact paths and limits. Float channels interpolate; int/bool hold (bool keys are 0/1), vec2 uses .x/.y, colors .r/.g/.b/.a. Active keyed channels override data only for those channels; loop-only channels return to data when inactive. iTime continues independently. Keep loop endpoints equal and exposed symbol names stable.',
   fragmentSource: {
     type: 'string',
     maximumBytes: MAX_SHADER_SOURCE_BYTES,
@@ -187,6 +195,8 @@ const SHADER_PAINT_CAPABILITIES = {
 
 const CAPABILITY_SECTIONS = [
   'elements',
+  'shaders',
+  'tiling',
   'easing',
   'semantics',
   'designSystem',
@@ -198,6 +208,8 @@ const CAPABILITY_SECTIONS = [
 type CapabilitySection = (typeof CAPABILITY_SECTIONS)[number];
 
 const CAPABILITY_SECTION_KEYS: Record<CapabilitySection, readonly string[]> = {
+  shaders: ['paintSchemas', 'animatablePropertyPatterns'],
+  tiling: ['tiling'],
   elements: [
     'elementTypes',
     'elementSchemas',
@@ -1598,7 +1610,7 @@ export function createOGrafToolRecords(
     {
       title: 'Get OGraf authoring capabilities',
       description:
-        'Discover element/easing/semantic/design/loop/binding contracts by section. Include editor before browser work: connected, responsive and certificationReady are distinct.',
+        'Discover contracts by section, including shaders/tiling. Check editor readiness before browser tools.',
       inputSchema: {
         sections: z.array(z.enum(CAPABILITY_SECTIONS)).min(1).optional(),
       },
@@ -2122,7 +2134,23 @@ export function createOGrafToolRecords(
               'Existing infinite lifecycle loop curves are sampled over the shared light cycle without retiming keys. Static light layers are also supported. Intensity multiplies sampled layer opacity; glow multiplies glow-role opacity, softness scales their existing blur/shadow/glow radius. Colors and pattern row clocks remain independent. Disable bypasses the controller. Unlink before removing its pattern.',
           },
           creation:
-            'set_tiling_pattern with patch:{} creates an editable O/D pattern and a linked layer by default. Set createLayer:false for a definition only. Returns pattern and layer IDs.',
+            'Copy a presets.entries[].patch into set_tiling_pattern.patch and adapt width/height/cycleFrames to the target composition. Set createLayer:false for a resource only. Returns pattern/layer IDs. There is no presetId operation argument. An empty patch still creates the legacy O/D motif; use an explicit preset for the new visual workflow.',
+          presets: {
+            referenceComposition: { width: 1920, height: 1080, frameRate: 25 },
+            defaultId: 'dots',
+            motion:
+              'Presets start static. Use cyclesPerLoop:1 (or another whole number), cycleFrames:round(seconds*frameRate), and direction:left|right|alternate to animate. Clear per-row cycles overrides when toggling all rows.',
+            entries: PATTERN_PRESETS.map((preset) => ({
+              ...preset,
+              patch: getPatternPresetPatch(preset.id, 1920, 1080, 25),
+            })),
+          },
+          editor:
+            'Resources > Patterns > Add pattern opens visual presets or Use selected shapes (rectangle/ellipse/path silhouettes). Edit has a local Play/Pause preview, layout, motion in seconds, shape replacement, SVG import and sequence ordering; precision source/row/lighting controls are under Advanced. Resources shows usage, Duplicate and Add to canvas; Properties > Make independent copies the shared resource for one layer.',
+          sourceImport:
+            'MCP accepts explicit symbols/sequence in set_tiling_pattern.patch, not SVG filenames, arbitrary selected-layer groups, or an importPatternSvg operation. The editor SVG picker imports filled vector silhouettes with supported affine transforms; strokes/text need conversion to outlines. Clips, masks, images, external content and ambiguous overlapping separate shapes are rejected. Imported colors are replaced by the layer paint.',
+          duplication:
+            'Read the definition, copy its authored fields without id into set_tiling_pattern.patch with a new name and createLayer:false. Use the returned patternId in update_element.patch.patternId for the chosen layer, preserving its other properties; leave other references unchanged. Inspect and deliberately preserve or relink any separate layer.lighting controller.',
           editing:
             'Pass patternId or exact patternName to update shared controls; omitted fields stay unchanged. Sources are named vector paths, sequence entries reference symbolKey and scale the shared gap. Seeded spacing repeats identically in every tile.',
           motion:
@@ -2150,7 +2178,7 @@ export function createOGrafToolRecords(
           layout:
             'fitRows:true derives rowHeight from height, rowGap and offsetY. fitRows:false uses explicit rowHeight. Shrinking rows drops inactive overrides unless rowOverrides is explicitly supplied. Clear overrides to restore shared direction/speed/phase defaults.',
           paint:
-            'Pattern layers accept solid/linear/radial/conic fill, fill bindings and stop tracks, independent outlines and effects. Each tile repeats its paint for seamless wrapping. Do not author element.definition; compilation resolves it from composition.patterns.',
+            'Pattern layers accept solid/linear/radial/conic or shader fill, color outlines and effects. Gradient paint repeats with each motif; a shader fills the pattern layer through the moving geometry alpha mask. Shader outlines are text-only. Do not author element.definition; compilation resolves it from composition.patterns.',
           deletion:
             'Remove or relink pattern layers and component references before removing a definition.',
         },
@@ -3683,7 +3711,7 @@ export function createOGrafToolRecords(
     {
       title: 'Apply atomic OGraf authoring operations',
       description:
-        'Apply a revision-checked atomic batch across scene/lifecycle tracks and loops, masks, gradients, effects, shared pattern geometry/lighting, Brand Kits, components, collections, assets and layout. Discover capabilities for domain contracts. Single-layer operations take layerId or exact layerName; creation returns stable IDs. preview renders, propose awaits editor acceptance, dry-run does not commit. Transform/effect updates default to all authored lifecycle frames; scope:frame requires frame. Independent keys are never implicitly retimed. All warnings are returned.',
+        'Apply an atomic revision-checked batch: layers, tracks/loops, shader paints, patterns/lighting, masks, effects, Brand Kits, components, collections, assets and layout. Discover capabilities first. Select layers by layerId or exact layerName; creation returns stable IDs. preview renders; propose awaits acceptance; dry-run validates only. Transform/effect updates default to authored lifecycle frames; scope:frame requires frame. Keys are not implicitly retimed. Returns all warnings.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),

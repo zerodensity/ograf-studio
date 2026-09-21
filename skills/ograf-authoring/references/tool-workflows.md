@@ -6,7 +6,7 @@ Canvas artwork has no binding badges. Inspect scene bindings or use Properties â
 the absence of an on-canvas marker does not mean a layer is unbound.
 
 - `ograf_get_capabilities`: request only the relevant `sections` from `elements`, `easing`,
-  `semantics`, `designSystem`, `loops`, `bindings`, and `editor`. Include `editor` for the bridge
+  `shaders`, `tiling`, `semantics`, `designSystem`, `loops`, `bindings`, and `editor`. Include `editor` for the bridge
   connection/responsiveness/latency, certification readiness, browser dependency map, and safety
   policy. Omit `sections` only for the complete backward-compatible payload. Do not guess domains
   that were not requested.
@@ -306,6 +306,13 @@ bindings atomically and reports them in `summary.clearedBindings`.
 - A dry run does not increment the revision or change the editor.
 - After any other human or agent edit, assume the revision changed and re-read.
 - After a conflict, call `ograf_get_changes` for a compact history before consciously rebasing.
+
+## Shaders and visual patterns
+
+Use the compact `shaders`/`tiling` capability sections before shader paint or pattern work.
+[Shader and pattern workflows](./shaders-and-patterns.md) documents complete paint patches,
+pragma-driven fields, independent parameter tracks, preset patches, and UI-only import/library
+conveniences. Pattern presets are ordinary `set_tiling_pattern.patch` data.
 
 ## Session reset
 

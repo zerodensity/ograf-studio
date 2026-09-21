@@ -5,7 +5,7 @@
     {
       "name": "ograf_get_capabilities",
       "title": "Get OGraf authoring capabilities",
-      "description": "Discover element/easing/semantic/design/loop/binding contracts by section. Include editor before browser work: connected, responsive and certificationReady are distinct.",
+      "description": "Discover contracts by section, including shaders/tiling. Check editor readiness before browser tools.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -16,6 +16,8 @@
               "type": "string",
               "enum": [
                 "elements",
+                "shaders",
+                "tiling",
                 "easing",
                 "semantics",
                 "designSystem",

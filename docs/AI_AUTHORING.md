@@ -146,6 +146,23 @@ The generated in-app knowledge prompt is a
 projection of `skills/ograf-authoring`; `npm run prompt:generate` updates it and `npm run verify`
 rejects drift.
 
+## Shaders and procedural patterns
+
+For compact discovery, request `ograf_get_capabilities` with `sections:["shaders"]` or
+`sections:["tiling"]`; both domains remain included in `elements`. Shader paints apply to object
+fills and independent text outlines. Their `#pragma ograf` controls create runtime fields and can
+own lifecycle keyframes or local loops. Shader library actions and GLSL file picking are available
+in Resources; MCP applies complete paints with `update_element`.
+
+Pattern capabilities include the same six presets as the visual picker, with ready-to-use
+`set_tiling_pattern.patch` data. Adapt the documented reference dimensions/frame rate to the target
+composition. Presets are initially static; enable row cycles for motion. The editor adds visual
+symbol replacement, selected-shape and SVG-silhouette import, local preview, and Make independent.
+MCP uses explicit vector definitions and ordinary create/relink operations for those shared resources.
+
+See the [shader and pattern authoring reference](../skills/ograf-authoring/references/shaders-and-patterns.md)
+for operation examples, shader animation/data precedence, and the current UI/MCP boundaries.
+
 ## Claude Desktop configuration on Windows
 
 The server uses Streamable HTTP, while `claude_desktop_config.json` launches local stdio processes.

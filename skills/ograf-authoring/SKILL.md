@@ -1,6 +1,6 @@
 ---
 name: ograf-authoring
-description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, Lottie layers, procedural tiling, composable effects stacks, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, .ogs source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
+description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, Lottie layers, shader paints and exposed shader animation, procedural pattern presets, composable effects stacks, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, .ogs source, .ograf.zip packages, per-property animation, data binding, and OGraf compliance work.
 ---
 
 # OGraf Authoring
@@ -20,7 +20,8 @@ For numbered canvas references, match each annotation to its rectangle or freeha
 
 1. Call `ograf_get_capabilities` with only the `sections` needed for the task. Include `editor` to
    confirm whether the live editor is connected; add `elements`, `easing`, `semantics`,
-   `designSystem`, `loops`, or `bindings` only when that domain is relevant. Omit `sections` only
+   `designSystem`, `loops`, or `bindings` only when that domain is relevant. Use `shaders` or
+   `tiling` for compact shader/pattern discovery; both are also included in `elements`. Omit `sections` only
    when the complete compatibility payload is genuinely required.
    Read `editor.connected`, `editor.responsive`, and `editor.latencyMs` separately. Do not call a
    browser-dependent tool while the socket is open but the editor is unresponsive; bring the editor
@@ -139,43 +140,64 @@ selected effect's keys and links; remove deletes those keys/links while keeping 
 and shadow use reorderable compatibility slots and retain old tracks/bindings. Read
 [effects-stack.md](./references/effects-stack.md) for examples and limits.
 
-## Procedural tiling with shared controls
+## Shader paints and animation
 
-Shared lights: `set_tiling_pattern.patch.lighting` edits timing/intensity/glow; `set_layer_lighting`
-links loops. See [shared-lighting.md](./references/shared-lighting.md) for setup and limits.
+Read `ograf_get_capabilities sections:["shaders","loops"]` and inspect the target before editing.
+Use `update_element.patch.fill` with a complete shader paint (`type`, `fragmentSource`, `speed`,
+`resolutionScale`, `parameters`); text also accepts independent `strokePaint`. Keep text editable.
+Shader RGB replaces source colors and is clipped by the object's shape/alpha. Shaders provide a
+single WebGL2 Image pass with `mainImage`, `iTime` and `iResolution`; texture channels, layers-below
+inputs, feedback, custom uniforms and audio are unsupported. Preserve source licensing.
 
-Brand Kit is a standalone dockable pane (Window → Brand Kit), separate from Resources. Color
-fields can set `defaultTokenId` to a color token ID on add/update, so Brand Kit edits also update
-OGraf defaults. Playback `updateAction` data overrides defaults without changing the authored kit.
-Set `defaultTokenId: null` to detach; an explicit field default edit also detaches. Bind runtime
-color fields through `set_layer_bindings` to `fill.stops[N].color`, `strokeColor`, or
-`dropShadowColor`; whole `gradient` fields still target `fill`. Confirm live updates and scheduled
-reverse seeking in the exported graphic, preserving gradient alpha and the pattern clock.
+`#pragma ograf NAME slider|color|toggle|vector2 ...` marks literal declarations and automatically
+creates typed data fields. No `expose` keyword or duplicate manual fields are needed. Use the
+inspected `shaderAnimationProperties` paths and limits for `set_property_track`, or
+`set_layer_loop` plus `set_loop_property_track`. Scalars use `fill.parameters.NAME` or text
+`strokePaint.parameters.NAME`; vectors use `.x/.y`, colors `.r/.g/.b/.a`. Floats interpolate;
+integers/toggles hold (boolean keys are 0/1). Active keyed channels override data; unkeyed channels
+retain data/defaults. Loop-only channels return to data when inactive. `iTime` is independent.
 
-- Brand Kit stop-color links preserve gradient alpha and motion. Whole `fill` links replace the
-  gradient. Link all glint stops to one token; use separate letter highlight/shade tokens.
-- Use `set_tiling_pattern` for repeating vector backgrounds. `patch: {name: "OD rows"}` creates a
-  shared O/D definition and one linked pattern layer; `createLayer: false` creates only the resource.
-  Edit by `patternId` or exact `patternName`. Add `kind: "pattern"` layers with `element.patternId` and matching full-canvas transforms
-  for separate gradient faces, transparent-fill outlines, blurred bloom, and mask sources. Keep
-  geometry in `composition.patterns`; never bake tile copies into paths or author `element.definition`.
-- Pattern `symbols` are named SVG paths: `{key,d,viewBoxWidth,viewBoxHeight,width,height,fillRule}`;
-  `sequence` entries are `{symbolKey,gapScale}`. Sources are vector-only. Use `gap`, per-entry
-  `gapScale`, seeded `spacingVariation`, and `seed` for repeatable irregular spacing. `fitRows: true`
-  fits rows inside `height` using `rowGap` and `offsetY`; false uses explicit `rowHeight`.
-- Pattern `cycleFrames` is one common seamless period: shortening it speeds every row up without
-  retiming lifecycle/property keys. Whole-number `cyclesPerLoop` and seeded `speedVariation` give
-  different row speeds; `direction: "alternate"` switches directions. `phase` shifts all rows;
-  `rowPhaseStep` staggers them. `rowOverrides` replaces selected defaults with
-  `{row,direction?,cycles?,phase?,widthScale?,blur?,opacity?}` (zero-based row, zero cycles pauses).
-  Clear overrides to restore shared defaults; shrinking row count drops inactive overrides unless
-  explicitly supplied. Pattern layers share lifecycle activation, including deterministic scheduled
-  seeking; per-step loop activation is not supported. Additional paint/effect loops retain their
-  own duration and do not change the geometry clock.
-- Inspect `ograf_get_project include: ["patterns"]` or `ograf_inspect_scene` for shared definitions and
-  resolved row periods. `ograf_sample_tracks` with `loopElapsedFrame` returns `patternRows` offsets,
-  direction and integer cycles. Check offsets at 0 and `cycleFrames`, then capture intermediate
-  motion. Remove/relink all layer and component references before `remove_tiling_pattern`.
+Resources → Shaders supports New Shader, name/Edit/Load/Save, removal, and drag to Fill or text
+Outline. Saved `project.shaders` paints are independent copies when applied. MCP can read them
+with `include:["shaders"]` and apply their paint through `update_element`; library creation and
+editing currently use the editor UI. Read [shader and pattern workflows](./references/shaders-and-patterns.md)
+for exact examples, alpha, loop sampling, and current UI/MCP boundaries.
+
+## Procedural patterns
+
+Read `ograf_get_capabilities sections:["tiling"]`. Prefer a matching `tiling.presets.entries[].patch`
+(Dots, Stripes, Chevrons, Diamonds, Checkerboard, Monogram), adapting its reference dimensions and
+frame rate to the target composition. Send that patch to `set_tiling_pattern`; there is no
+`presetId` argument. Empty patches still create the legacy O/D motif. Presets start static;
+set `cyclesPerLoop` above zero and `cycleFrames` to the desired seconds × frame rate for motion.
+Use `createLayer:false` for a resource only, and returned `patternId` for linked pattern layers.
+
+Keep geometry in `composition.patterns`; never bake tile copies into paths or author
+`element.definition`. Edit by `patternId` or unique `patternName`; shared symbols/layout/motion
+update every instance, while fill, outline, transforms and effects belong to each layer. Sources
+are SVG paths; `sequence` entries use `{symbolKey,gapScale}`. Seeded variation is repeatable.
+`rowOverrides` can override direction/cycles/phase; clear applicable overrides to restore shared
+controls. Integer row cycles keep the repeat seamless. Row motion starts at the first Step and
+continues while on-air; additional paint/effect loops keep independent periods.
+
+The visual editor offers preset previews, selected vector silhouettes, SVG symbol import,
+layout/motion controls, independent Play/Pause preview, Duplicate, and Make independent. These
+UI conveniences are not extra MCP operations: send explicit symbols/sequence, or copy a definition
+without its id and relink only the intended layer. Inspect `ograf_get_project include:["patterns"]`
+and `ograf_sample_tracks` with `loopElapsedFrame` for resolved `patternRows`; compare zero and a
+full cycle. Unlink layer, component and lighting references before deleting a resource.
+
+See [shader and pattern workflows](./references/shaders-and-patterns.md) for editor mappings,
+SVG limits and operation examples. Shared light/glow timing uses `set_tiling_pattern.patch.lighting`
+and `set_layer_lighting`; see [shared lighting](./references/shared-lighting.md). Brand Kit remains
+in its own pane; token-linked field defaults and runtime data keep their existing semantics.
+
+Color fields can use `defaultTokenId` for a Brand Kit token: token edits update the authored field
+default, while playback data overrides it. Set `defaultTokenId:null` to detach; an explicit field
+default edit also detaches. Bind color fields to `fill.stops[N].color`, `strokeColor`, or
+`dropShadowColor`; whole-gradient fields target `fill`. Stop-color edits preserve gradient alpha
+and motion, while whole-fill edits replace the gradient. Share a token across glint stops and use
+separate tokens for highlight/shade. Verify recoloring and backward seeking without restarting motion.
 
 ## Authoring rules
 
@@ -200,8 +222,8 @@ reverse seeking in the exported graphic, preserving gradient alpha and the patte
 - Text outlines use static `strokeColor` plus an independent, non-negative numeric `strokeWidth`
   track. Use them for legibility over unpredictable video, especially sports and score graphics.
   Keep `paint-order: stroke fill` semantics by authoring through Studio rather than simulating an
-  outline with duplicate text layers. Stroke width can also use a local loop; stroke colour remains
-  static.
+  outline with duplicate text layers. Stroke width can also use a local loop. Text `strokePaint`
+  supports an independent shader outline; its declared channels can own their own tracks.
 - Choose text sizing deliberately. `auto-size` changes the authored box around the authored font;
   `shrink-to-fit` only reduces glyphs and stops at `minFontSize`; `fit-to-width` keeps the authored
   box fixed and grows or shrinks glyphs to the largest uniform size that fits both box axes;

@@ -32,7 +32,9 @@ Save/export must certify the same artifact bytes that are written. If certificat
 - Width, height, and frame rate must remain positive.
 - Authored positions and sizes are normalized by the core; frames are integers.
 - Guide layers are editor-only and do not render to output.
-- Each property track retains at least one key.
+- Core property tracks retain at least one key. Shader tracks are opt-in; the editor can remove
+  their final key to restore data/default control. MCP `remove_property_key` currently retains its
+  minimum-one-key rule, so do not assume that editor-only removal is exposed as a tool operation.
 - Easing is per incoming property key, never global.
 - Custom cubic Bézier curves override the named easing for that key.
 - Generic keys and transitions default to linear; intentional non-linear recipe motion must be
@@ -75,6 +77,9 @@ Save/export must certify the same artifact bytes that are written. If certificat
   because browser SVG masks do not render embedded HTML. Visible path gradients use native CSS.
 - Gradient stop-offset tracks use `fill.stops[N].offset`, reference an existing zero-based stop, and
   keep authored key values within 0..1.
+- Shader paints require WebGL2. Sample exposed parameters per object/paint slot at the requested
+  time; active keyed channels override only their data components. Loop-only controls return to
+  data outside their active interval. Shader time and keyframed parameters are independent.
 - Blend modes are static layer properties evaluated inside one isolated transparent composition.
   They must not depend on, sample, or change according to an external controller/video background.
   Editor transparency checkerboards remain outside the composition isolation boundary.

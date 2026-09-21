@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
+import { readFile } from 'node:fs/promises';
 import {
   computeKeyframeFrames,
   getLayerTransformAtFrame,
@@ -24,6 +25,96 @@ describe('OGraf MCP authoring host', () => {
   const host = createOGrafAuthoringHost();
   const client = new Client({ name: 'ograf-mcp-test', version: '1.0.0' });
   let testEditorSocket: WebSocket | null = null;
+  it('authors the advertised visual pattern presets through their documented patch contract', async () => {
+    const result = await client.callTool({
+      name: 'ograf_get_capabilities',
+      arguments: { sections: ['tiling'] },
+    });
+    const capabilities = result.structuredContent as {
+      tiling: { presets: { entries: Array<{ id: string; patch: Record<string, unknown> }> } };
+    };
+    expect(result.structuredContent).not.toHaveProperty('elementSchemas');
+    expect(capabilities.tiling.presets.entries.map((entry) => entry.id)).toEqual([
+      'dots',
+      'stripes',
+      'chevrons',
+      'diamonds',
+      'checkerboard',
+      'monogram',
+    ]);
+    for (const preset of capabilities.tiling.presets.entries) {
+      const sessionId = `advertised-pattern-${preset.id}`;
+      host.workspace.create(sessionId);
+      const applied = await client.callTool({
+        name: 'ograf_apply_operations',
+        arguments: {
+          sessionId,
+          expectedRevision: 0,
+          operations: [{ type: 'set_tiling_pattern', patch: preset.patch }],
+        },
+      });
+      expect(applied.isError, JSON.stringify(applied.content)).not.toBe(true);
+      const snapshot = host.workspace.get(sessionId).snapshot();
+      expect(snapshot.validation.valid).toBe(true);
+      expect(snapshot.project.compositions[0]!.patterns[0]).toMatchObject(preset.patch);
+      expect(snapshot.project.compositions[0]!.layers[0]!.element).toMatchObject({
+        type: 'pattern',
+        patternId: snapshot.project.compositions[0]!.patterns[0]!.id,
+      });
+    }
+  });
+
+  it('executes the skill shader paint and loop examples with independent data defaults', async () => {
+    const guide = await readFile(
+      new URL(
+        '../../../skills/ograf-authoring/references/shaders-and-patterns.md',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const examples = [...guide.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/g)].map((match) =>
+      JSON.parse(match[1]!),
+    );
+    const sessionId = 'skill-shader-loop-example';
+    host.workspace.create(sessionId);
+    const capabilities = await client.callTool({
+      name: 'ograf_get_capabilities',
+      arguments: { sections: ['shaders'] },
+    });
+    expect(capabilities.structuredContent).toHaveProperty('paintSchemas.shader');
+    expect(capabilities.structuredContent).not.toHaveProperty('tiling');
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'add_layer', kind: 'text', name: 'Title' },
+          examples[0],
+          ...examples[1],
+        ],
+      },
+    });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    const composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+    expect(composition.dataFields).toHaveLength(1);
+    expect(composition.dataFields[0]!.defaultValue).toBe(1);
+    const sample = await client.callTool({
+      name: 'ograf_sample_tracks',
+      arguments: {
+        sessionId,
+        layerIds: [composition.layers[0]!.id],
+        frames: [12],
+        loopElapsedFrame: 50,
+        properties: ['fill.parameters.intensity'],
+      },
+    });
+    expect(sample.isError).not.toBe(true);
+    const sampled = sample.structuredContent as {
+      frames: Array<{ layers: Array<{ properties: Record<string, number> }> }>;
+    };
+    expect(sampled.frames[0]!.layers[0]!.properties['fill.parameters.intensity']).toBe(0.25);
+  });
   it('reads saved unused shaders as a project section without inventing layers or data fields', async () => {
     const resource = createShaderResource();
     resource.paint.name = 'Saved library shader';
