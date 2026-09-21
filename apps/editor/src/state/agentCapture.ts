@@ -1,4 +1,5 @@
-import { toCanvas } from 'html-to-image';
+import { getFontEmbedCSS, toCanvas } from 'html-to-image';
+import { hasLoadedProjectFont, projectFontFaceCss, withProjectFonts } from './projectFonts';
 import { captureMaskedCanvas } from './maskedCapture';
 import { compileDescriptor, type CompiledLayer } from '@ograf-editor/codegen';
 import {
@@ -26,6 +27,7 @@ import {
   isTransformClippedBy,
   valueAtSourcePath,
   layerEffectsToCssFilter,
+  type Asset,
   type Composition,
   type Element,
   type FieldValue,
@@ -184,11 +186,28 @@ const GENERIC_FAMILIES = new Set([
   'ui-rounded',
 ]);
 
-async function inferResolvedFamily(element: TextElement): Promise<string> {
+export async function inferResolvedFamily(element: TextElement): Promise<string> {
   const families = splitFontFamilies(element.fontFamily);
   for (const family of families) {
     if (GENERIC_FAMILIES.has(family.toLowerCase())) return family;
     const escaped = family.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+    // A failed sidecar face from another preview can make check() false even when our
+    // embedded face has loaded successfully. Prefer the capture's own registered source.
+    if (hasLoadedProjectFont(document, family)) return family;
+    // check() alone also returns true for an entirely missing family; require a registered face.
+    const registered = [...document.fonts].some(
+      (face) =>
+        face.status === 'loaded' &&
+        splitFontFamilies(face.family)[0]?.toLowerCase() === family.toLowerCase(),
+    );
+    if (
+      registered &&
+      document.fonts.check(
+        `${element.fontWeight} ${element.fontSize}px "${escaped}"`,
+        element.content,
+      )
+    )
+      return family;
     try {
       await new FontFace('__ograf_capture_probe__', `local("${escaped}")`).load();
       return family;
@@ -309,17 +328,21 @@ function renderedTextMetrics(content: HTMLElement): {
   };
 }
 
-async function rasterize(
+export async function rasterize(
   root: HTMLElement,
   originalWidth: number,
   originalHeight: number,
   maxDimension: number,
   style?: Partial<CSSStyleDeclaration>,
+  fontAssets: readonly Asset[] = [],
 ) {
   const output = captureDimensions(originalWidth, originalHeight, maxDimension);
   const render = root.querySelector('[data-ograf-layer-mask-id], [data-ograf-pattern]')
     ? captureMaskedCanvas
     : toCanvas;
+  const fontEmbedCSS = [await getFontEmbedCSS(root), projectFontFaceCss(fontAssets)]
+    .filter(Boolean)
+    .join('\n');
   const canvas = await render(root, {
     width: originalWidth,
     height: originalHeight,
@@ -328,6 +351,7 @@ async function rasterize(
     pixelRatio: 1,
     cacheBust: true,
     skipAutoScale: true,
+    fontEmbedCSS,
     ...(style ? { style } : {}),
   });
   const encoded = canvas.toDataURL('image/png');
@@ -458,6 +482,7 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
       composition.height,
       request.maxDimension,
       { zIndex: 'auto' },
+      composition.assets,
     );
     // html-to-image can populate its internal transparent foreignObject/style caches during the
     // first snapshot after an expanded collection's item count changes. Rebuild the immutable DOM
@@ -481,6 +506,7 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
         composition.height,
         request.maxDimension,
         { zIndex: 'auto' },
+        composition.assets,
       );
     }
     return {
@@ -519,7 +545,15 @@ async function captureViewport(request: AgentCaptureRequest): Promise<AgentCaptu
   const originalWidth = window.innerWidth;
   const originalHeight = window.innerHeight;
   await settleCaptureContent(root);
-  const raster = await rasterize(root, originalWidth, originalHeight, request.maxDimension);
+  const composition = compositionFor(request.project, request.compositionId);
+  const raster = await rasterize(
+    root,
+    originalWidth,
+    originalHeight,
+    request.maxDimension,
+    undefined,
+    composition.assets,
+  );
   return {
     mimeType: 'image/png',
     ...raster,
@@ -559,7 +593,7 @@ export async function renderAgentStripPng(request: AgentStripRequest): Promise<A
   const tiles = [] as AgentCaptureResult[];
   for (const frame of frames) {
     tiles.push(
-      await captureComposition({
+      await captureAgentPng({
         target: 'composition',
         project: request.project,
         compositionId: composition.id,
@@ -625,7 +659,7 @@ export async function renderAgentStripPng(request: AgentStripRequest): Promise<A
 }
 
 /** Measures text with the real browser font and runtime text renderer without touching project state. */
-export async function measureAgentText(
+async function measureTextWithRegisteredFonts(
   request: AgentMeasureTextRequest,
 ): Promise<AgentMeasureTextResult> {
   const composition = compositionFor(request.project, request.compositionId);
@@ -722,12 +756,22 @@ export async function measureAgentText(
   }
 }
 
+export async function measureAgentText(
+  request: AgentMeasureTextRequest,
+): Promise<AgentMeasureTextResult> {
+  const composition = compositionFor(request.project, request.compositionId);
+  return withProjectFonts(document, composition.assets, () =>
+    measureTextWithRegisteredFonts(request),
+  );
+}
+
 /** Rasterizes the real browser renderer without changing editor state or the authoring revision. */
 export async function captureAgentPng(request: AgentCaptureRequest): Promise<AgentCaptureResult> {
   try {
-    return await (request.target === 'viewport'
-      ? captureViewport(request)
-      : captureComposition(request));
+    const composition = compositionFor(request.project, request.compositionId);
+    return await withProjectFonts(document, composition.assets, () =>
+      request.target === 'viewport' ? captureViewport(request) : captureComposition(request),
+    );
   } catch (cause) {
     if (cause instanceof Error) throw cause;
     if (

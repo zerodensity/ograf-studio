@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { gsap } from 'gsap';
-import { useActiveComposition } from '../state/projectStore';
+import { useProjectFonts } from '../state/useProjectFonts';
 import { DOCK_PANE_LABELS, type DockPaneId } from './dockModel';
 import { EditorWindowContext, type EditorWindow } from './EditorWindow';
 import { NumericScrubController } from '../components/NumericScrubController';
@@ -135,31 +135,7 @@ export function DetachedWindowsProvider({ children }: { children: ReactNode }) {
 }
 
 function DetachedFonts({ owner }: { owner: EditorWindow }) {
-  const assets = useActiveComposition().assets;
-  useEffect(() => {
-    let cancelled = false;
-    const loaded: FontFace[] = [];
-    for (const asset of assets.filter((asset) => asset.kind === 'font')) {
-      const face = new owner.FontFace(
-        asset.fontFamily || asset.name.replace(/\.[^.]+$/, ''),
-        `url(${asset.dataUri})`,
-        { weight: asset.fontWeight || '100 900', style: asset.fontStyle || 'normal' },
-      );
-      void face
-        .load()
-        .then((font) => {
-          if (!cancelled) {
-            owner.document.fonts.add(font);
-            loaded.push(font);
-          }
-        })
-        .catch(() => undefined);
-    }
-    return () => {
-      cancelled = true;
-      for (const font of loaded) owner.document.fonts.delete(font);
-    };
-  }, [assets, owner]);
+  useProjectFonts(owner);
   return null;
 }
 

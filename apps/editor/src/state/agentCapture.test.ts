@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createComposition,
   createFieldDefinition,
@@ -12,6 +12,7 @@ import {
   getElementShaderPaint,
   applyShaderAnimationValues,
   sampleShaderAnimationValues,
+  createTextElement,
   type Asset,
 } from '@ograf-editor/scene-model';
 import { compileDescriptor } from '@ograf-editor/codegen';
@@ -44,6 +45,117 @@ import {
   resolveCaptureElement,
   settleCaptureContent,
 } from './agentCapture';
+import { inferResolvedFamily, rasterize } from './agentCapture';
+import { getFontEmbedCSS, toCanvas } from 'html-to-image';
+import { captureMaskedCanvas } from './maskedCapture';
+import { acquireProjectFonts } from './projectFonts';
+vi.mock('html-to-image', () => ({ getFontEmbedCSS: vi.fn(), toCanvas: vi.fn() }));
+vi.mock('./maskedCapture', () => ({ captureMaskedCanvas: vi.fn() }));
+
+describe('embedded capture fonts', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+  const asset: Asset = {
+    id: 'project-font',
+    name: 'Project Face.woff2',
+    kind: 'font',
+    mimeType: 'font/woff2',
+    fontFamily: 'Project Face',
+    fontWeight: '700',
+    fontStyle: 'italic',
+    dataUri: 'data:font/woff2;base64,Zm9udA==',
+  };
+  it.each([false, true])(
+    'embeds project and stylesheet faces into capture options (masked: %s)',
+    async (masked) => {
+      const root = { querySelector: () => (masked ? {} : null) } as unknown as HTMLElement;
+      vi.mocked(getFontEmbedCSS).mockResolvedValue(
+        '@font-face{font-family:"App Face";src:url("data:font/woff2;base64,YXBw");}',
+      );
+      const render = masked ? captureMaskedCanvas : toCanvas;
+      vi.mocked(render).mockResolvedValue({
+        toDataURL: () => 'data:image/png;base64,cG5n',
+      } as HTMLCanvasElement);
+      await rasterize(root, 1920, 1080, 320, undefined, [asset]);
+      expect(render).toHaveBeenCalledWith(
+        root,
+        expect.objectContaining({
+          fontEmbedCSS: expect.stringContaining(
+            '@font-face{font-family:"Project Face";src:url("data:font/woff2;base64,Zm9udA==");font-weight:700;font-style:italic;}',
+          ),
+          canvasWidth: 320,
+          canvasHeight: 180,
+        }),
+      );
+      expect(vi.mocked(render).mock.calls[0]![1]!.fontEmbedCSS).toContain('font-family:"App Face"');
+    },
+  );
+  it('recognizes loaded project faces without a local system-font probe', async () => {
+    const check = vi.fn(() => true);
+    vi.stubGlobal('document', {
+      fonts: Object.assign(new Set([{ family: '"Project Face"', status: 'loaded' }]), { check }),
+    });
+    const probe = vi.fn();
+    vi.stubGlobal('FontFace', probe);
+    expect(
+      await inferResolvedFamily(
+        createTextElement({
+          fontFamily: '"Project Face", sans-serif',
+          fontWeight: 700,
+          fontSize: 32,
+          content: 'Title',
+        }),
+      ),
+    ).toBe('Project Face');
+    expect(check).toHaveBeenCalledWith('700 32px "Project Face"', 'Title');
+    expect(probe).not.toHaveBeenCalled();
+  });
+  it('does not trust fonts.check alone when a requested face is missing or failed', async () => {
+    vi.stubGlobal('document', {
+      fonts: Object.assign(new Set([{ family: 'Broken Face', status: 'error' }]), {
+        check: () => true,
+      }),
+    });
+    vi.stubGlobal(
+      'FontFace',
+      class {
+        load() {
+          return Promise.reject(new Error('Not installed'));
+        }
+      },
+    );
+    expect(
+      await inferResolvedFamily(
+        createTextElement({ fontFamily: 'Missing Face, Broken Face, sans-serif' }),
+      ),
+    ).toBe('sans-serif');
+  });
+  it('recognizes the loaded embedded face even when a failed sidecar makes fonts.check false', async () => {
+    class EmbeddedFace {
+      status = 'loaded';
+      load() {
+        return Promise.resolve(this);
+      }
+    }
+    const fonts = Object.assign(new Set(), { check: vi.fn(() => false) });
+    const target = { fonts, defaultView: { FontFace: EmbeddedFace } } as unknown as Document;
+    vi.stubGlobal('document', target);
+    const localProbe = vi.fn();
+    vi.stubGlobal('FontFace', localProbe);
+    const lease = acquireProjectFonts(target, [asset]);
+    await lease.ready;
+    try {
+      expect(
+        await inferResolvedFamily(createTextElement({ fontFamily: 'Project Face, serif' })),
+      ).toBe('Project Face');
+      expect(localProbe).not.toHaveBeenCalled();
+    } finally {
+      lease.dispose();
+    }
+  });
+});
 
 describe('capture image bindings', () => {
   const assets: Asset[] = [

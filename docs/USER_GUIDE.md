@@ -265,7 +265,7 @@ display while preserving its proportions, with black margins where needed.
 
 - Importing arbitrary third-party OGraf packages is best-effort; opaque JavaScript cannot always
   be recovered as editable layers.
-- Package font assets when consistent typography across computers matters.
+- Package font assets when consistent typography across computers matters. Embedded project fonts stay active even when Resources is closed, and are included in captures, review images, contact sheets, and saved/exported thumbnails. Detached windows register their own copies.
 - Refreshing a linked component replaces its local content/style edits. Use independent instances
   when those edits must be retained.
 - Runtime collections have explicit capacity and truncate overflow. Validate representative data

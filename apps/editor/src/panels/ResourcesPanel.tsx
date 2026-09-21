@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
   findAssetConsumers,
   findMissingAssetReferences,
@@ -48,30 +48,6 @@ export function ResourcesPanel() {
   const imageAssets = assetsByKind.images;
   const fontAssets = assetsByKind.fonts;
   const sourceAssets = assetsByKind.sources;
-
-  useEffect(() => {
-    const loaded: FontFace[] = [];
-    let cancelled = false;
-    for (const asset of composition.assets.filter((candidate) => candidate.kind === 'font')) {
-      const family = asset.fontFamily || asset.name.replace(/\.[^.]+$/, '');
-      const face = new FontFace(family, `url(${asset.dataUri})`, {
-        weight: asset.fontWeight || '100 900',
-        style: asset.fontStyle || 'normal',
-      });
-      void face
-        .load()
-        .then((ready) => {
-          if (cancelled) return;
-          document.fonts.add(ready);
-          loaded.push(ready);
-        })
-        .catch(() => undefined);
-    }
-    return () => {
-      cancelled = true;
-      for (const face of loaded) document.fonts.delete(face);
-    };
-  }, [composition.assets]);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const files = [...(e.target.files ?? [])];
