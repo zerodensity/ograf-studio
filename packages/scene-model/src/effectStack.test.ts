@@ -38,7 +38,7 @@ describe('composable effects', () => {
   it('preserves stable parameter paths and keys through reorder and bypass', () => {
     const l = createLayerOfKind('rectangle'),
       a = addEffect(l, 'glow'),
-      b = addEffect(l, 'contrast');
+      b = addEffect(l, 'contrast', { enabled: true });
     const p = effectProperty(a, 'radius') as EffectParameterProperty;
     l.animationTracks[p] = [
       { id: 'key-a', frame: 0, value: 2, easing: 'linear' },
@@ -95,9 +95,12 @@ describe('composable effects', () => {
   it('builds a sequential sRGB-compatible SVG chain and clamps eased numeric overshoot', () => {
     const l = createLayerOfKind('rectangle');
     l.effects.stack = [];
-    addEffect(l, 'brightness', { params: { amount: 0.5 } });
-    addEffect(l, 'contrast', { params: { amount: 2 } });
-    addEffect(l, 'glow', { params: { color: '#ffaa0080', opacity: 0.5, radius: 8 } });
+    addEffect(l, 'brightness', { enabled: true, params: { amount: 0.5 } });
+    addEffect(l, 'contrast', { enabled: true, params: { amount: 2 } });
+    addEffect(l, 'glow', {
+      enabled: true,
+      params: { color: '#ffaa0080', opacity: 0.5, radius: 8 },
+    });
     const svg = effectStackToSvg(l.effects);
     expect(svg).toContain('in="SourceGraphic" result="fx-0"');
     expect(svg).toContain('in="fx-0" result="fx-1"');

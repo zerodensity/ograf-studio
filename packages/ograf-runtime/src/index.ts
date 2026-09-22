@@ -63,3 +63,4 @@ export function registerGraphicElement(descriptor: CompiledGraphicDescriptor): s
   customElements.define(tagName, createGraphicClass(descriptor));
   return tagName;
 }
+export { applyLayerEffectsFilter } from './effectCompositing';

@@ -1,3 +1,4 @@
+import { applyLayerEffectsFilter } from './effectCompositing';
 import {
   GRAPHIC_ERROR_STATUS_CODE,
   type CompiledGraphicDescriptor,
@@ -35,7 +36,6 @@ import {
   parseShaderAnimationProperty,
   shaderAnimationPropertySpec,
   hasElementShaderPaint,
-  layerEffectsToCssFilter,
   resolveShaderParameters,
 } from '@ograf-editor/scene-model';
 import { shaderStrokePaddingForLayer } from './shaderPaintRendering';
@@ -613,7 +613,6 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       }
       el.style.mixBlendMode =
         !layer.blendMode || layer.blendMode === 'normal' ? '' : layer.blendMode;
-      el.style.filter = layerEffectsToCssFilter(layer.effects);
       const firstTransform = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]?.transform;
       if (firstTransform) {
         el.style.width = `${firstTransform.width}px`;
@@ -626,6 +625,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         0,
         contentOptions(layer),
       );
+      applyLayerEffectsFilter(el, layer.effects);
       this.#layerEls.set(layer.id, el);
     }
 
@@ -737,7 +737,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           undefined,
           this.#lastData,
         );
-        el.style.filter = layerEffectsToCssFilter(state.effects);
+        applyLayerEffectsFilter(el, state.effects);
         applyAnimatedPaint(
           el,
           layer.animationTracks,

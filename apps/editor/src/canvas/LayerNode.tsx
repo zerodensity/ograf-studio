@@ -1,6 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
-  layerEffectsToCssFilter,
   getLayerEffectsAtFrame,
   hasElementShaderPaint,
   type Element,
@@ -11,6 +10,7 @@ import {
   type TilingPattern,
 } from '@ograf-editor/scene-model';
 import {
+  applyLayerEffectsFilter,
   applyAnimatedPaint,
   disposeElementContent,
   lottieBackingSizeForLayer,
@@ -209,6 +209,20 @@ export function LayerNode({
     watchContentReadiness,
   ]);
 
+  useLayoutEffect(() => {
+    const host = contentRef.current?.parentElement;
+    if (host)
+      applyLayerEffectsFilter(
+        host,
+        resolveEffectiveEffects(
+          layer,
+          getLayerEffectsAtFrame(layer, useTimelineStore.getState().currentFrame),
+          testValues,
+          dataFields,
+        ),
+      );
+  }, [layer, testValues, dataFields, transform.width, transform.height]);
+
   if (!layer.isVisible) return null;
 
   const style: CSSProperties = {
@@ -222,14 +236,6 @@ export function LayerNode({
     mixBlendMode: layer.blendMode === 'normal' ? undefined : layer.blendMode,
     transform: `translate(${transform.x}px, ${transform.y}px) rotate(${transform.rotation}deg)`,
     transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
-    filter: layerEffectsToCssFilter(
-      resolveEffectiveEffects(
-        layer,
-        getLayerEffectsAtFrame(layer, useTimelineStore.getState().currentFrame),
-        testValues,
-        dataFields,
-      ),
-    ),
     clipPath,
   };
 

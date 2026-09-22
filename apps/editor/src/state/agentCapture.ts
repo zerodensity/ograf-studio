@@ -3,6 +3,7 @@ import { hasLoadedProjectFont, projectFontFaceCss, withProjectFonts } from './pr
 import { captureMaskedCanvas } from './maskedCapture';
 import { compileDescriptor, type CompiledLayer } from '@ograf-editor/codegen';
 import {
+  applyLayerEffectsFilter,
   applyAnimatedPaint,
   applyCompiledClipPaths,
   applyCompiledMasks,
@@ -26,7 +27,6 @@ import {
   getTotalFrames,
   isTransformClippedBy,
   valueAtSourcePath,
-  layerEffectsToCssFilter,
   type Asset,
   type Composition,
   type Element,
@@ -337,7 +337,9 @@ export async function rasterize(
   fontAssets: readonly Asset[] = [],
 ) {
   const output = captureDimensions(originalWidth, originalHeight, maxDimension);
-  const render = root.querySelector('[data-ograf-layer-mask-id], [data-ograf-pattern]')
+  const render = root.querySelector(
+    '[data-ograf-layer-mask-id], [data-ograf-pattern], [data-ograf-effect-filter]',
+  )
     ? captureMaskedCanvas
     : toCanvas;
   const fontEmbedCSS = [await getFontEmbedCSS(root), projectFontFaceCss(fontAssets)]
@@ -427,7 +429,6 @@ function buildCompositionDom(
         mixBlendMode: layer.blendMode === 'normal' ? '' : layer.blendMode,
         transform: `translate(${transform.x}px, ${transform.y}px) rotate(${transform.rotation}deg)`,
         transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
-        filter: layerEffectsToCssFilter(state.effects),
       });
       const element = resolveCaptureElement(layer, data, composition);
       compositionRoot.appendChild(layerRoot);
@@ -441,6 +442,7 @@ function buildCompositionDom(
         },
       );
       renderCaptureElementFrame(layerRoot, element, state, (frame / composition.frameRate) * 1000);
+      applyLayerEffectsFilter(layerRoot, state.effects);
       rendered.set(layer.id, layerRoot);
       states.set(layer.id, state);
     }

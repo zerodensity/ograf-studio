@@ -275,6 +275,11 @@ const effectPatchSchema = z
   .object({
     name: z.string().min(1).optional(),
     enabled: z.boolean().optional(),
+    blendMode: z
+      .string()
+      .regex(/^(normal|screen|add|multiply|overlay|darken|lighten)$/)
+      .optional(),
+    blendOpacity: z.number().min(0).max(1).optional(),
     params: z.record(z.string(), z.union([z.number().finite(), z.string()])).optional(),
   })
   .strict();

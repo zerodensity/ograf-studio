@@ -3,6 +3,7 @@ import type {
   AnimatableLayerProperty,
   EffectParameterProperty,
   EffectType,
+  EffectBlendMode,
   Layer,
   LayerEffect,
   LayerEffects,
@@ -60,6 +61,15 @@ export const EFFECT_CATALOG: Record<
 };
 export const EFFECT_TYPES = Object.keys(EFFECT_CATALOG) as EffectType[];
 export const MAX_EFFECTS = 16;
+export const EFFECT_BLEND_MODES: readonly EffectBlendMode[] = [
+  'normal',
+  'screen',
+  'add',
+  'multiply',
+  'overlay',
+  'darken',
+  'lighten',
+];
 export function ensureLegacyEffects(
   effects: LayerEffects,
   patch: Partial<LayerEffects>,
@@ -217,6 +227,13 @@ export function effectStackErrors(effects: LayerEffects): string[] {
     )
       errors.push('Effect IDs must be unique simple identifiers.');
     ids.add(effect.id);
+    if (effect.blendMode !== undefined && !EFFECT_BLEND_MODES.includes(effect.blendMode))
+      errors.push('Unknown effect blend mode.');
+    if (
+      effect.blendOpacity !== undefined &&
+      (!Number.isFinite(effect.blendOpacity) || effect.blendOpacity < 0 || effect.blendOpacity > 1)
+    )
+      errors.push('Effect blend opacity must be from 0 to 1.');
     if (!EFFECT_TYPES.includes(effect.type)) {
       errors.push('Unknown effect type.');
       continue;
@@ -268,6 +285,8 @@ function assertStack(effects: LayerEffects): void {
 export type EffectPatch = {
   name?: string;
   enabled?: boolean;
+  blendMode?: EffectBlendMode;
+  blendOpacity?: number;
   params?: Record<string, number | string>;
 };
 export function addEffect(
@@ -283,7 +302,9 @@ export function addEffect(
     id,
     type,
     name: patch.name ?? spec.label,
-    enabled: patch.enabled ?? true,
+    enabled: patch.enabled ?? patch.blendMode !== undefined,
+    blendMode: patch.blendMode ?? 'normal',
+    blendOpacity: patch.blendOpacity ?? 1,
     params: {
       ...Object.fromEntries(Object.entries(spec.params).map(([k, s]) => [k, s.default])),
       ...patch.params,
@@ -302,6 +323,14 @@ export function updateEffect(layer: Layer, id: string, patch: EffectPatch): Laye
   const effect = effects.stack.find((e) => e.id === id);
   if (!effect) throw Error(`Effect not found: ${id}`);
   if (patch.name !== undefined) effect.name = patch.name;
+  if (patch.blendMode !== undefined) {
+    effect.blendMode = patch.blendMode;
+    if (patch.enabled === undefined) {
+      effect.enabled = true;
+      if (effect.legacy === 'drop-shadow') effects.dropShadowEnabled = true;
+    }
+  }
+  if (patch.blendOpacity !== undefined) effect.blendOpacity = patch.blendOpacity;
   if (patch.enabled !== undefined) {
     effect.enabled = patch.enabled;
     if (effect.legacy === 'drop-shadow') effects.dropShadowEnabled = patch.enabled;
@@ -367,6 +396,8 @@ export function duplicateEffect(layer: Layer, id: string, newId = createId('fx')
     {
       name: `${source.name} copy`,
       enabled: effectEnabled(source, layer.effects),
+      blendMode: source.blendMode ?? 'normal',
+      blendOpacity: source.blendOpacity ?? 1,
       params: { ...effectParams(source, layer.effects) },
     },
     getEffectStack(layer.effects).findIndex((e) => e.id === id) + 1,

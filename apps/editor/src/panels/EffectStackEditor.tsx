@@ -3,6 +3,8 @@ import { PropertyRow } from '../components/PropertyRow';
 import { useState } from 'react';
 import {
   EFFECT_CATALOG,
+  EFFECT_BLEND_MODES,
+  type EffectBlendMode,
   EFFECT_TYPES,
   MAX_EFFECTS,
   effectEnabled,
@@ -82,14 +84,6 @@ export function EffectStackEditor({ layer, frame }: { layer: Layer; frame: numbe
           >
             <div className="effect-stack-header">
               <input
-                type="checkbox"
-                aria-label={`Enable ${effect.name}`}
-                checked={enabled}
-                onChange={(e) =>
-                  run(() => update(layer.id, effect.id, { enabled: e.target.checked }, frame))
-                }
-              />
-              <input
                 aria-label={`Effect name ${index + 1}`}
                 value={effect.name}
                 onChange={(e) =>
@@ -98,6 +92,61 @@ export function EffectStackEditor({ layer, frame }: { layer: Layer; frame: numbe
               />
               <span>{EFFECT_CATALOG[effect.type].label}</span>
             </div>
+            <PropertyRow
+              className="inspector-row"
+              help="Bypass skips this effect. A blend mode activates it and combines its result with the incoming image."
+            >
+              <span>Blend</span>
+              <select
+                aria-label={`${effect.name} blend mode`}
+                value={enabled ? (effect.blendMode ?? 'normal') : 'bypass'}
+                onChange={(event) =>
+                  run(() =>
+                    update(
+                      layer.id,
+                      effect.id,
+                      event.target.value === 'bypass'
+                        ? { enabled: false }
+                        : { enabled: true, blendMode: event.target.value as EffectBlendMode },
+                      frame,
+                    ),
+                  )
+                }
+              >
+                <option value="bypass">Bypass</option>
+                {EFFECT_BLEND_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode === 'add' ? 'Add' : mode[0]!.toUpperCase() + mode.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </PropertyRow>
+            <PropertyRow
+              className="inspector-row"
+              help="Mix this effect's blended result with its input; zero contributes nothing."
+            >
+              <span>Effect opacity</span>
+              <input
+                type="number"
+                aria-label={`${effect.name} blend opacity`}
+                min={0}
+                max={100}
+                step={1}
+                value={Math.round((effect.blendOpacity ?? 1) * 100)}
+                onChange={(event) =>
+                  run(() =>
+                    update(
+                      layer.id,
+                      effect.id,
+                      {
+                        blendOpacity: Math.max(0, Math.min(100, Number(event.target.value))) / 100,
+                      },
+                      frame,
+                    ),
+                  )
+                }
+              />
+            </PropertyRow>
             <div className="effect-stack-actions">
               <button
                 aria-label={`Move ${effect.name} up`}

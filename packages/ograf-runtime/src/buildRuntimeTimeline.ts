@@ -1,3 +1,4 @@
+import { applyLayerEffectsFilter } from './effectCompositing';
 import gsap from 'gsap';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
 import {
@@ -7,7 +8,6 @@ import {
   parseEffectProperty,
   isGradientStopOffsetProperty,
   parseShaderAnimationProperty,
-  layerEffectsToCssFilter,
   TRANSFORM_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
   type LayerEffects,
@@ -88,9 +88,7 @@ export function buildRuntimeTimeline(
       el.style.transformOrigin = `${originState.transformOriginX * 100}% ${originState.transformOriginY * 100}%`;
     };
     const updateEffects = () => {
-      el.style.filter = layerEffectsToCssFilter(
-        resolveBoundEffects(layer, dataProvider(), effectState),
-      );
+      applyLayerEffectsFilter(el, resolveBoundEffects(layer, dataProvider(), effectState));
     };
     const applyInitialState = () => {
       originState.transformOriginX = firstTransform.transformOriginX;
@@ -157,7 +155,8 @@ export function buildRuntimeTimeline(
     for (const layer of descriptor.layers) {
       const child = layerEls.get(layer.id);
       if (child && layer.effects.stack?.some((e) => !e.legacy))
-        child.style.filter = layerEffectsToCssFilter(
+        applyLayerEffectsFilter(
+          child,
           sampleCompiledLayerVisualState(layer, frame, undefined, dataProvider()).effects,
         );
       if (child) {

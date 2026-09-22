@@ -142,6 +142,19 @@ every linked instance. Each layer keeps its own fill, outline, transform, and ef
 **Make independent** in a pattern layer's Properties to give it its own editable copy. Existing
 patterns retain their original settings until you edit them or choose a preset.
 
+### Blending effects
+
+In **Properties → Effects stack**, new effects start in **Bypass**. Choose **Normal**, **Screen**,
+**Add**, **Multiply**, **Overlay**, **Darken**, or **Lighten** to activate an effect. **Effect opacity**
+sets how much its result contributes. Effects run top-to-bottom: each blends against the result
+entering that effect, while the layer's blend mode still combines the completed layer with the
+composition underneath. Glow and shadow blend only their generated contribution; blur and color
+adjustments blend their processed image. Normal at 100% keeps the original effect behavior.
+
+Bypass retains settings and animation. When all effects are bypassed, the object uses its ordinary
+rendering path without effect passes. Existing projects keep their enabled effects and appearance.
+Effect parameters remain animatable; blend mode and effect opacity are static settings.
+
 ### Shader fills
 
 Choose **Shader** in an object's **Fill** selector to render a self-contained GLSL `mainImage`

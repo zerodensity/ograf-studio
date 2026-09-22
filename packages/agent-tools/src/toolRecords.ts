@@ -29,6 +29,7 @@ import {
 import {
   ANIMATABLE_LAYER_PROPERTIES,
   EFFECT_CATALOG,
+  EFFECT_BLEND_MODES,
   getEffectStack,
   effectProperty,
   effectEnabled,
@@ -307,7 +308,7 @@ function consolidateOperationTools(
     config: {
       title: 'Apply, preview, or propose OGraf operations',
       description:
-        'Revision-checked atomic operations. apply commits; dry-run validates without changes. includeReview adds optional QA/capture without rollback on capture failure. preview renders a frame/strip in a responsive editor without changes. propose requires sessionId=editor, title and human Accept/Reject.',
+        'Atomic revision-checked batch. apply commits; dry-run validates; preview renders; propose requires editor/title and Accept/Reject. includeReview adds QA/capture; capture failure never rolls back.',
       inputSchema: consolidatedOperationInputSchema,
       annotations: mutation,
     },
@@ -1610,7 +1611,7 @@ export function createOGrafToolRecords(
     {
       title: 'Get OGraf authoring capabilities',
       description:
-        'Discover contracts by section, including shaders/tiling. Check editor readiness before browser tools.',
+        'Discover section contracts (including shaders/tiling); check editor readiness for browser tools.',
       inputSchema: {
         sections: z.array(z.enum(CAPABILITY_SECTIONS)).min(1).optional(),
       },
@@ -2099,6 +2100,9 @@ export function createOGrafToolRecords(
             'Lifecycle retiming shares the browser editor planner and therefore returns the same duration bounds and warnings. Structural canvas groups, reusable-component snapshots, custom actions, and asset removal use the same canonical project mutations as OGraf Studio.',
         },
         composableEffects: {
+          blendModes: EFFECT_BLEND_MODES,
+          blending:
+            'Normal preserves legacy filtering. Other modes combine each effect with its input; glow/shadow blend their generated contribution only. blendOpacity mixes the result with the input. Blend settings are static; numeric effect params retain their tracks. All bypassed skips filters; normal/full-strength uses CSS, mixed effects use an sRGB SVG filter graph shared with masks and captures.',
           operations: [
             'add_effect',
             'update_effect',
@@ -2109,7 +2113,7 @@ export function createOGrafToolRecords(
           order:
             'Top to bottom. Repeated types are allowed; each effect has a stable ID. Reorder supplies every ID exactly once. Maximum 16 effects including compatibility slots.',
           editing:
-            'update_effect patch accepts name, enabled and params. Numeric params use scope authored (lifecycle frames) or scope frame with frame. Rename/bypass/reorder never retime keys. Duplicate copies only that effect’s tracks and bindings; remove clears only its tracks and links, retaining data fields.',
+            'New effects default to bypass (enabled:false); selecting blendMode enables unless explicitly disabled. update_effect patch accepts name, enabled, blendMode, blendOpacity (0..1) and params. Numeric params use scope authored (lifecycle frames) or scope frame with frame. Rename/bypass/reorder never retime keys. Duplicate copies only that effect’s tracks and bindings; remove clears only its tracks and links, retaining data fields.',
           compatibility:
             'Old blur and shadow remain reorderable base-blur/base-shadow slots backed by existing numeric tracks and dropShadowColor bindings. inspect_scene resolves virtual slots on old documents. Existing appearance and data keys are preserved.',
           animation:
@@ -2296,7 +2300,7 @@ export function createOGrafToolRecords(
     'ograf_list_sessions',
     {
       title: 'List OGraf authoring sessions',
-      description: 'Lists open authoring sessions and their current revisions.',
+      description: 'List session revisions.',
       inputSchema: {},
       annotations: readOnly,
     },
@@ -2307,8 +2311,7 @@ export function createOGrafToolRecords(
     'ograf_get_changes',
     {
       title: 'Get OGraf revision changes',
-      description:
-        'Read up to 100 retained revisions after sinceRevision, with source and affected-layer summaries.',
+      description: 'Read up to 100 revisions after sinceRevision, with source/layer summaries.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         sinceRevision: z.number().int().nonnegative(),
@@ -2331,8 +2334,7 @@ export function createOGrafToolRecords(
     'ograf_get_project',
     {
       title: 'Get editable OGraf project',
-      description:
-        'Read project/revision. Omit filters for full data; include/tracks narrow it. Preserve IDs.',
+      description: 'Read project/revision; include/tracks narrow the result. Preserve IDs.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         include: z.array(z.enum(PROJECT_INCLUDE_SECTIONS)).min(1).optional(),
@@ -2349,7 +2351,7 @@ export function createOGrafToolRecords(
     {
       title: 'Inspect OGraf scene',
       description:
-        'Read layers, bindings, masks, Lottie warnings, path anchors, resolved pattern motion and lifecycle. Preserve IDs and revision.',
+        'Read layers, bindings, masks, source warnings, path anchors, pattern motion and lifecycle with IDs/revision.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2754,7 +2756,7 @@ export function createOGrafToolRecords(
     {
       title: 'Capture browser-rendered OGraf PNG',
       description:
-        'Capture PNG (responsive editor required). Default: first Step. Matte/dataOverrides: composition only. Five-minute URL; inline PNG opt-in. Not export certification.',
+        'Browser PNG; default first Step. Matte/dataOverrides: composition only. URL lasts 5 min; inline PNG opt-in. Not certification.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         target: z.enum(['composition', 'viewport']).default('composition'),
@@ -2832,7 +2834,7 @@ export function createOGrafToolRecords(
     {
       title: 'Render OGraf PNG frame strip',
       description:
-        'Capture up to 12 labelled browser frames; defaults to lifecycle/midpoints. maxDimension is per tile. Five-minute URL; inline PNG opt-in.',
+        'Browser strip, up to 12 frames; default lifecycle/midpoints. maxDimension per tile. URL lasts 5 min; inline PNG opt-in.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -3176,7 +3178,7 @@ export function createOGrafToolRecords(
     {
       title: 'Validate editable OGraf project',
       description:
-        'Validate semantics; optionally measure browser text overflow with stress testValues and broadcast lint. detail=summary shows failures/counts. Does not certify artifacts.',
+        'Validate semantics, optional browser text overflow/testValues and broadcast lint. summary returns failures/counts. Not certification.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         browserTextOverflow: z.boolean().default(false),
@@ -3406,7 +3408,7 @@ export function createOGrafToolRecords(
     {
       title: 'Measure OGraf text in the browser',
       description:
-        'Browser text fit, lines and overflow at first Step by default. degenerate means failed fitting. Parent clipping may be intentional; font resolution is inferred.',
+        'Browser text fit/overflow; default first Step. degenerate=failed fitting. Font resolution inferred; parent clipping may be intentional.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -3472,7 +3474,7 @@ export function createOGrafToolRecords(
     {
       title: 'Reset an OGraf project session',
       description:
-        'Reset an existing session in one undoable transaction; requires confirm=true and expectedRevision. keepDataFields copies main-composition fields, not layers or bindings.',
+        'Undoable reset with confirm=true and expectedRevision. keepDataFields retains main fields only.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3537,7 +3539,7 @@ export function createOGrafToolRecords(
     {
       title: 'Import a workspace asset into OGraf',
       description:
-        'Atomically embed one workspace image/font/CSS/text resource (max 32 MiB). Returns asset:<id> for layer sources or field defaults. Paths cannot leave the workspace.',
+        'Embed workspace image/font/CSS/text (32 MiB max). Returns asset:<id> for sources/defaults.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3633,7 +3635,7 @@ export function createOGrafToolRecords(
     {
       title: 'Import a portable Photoshop SVG bundle',
       description:
-        'Atomically import one workspace SVG with companion CSS/images/fonts. Embeds relative references and registers fonts. Paths cannot leave the workspace; limits are 32 MiB per file and 64 MiB total.',
+        'Import workspace SVG + CSS/images/fonts atomically; embed references/register fonts. Limits: 32 MiB/file, 64 MiB total.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3871,7 +3873,7 @@ export function createOGrafToolRecords(
     'ograf_certify_project',
     {
       title: 'Certify OGraf output',
-      description: 'Validate project, manifest, package, module and lifecycle in the editor.',
+      description: 'Certify project/manifest/package/module/lifecycle in the editor.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         profile: z.enum(['realtime', 'non-realtime', 'dual']).optional(),
@@ -3888,7 +3890,7 @@ export function createOGrafToolRecords(
     'ograf_save_project',
     {
       title: 'Save OGraf project and PNG',
-      description: 'Certify and save .ogs plus <id>_thumb.png.',
+      description: 'Certify/save .ogs + thumbnail.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         path: z.string(),
@@ -3956,7 +3958,7 @@ export function createOGrafToolRecords(
     'ograf_export_package',
     {
       title: 'Export OGraf ZIP and PNG',
-      description: 'Export certified .ograf.zip with <id>_thumb.png.',
+      description: 'Export certified .ograf.zip + thumbnail.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         path: z.string(),

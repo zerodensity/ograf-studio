@@ -1,3 +1,4 @@
+import { applyLayerEffectsFilter } from './effectCompositing';
 import gsap from 'gsap';
 import type { CompiledGraphicDescriptor, CompiledLayer } from '@ograf-editor/ograf-types';
 import {
@@ -16,7 +17,6 @@ import {
   shaderAnimationPropertySpec,
   getShaderAnimationValue,
   getShaderTrackValueAtFrame,
-  layerEffectsToCssFilter,
   TRANSFORM_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
   type LayerAnimationTracks,
@@ -287,7 +287,7 @@ export function applyCompiledLayerVisualState(
     opacity: transform.opacity,
     transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
   });
-  element.style.filter = layerEffectsToCssFilter(state.effects);
+  applyLayerEffectsFilter(element, state.effects);
   applyAnimatedPaint(element, state.paintTracks, state.paintFrame);
   if (state.patternFrame !== undefined) renderPatternAtElapsed(element, state.patternFrame);
 }

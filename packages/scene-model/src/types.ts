@@ -301,10 +301,15 @@ export interface LayerEffect {
   name: string;
   type: EffectType;
   enabled: boolean;
+  /** Omitted on existing documents: normal compositing at full strength. */
+  blendMode?: EffectBlendMode;
+  blendOpacity?: number;
   params: Record<string, number | string>;
   /** Compatibility adapter for pre-stack property tracks and color bindings. */
   legacy?: 'blur' | 'drop-shadow';
 }
+export type EffectBlendMode =
+  'normal' | 'screen' | 'add' | 'multiply' | 'overlay' | 'darken' | 'lighten';
 export type EffectParameterProperty = `effects.${string}.${string}`;
 
 /** Static composition-local CSS blending; never blends against the external video bed. */

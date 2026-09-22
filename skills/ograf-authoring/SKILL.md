@@ -130,11 +130,13 @@ After Effects, HbbTV, or other target-renderer parity, so report those separatel
 ## Composable effects
 
 Use `add_effect`, `update_effect`, `duplicate_effect`, `remove_effect`, and `reorder_effects` inside
-revision-checked batches. Discover `elements` capabilities for the parameter catalog. Effects run
+revision-checked batches. Discover `elements` capabilities for the parameter catalog. New effects
+start bypassed. Select a `blendMode` to enable; `blendOpacity` mixes 0..1 with the input. Existing
+effects without blend settings retain Normal/100%. Effects run
 top-to-bottom; repeated types are allowed. Returned effect IDs and `results.properties` are stable
 through reorder. Animate exact `effects.ID.PARAM` paths using normal tracks or local loops; bind
 color/number tokens or runtime fields to those paths. Runtime data overrides sampled parameters.
-`update_effect` accepts `patch: {name?,enabled?,params?}`; numeric edits default to authored lifecycle
+`update_effect` accepts `patch: {name?,enabled?,blendMode?,blendOpacity?,params?}`; numeric edits default to authored lifecycle
 frames, or use `scope:"frame"` with `frame`. Bypass/reorder preserve keys. Duplicate copies only the
 selected effect's keys and links; remove deletes those keys/links while keeping fields. Old blur
 and shadow use reorderable compatibility slots and retain old tracks/bindings. Read

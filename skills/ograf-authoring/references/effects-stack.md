@@ -5,6 +5,13 @@ brightness, contrast, saturate, hue-rotate. Each layer supports 16 entries, incl
 compatibility slots for older blur/shadow controls. Duplicate types are supported. The stack
 stays inside one layer; avoid duplicate geometry just to combine shadows or glows.
 
+New effects start bypassed. Choose Normal, Screen, Add, Multiply, Overlay, Darken or Lighten to
+activate one; MCP `blendMode` also enables unless `enabled:false` is explicit. `blendOpacity`
+(0..1) mixes its result with the input. Glow/shadow modes blend their generated contribution;
+adjustments blend the processed image. Existing entries without blend settings keep Normal/100%.
+Blend settings are static; effect parameter keyframes remain independent. Bypass preserves all
+settings and keys. All bypassed produces no extra filter graph.
+
 ## Create, then use returned paths
 
 ```json
@@ -15,6 +22,8 @@ stays inside one layer; avoid duplicate geometry just to combine shadows or glow
     "effectType": "glow",
     "patch": {
       "name": "Soft silver bloom",
+      "blendMode": "screen",
+      "blendOpacity": 0.6,
       "params": { "radius": 12, "color": "#a8d8ff", "opacity": 0.35 }
     }
   }
@@ -27,7 +36,7 @@ For example the returned radius path has shape `effects.<effect-id>.radius`. IDs
 layer and do not change when the effect moves or is renamed. Inspect the resolved `effectStack`
 through `ograf_inspect_scene`; it includes enabled state, params and legacy property mappings.
 
-`update_effect` accepts an effect ID and `patch: {name?,enabled?,params?}`. Numeric params use
+`update_effect` accepts an effect ID and `patch: {name?,enabled?,blendMode?,blendOpacity?,params?}`. Numeric params use
 authored lifecycle frames by default; use `scope: "frame"` plus `frame` for one key. Full tracks
 can be supplied independently. A bypass only changes `enabled` and preserves keys/bindings.
 `duplicate_effect` copies the selected effect's tracks and bindings with fresh effect/key IDs.
@@ -57,6 +66,6 @@ parameter without restarting the loop; authored values remain intact. A color fi
 
 Check a frame where the effect is visible, compare different orders, and sample animation before
 and after reordering. Realtime updates and scheduled backward seeking must reproduce the same
-filter/phase. Studio and export use one CSS chain; alpha masks use the equivalent ordered SVG
-chain with padding for accumulated blur/shadow extents. Path masks ignore effects by definition.
+filter/phase. Studio and export keep CSS for Normal/100% chains and use an sRGB SVG filter graph
+for per-effect blending; alpha masks use the same ordered graph with padding for accumulated blur/shadow extents. Path masks ignore effects by definition.
 Preserve the final certification gate before source save or package export.
