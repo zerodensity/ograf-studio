@@ -5,7 +5,7 @@
     {
       "name": "ograf_get_capabilities",
       "title": "Get OGraf authoring capabilities",
-      "description": "Discover section contracts (including shaders/tiling); check editor readiness for browser tools.",
+      "description": "Discover section contracts and browser-editor readiness.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -121,7 +121,7 @@
     {
       "name": "ograf_inspect_scene",
       "title": "Inspect OGraf scene",
-      "description": "Read layers, bindings, masks, source warnings, path anchors, pattern motion and lifecycle with IDs/revision.",
+      "description": "Inspect scene layers, authoring links, motion, warnings, IDs and revision.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -141,7 +141,7 @@
     {
       "name": "ograf_query_scene",
       "title": "Query OGraf scene by semantic intent",
-      "description": "Find layers by semantics, name, type, bindings, visibility or motion, with geometry, masks and authoring links.",
+      "description": "Query layers by semantics, name, type, bindings, visibility or motion.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -406,7 +406,7 @@
     {
       "name": "ograf_apply_operations",
       "title": "Apply OGraf operations",
-      "description": "Atomic batch: apply commits; dry-run validates; preview renders; propose awaits Accept/Reject.",
+      "description": "Atomic apply, dry-run, rendered preview, or Accept/Reject proposal.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -481,7 +481,9 @@
                             "anyOf": [{ "type": "number" }, { "type": "string" }]
                           }
                         },
-                        "shader": {}
+                        "shader": {
+                          "description": "Shader effect paint; iChannel0=input; omit inputImage."
+                        }
                       },
                       "additionalProperties": false
                     },
@@ -514,7 +516,9 @@
                             "anyOf": [{ "type": "number" }, { "type": "string" }]
                           }
                         },
-                        "shader": {}
+                        "shader": {
+                          "description": "Shader effect paint; iChannel0=input; omit inputImage."
+                        }
                       },
                       "additionalProperties": false
                     },
@@ -3052,7 +3056,7 @@
     {
       "name": "ograf_validate_project",
       "title": "Validate editable OGraf project",
-      "description": "Validate semantics, optional browser text overflow/testValues and broadcast lint. summary returns failures/counts. Not certification.",
+      "description": "Validate semantics, browser text stress and broadcast lint; not certification.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3117,7 +3121,7 @@
     {
       "name": "ograf_measure_text",
       "title": "Measure OGraf text in the browser",
-      "description": "Browser text fit/overflow; default first Step. degenerate=failed fitting. Font resolution inferred; parent clipping may be intentional.",
+      "description": "Measure browser text fit and overflow at a frame; reports failed fitting and clipping.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3141,7 +3145,7 @@
     {
       "name": "ograf_create_project",
       "title": "Create OGraf project session",
-      "description": "Creates a new in-memory editable OGraf project session. Use sessionId=editor only for the live browser project.",
+      "description": "Create an in-memory project session; editor is the live browser session.",
       "inputSchema": {
         "type": "object",
         "properties": { "sessionId": { "type": "string" }, "name": { "type": "string" } },

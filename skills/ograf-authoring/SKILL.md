@@ -142,8 +142,9 @@ selected effect's keys and links; remove deletes those keys/links while keeping 
 and shadow use reorderable compatibility slots and retain old tracks/bindings. Read
 [effects-stack.md](./references/effects-stack.md) for examples and limits.
 
-A `shader` effect is a true ordered WebGL 2 post-process pass: `iChannel0` is the flattened layer
-result after preceding effects, and the shader's blended output feeds later effects. Its complete
+A `shader` effect, authored with `add_effect effectType:"shader"`, is an ordered WebGL 2
+post-process pass: `iChannel0` is the flattened result after preceding effects, and its blended
+output feeds later effects. Its complete
 `shader` paint stores `fragmentSource`, `speed`, `resolutionScale`, and pragma parameters; do not set
 `inputImage` because the incoming stack owns `iChannel0`. Source and static controls are editable in
 the effect disclosure. SVG-only projections cannot reproduce shader-effect pixels; require browser

@@ -128,11 +128,13 @@ const SHADER_PAINT_CAPABILITIES = {
     semantics:
       'Saved unused shaders are authoring resources, with no layer or OGraf data fields. Applying a library shader copies its paint independently into an object.',
     authoring:
-      'Read project.shaders, then copy resource.paint into update_element.patch.fill or text strokePaint. New Shader, rename, Load GLSL, Save shader and library removal are editor UI actions; no dedicated shader-library mutation operation is exposed.',
+      'Read project.shaders, then copy resource.paint into update_element.patch.fill, text strokePaint, or add_effect/update_effect patch.shader. Remove inputImage when copying into an effect because its iChannel0 is the incoming stack image. New Shader, rename, Load GLSL, Save shader and library removal are editor UI actions; no dedicated shader-library mutation operation is exposed.',
   },
   slots: {
     fill: 'All listed elements',
     stroke: 'Text only, stored in element.strokePaint; absent uses strokeColor.',
+    effect:
+      'Post-process stack entry via add_effect/update_effect patch.shader; iChannel0 is reserved for preceding stack output.',
   },
   supportedElements: [
     'rectangle',
@@ -318,8 +320,7 @@ function consolidateOperationTools(
     name: 'ograf_apply_operations',
     config: {
       title: 'Apply OGraf operations',
-      description:
-        'Atomic batch: apply commits; dry-run validates; preview renders; propose awaits Accept/Reject.',
+      description: 'Atomic apply, dry-run, rendered preview, or Accept/Reject proposal.',
       inputSchema: consolidatedOperationInputSchema,
       annotations: mutation,
     },
@@ -1621,8 +1622,7 @@ export function createOGrafToolRecords(
     'ograf_get_capabilities',
     {
       title: 'Get OGraf authoring capabilities',
-      description:
-        'Discover section contracts (including shaders/tiling); check editor readiness for browser tools.',
+      description: 'Discover section contracts and browser-editor readiness.',
       inputSchema: {
         sections: z.array(z.enum(CAPABILITY_SECTIONS)).min(1).optional(),
       },
@@ -2131,6 +2131,32 @@ export function createOGrafToolRecords(
             'Use effects.ID.PARAM for new numeric tracks/local loops, color/number Brand Kit tokens and OGraf data bindings. Runtime data overrides the sampled parameter. Effect IDs are scoped to a layer and survive reorder. Legacy slots keep their original property names.',
           rendering:
             'One ordered chain powers Studio and export. Shader is a WebGL2 post-process: iChannel0 receives preceding output; GPU Blend/Opacity feeds later effects. inputImage and alpha-mask sourcing are rejected. SVG projections omit GLSL pixels; use browser certification. Path masks ignore effects. Catalog values clamp overshoot.',
+          shaderEffect: {
+            contract:
+              'Use add_effect with effectType:"shader" or update_effect with the returned effectId. patch.shader is a complete ShaderPaint: type, fragmentSource, speed, resolutionScale and parameters. Do not set inputImage.',
+            input:
+              'iChannel0 is the flattened layer result after preceding effects; iResolution and iChannelResolution[0] are the padded effect buffer.',
+            controls:
+              '#pragma ograf declarations populate shader.parameters and remain static effect controls; effect-track/runtime binding is not yet supported for those controls.',
+            example: {
+              type: 'add_effect',
+              layerName: 'Layer name',
+              effectType: 'shader',
+              patch: {
+                name: 'Invert incoming layer',
+                blendMode: 'normal',
+                blendOpacity: 1,
+                shader: {
+                  type: 'shader',
+                  fragmentSource:
+                    'void mainImage(out vec4 c, in vec2 p) { vec4 s = texture(iChannel0, p / iResolution.xy); c = vec4(1.0 - s.rgb, s.a); }',
+                  speed: 1,
+                  resolutionScale: 1,
+                  parameters: {},
+                },
+              },
+            },
+          },
           catalog: EFFECT_CATALOG,
         },
         tiling: {
@@ -2361,8 +2387,7 @@ export function createOGrafToolRecords(
     'ograf_inspect_scene',
     {
       title: 'Inspect OGraf scene',
-      description:
-        'Read layers, bindings, masks, source warnings, path anchors, pattern motion and lifecycle with IDs/revision.',
+      description: 'Inspect scene layers, authoring links, motion, warnings, IDs and revision.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2388,8 +2413,7 @@ export function createOGrafToolRecords(
     'ograf_query_scene',
     {
       title: 'Query OGraf scene by semantic intent',
-      description:
-        'Find layers by semantics, name, type, bindings, visibility or motion, with geometry, masks and authoring links.',
+      description: 'Query layers by semantics, name, type, bindings, visibility or motion.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -3188,8 +3212,7 @@ export function createOGrafToolRecords(
     'ograf_validate_project',
     {
       title: 'Validate editable OGraf project',
-      description:
-        'Validate semantics, optional browser text overflow/testValues and broadcast lint. summary returns failures/counts. Not certification.',
+      description: 'Validate semantics, browser text stress and broadcast lint; not certification.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         browserTextOverflow: z.boolean().default(false),
@@ -3419,7 +3442,7 @@ export function createOGrafToolRecords(
     {
       title: 'Measure OGraf text in the browser',
       description:
-        'Browser text fit/overflow; default first Step. degenerate=failed fitting. Font resolution inferred; parent clipping may be intentional.',
+        'Measure browser text fit and overflow at a frame; reports failed fitting and clipping.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -3464,8 +3487,7 @@ export function createOGrafToolRecords(
     'ograf_create_project',
     {
       title: 'Create OGraf project session',
-      description:
-        'Creates a new in-memory editable OGraf project session. Use sessionId=editor only for the live browser project.',
+      description: 'Create an in-memory project session; editor is the live browser session.',
       inputSchema: { sessionId: z.string(), name: z.string().optional() },
       annotations: mutation,
     },

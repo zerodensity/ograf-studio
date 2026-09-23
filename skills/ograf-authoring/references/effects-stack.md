@@ -36,7 +36,7 @@ For example the returned radius path has shape `effects.<effect-id>.radius`. IDs
 layer and do not change when the effect moves or is renamed. Inspect the resolved `effectStack`
 through `ograf_inspect_scene`; it includes enabled state, params and legacy property mappings.
 
-`update_effect` accepts an effect ID and `patch: {name?,enabled?,blendMode?,blendOpacity?,params?}`. Numeric params use
+`update_effect` accepts an effect ID and `patch: {name?,enabled?,blendMode?,blendOpacity?,params?,shader?}`. Numeric params use
 authored lifecycle frames by default; use `scope: "frame"` plus `frame` for one key. Full tracks
 can be supplied independently. A bypass only changes `enabled` and preserves keys/bindings.
 `duplicate_effect` copies the selected effect's tracks and bindings with fresh effect/key IDs.
@@ -65,6 +65,34 @@ and static control edits are stored with the effect; declared controls are not y
 runtime-binding targets. Use browser capture and final certification—SVG-only previews omit the GLSL
 pixels. A layer with an enabled shader effect cannot be used as an alpha-mask source; path masks
 still ignore paint and effects.
+
+Create and enable an invert post-process in one operation:
+
+```json
+{
+  "type": "add_effect",
+  "layerName": "Title",
+  "effectType": "shader",
+  "patch": {
+    "name": "Invert incoming layer",
+    "blendMode": "normal",
+    "blendOpacity": 1,
+    "shader": {
+      "type": "shader",
+      "fragmentSource": "void mainImage(out vec4 c, in vec2 p) { vec4 s = texture(iChannel0, p / iResolution.xy); c = vec4(1.0 - s.rgb, s.a); }",
+      "speed": 1,
+      "resolutionScale": 1,
+      "parameters": {}
+    }
+  }
+}
+```
+
+Use the returned effect ID for later edits. `update_effect.patch.shader` is a complete paint, so
+preserve unchanged source/settings explicitly. Pragma-driven values belong in `shader.parameters`;
+the sibling effect `params` object is for catalog effects such as blur and brightness. To reuse a
+saved shader, read `project.shaders` with `ograf_get_project include:["shaders"]`, copy its `paint`
+into `patch.shader`, and remove `inputImage` first. A shader effect always owns `iChannel0`.
 
 Old projects preserve blur then shadow through `base-blur` and `base-shadow` slots. Their property
 paths remain `blur`, `dropShadowBlur`, `dropShadowOpacity`, `dropShadowOffsetX`, `dropShadowOffsetY`

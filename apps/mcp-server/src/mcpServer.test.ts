@@ -115,6 +115,39 @@ describe('OGraf MCP authoring host', () => {
     };
     expect(sampled.frames[0]!.layers[0]!.properties['fill.parameters.intensity']).toBe(0.25);
   });
+  it('executes the advertised MCP shader-effect example', async () => {
+    const capabilities = await client.callTool({
+      name: 'ograf_get_capabilities',
+      arguments: { sections: ['elements'] },
+    });
+    const example = (
+      capabilities.structuredContent as {
+        composableEffects: { shaderEffect: { example: Record<string, unknown> } };
+      }
+    ).composableEffects.shaderEffect.example;
+    const sessionId = 'shader-effect-capability-example';
+    host.workspace.create(sessionId);
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [{ type: 'add_layer', kind: 'text', name: 'Layer name' }, example],
+      },
+    });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    expect(
+      host.workspace.get(sessionId).snapshot().project.compositions[0]!.layers[0]!.effects.stack,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'shader',
+          enabled: true,
+          shader: expect.objectContaining({ fragmentSource: expect.stringContaining('iChannel0') }),
+        }),
+      ]),
+    );
+  });
   it('reads saved unused shaders as a project section without inventing layers or data fields', async () => {
     const resource = createShaderResource();
     resource.paint.name = 'Saved library shader';
@@ -634,6 +667,11 @@ describe('OGraf MCP authoring host', () => {
     );
     expect(tools.tools.map((tool) => tool.name)).not.toContain('ograf_preview_operations');
     expect(tools.tools.map((tool) => tool.name)).not.toContain('ograf_propose_operations');
+    expect(
+      JSON.stringify(
+        tools.tools.find((tool) => tool.name === 'ograf_apply_operations')?.inputSchema,
+      ),
+    ).toContain('iChannel0=input');
   });
 
   it('renders a bounded fourteen-tool in-app surface from the same canonical records', () => {

@@ -114,7 +114,8 @@ Supported operation discriminators:
   `refresh_component_instances`, `rename_component`, `remove_component`
 - Shared patterns: `set_tiling_pattern`, `remove_tiling_pattern`, `set_layer_lighting`; inspect through
   `ograf_get_project include: ["patterns"]` and `ograf_inspect_scene`
-- Content/style: `update_element`, `update_transform`, `update_effects`
+- Content/style: `update_element`, `update_transform`, `update_effects`, `add_effect`,
+  `update_effect`, `duplicate_effect`, `remove_effect`, `reorder_effects`
 - Compositing: `set_layer_mask`; `set_layer_flags.isMaskOnly` controls source-only output
 - Timeline: `set_property_key`, `set_property_track`, `stagger_property_track`,
   `move_property_key`, `remove_property_key`, `set_property_key_easing`, `set_transition`,
@@ -164,6 +165,10 @@ selectors see matching entities created earlier in the same atomic batch.
 
 `update_transform` and `update_effects` default to `scope: "authored"`, writing each lifecycle frame.
 Use `scope: "frame"` and a required `frame` for one-frame animation changes.
+
+For a post-process shader use `add_effect effectType:"shader"` with complete `patch.shader`; its
+`iChannel0` is the preceding stack output, so omit `inputImage`. Update by returned effect ID. See
+[effects-stack.md](./effects-stack.md#shader-effect).
 
 `set_layer_flags.blendMode` accepts `normal`, `multiply`, `screen`, `overlay`, `darken`, `lighten`,
 `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, or `exclusion`. The value is a

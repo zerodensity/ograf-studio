@@ -112,6 +112,12 @@ authorized source and send its text in the complete paint. Preserve existing pai
 changing one parameter. Set text `strokePaint:null` to restore solid `strokeColor`; replacing
 fill with a solid restores a shape fill, while omitted media fill restores original pixels.
 
+To use a saved shader as a post-process rather than a Fill/Outline paint, call `add_effect` with
+`effectType:"shader"` and copy `resource.paint` into `patch.shader`. Remove `inputImage`: shader
+effects reserve `iChannel0` for the flattened layer output from preceding effects. Keep the copied
+`type`, `fragmentSource`, `speed`, `resolutionScale`, and `parameters`. See
+[the shader-effect transaction](./effects-stack.md#shader-effect).
+
 ## Visual pattern presets
 
 `ograf_get_capabilities sections:["tiling"]` returns `tiling.presets.entries`. Each entry has an
