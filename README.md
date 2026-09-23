@@ -52,7 +52,7 @@ building executables and verification.
 
 - [Using Studio](docs/USER_GUIDE.md) — projects, images, SVG and Lottie.
 - [AI authoring](docs/AI_AUTHORING.md) — built-in chat, MCP clients and the authoring skill.
-- [What's new](docs/releases/0.22.0-rc.2.md) — 0.22 release-candidate highlights.
+- [What's new](docs/releases/0.22.md) — 0.22 release highlights.
 - [Contributing](CONTRIBUTING.md) — community development and verification.
 
 Contributions target `dev`; maintainers promote tested changes into `stable`, the default branch.
