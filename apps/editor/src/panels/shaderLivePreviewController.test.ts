@@ -101,7 +101,7 @@ describe('live draft shader preview', () => {
     controller.dispose();
   });
 
-  it('replaces only one context on source/scale changes and preserves the running phase', () => {
+  it('replaces only one context on source, scale or image-input changes and preserves the running phase', () => {
     const { controller, canvases, tick, frames } = fixture();
     controller.update(paint);
     tick(300);
@@ -115,6 +115,16 @@ describe('live draft shader preview', () => {
     controller.update({ ...source, resolutionScale: 0.5 });
     expect(second.dispose).toHaveBeenCalledTimes(1);
     expect(rendererFactory).toHaveBeenCalledTimes(3);
+    controller.update({
+      ...source,
+      resolutionScale: 0.5,
+      inputImage: {
+        source: 'data:image/png;base64,iVBORw0KGgo=',
+        wrap: 'repeat',
+        filter: 'linear',
+      },
+    });
+    expect(rendererFactory).toHaveBeenCalledTimes(4);
     expect(frames.size).toBe(1);
     controller.dispose();
   });

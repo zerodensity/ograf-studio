@@ -151,6 +151,12 @@ entering that effect, while the layer's blend mode still combines the completed 
 composition underneath. Glow and shadow blend only their generated contribution; blur and color
 adjustments blend their processed image. Normal at 100% keeps the original effect behavior.
 
+**Shader** adds a true WebGL 2 post-process pass. Its `iChannel0` is the layer result after every
+preceding stack entry; the Shader output is blended by that entry's Blend and Effect opacity, then
+passed to later effects. Expand the effect to edit or load its `mainImage` source and exposed
+controls. The effect cannot attach a separate `inputImage`, because `iChannel0` is reserved for the
+incoming stack image.
+
 Bypass retains settings and animation. When all effects are bypassed, the object uses its ordinary
 rendering path without effect passes. Existing projects keep their enabled effects and appearance.
 Effect parameters remain animatable; blend mode and effect opacity are static settings.
@@ -171,11 +177,12 @@ Text also has an independent **Outline** paint selector. Choose **Shader** there
 Width** to animate its border separately from the fill. The object remains editable text: changes
 to Content, font, sizing, or alignment update both paints. Solid and shader paints can be mixed.
 
-**Resources → Shaders** lists saved project shaders and the project's fill and outline shaders,
-including saved component definitions. **New Shader** opens a draft without adding a canvas object.
+**Resources → Shaders** lists saved project shaders. Shader paints already applied to object
+fills and text outlines are edited on that object's **Properties** panel instead of appearing as
+duplicate resources. **New Shader** opens a draft without adding a canvas object.
 Choose **Save shader** to keep it in the project, then drag it onto Fill or Outline when needed;
 **Cancel** discards the new draft. Unused project shaders are retained in editable `.ogs` files.
-Each entry has a thumbnail, **Edit**, **Load**, and a remove icon. The editor has an
+Each saved entry has a thumbnail, **Edit**, **Load**, and a remove icon. The editor has an
 editable shader name and a larger animated preview. Changes stay in the window until **Save
 shader**; **Cancel** discards them. **Preview shader** tests source changes in the preview, and
 loading a file opens a draft. Entries are independent, even when their source is identical. Edits
@@ -183,10 +190,10 @@ preserve compatible parameter values and keep the current canvas selection.
 Drag a shader entry from Resources onto an object's **Fill** or text **Outline** row to apply a
 copy of its current source, settings, name, and controls. The destination highlights while dragging;
 the original shader stays independent.
-Removing a saved project shader keeps copies already applied to objects. For an object usage,
-the trash icon (**Remove shader**) detaches the selected usage without deleting its object. Text returns to its
-solid fill or outline color, shapes use the default solid fill, and media shows its original pixels.
-Only that usage's shader bindings and unused generated controls are removed. Use **Undo** to restore it.
+Removing a saved project shader keeps copies already applied to objects. To detach an applied
+shader, choose Solid or Original pixels from the object's Fill or Outline control in Properties.
+Text returns to its solid fill or outline color, shapes use the selected solid fill, and media shows
+its original pixels. Use **Undo** to restore a change.
 
 Mark literal global constants to create editable controls and OGraf data fields automatically:
 
@@ -235,10 +242,13 @@ unkeyed channels remain data-driven. Removing the final key returns that channel
 `iTime` clock continues independently. Animation belongs to the object, not a saved library shader.
 Keep exposed names stable: removing declarations or shader paints removes their matching tracks.
 
-The original source and values are saved in `.ogs` and compiled packages. The supported profile
-provides `iTime` and `iResolution`; texture channels, buffer/feedback passes, audio inputs, mouse
-inputs, and custom uniform declarations are unsupported. Shadertoy Image passes that fit this
-profile can be adapted; check their individual licences. Export certification checks rendering
+The original source and values are saved in `.ogs` and compiled packages. Under **Rendering**, an
+embedded PNG or JPEG can be assigned as a portable static **Image input**. Shadertoy Image code
+samples it as `sampler2D iChannel0`; `iChannelResolution[0]` reports its pixel dimensions. Repeat or
+Clamp wrapping and Linear or Nearest filtering are authored with the shader. The supported profile
+also provides `iTime` and `iResolution`. Additional channels, video, buffer/feedback passes, audio
+inputs, mouse inputs, and custom uniform declarations are unsupported. Shadertoy Image passes that
+fit this profile can be adapted; check their individual licences. Export certification checks rendering
 and repeated seeks, but the destination player must still support WebGL 2. Shader-filled objects
 can use geometric masks, but cannot currently supply an alpha mask for another object.
 

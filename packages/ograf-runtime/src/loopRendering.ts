@@ -276,6 +276,7 @@ export function sampleCompiledLayerVisualState(
 export function applyCompiledLayerVisualState(
   element: HTMLElement,
   state: CompiledLayerVisualState,
+  elapsedMs = 0,
 ): void {
   const { transform } = state;
   gsap.set(element, {
@@ -287,7 +288,7 @@ export function applyCompiledLayerVisualState(
     opacity: transform.opacity,
     transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
   });
-  applyLayerEffectsFilter(element, state.effects);
+  applyLayerEffectsFilter(element, state.effects, elapsedMs);
   applyAnimatedPaint(element, state.paintTracks, state.paintFrame);
   if (state.patternFrame !== undefined) renderPatternAtElapsed(element, state.patternFrame);
 }

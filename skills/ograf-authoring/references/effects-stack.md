@@ -1,7 +1,7 @@
 # Composable effects stack
 
 Properties → Effects stack is an ordered filter chain. Types: blur, drop-shadow, glow,
-brightness, contrast, saturate, hue-rotate. Each layer supports 16 entries, including the two
+brightness, contrast, saturate, hue-rotate, shader. Each layer supports 16 entries, including the two
 compatibility slots for older blur/shadow controls. Duplicate types are supported. The stack
 stays inside one layer; avoid duplicate geometry just to combine shadows or glows.
 
@@ -50,6 +50,21 @@ Read the live capability catalog for current bounds and defaults. Blur/glow/shad
 use multipliers 0–4 (1 is unchanged), and hue uses degrees. Effect colors use #RRGGBB/#RRGGBBAA.
 Numeric eased overshoot is clamped to the supported range. Glow adds an outer colored halo to
 the preceding result. A subsequent blur or color adjustment processes that halo too; order matters.
+
+## Shader effect
+
+`add_effect` with `effectType:"shader"` creates a bypassed identity post-process shader. Enable a
+Blend mode, then edit its complete `shader` paint. `iChannel0` is the flattened incoming layer image
+after every preceding stack entry; the shader output is blended with that input and becomes the
+source for later effects. `iResolution` and `iChannelResolution[0]` describe the padded effect
+buffer. The pass is WebGL 2 and uses absolute OGraf time. A separate `inputImage` is rejected because
+the stack owns `iChannel0`; additional texture channels, feedback, video and audio remain unsupported.
+
+The editor disclosure exposes source loading, render scale and pragma controls. Shader-effect source
+and static control edits are stored with the effect; declared controls are not yet effect-track or
+runtime-binding targets. Use browser capture and final certification—SVG-only previews omit the GLSL
+pixels. A layer with an enabled shader effect cannot be used as an alpha-mask source; path masks
+still ignore paint and effects.
 
 Old projects preserve blur then shadow through `base-blur` and `base-shadow` slots. Their property
 paths remain `blur`, `dropShadowBlur`, `dropShadowOpacity`, `dropShadowOffsetX`, `dropShadowOffsetY`

@@ -77,9 +77,14 @@ Save/export must certify the same artifact bytes that are written. If certificat
   because browser SVG masks do not render embedded HTML. Visible path gradients use native CSS.
 - Gradient stop-offset tracks use `fill.stops[N].offset`, reference an existing zero-based stop, and
   keep authored key values within 0..1.
-- Shader paints require WebGL2. Sample exposed parameters per object/paint slot at the requested
-  time; active keyed channels override only their data components. Loop-only controls return to
-  data outside their active interval. Shader time and keyframed parameters are independent.
+- Shader paints require WebGL2. One optional embedded PNG/JPEG is decoded before readiness and
+  sampled as `iChannel0`; `iChannelResolution[0]` reports its pixels. Sample exposed parameters per
+  object/paint slot at the requested time; active keyed channels override only their data
+  components. Loop-only controls return to data outside their active interval. Shader time and
+  keyframed parameters are independent.
+- Shader effects require WebGL2 and reserve `iChannel0` for the flattened incoming layer result
+  after preceding effects. Their blended output feeds later effects. They cannot attach a separate
+  input image or serve as alpha-mask sources; browser capture/certification must render their pixels.
 - Blend modes are static layer properties evaluated inside one isolated transparent composition.
   They must not depend on, sample, or change according to an external controller/video background.
   Editor transparency checkerboards remain outside the composition isolation boundary.

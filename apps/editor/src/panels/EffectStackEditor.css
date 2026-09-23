@@ -1,46 +1,170 @@
-.effect-stack-toolbar,
-.effect-stack-header,
-.effect-stack-actions {
+/* The stack sits inside the Inspector's flush 30px row grid, so it carries no card chrome of its
+   own: an effect is a disclosure row followed by ordinary property rows. */
+
+.effect-stack-count {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--border-strong);
+  color: var(--text-muted, #929eab);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.effect-stack-add {
+  min-height: 30px;
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
 }
-.effect-stack-toolbar {
-  margin-bottom: 10px;
-}
-.effect-stack-toolbar select {
+
+.effect-stack-add select {
   flex: 1;
   min-width: 0;
 }
-.effect-stack-item {
-  padding: 9px;
-  margin-bottom: 9px;
-  border: 1px solid var(--border-color, #363b43);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.02);
-}
-.effect-stack-header input[type='text'],
-.effect-stack-header input:not([type]) {
-  min-width: 0;
-  flex: 1;
-}
-.effect-stack-header input[type='checkbox'] {
-  width: 14px;
+
+.effect-stack-add button {
   flex: none;
+  padding: 3px 10px;
 }
-.effect-stack-header span {
+
+.effect-stack-error {
+  margin: 0;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(220, 80, 80, 0.12);
+  color: #f0a8a8;
+  font-size: 11px;
+}
+
+.effect-stack-item > summary {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 4px;
+  border-bottom: 1px solid var(--border);
+  background: #252525;
+  cursor: default;
+  list-style: none;
+}
+
+.effect-stack-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A rotating caret reads as "this opens" without spending a control slot. */
+.effect-stack-item > summary::before {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 0;
+  margin-right: 1px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--text-muted, #929eab);
+  cursor: pointer;
+  transition: transform 90ms ease;
+}
+
+.effect-stack-item[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.effect-stack-item > summary:hover {
+  background: #303030;
+}
+
+.effect-stack-name {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  padding: 2px 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+}
+
+/* The name only looks editable once you go near it, which keeps the row reading as a header. */
+.effect-stack-name:is(:hover, :focus) {
+  border-color: var(--border-strong);
+  background: var(--bg-input, #1e1e1e);
+}
+
+.effect-stack-type,
+.effect-stack-badge {
+  flex: none;
+  color: var(--text-muted, #929eab);
   font-size: 10px;
-  color: #929eab;
   white-space: nowrap;
 }
+
+.effect-stack-badge {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--border-strong);
+  line-height: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .effect-stack-actions {
-  margin: 7px 0;
-  justify-content: flex-end;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
 }
+
 .effect-stack-actions button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, #929eab);
   font-size: 11px;
-  padding: 3px 7px;
+  line-height: 1;
+  cursor: pointer;
 }
-.effect-stack-params.is-bypassed {
-  opacity: 0.5;
+
+.effect-stack-actions button:hover:not(:disabled) {
+  border-radius: 3px;
+  background: var(--border-strong);
+  color: var(--text);
+}
+
+.effect-stack-actions button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.effect-stack-item.is-bypassed :is(.effect-stack-name, .inspector-row) {
+  opacity: 0.55;
+}
+
+.effect-stack-blend-controls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 3px 6px;
+}
+
+.effect-stack-blend-controls select {
+  min-width: 0;
+  flex: 1;
+}
+
+.effect-stack-blend-controls input {
+  width: 48px;
+  flex: none;
+}
+
+/* The row grid styles a lone control; this cell holds two, so reset its inherited sizing. */
+.effect-stack-blend > .effect-stack-blend-controls > :is(select, input) {
+  width: auto;
+  margin: 0;
 }

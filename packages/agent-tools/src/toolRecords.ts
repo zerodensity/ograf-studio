@@ -56,6 +56,7 @@ import {
   intersectConvexPolygons,
   inspectLottieAnimationData,
   inspectShaderElement,
+  MAX_SHADER_IMAGE_BYTES,
   MAX_SHADER_SOURCE_BYTES,
   LOTTIE_READY_TIMEOUT_MS,
   PROJECT_SOURCE_EXTENSION,
@@ -144,16 +145,16 @@ const SHADER_PAINT_CAPABILITIES = {
     'lottie',
   ],
   shape:
-    'Shader RGBA is multiplied by the object shape or source alpha; original media colors are replaced. Text outlines can use an independent strokePaint shader clipped by native glyph stroke alpha. User source receives no source texture channel.',
+    'Shader RGBA is multiplied by the object shape or source alpha; original media colors are replaced. Text outlines can use an independent strokePaint shader clipped by native glyph stroke alpha. One independent embedded image may be sampled through iChannel0; the shader cannot sample the painted object, lower layers or external broadcast video.',
   editor:
-    'Resources > Shaders provides saved shaders and object usages with previews, Edit/Load/remove and drag to Fill or text Outline. Shader source edits use Save shader; copying a resource creates an independent paint. Auto-keyframe and Timeline + Property expose declared channels; local loops have their own preview.',
+    'Resources > Shaders provides saved shaders with previews, Edit/Load/remove and drag to Fill or text Outline. Applied copies are edited on the object in Properties and do not appear as duplicate resources. Shader source edits use Save shader; copying a resource creates an independent paint. Auto-keyframe and Timeline + Property expose declared channels; local loops have their own preview.',
   animation:
     'Use set_property_track for lifecycle keys, or set_layer_loop plus set_loop_property_track for ambient motion. Inspect shaderAnimationProperties for exact paths and limits. Float channels interpolate; int/bool hold (bool keys are 0/1), vec2 uses .x/.y, colors .r/.g/.b/.a. Active keyed channels override data only for those channels; loop-only channels return to data when inactive. iTime continues independently. Keep loop endpoints equal and exposed symbol names stable.',
   fragmentSource: {
     type: 'string',
     maximumBytes: MAX_SHADER_SOURCE_BYTES,
     description:
-      'Self-contained GLSL Image pass defining mainImage(out vec4 fragColor, in vec2 fragCoord), preserved verbatim. The runtime supplies main, version, iTime and iResolution. Mark literal global constants with #pragma ograf NAME CONTROL options to generate controls and OGraf fields automatically; omit custom uniform declarations.',
+      'Self-contained GLSL Image pass defining mainImage(out vec4 fragColor, in vec2 fragCoord), preserved verbatim. The runtime supplies main, version, iTime, iResolution, optional iChannel0 and iChannelResolution. Mark literal global constants with #pragma ograf NAME CONTROL options to generate controls and OGraf fields automatically; omit custom uniform declarations.',
   },
   speed: { type: 'number', default: 1, minimum: 0, maximum: 10 },
   resolutionScale: { type: 'number', default: 1, minimum: 0.25, maximum: 1 },
@@ -169,12 +170,22 @@ const SHADER_PAINT_CAPABILITIES = {
     dataTypes:
       'float: number; int: integer; bool: boolean; vec3/vec4 colors: #rrggbb/#rrggbbaa; vec2: object with numeric x and y properties.',
   },
+  inputImage: {
+    optional: true,
+    shape: '{source,name?,wrap:"repeat"|"clamp",filter:"linear"|"nearest"}',
+    source: 'Embedded PNG or JPEG data URI',
+    maximumBytes: MAX_SHADER_IMAGE_BYTES,
+    uniforms: ['sampler2D iChannel0', 'vec3 iChannelResolution[4]'],
+    semantics:
+      'One portable static image copied with the shader paint. It is independent of the painted object and external video.',
+  },
   runtimeProfile: {
     renderer: 'WebGL2',
     passes: 1,
-    supportedInputs: ['iTime', 'iResolution'],
+    supportedInputs: ['iTime', 'iResolution', 'iChannel0', 'iChannelResolution[0]'],
     unsupported: [
-      'texture channels',
+      'iChannel1–3',
+      'video textures',
       'audio',
       'buffer passes',
       'feedback',
@@ -188,7 +199,7 @@ const SHADER_PAINT_CAPABILITIES = {
     portability:
       'The target renderer must support WebGL2. Source inspection is not a GLSL compile or rendering check. SVG-only previews cannot render shader pixels.',
     editing:
-      'Set element.fill to {type:shader, fragmentSource, speed:1, resolutionScale:1, parameters:{}} on an existing shape, text, or media layer. Use update_element.patch.fill for fill edits; text also accepts independent strokePaint with the same shape. Set strokePaint:null to restore its solid strokeColor. Source pragmas define editable parameters and automatically exposed typed runtime bindings. Exposed controls support numeric lifecycle and loop tracks. Scalars use fill.parameters.NAME or strokePaint.parameters.NAME; vec2 uses .x/.y, colors .r/.g/.b/.a. Integer/toggle keys hold until the next key (toggle values0/1). Only keyed channels override data; unkeyed channels retain data/defaults.',
+      'Set element.fill to {type:shader, fragmentSource, speed:1, resolutionScale:1, parameters:{}, inputImage?} on an existing shape, text, or media layer. Use update_element.patch.fill for fill edits; text also accepts independent strokePaint with the same shape. Set strokePaint:null to restore its solid strokeColor. inputImage.source is an embedded PNG/JPEG data URI sampled as iChannel0. Source pragmas define editable parameters and automatically exposed typed runtime bindings. Exposed controls support numeric lifecycle and loop tracks. Scalars use fill.parameters.NAME or strokePaint.parameters.NAME; vec2 uses .x/.y, colors .r/.g/.b/.a. Integer/toggle keys hold until the next key (toggle values0/1). Only keyed channels override data; unkeyed channels retain data/defaults.',
     verification:
       'Inspect shaderPaintInspections.fill and shaderPaintInspections.stroke, then render and certify the exported package in a browser with WebGL2; test representative timestamps and backward seeks.',
   },
@@ -306,9 +317,9 @@ function consolidateOperationTools(
   const consolidated: AgentToolRecord = {
     name: 'ograf_apply_operations',
     config: {
-      title: 'Apply, preview, or propose OGraf operations',
+      title: 'Apply OGraf operations',
       description:
-        'Atomic revision-checked batch. apply commits; dry-run validates; preview renders; propose requires editor/title and Accept/Reject. includeReview adds QA/capture; capture failure never rolls back.',
+        'Atomic batch: apply commits; dry-run validates; preview renders; propose awaits Accept/Reject.',
       inputSchema: consolidatedOperationInputSchema,
       annotations: mutation,
     },
@@ -2113,13 +2124,13 @@ export function createOGrafToolRecords(
           order:
             'Top to bottom. Repeated types are allowed; each effect has a stable ID. Reorder supplies every ID exactly once. Maximum 16 effects including compatibility slots.',
           editing:
-            'New effects default to bypass (enabled:false); selecting blendMode enables unless explicitly disabled. update_effect patch accepts name, enabled, blendMode, blendOpacity (0..1) and params. Numeric params use scope authored (lifecycle frames) or scope frame with frame. Rename/bypass/reorder never retime keys. Duplicate copies only that effect’s tracks and bindings; remove clears only its tracks and links, retaining data fields.',
+            'New effects start bypassed; blendMode enables them. update_effect accepts name, enabled, blendMode, blendOpacity, params and a complete paint for shader. Numeric catalog params use authored or frame scope. Rename/bypass/reorder preserve keys. Duplicate copies owned tracks, bindings and shader; remove clears owned links.',
           compatibility:
             'Old blur and shadow remain reorderable base-blur/base-shadow slots backed by existing numeric tracks and dropShadowColor bindings. inspect_scene resolves virtual slots on old documents. Existing appearance and data keys are preserved.',
           animation:
             'Use effects.ID.PARAM for new numeric tracks/local loops, color/number Brand Kit tokens and OGraf data bindings. Runtime data overrides the sampled parameter. Effect IDs are scoped to a layer and survive reorder. Legacy slots keep their original property names.',
           rendering:
-            'One ordered chain powers Studio and export; SVG alpha masks use the equivalent chain. Path masks ignore effects. Glow adds an outer colored halo to the preceding result. Values are bounded by the catalog; eased overshoot is clamped.',
+            'One ordered chain powers Studio and export. Shader is a WebGL2 post-process: iChannel0 receives preceding output; GPU Blend/Opacity feeds later effects. inputImage and alpha-mask sourcing are rejected. SVG projections omit GLSL pixels; use browser certification. Path masks ignore effects. Catalog values clamp overshoot.',
           catalog: EFFECT_CATALOG,
         },
         tiling: {

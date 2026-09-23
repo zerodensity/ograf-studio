@@ -1,4 +1,5 @@
 import { createId } from './id';
+import { createShaderPaint, inspectShaderElement } from './shader';
 import type {
   AnimatableLayerProperty,
   EffectParameterProperty,
@@ -7,7 +8,13 @@ import type {
   Layer,
   LayerEffect,
   LayerEffects,
+  ShaderPaint,
 } from './types';
+
+export const DEFAULT_SHADER_EFFECT_FRAGMENT_SOURCE = `void mainImage(out vec4 color, in vec2 pixel) {
+  vec2 uv = pixel / iResolution.xy;
+  color = texture(iChannel0, uv);
+}`;
 
 export interface EffectParameterSpec {
   label: string;
@@ -58,6 +65,7 @@ export const EFFECT_CATALOG: Record<
     label: 'Hue rotation',
     params: { angle: { label: 'Angle', default: 0, min: -3600, max: 3600, step: 1 } },
   },
+  shader: { label: 'Shader', params: {} },
 };
 export const EFFECT_TYPES = Object.keys(EFFECT_CATALOG) as EffectType[];
 export const MAX_EFFECTS = 16;
@@ -111,7 +119,11 @@ export function getEffectStack(effects: LayerEffects): LayerEffect[] {
   return effects.stack ?? legacyEffectStack();
 }
 export function copyEffectStack(stack: LayerEffect[]): LayerEffect[] {
-  return stack.map((e) => ({ ...e, params: { ...e.params } }));
+  return stack.map((e) => ({
+    ...e,
+    params: { ...e.params },
+    ...(e.shader ? { shader: createShaderPaint(e.shader) } : {}),
+  }));
 }
 export function effectParams(
   effect: LayerEffect,
@@ -254,6 +266,15 @@ export function effectStackErrors(effects: LayerEffects): string[] {
       legacy.add(effect.legacy);
       continue;
     }
+    if (effect.type === 'shader') {
+      if (!effect.shader) errors.push(`${effect.name} requires shader source.`);
+      else {
+        const inspection = inspectShaderElement(effect.shader, { channel0Provided: true });
+        errors.push(...inspection.errors.map((error) => `${effect.name}: ${error}`));
+      }
+    } else if (effect.shader !== undefined) {
+      errors.push(`${effect.name} cannot attach shader source to ${effect.type}.`);
+    }
     const params = effect.params;
     if (!params || typeof params !== 'object' || Array.isArray(params)) {
       errors.push('Effect params must be an object.');
@@ -288,6 +309,7 @@ export type EffectPatch = {
   blendMode?: EffectBlendMode;
   blendOpacity?: number;
   params?: Record<string, number | string>;
+  shader?: ShaderPaint;
 };
 export function addEffect(
   layer: Layer,
@@ -309,6 +331,14 @@ export function addEffect(
       ...Object.fromEntries(Object.entries(spec.params).map(([k, s]) => [k, s.default])),
       ...patch.params,
     },
+    ...(type === 'shader'
+      ? {
+          shader: createShaderPaint(
+            patch.shader ??
+              createShaderPaint({ fragmentSource: DEFAULT_SHADER_EFFECT_FRAGMENT_SOURCE }),
+          ),
+        }
+      : {}),
   };
   const stack = copyEffectStack(getEffectStack(layer.effects));
   if (index !== undefined && (!Number.isInteger(index) || index < 0 || index > stack.length))
@@ -335,6 +365,7 @@ export function updateEffect(layer: Layer, id: string, patch: EffectPatch): Laye
     effect.enabled = patch.enabled;
     if (effect.legacy === 'drop-shadow') effects.dropShadowEnabled = patch.enabled;
   }
+  if (patch.shader !== undefined) effect.shader = createShaderPaint(patch.shader);
   const params = { ...effectParams(effect, effects), ...patch.params };
   const checkedParams = effect.legacy
     ? {
@@ -399,6 +430,7 @@ export function duplicateEffect(layer: Layer, id: string, newId = createId('fx')
       blendMode: source.blendMode ?? 'normal',
       blendOpacity: source.blendOpacity ?? 1,
       params: { ...effectParams(source, layer.effects) },
+      ...(source.shader ? { shader: createShaderPaint(source.shader) } : {}),
     },
     getEffectStack(layer.effects).findIndex((e) => e.id === id) + 1,
     newId,

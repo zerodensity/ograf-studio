@@ -61,6 +61,7 @@ function mockCanvas(
     MAX_TEXTURE_SIZE: 0x0d33,
     TEXTURE_2D: 0x0de1,
     TEXTURE0: 0x84c0,
+    TEXTURE1: 0x84c1,
     RGBA: 0x1908,
     UNSIGNED_BYTE: 0x1401,
     UNPACK_FLIP_Y_WEBGL: 0x9240,
@@ -75,6 +76,7 @@ function mockCanvas(
     TEXTURE_WRAP_T: 0x2803,
     NEAREST: 0x2600,
     CLAMP_TO_EDGE: 0x812f,
+    REPEAT: 0x2901,
     FRAMEBUFFER: 0x8d40,
     READ_FRAMEBUFFER: 0x8ca8,
     DRAW_FRAMEBUFFER: 0x8ca9,
@@ -145,6 +147,31 @@ function mockCanvas(
     height: 0,
     dataset: {},
     style: {},
+    ownerDocument: {
+      createElement: (tag: string) => {
+        if (tag !== 'img') throw new Error(`Unexpected element: ${tag}`);
+        let source = '';
+        const image = {
+          complete: false,
+          naturalWidth: 0,
+          naturalHeight: 0,
+          decoding: 'auto',
+          onload: null as (() => void) | null,
+          onerror: null as (() => void) | null,
+          get src() {
+            return source;
+          },
+          set src(value: string) {
+            source = value;
+            image.complete = true;
+            image.naturalWidth = 64;
+            image.naturalHeight = 32;
+            queueMicrotask(() => image.onload?.());
+          },
+        };
+        return image;
+      },
+    },
     getAttribute: () => null,
     getContext: vi.fn(() => gl),
   }) as unknown as HTMLCanvasElement;
@@ -321,6 +348,46 @@ describe('WebGL shader lifecycle', () => {
 });
 
 describe('shader parameter uniforms', () => {
+  it('preserves stack-provided input on repeated effect parameter updates without relaxing standalone validation', () => {
+    const effectElement = createShaderElement({
+      fragmentSource: `#pragma ograf gain slider min(0.0) max(2.0) step(0.1)
+const float gain = 0.5;
+void mainImage(out vec4 color, in vec2 coord) {
+  color = texture(iChannel0, coord / iResolution.xy) * vec4(vec3(gain), 1.0);
+}`,
+    });
+    const standalone = mockCanvas();
+    expect(() =>
+      createShaderRenderer(standalone.canvas, effectElement, { width: 16, height: 16 }),
+    ).toThrow('Shader source uses iChannel0 but no input image is assigned.');
+
+    const { canvas, gl } = mockCanvas();
+    const renderer = createShaderRenderer(
+      canvas,
+      effectElement,
+      { width: 16, height: 16 },
+      () => {},
+      false,
+      { blendMode: 'normal', blendOpacity: 1 },
+    );
+    try {
+      renderer.setInput({ width: 16, height: 16 } as HTMLCanvasElement);
+      renderer.render(1000);
+      const draws = gl.drawArrays.mock.calls.length;
+      expect(() => renderer.updateParameters(effectElement)).not.toThrow();
+      expect(() =>
+        renderer.updateParameters({ ...effectElement, parameters: { gain: 1.2 } }),
+      ).not.toThrow();
+      expect(gl.uniform1f).toHaveBeenLastCalledWith({ name: 'gain' }, 1.2);
+      expect(gl.drawArrays).toHaveBeenCalledTimes(draws + 2);
+      expect(gl.createProgram).toHaveBeenCalledTimes(1);
+      expect(gl.compileShader).toHaveBeenCalledTimes(2);
+      expect(() => renderer.checkReady()).not.toThrow();
+    } finally {
+      renderer.dispose();
+    }
+  });
+
   it('starts object fills transparent, samples coverage alpha only and restores the mask without recompiling for updates', () => {
     const { canvas, gl, setContextLost } = mockCanvas();
     const renderer = createShaderRenderer(
@@ -534,5 +601,67 @@ describe('shader parameter uniforms', () => {
     expect(gl.createProgram).toHaveBeenCalledTimes(1);
     expect(gl.deleteProgram).not.toHaveBeenCalled();
     disposeElementContent(host);
+  });
+
+  it('loads one embedded image into iChannel0 with Shadertoy resolution and sampler settings', async () => {
+    const { canvas, gl } = mockCanvas();
+    const textured = createShaderElement({
+      fragmentSource: `void mainImage(out vec4 color, in vec2 coord) {
+  color = texture(iChannel0, coord / iResolution.xy) + vec4(iChannelResolution[0].xy * 0.0, 0.0, 0.0);
+}`,
+      inputImage: {
+        source: 'data:image/png;base64,iVBORw0KGgo=',
+        name: 'noise.png',
+        wrap: 'repeat',
+        filter: 'nearest',
+      },
+    });
+    const renderer = createShaderRenderer(canvas, textured, { width: 320, height: 180 });
+    await renderer.ready();
+    renderer.render(2000);
+
+    expect(gl.uniform1i).toHaveBeenCalledWith({ name: 'iChannel0' }, 1);
+    expect(gl.activeTexture).toHaveBeenCalledWith(gl.TEXTURE1);
+    expect(gl.uniform3f).toHaveBeenCalledWith({ name: 'iChannelResolution[0]' }, 64, 32, 1);
+    expect(gl.texParameteri).toHaveBeenCalledWith(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    expect(gl.texParameteri).toHaveBeenCalledWith(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    expect(gl.createProgram).toHaveBeenCalledTimes(1);
+    renderer.dispose();
+  });
+
+  it('uses an external iChannel0 and GPU blend uniforms for a true shader effect pass', async () => {
+    const { canvas, gl } = mockCanvas();
+    const effect = createShaderElement({
+      fragmentSource:
+        'void mainImage(out vec4 color, in vec2 coord) { color = texture(iChannel0, coord / iResolution.xy); }',
+    });
+    const renderer = createShaderRenderer(
+      canvas,
+      effect,
+      { width: 320, height: 180 },
+      undefined,
+      false,
+      { blendMode: 'screen', blendOpacity: 0.6 },
+    );
+    const input = { width: 320, height: 180 } as HTMLCanvasElement;
+    renderer.setInput(input);
+    renderer.render(1250);
+    await renderer.ready();
+    expect(gl.uniform1i).toHaveBeenCalledWith({ name: 'iChannel0' }, 1);
+    expect(gl.uniform1i).toHaveBeenCalledWith({ name: 'ografEffectBlendMode' }, 1);
+    expect(gl.uniform1f).toHaveBeenCalledWith({ name: 'ografEffectOpacity' }, 0.6);
+    expect(gl.texImage2D).toHaveBeenCalledWith(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      input,
+    );
+    renderer.setEffectBlend({ blendMode: 'multiply', blendOpacity: 0.25 });
+    expect(gl.uniform1i).toHaveBeenCalledWith({ name: 'ografEffectBlendMode' }, 3);
+    expect(gl.uniform1f).toHaveBeenCalledWith({ name: 'ografEffectOpacity' }, 0.25);
+    expect(gl.createProgram).toHaveBeenCalledTimes(1);
+    renderer.dispose();
   });
 });

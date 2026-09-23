@@ -20,8 +20,9 @@ import { valueAtSourcePath } from '@ograf-editor/scene-model';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light_canvas.js';
 import { mountPattern, applyPatternPaint } from './patternRendering';
+import { disposeLayerEffects, waitForLayerEffectsReady } from './effectCompositing';
 import {
-  assertShadersReady,
+  waitForShadersReady,
   disposeShader,
   mountShader,
   renderShaderAtTime,
@@ -300,7 +301,8 @@ export async function waitForElementContentReady(root: ParentNode): Promise<void
   const failure = mounted.find((entry) => entry.error)?.error;
   if (failure) throw failure;
   await waitForShaderPaintContentReady(root);
-  assertShadersReady(root);
+  await waitForShadersReady(root);
+  await waitForLayerEffectsReady(root);
 }
 
 /** Rebuilds Canvas state between changed frames for repeatable non-realtime seeks. */
@@ -406,6 +408,7 @@ export function findFittedFontSize(options: {
 
 /** Disconnects text-fitting observation before a renderer discards a content host. */
 export function disposeElementContent(container: HTMLElement): void {
+  disposeLayerEffects(container);
   forgetShaderAnimationBase(container);
   disposeShaderPaintContent(container);
   disposeShader(container);

@@ -10,8 +10,9 @@ capability sections; older servers may require `elements`. Add `loops` when auth
 Apply a complete paint to an existing object's `fill`. Editable text can also use `strokePaint`
 with a nonzero `strokeWidth`. Fill and outline have separate source, parameters and tracks.
 Rectangle, ellipse, path, pattern, text, image, image sequence and Lottie support shader fills.
-On media the original alpha supplies the silhouette; original RGB is replaced. The shader cannot
-sample that media, lower layers, or external broadcast video as a texture.
+On media the original alpha supplies the silhouette; original RGB is replaced. One independent
+embedded PNG/JPEG may be sampled as `iChannel0`; the shader cannot sample the painted media,
+lower layers, or external broadcast video as a texture.
 
 ```json
 {
@@ -30,9 +31,11 @@ sample that media, lower layers, or external broadcast video as a texture.
 }
 ```
 
-The runtime supplies `main`, version, `iTime` and `iResolution`; omit custom uniforms. Source must
-be a self-contained single Image pass. Texture channels, buffer feedback, audio, mouse/date/frame
-inputs and multi-pass Shadertoy graphs are unsupported. Inspect source licensing before reuse.
+The runtime supplies `main`, version, `iTime`, `iResolution`, optional `iChannel0`, and
+`iChannelResolution[0]`; omit custom uniforms. `inputImage` embeds one PNG/JPEG data URI with
+`repeat`/`clamp` wrapping and `linear`/`nearest` filtering. Source must be a self-contained single
+Image pass. Additional channels, video, buffer feedback, audio, mouse/date/frame inputs and
+multi-pass Shadertoy graphs are unsupported. Inspect source licensing before reuse.
 RGBA output is multiplied by the object's coverage, so transparent rain can use a full-canvas
 rectangle with alpha zero between drops. This does not create refraction of layers underneath.
 

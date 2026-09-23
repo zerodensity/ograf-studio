@@ -2,6 +2,7 @@ import type {
   Element,
   Paint,
   ShaderPaint,
+  ShaderImageInput,
   ShaderPaintSlot,
   ShaderElement,
   ShaderParameterDefinition,
@@ -11,6 +12,40 @@ import { normalizeShaderParameterValue, parseShaderParameters } from './shaderPa
 
 export const MAX_SHADER_SOURCE_BYTES = 256 * 1024;
 export const MAX_SHADER_NAME_LENGTH = 128;
+export const MAX_SHADER_IMAGE_BYTES = 10 * 1024 * 1024;
+
+const SHADER_IMAGE_DATA_URI = /^data:image\/(png|jpeg);base64,([a-z0-9+/=]+)$/i;
+
+export function shaderImageInputBytes(source: string): number {
+  const match = SHADER_IMAGE_DATA_URI.exec(source);
+  if (!match) return -1;
+  const payload = match[2]!;
+  return Math.max(
+    0,
+    Math.floor((payload.length * 3) / 4) -
+      (payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0),
+  );
+}
+
+export function normalizeShaderImageInput(input: ShaderImageInput): ShaderImageInput {
+  return {
+    source: input.source,
+    ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+    wrap: input.wrap ?? 'repeat',
+    filter: input.filter ?? 'linear',
+  };
+}
+
+export function cloneShaderParameters(
+  parameters: Record<string, ShaderParameterValue> | undefined,
+): Record<string, ShaderParameterValue> {
+  return Object.fromEntries(
+    Object.entries(parameters ?? {}).map(([name, value]) => [
+      name,
+      Array.isArray(value) ? [...value] : value,
+    ]),
+  );
+}
 
 export function isShaderPaint(value: unknown): value is ShaderPaint {
   return !!value && typeof value === 'object' && 'type' in value && value.type === 'shader';
@@ -124,7 +159,8 @@ export function normalizeShaderElement(element: Partial<ShaderElement> = {}): Sh
     fragmentSource: element.fragmentSource ?? DEFAULT_SHADER_FRAGMENT_SOURCE,
     speed: element.speed ?? 1,
     resolutionScale: element.resolutionScale ?? 1,
-    parameters: element.parameters ? structuredClone(element.parameters) : {},
+    parameters: cloneShaderParameters(element.parameters),
+    ...(element.inputImage ? { inputImage: normalizeShaderImageInput(element.inputImage) } : {}),
   };
 }
 
@@ -165,10 +201,10 @@ function inspectShaderSourceUncached(source: unknown): ShaderInspection {
     ...new Set(
       code.match(/\bi(?:Channel\w*|Mouse|Date|Frame|TimeDelta|SampleRate|FrameRate)\b/g) ?? [],
     ),
-  ];
+  ].filter((name) => name !== 'iChannel0' && name !== 'iChannelResolution');
   if (unsupported.length) {
     errors.push(
-      `Unsupported shader inputs: ${unsupported.join(', ')}. Only iTime and iResolution are provided; texture, audio and buffer passes are unsupported.`,
+      `Unsupported shader inputs: ${unsupported.join(', ')}. The runtime provides iTime, iResolution, one static iChannel0 image and iChannelResolution; audio, video, feedback and buffer passes are unsupported.`,
     );
   }
   const parsed = parseShaderParameters(source);
@@ -233,7 +269,10 @@ export function resolveShaderParameters(
   );
 }
 
-export function inspectShaderElement(element: ShaderElement): ShaderInspection {
+export function inspectShaderElement(
+  element: ShaderElement,
+  options: { channel0Provided?: boolean } = {},
+): ShaderInspection {
   const inspection = inspectShaderSource(element.fragmentSource);
   if (
     element.name !== undefined &&
@@ -272,6 +311,30 @@ export function inspectShaderElement(element: ShaderElement): ShaderInspection {
     element.resolutionScale > 1
   ) {
     inspection.errors.push('Shader resolutionScale must be a finite number from 0.25 to 1.');
+  }
+  const usesInputImage = /\biChannel0\b|\biChannelResolution\b/.test(element.fragmentSource);
+  if (usesInputImage && !element.inputImage && !options.channel0Provided) {
+    inspection.errors.push('Shader source uses iChannel0 but no input image is assigned.');
+  }
+  if (options.channel0Provided && element.inputImage)
+    inspection.errors.push(
+      'Shader effects use the incoming stack image as iChannel0; remove inputImage.',
+    );
+  if (element.inputImage) {
+    const bytes = shaderImageInputBytes(element.inputImage.source);
+    if (bytes < 0) {
+      inspection.errors.push('Shader input image must be an embedded PNG or JPEG data URI.');
+    } else if (bytes > MAX_SHADER_IMAGE_BYTES) {
+      inspection.errors.push('Shader input image exceeds the 10 MB limit.');
+    }
+    if (element.inputImage.name !== undefined && element.inputImage.name.trim().length > 256)
+      inspection.errors.push('Shader input image name must be at most 256 characters.');
+    if (!['clamp', 'repeat'].includes(element.inputImage.wrap))
+      inspection.errors.push('Shader input image wrap must be clamp or repeat.');
+    if (!['linear', 'nearest'].includes(element.inputImage.filter))
+      inspection.errors.push('Shader input image filter must be linear or nearest.');
+    if (!usesInputImage)
+      inspection.warnings.push('An input image is assigned but the shader does not use iChannel0.');
   }
   inspection.valid = inspection.errors.length === 0;
   return inspection;

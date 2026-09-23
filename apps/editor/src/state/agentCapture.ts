@@ -442,7 +442,7 @@ function buildCompositionDom(
         },
       );
       renderCaptureElementFrame(layerRoot, element, state, (frame / composition.frameRate) * 1000);
-      applyLayerEffectsFilter(layerRoot, state.effects);
+      applyLayerEffectsFilter(layerRoot, state.effects, (frame / composition.frameRate) * 1000);
       rendered.set(layer.id, layerRoot);
       states.set(layer.id, state);
     }

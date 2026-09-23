@@ -5,7 +5,7 @@ export { GraphicElement } from './GraphicElement';
 export { buildRuntimeTimeline } from './buildRuntimeTimeline';
 export { applyCompiledMasks } from './maskRendering';
 export { renderPatternAtElapsed } from './patternRendering';
-export { shaderStrokePaddingForLayer } from './shaderPaintRendering';
+export { shaderStrokePaddingForLayer, updateShaderPaintUniforms } from './shaderPaintRendering';
 export {
   createShaderRenderer,
   shaderBackingSizeForLayer,
@@ -63,4 +63,8 @@ export function registerGraphicElement(descriptor: CompiledGraphicDescriptor): s
   customElements.define(tagName, createGraphicClass(descriptor));
   return tagName;
 }
-export { applyLayerEffectsFilter } from './effectCompositing';
+export {
+  applyLayerEffectsFilter,
+  disposeLayerEffects,
+  waitForLayerEffectsReady,
+} from './effectCompositing';

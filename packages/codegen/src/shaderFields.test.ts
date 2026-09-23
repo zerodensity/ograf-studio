@@ -129,4 +129,28 @@ void mainImage(out vec4 c, in vec2 p) { c = enabled ? tint * float(count) + vec4
     expect(composition).toEqual(before);
     expect(validateManifest(assembleManifest(project, composition, descriptor)).errors).toEqual([]);
   });
+
+  it('embeds a portable iChannel0 image in the compiled descriptor and valid manifest', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('rectangle');
+    if (layer.element.type !== 'rectangle') throw new Error('Expected rectangle.');
+    layer.element.fill = createShaderPaint({
+      fragmentSource:
+        'void mainImage(out vec4 c, in vec2 p) { c = texture(iChannel0, p / iResolution.xy); }',
+      inputImage: {
+        source: 'data:image/png;base64,iVBORw0KGgo=',
+        name: 'channel.png',
+        wrap: 'repeat',
+        filter: 'linear',
+      },
+    });
+    composition.layers = [layer];
+
+    const descriptor = compileDescriptor(composition);
+    expect(getElementShaderPaint(descriptor.layers[0]!.element)?.inputImage).toEqual(
+      getElementShaderPaint(layer.element)?.inputImage,
+    );
+    expect(validateManifest(assembleManifest(project, composition, descriptor)).errors).toEqual([]);
+  });
 });

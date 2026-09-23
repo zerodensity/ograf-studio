@@ -14,6 +14,7 @@ import {
   getElementShaderPaint,
   getElementShaderPaints,
   hasElementShaderPaint,
+  inspectShaderElement,
   isShaderPaint,
 } from './shader';
 import { shaderParameterTarget } from './shaderParameters';
@@ -225,6 +226,39 @@ describe('shader paint model', () => {
     expect(createLayerOfKind('shader').element.type).toBe('rectangle');
   });
 
+  it('accepts one embedded PNG/JPEG iChannel0 input and rejects missing or unsupported channels', () => {
+    const source = `void mainImage(out vec4 color, in vec2 coord) {
+  vec2 uv = coord / iResolution.xy;
+  color = texture(iChannel0, uv) + vec4(iChannelResolution[0].xy * 0.0, 0.0, 0.0);
+}`;
+    const paint = createShaderPaint({
+      fragmentSource: source,
+      inputImage: {
+        source: 'data:image/png;base64,iVBORw0KGgo=',
+        name: 'noise.png',
+        wrap: 'repeat',
+        filter: 'linear',
+      },
+    });
+    expect(inspectShaderElement(paint)).toMatchObject({ valid: true, errors: [] });
+    expect(createShaderPaint(paint)).toEqual(paint);
+    const missingInput = structuredClone(paint);
+    delete missingInput.inputImage;
+    expect(inspectShaderElement(missingInput).errors.join(' ')).toContain('no input image');
+    expect(
+      inspectShaderElement({
+        ...paint,
+        fragmentSource: source.replaceAll('iChannel0', 'iChannel1'),
+      }).errors.join(' '),
+    ).toContain('Unsupported shader inputs');
+    expect(
+      inspectShaderElement({
+        ...paint,
+        inputImage: { ...paint.inputImage!, source: 'data:image/svg+xml;base64,PHN2Zy8+' },
+      }).errors.join(' '),
+    ).toContain('PNG or JPEG');
+  });
+
   it('retains legacy text color semantics and permits gradient stop animation', () => {
     const layer = createLayerOfKind('text');
     if (layer.element.type !== 'text') throw new Error('Expected text.');
@@ -267,7 +301,7 @@ describe('shader paint model', () => {
     const composition = createComposition({ layers: [source, target] });
     target.mask = { sourceLayerId: source.id, mode: 'alpha', inverted: false };
     expect(maskSourceSupportsMode(source, 'alpha')).toBe(false);
-    expect(layerMaskErrors(composition).join(' ')).toContain('shader-painted');
+    expect(layerMaskErrors(composition).join(' ')).toContain('shader-rendered');
     target.mask.mode = 'path';
     expect(layerMaskErrors(composition)).toEqual([]);
     expect(svgMaskSourceContent(source.element, 100, 100, 'shader-mask', true)).toContain(

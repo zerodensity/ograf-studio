@@ -802,7 +802,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
         );
         states.set(layer.id, state);
         const element = layerRefs.current.get(layer.id);
-        if (element) applyCompiledLayerVisualState(element, state);
+        if (element) applyCompiledLayerVisualState(element, state, contentTimeMs);
       }
       applyCompiledClipPaths(descriptor, layerRefs.current, states);
       applyCompiledMasks(descriptor, layerRefs.current, states);

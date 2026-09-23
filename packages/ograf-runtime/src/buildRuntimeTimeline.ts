@@ -88,7 +88,11 @@ export function buildRuntimeTimeline(
       el.style.transformOrigin = `${originState.transformOriginX * 100}% ${originState.transformOriginY * 100}%`;
     };
     const updateEffects = () => {
-      applyLayerEffectsFilter(el, resolveBoundEffects(layer, dataProvider(), effectState));
+      applyLayerEffectsFilter(
+        el,
+        resolveBoundEffects(layer, dataProvider(), effectState),
+        tl.time() * 1000,
+      );
     };
     const applyInitialState = () => {
       originState.transformOriginX = firstTransform.transformOriginX;
@@ -158,6 +162,7 @@ export function buildRuntimeTimeline(
         applyLayerEffectsFilter(
           child,
           sampleCompiledLayerVisualState(layer, frame, undefined, dataProvider()).effects,
+          tl.time() * 1000,
         );
       if (child) {
         const sampled = sampleCompiledLayerVisualState(layer, frame, undefined, dataProvider());

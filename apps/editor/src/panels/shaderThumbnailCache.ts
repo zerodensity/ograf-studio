@@ -4,11 +4,28 @@ import type { ShaderPaint } from '@ograf-editor/scene-model';
 export type ShaderThumbnailResult =
   { kind: 'ready'; dataUrl: string } | { kind: 'error'; message: string };
 
+const imageInputKeys = new WeakMap<object, string>();
+
+export function shaderImageInputKey(paint: ShaderPaint): string | null {
+  if (!paint.inputImage) return null;
+  const cached = imageInputKeys.get(paint.inputImage);
+  if (cached) return cached;
+  let hash = 2166136261;
+  for (let index = 0; index < paint.inputImage.source.length; index++) {
+    hash ^= paint.inputImage.source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const key = `${paint.inputImage.source.length}:${(hash >>> 0).toString(16)}:${paint.inputImage.wrap}:${paint.inputImage.filter}`;
+  imageInputKeys.set(paint.inputImage, key);
+  return key;
+}
+
 export function shaderThumbnailKey(paint: ShaderPaint): string {
   return JSON.stringify([
     paint.fragmentSource,
     paint.speed,
     paint.resolutionScale,
+    shaderImageInputKey(paint),
     Object.entries(paint.parameters ?? {}).sort(([left], [right]) =>
       left < right ? -1 : left > right ? 1 : 0,
     ),
@@ -29,7 +46,7 @@ export class ShaderThumbnailCache {
     this.#limit = Number.isFinite(limit) ? Math.max(1, Math.min(128, Math.floor(limit))) : 32;
   }
 
-  get(ownerDocument: Document, paint: ShaderPaint): ShaderThumbnailResult {
+  async get(ownerDocument: Document, paint: ShaderPaint): Promise<ShaderThumbnailResult> {
     const key = shaderThumbnailKey(paint);
     const cached = this.#entries.get(key);
     if (cached) {
@@ -46,6 +63,7 @@ export class ShaderThumbnailCache {
     try {
       canvas = ownerDocument.createElement('canvas');
       renderer = createShaderRenderer(canvas, paint, { width: 160, height: 90 });
+      await renderer.ready();
       renderer.render(2000);
       const dataUrl = canvas.toDataURL('image/png');
       if (!dataUrl.startsWith('data:image/png'))
@@ -87,8 +105,9 @@ export function scheduleShaderThumbnail(
   let active = true;
   const timer = owner.window.setTimeout(() => {
     if (!active) return;
-    const result = cache.get(owner.document, paint);
-    if (active) onReady(result);
+    void cache.get(owner.document, paint).then((result) => {
+      if (active) onReady(result);
+    });
   }, 0);
   return () => {
     active = false;

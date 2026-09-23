@@ -67,9 +67,9 @@ export function shaderResourceKey(target: ShaderResourceTarget): string {
   ]);
 }
 
-/** Each usage is independent, even when two objects use identical GLSL or share a source layer ID. */
-export function collectShaderResources(project: Project): ShaderResourceUsage[] {
-  const stored: ShaderResourceUsage[] = (project.shaders ?? []).map((resource) => ({
+/** Saved project shaders shown in Resources. Applied object paints are edited in Properties. */
+export function collectStoredShaderResources(project: Project): ShaderResourceUsage[] {
+  return (project.shaders ?? []).map((resource) => ({
     shaderId: resource.id,
     key: shaderResourceKey({ shaderId: resource.id }),
     label:
@@ -80,8 +80,12 @@ export function collectShaderResources(project: Project): ShaderResourceUsage[] 
     paint: resource.paint,
     locked: false,
   }));
+}
+
+/** Each usage is independent, even when two objects use identical GLSL or share a source layer ID. */
+export function collectShaderResources(project: Project): ShaderResourceUsage[] {
   return [
-    ...stored,
+    ...collectStoredShaderResources(project),
     ...project.compositions.flatMap((composition) => {
       const collect = (layers: Layer[], component?: ComponentDefinition) =>
         layers.flatMap((layer) =>
@@ -216,10 +220,15 @@ export function preserveShaderParameterValues(
 export function shaderPaintWithPatch(
   current: ShaderPaint,
   patch: ShaderResourcePatch,
+  options: { channel0Provided?: boolean } = {},
 ): ShaderPaint {
   if ('type' in patch) throw new Error('A shader resource edit cannot change its paint type.');
   for (const key of Object.keys(patch)) {
-    if (!['name', 'fragmentSource', 'speed', 'resolutionScale', 'parameters'].includes(key))
+    if (
+      !['name', 'fragmentSource', 'speed', 'resolutionScale', 'parameters', 'inputImage'].includes(
+        key,
+      )
+    )
       throw new Error(`Unknown shader resource property: ${key}.`);
   }
   if (
@@ -243,6 +252,10 @@ export function shaderPaintWithPatch(
   if (suppliedName !== undefined && typeof suppliedName !== 'string')
     throw new Error('Shader name must be a string.');
   const name = suppliedName?.trim();
+  const inputImage = Object.prototype.hasOwnProperty.call(patch, 'inputImage')
+    ? patch.inputImage
+    : current.inputImage;
+  const inputImageChanged = Object.prototype.hasOwnProperty.call(patch, 'inputImage');
   const next: ShaderPaint = {
     type: 'shader',
     ...(name ? { name } : {}),
@@ -250,8 +263,11 @@ export function shaderPaintWithPatch(
     speed: patch.speed ?? current.speed,
     resolutionScale: patch.resolutionScale ?? current.resolutionScale,
     parameters,
+    ...(inputImage
+      ? { inputImage: inputImageChanged ? structuredClone(inputImage) : inputImage }
+      : {}),
   };
-  const inspection = inspectShaderElement(next);
+  const inspection = inspectShaderElement(next, options);
   if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
   return next;
 }
@@ -267,6 +283,8 @@ export function shaderResourcePatchBetween(
   }
   const draftName = draft.name?.trim() ?? '';
   if (draftName !== (baseline.name?.trim() ?? '')) patch.name = draftName;
+  if (JSON.stringify(draft.inputImage) !== JSON.stringify(baseline.inputImage))
+    patch.inputImage = draft.inputImage ? structuredClone(draft.inputImage) : undefined;
 
   const inspection = inspectShaderSource(draft.fragmentSource);
   if (!inspection.valid) throw new Error(inspection.errors.join('\n'));

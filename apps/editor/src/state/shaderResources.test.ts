@@ -14,6 +14,7 @@ import {
 } from '@ograf-editor/scene-model';
 import {
   collectShaderResources,
+  collectStoredShaderResources,
   isStoredShaderResourceTarget,
   defaultShaderResourceName,
   shaderResourceTarget,
@@ -168,6 +169,21 @@ void mainImage(out vec4 c, in vec2 p) { c = vec4(gain * float(count)); }`;
     expect(
       shaderResourcePatchBetween(baseline, { ...baseline, fragmentSource: changedTypeSource }),
     ).toEqual({ fragmentSource: changedTypeSource });
+  });
+
+  it('copies, diffs and removes an embedded shader image input independently', () => {
+    const baseline = createShaderPaint();
+    const inputImage = {
+      source: 'data:image/png;base64,iVBORw0KGgo=',
+      name: 'noise.png',
+      wrap: 'repeat' as const,
+      filter: 'linear' as const,
+    };
+    const draft = shaderPaintWithPatch(baseline, { inputImage });
+    expect(draft.inputImage).toEqual(inputImage);
+    expect(draft.inputImage).not.toBe(inputImage);
+    expect(shaderResourcePatchBetween(baseline, draft)).toEqual({ inputImage });
+    expect(shaderPaintWithPatch(draft, { inputImage: undefined })).not.toHaveProperty('inputImage');
   });
   beforeEach(() => {
     useProjectStore.getState().newProject();
@@ -381,6 +397,18 @@ void mainImage(out vec4 c, in vec2 p) { c = vec4(gain ? float(count) : 0.0); }`;
     expect(first.shaderId).not.toBe(second.shaderId);
     expect(inlineShaderResources(useProjectStore.getState().project)).toHaveLength(6);
     expect(defaultShaderResourceName(useProjectStore.getState().project)).toBe('New Shader 4');
+  });
+
+  it('keeps applied shader copies out of the saved-resource collection', () => {
+    const project = fixture();
+    const first = createShaderPaint({ name: 'Saved look' });
+    useProjectStore.getState().loadProject(project);
+    useProjectStore.getState().createShaderResource(first);
+    const stored = collectStoredShaderResources(useProjectStore.getState().project);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ label: 'Saved look', usageLabel: 'Project shader' });
+    expect(stored.every(isStoredShaderResourceTarget)).toBe(true);
+    expect(inlineShaderResources(useProjectStore.getState().project)).toHaveLength(6);
   });
 
   it('clones, serializes, reloads and minimally edits stored shader settings independently', () => {

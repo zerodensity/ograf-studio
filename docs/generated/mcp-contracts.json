@@ -1,6 +1,6 @@
 {
   "contractVersion": 1,
-  "server": { "name": "ograf-editor", "version": "0.22.0-rc.1" },
+  "server": { "name": "ograf-editor", "version": "0.22.0-rc.2" },
   "tools": [
     {
       "name": "ograf_get_capabilities",
@@ -405,8 +405,8 @@
     },
     {
       "name": "ograf_apply_operations",
-      "title": "Apply, preview, or propose OGraf operations",
-      "description": "Atomic revision-checked batch. apply commits; dry-run validates; preview renders; propose requires editor/title and Accept/Reject. includeReview adds QA/capture; capture failure never rolls back.",
+      "title": "Apply OGraf operations",
+      "description": "Atomic batch: apply commits; dry-run validates; preview renders; propose awaits Accept/Reject.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -460,7 +460,8 @@
                         "brightness",
                         "contrast",
                         "saturate",
-                        "hue-rotate"
+                        "hue-rotate",
+                        "shader"
                       ]
                     },
                     "patch": {
@@ -479,7 +480,8 @@
                           "additionalProperties": {
                             "anyOf": [{ "type": "number" }, { "type": "string" }]
                           }
-                        }
+                        },
+                        "shader": {}
                       },
                       "additionalProperties": false
                     },
@@ -511,7 +513,8 @@
                           "additionalProperties": {
                             "anyOf": [{ "type": "number" }, { "type": "string" }]
                           }
-                        }
+                        },
+                        "shader": {}
                       },
                       "additionalProperties": false
                     },

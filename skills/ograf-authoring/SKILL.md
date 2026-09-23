@@ -136,20 +136,28 @@ effects without blend settings retain Normal/100%. Effects run
 top-to-bottom; repeated types are allowed. Returned effect IDs and `results.properties` are stable
 through reorder. Animate exact `effects.ID.PARAM` paths using normal tracks or local loops; bind
 color/number tokens or runtime fields to those paths. Runtime data overrides sampled parameters.
-`update_effect` accepts `patch: {name?,enabled?,blendMode?,blendOpacity?,params?}`; numeric edits default to authored lifecycle
+`update_effect` accepts `patch: {name?,enabled?,blendMode?,blendOpacity?,params?,shader?}`; numeric edits default to authored lifecycle
 frames, or use `scope:"frame"` with `frame`. Bypass/reorder preserve keys. Duplicate copies only the
 selected effect's keys and links; remove deletes those keys/links while keeping fields. Old blur
 and shadow use reorderable compatibility slots and retain old tracks/bindings. Read
 [effects-stack.md](./references/effects-stack.md) for examples and limits.
 
+A `shader` effect is a true ordered WebGL 2 post-process pass: `iChannel0` is the flattened layer
+result after preceding effects, and the shader's blended output feeds later effects. Its complete
+`shader` paint stores `fragmentSource`, `speed`, `resolutionScale`, and pragma parameters; do not set
+`inputImage` because the incoming stack owns `iChannel0`. Source and static controls are editable in
+the effect disclosure. SVG-only projections cannot reproduce shader-effect pixels; require browser
+capture/certification for visual proof. Shader-rendered layers cannot serve as alpha-mask sources.
+
 ## Shader paints and animation
 
 Read `ograf_get_capabilities sections:["shaders","loops"]` and inspect the target before editing.
 Use `update_element.patch.fill` with a complete shader paint (`type`, `fragmentSource`, `speed`,
-`resolutionScale`, `parameters`); text also accepts independent `strokePaint`. Keep text editable.
+`resolutionScale`, `parameters`, optional `inputImage`); text also accepts independent `strokePaint`. Keep text editable.
 Shader RGB replaces source colors and is clipped by the object's shape/alpha. Shaders provide a
-single WebGL2 Image pass with `mainImage`, `iTime` and `iResolution`; texture channels, layers-below
-inputs, feedback, custom uniforms and audio are unsupported. Preserve source licensing.
+single WebGL2 Image pass with `mainImage`, `iTime`, `iResolution`, and one optional embedded PNG/JPEG
+sampled as `iChannel0` with `iChannelResolution[0]`. Additional channels, layers-below inputs,
+video, feedback, custom uniforms and audio are unsupported. Preserve source licensing.
 
 `#pragma ograf NAME slider|color|toggle|vector2 ...` marks literal declarations and automatically
 creates typed data fields. No `expose` keyword or duplicate manual fields are needed. Use the

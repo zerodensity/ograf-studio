@@ -4,6 +4,7 @@ import {
   getLayerPropertyValueAtFrame,
   createShaderPaint,
   getElementShaderPaint,
+  getEffectStack,
 } from '@ograf-editor/scene-model';
 import { getActiveComposition, useProjectStore } from './projectStore';
 
@@ -119,6 +120,38 @@ void mainImage(out vec4 c, in vec2 p) { c = vec4(tint * gain, 1.0); }`;
     );
     expect(composition().dataFields).toHaveLength(1);
     expect(gainField().defaultValue).toBe(0.3);
+  });
+  it('edits and duplicates shader effects through Immer without structuredClone proxy failures', () => {
+    const store = useProjectStore.getState();
+    const id = store.addLayer('rectangle');
+    store.addLayerEffect(id, 'shader');
+    const layer = () =>
+      useProjectStore.getState().project.compositions[0]!.layers.find((item) => item.id === id)!;
+    const effect = () => getEffectStack(layer().effects).find((item) => item.type === 'shader')!;
+    const fragmentSource = `#pragma ograf waveFrequency slider min(0.0) max(16.0) step(0.1)
+const float waveFrequency = 8.0;
+#pragma ograf backgroundColor color
+vec3 backgroundColor = vec3(0.025, 0.045, 0.10);
+#pragma ograf highlightColor color
+vec3 highlightColor = vec3(0.10, 0.38, 0.55);
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 uv = fragCoord / iResolution.xy;
+  float wave = 0.5 + 0.5 * sin(uv.x * waveFrequency + uv.y * 4.0 - iTime);
+  fragColor = vec4(mix(backgroundColor, highlightColor, wave * 0.6 + uv.y * 0.2), 1.0);
+}`;
+    expect(() =>
+      store.updateLayerEffect(
+        id,
+        effect().id,
+        { shader: createShaderPaint({ fragmentSource }) },
+        0,
+      ),
+    ).not.toThrow();
+    expect(effect().shader?.fragmentSource).toBe(fragmentSource);
+    expect(() => store.duplicateLayerEffect(id, effect().id)).not.toThrow();
+    expect(getEffectStack(layer().effects).filter((item) => item.type === 'shader')).toHaveLength(
+      2,
+    );
   });
   it('applies and removes a pack through Immer with existing token links and rounded shapes', () => {
     const store = useProjectStore.getState();

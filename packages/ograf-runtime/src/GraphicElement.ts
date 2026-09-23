@@ -32,6 +32,8 @@ import {
 } from './renderElement';
 import {
   getElementShaderPaints,
+  effectEnabled,
+  getEffectStack,
   getShaderAnimationValue,
   parseShaderAnimationProperty,
   shaderAnimationPropertySpec,
@@ -625,7 +627,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         0,
         contentOptions(layer),
       );
-      applyLayerEffectsFilter(el, layer.effects);
+      applyLayerEffectsFilter(el, layer.effects, 0);
       this.#layerEls.set(layer.id, el);
     }
 
@@ -671,7 +673,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       (layer) =>
         (layer.element.type === 'image-sequence' && layer.element.frames.length > 0) ||
         (layer.element.type === 'lottie' && !!layer.element.animationData) ||
-        hasElementShaderPaint(layer.element),
+        hasElementShaderPaint(layer.element) ||
+        getEffectStack(layer.effects).some(
+          (effect) => effect.type === 'shader' && effectEnabled(effect, layer.effects),
+        ),
     );
     if (layers.length === 0 || typeof requestAnimationFrame === 'undefined') return;
     const epoch = performance.now();
@@ -690,7 +695,14 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       }
       const shouldContinue = layers.some((layer) => {
         const element = layer.element;
-        if (element.type === 'lottie' || hasElementShaderPaint(element)) return true;
+        if (
+          element.type === 'lottie' ||
+          hasElementShaderPaint(element) ||
+          getEffectStack(layer.effects).some(
+            (effect) => effect.type === 'shader' && effectEnabled(effect, layer.effects),
+          )
+        )
+          return true;
         if (element.type !== 'image-sequence') return false;
         return element.loop || elapsedMs / 1000 < element.frames.length / Math.max(1, element.fps);
       });
@@ -701,17 +713,35 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   #renderAnimatedContentAt(timestampMs: number): void {
     for (const layer of this.activeDescriptor.layers) {
+      const shaderEffect = getEffectStack(layer.effects).some(
+        (effect) => effect.type === 'shader' && effectEnabled(effect, layer.effects),
+      );
       if (
         layer.element.type !== 'image-sequence' &&
         layer.element.type !== 'lottie' &&
-        !hasElementShaderPaint(layer.element)
+        !hasElementShaderPaint(layer.element) &&
+        !shaderEffect
       )
         continue;
       const el = this.#layerEls.get(layer.id);
       if (!el) continue;
       // Shader uniforms belong to the mounted, data-resolved element. Frame ticks only advance
       // time; passing the authored descriptor here must never reset a live parameter binding.
-      renderAnimatedElementAtTime(el, layer.element, timestampMs);
+      if (
+        layer.element.type === 'image-sequence' ||
+        layer.element.type === 'lottie' ||
+        hasElementShaderPaint(layer.element)
+      )
+        renderAnimatedElementAtTime(el, layer.element, timestampMs);
+      if (shaderEffect) {
+        const state = sampleCompiledLayerVisualState(
+          layer,
+          (this.#timeline?.time() ?? 0) * this.descriptor.frameRate,
+          undefined,
+          this.#lastData,
+        );
+        applyLayerEffectsFilter(el, state.effects, timestampMs);
+      }
     }
   }
 
@@ -737,7 +767,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           undefined,
           this.#lastData,
         );
-        applyLayerEffectsFilter(el, state.effects);
+        applyLayerEffectsFilter(el, state.effects, (this.#timeline?.time() ?? 0) * 1000);
         applyAnimatedPaint(
           el,
           layer.animationTracks,

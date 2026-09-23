@@ -1,6 +1,6 @@
 import { createShaderRenderer } from '@ograf-editor/ograf-runtime';
 import type { ShaderPaint } from '@ograf-editor/scene-model';
-import { shaderThumbnailKey } from './shaderThumbnailCache';
+import { shaderImageInputKey, shaderThumbnailKey } from './shaderThumbnailCache';
 
 interface PreviewOwner {
   document: Document;
@@ -17,6 +17,7 @@ export class ShaderLivePreviewController {
   #paint: ShaderPaint | undefined;
   #source: string | undefined;
   #scale: number | undefined;
+  #inputKey: string | undefined;
   #appliedKey: string | undefined;
   #frame: number | null = null;
   #elapsed = 0;
@@ -116,7 +117,8 @@ export class ShaderLivePreviewController {
       if (
         !this.#renderer ||
         this.#source !== paint.fragmentSource ||
-        this.#scale !== paint.resolutionScale
+        this.#scale !== paint.resolutionScale ||
+        this.#inputKey !== (shaderImageInputKey(paint) ?? undefined)
       ) {
         this.#pause();
         this.#release();
@@ -131,6 +133,7 @@ export class ShaderLivePreviewController {
         canvas.addEventListener('webglcontextrestored', this.#visibilityChanged);
         this.#source = paint.fragmentSource;
         this.#scale = paint.resolutionScale;
+        this.#inputKey = shaderImageInputKey(paint) ?? undefined;
       } else {
         this.#renderer.updateParameters(paint);
       }

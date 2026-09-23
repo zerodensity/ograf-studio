@@ -25,6 +25,7 @@ interface PaintEditorProps {
   label?: string;
   disabled?: boolean;
   onShaderParameterChange?: (name: string, value: ShaderParameterValue) => void;
+  onShaderParameterPreview?: (name: string, value: ShaderParameterValue) => void;
   shaderAnimationActive?: boolean;
 }
 
@@ -39,6 +40,7 @@ export function PaintEditor({
   label = 'Fill',
   disabled = false,
   onShaderParameterChange,
+  onShaderParameterPreview,
   shaderAnimationActive = false,
 }: PaintEditorProps) {
   const [dragOver, setDragOver] = useState(false);
@@ -149,6 +151,7 @@ export function PaintEditor({
             labelPrefix={label === 'Fill' ? 'Shader' : `${label} shader`}
             onChange={(patch) => onChange(shaderPaintWithPatch(value, patch))}
             onParameterChange={onShaderParameterChange}
+            onParameterPreview={onShaderParameterPreview}
           />
         </>
       ) : typeof value === 'string' ? (

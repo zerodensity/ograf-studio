@@ -51,3 +51,28 @@
   padding: 6px;
   color: var(--text-muted);
 }
+.shader-image-input-actions {
+  display: flex;
+  gap: 6px;
+  padding: 3px 6px;
+}
+.shader-image-input {
+  margin: 0 6px 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel-raised);
+}
+.shader-image-input > img {
+  display: block;
+  width: 100%;
+  max-height: 140px;
+  object-fit: contain;
+  background: #111;
+}
+.shader-image-input > span {
+  display: block;
+  padding: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}

@@ -1,7 +1,11 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
+  applyElementDataValue,
   getLayerEffectsAtFrame,
+  effectEnabled,
+  getEffectStack,
   hasElementShaderPaint,
+  shaderParameterTarget,
   type Element,
   type Asset,
   type FieldDefinition,
@@ -11,11 +15,14 @@ import {
 } from '@ograf-editor/scene-model';
 import {
   applyLayerEffectsFilter,
+  disposeLayerEffects,
   applyAnimatedPaint,
   disposeElementContent,
   lottieBackingSizeForLayer,
   shaderBackingSizeForLayer,
   shaderStrokePaddingForLayer,
+  updateShaderPaintUniforms,
+  updateShaderParameters,
   renderAnimatedElementAtTime,
   renderElementContent,
   setLottieDeterministicRendering,
@@ -25,6 +32,7 @@ import { resolveEffectiveElement, resolveEffectiveEffects } from '../state/dataB
 import { useTestDataStore } from '../state/testDataStore';
 import { useTimelineStore } from '../state/timelineStore';
 import type { ShaderPreviewClock } from './shaderPreviewClock';
+import { useShaderParameterPreviewStore } from '../state/shaderParameterPreviewStore';
 import './LayerNode.css';
 
 interface LayerNodeProps {
@@ -135,6 +143,52 @@ export function LayerNode({
     watchContentReadiness,
   ]);
 
+  useLayoutEffect(() => {
+    const host = contentRef.current?.parentElement;
+    return () => {
+      if (host) disposeLayerEffects(host);
+    };
+  }, [layer.isVisible]);
+
+  useLayoutEffect(() => {
+    const host = contentRef.current;
+    if (!host || !hasShaderPaint) return;
+    let previewing = false;
+    const applyPreview = (
+      preview: ReturnType<typeof useShaderParameterPreviewStore.getState>['preview'],
+    ) => {
+      if (preview?.layerId === layer.id) {
+        const previewElement = applyElementDataValue(
+          element,
+          shaderParameterTarget(preview.name, preview.slot),
+          preview.value,
+        );
+        const updated =
+          previewElement.type === 'shader'
+            ? updateShaderParameters(host, previewElement, shaderBackingSize)
+            : updateShaderPaintUniforms(host, previewElement);
+        if (!updated) throw new Error('The shader preview renderer is not mounted.');
+        previewing = true;
+      } else if (previewing) {
+        renderElementContent(host, element, 0, {
+          shaderBackingSize,
+          shaderStrokePadding,
+        });
+        applyAnimatedPaint(host, layer.animationTracks, useTimelineStore.getState().currentFrame);
+        previewing = false;
+      }
+    };
+    applyPreview(useShaderParameterPreviewStore.getState().preview);
+    return useShaderParameterPreviewStore.subscribe((state) => applyPreview(state.preview));
+  }, [
+    element,
+    hasShaderPaint,
+    layer.animationTracks,
+    layer.id,
+    shaderBackingSize,
+    shaderStrokePadding,
+  ]);
+
   // Value-only shader edits reuse the mounted GPU program. Release it only when the host leaves
   // the canvas; renderElementContent handles source/type/backing changes itself.
   useLayoutEffect(() => {
@@ -211,17 +265,36 @@ export function LayerNode({
 
   useLayoutEffect(() => {
     const host = contentRef.current?.parentElement;
-    if (host)
-      applyLayerEffectsFilter(
-        host,
-        resolveEffectiveEffects(
-          layer,
-          getLayerEffectsAtFrame(layer, useTimelineStore.getState().currentFrame),
-          testValues,
-          dataFields,
-        ),
-      );
-  }, [layer, testValues, dataFields, transform.width, transform.height]);
+    if (!host) return;
+    const effects = resolveEffectiveEffects(
+      layer,
+      getLayerEffectsAtFrame(layer, useTimelineStore.getState().currentFrame),
+      testValues,
+      dataFields,
+    );
+    const shaderEffect = getEffectStack(effects).some(
+      (effect) => effect.type === 'shader' && effectEnabled(effect, effects),
+    );
+    const apply = () =>
+      applyLayerEffectsFilter(host, effects, shaderPreviewClock.sample(performance.now()));
+    apply();
+    if (!shaderEffect) return;
+    let animationFrame: number | null = null;
+    const render = () => {
+      animationFrame = null;
+      apply();
+      if (shaderPreviewClock.running) animationFrame = requestAnimationFrame(render);
+    };
+    const sync = () => {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      render();
+    };
+    const unsubscribe = shaderPreviewClock.subscribe(sync);
+    return () => {
+      unsubscribe();
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+    };
+  }, [layer, testValues, dataFields, transform.width, transform.height, shaderPreviewClock]);
 
   if (!layer.isVisible) return null;
 

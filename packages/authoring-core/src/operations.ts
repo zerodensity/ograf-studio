@@ -1648,12 +1648,18 @@ export function applyAuthoringOperations(
         if (
           layer.element.type === 'rectangle' &&
           previousShader &&
-          ['fragmentSource', 'parameters', 'resolutionScale', 'speed'].some(
+          ['fragmentSource', 'parameters', 'resolutionScale', 'speed', 'inputImage'].some(
             (key) => key in elementPatch,
           )
         ) {
           const legacy: Record<string, unknown> = {};
-          for (const key of ['fragmentSource', 'parameters', 'resolutionScale', 'speed']) {
+          for (const key of [
+            'fragmentSource',
+            'parameters',
+            'resolutionScale',
+            'speed',
+            'inputImage',
+          ]) {
             if (key in elementPatch) {
               legacy[key] = elementPatch[key];
               delete elementPatch[key];

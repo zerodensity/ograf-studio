@@ -1,5 +1,6 @@
 import type { Composition, ElementType, Layer, LayerMask, LayerTransform } from './types';
 import { getElementShaderPaint } from './shader';
+import { effectEnabled, getEffectStack } from './effectStack';
 
 export const ALPHA_MASK_SOURCE_TYPES: readonly ElementType[] = [
   'rectangle',
@@ -16,7 +17,14 @@ export const PATH_MASK_SOURCE_TYPES: readonly ElementType[] = [
 ];
 
 export function maskSourceSupportsMode(source: Layer, mode: LayerMask['mode']): boolean {
-  if (mode === 'alpha' && getElementShaderPaint(source.element)) return false;
+  if (
+    mode === 'alpha' &&
+    (getElementShaderPaint(source.element) ||
+      getEffectStack(source.effects).some(
+        (effect) => effect.type === 'shader' && effectEnabled(effect, source.effects),
+      ))
+  )
+    return false;
   return (mode === 'path' ? PATH_MASK_SOURCE_TYPES : ALPHA_MASK_SOURCE_TYPES).includes(
     source.element.type,
   );
@@ -44,8 +52,12 @@ export function layerMaskErrors(composition: Composition): string[] {
       errors.push(`Layer "${layer.name}" cannot use guide "${source.name}" as a mask source.`);
     if (!maskSourceSupportsMode(source, mode))
       errors.push(
-        mode === 'alpha' && getElementShaderPaint(source.element)
-          ? `Layer "${layer.name}" cannot use shader-painted "${source.name}" as an alpha-mask source; use a geometric path mask.`
+        mode === 'alpha' &&
+          (getElementShaderPaint(source.element) ||
+            getEffectStack(source.effects).some(
+              (effect) => effect.type === 'shader' && effectEnabled(effect, source.effects),
+            ))
+          ? `Layer "${layer.name}" cannot use shader-rendered "${source.name}" as an alpha-mask source; use a geometric path mask.`
           : `Layer "${layer.name}" ${mode} mask does not support ${source.element.type} source "${source.name}".`,
       );
     if (owner.get(layer.id) !== owner.get(source.id))

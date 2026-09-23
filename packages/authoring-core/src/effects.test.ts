@@ -52,3 +52,46 @@ it('owns effect instances in atomic undoable edits without touching other proper
   ).toBe(true);
   expect(session.undo(3).project).toEqual(added.project);
 });
+
+it('authors a post-process shader effect with editable source and incoming iChannel0', () => {
+  const session = new AuthoringSession(createProject());
+  const created = session.apply({
+    expectedRevision: 0,
+    operations: [{ type: 'add_layer', kind: 'text', name: 'Headline' }],
+  });
+  const layer = created.project.compositions[0]!.layers[0]!;
+  const added = session.apply({
+    expectedRevision: 1,
+    operations: [
+      {
+        type: 'add_effect',
+        layerId: layer.id,
+        effectType: 'shader',
+        patch: { blendMode: 'normal' },
+      },
+    ],
+  });
+  const effect = added.project.compositions[0]!.layers[0]!.effects.stack!.at(-1)!;
+  expect(effect.shader?.fragmentSource).toContain('texture(iChannel0');
+  const revised = session.apply({
+    expectedRevision: 2,
+    operations: [
+      {
+        type: 'update_effect',
+        layerId: layer.id,
+        effectId: effect.id,
+        patch: {
+          shader: {
+            ...effect.shader!,
+            fragmentSource:
+              'void mainImage(out vec4 c, in vec2 p) { vec4 s = texture(iChannel0, p / iResolution.xy); c = vec4(1.0 - s.rgb, s.a); }',
+          },
+        },
+      },
+    ],
+  });
+  expect(revised.validation.valid).toBe(true);
+  expect(
+    revised.project.compositions[0]!.layers[0]!.effects.stack!.at(-1)!.shader?.fragmentSource,
+  ).toContain('1.0 - s.rgb');
+});

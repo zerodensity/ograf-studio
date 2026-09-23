@@ -18,6 +18,7 @@ import {
   type ElementFields,
 } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
+import { useShaderParameterPreviewStore } from '../state/shaderParameterPreviewStore';
 import { bindableProperties } from '../state/dataBinding';
 import type {
   BlendMode,
@@ -25,6 +26,8 @@ import type {
   DesignTokenTargetProperty,
   DesignTokenType,
   LayerTransform,
+  ShaderPaintSlot,
+  ShaderParameterValue,
   TextElement,
 } from '@ograf-editor/scene-model';
 import {
@@ -253,6 +256,8 @@ export function InspectorPanel() {
   const currentFrame = useTimelineStore((s) => s.currentFrame);
   const selectedLayerId = useSelectionStore((s) => s.selectedLayerId);
   const liveTransform = useSelectionStore((s) => s.liveTransform);
+  const previewShaderParameter = useShaderParameterPreviewStore((s) => s.previewParameter);
+  const clearShaderParameterPreview = useShaderParameterPreviewStore((s) => s.clearPreview);
   const renameLayer = useProjectStore((s) => s.renameLayer);
   const reorderLayers = useProjectStore((s) => s.reorderLayers);
   const updateLayerTransform = useProjectStore((s) => s.updateLayerTransform);
@@ -270,6 +275,11 @@ export function InspectorPanel() {
   const setLayerBlendMode = useProjectStore((s) => s.setLayerBlendMode);
   const bindDesignToken = useProjectStore((s) => s.bindDesignToken);
   const unbindDesignToken = useProjectStore((s) => s.unbindDesignToken);
+
+  useEffect(
+    () => () => clearShaderParameterPreview(),
+    [clearShaderParameterPreview, selectedLayerId],
+  );
 
   const layer = composition.layers.find((l) => l.id === selectedLayerId);
   const lottieInspection = useMemo(
@@ -291,6 +301,19 @@ export function InspectorPanel() {
   }
 
   const roundedFrame = Math.round(currentFrame);
+  const previewLayerShaderParameter = (
+    slot: ShaderPaintSlot,
+    name: string,
+    value: ShaderParameterValue,
+  ) => previewShaderParameter(layer.id, slot, name, value);
+  const commitLayerShaderParameter = (
+    slot: ShaderPaintSlot,
+    name: string,
+    value: ShaderParameterValue,
+  ) => {
+    updateLayerShaderParameter(layer.id, roundedFrame, slot, name, value);
+    clearShaderParameterPreview();
+  };
   const activeLayerKeyframe = findLayerKeyframeAtFrame(layer, roundedFrame);
   const authoredPose = getLayerTransformAtFrame(layer, currentFrame);
   const pose =
@@ -535,8 +558,11 @@ export function InspectorPanel() {
             disabled={layer.isLocked}
             value={evaluatedPaint ?? layer.element.fill}
             shaderAnimationActive={animatedShaderSlots.has('fill')}
+            onShaderParameterPreview={(name, value) =>
+              previewLayerShaderParameter('fill', name, value)
+            }
             onShaderParameterChange={(name, value) =>
-              updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+              commitLayerShaderParameter('fill', name, value)
             }
             onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
           />
@@ -564,8 +590,11 @@ export function InspectorPanel() {
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
               shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterPreview={(name, value) =>
+                previewLayerShaderParameter('fill', name, value)
+              }
               onShaderParameterChange={(name, value) =>
-                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+                commitLayerShaderParameter('fill', name, value)
               }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
@@ -582,8 +611,11 @@ export function InspectorPanel() {
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
               shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterPreview={(name, value) =>
+                previewLayerShaderParameter('fill', name, value)
+              }
               onShaderParameterChange={(name, value) =>
-                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+                commitLayerShaderParameter('fill', name, value)
               }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
@@ -637,8 +669,11 @@ export function InspectorPanel() {
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.color}
               shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterPreview={(name, value) =>
+                previewLayerShaderParameter('fill', name, value)
+              }
               onShaderParameterChange={(name, value) =>
-                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+                commitLayerShaderParameter('fill', name, value)
               }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
@@ -650,8 +685,11 @@ export function InspectorPanel() {
                 getElementShaderPaint(sampledShaderElement, 'stroke') ?? layer.element.strokeColor
               }
               shaderAnimationActive={animatedShaderSlots.has('stroke')}
+              onShaderParameterPreview={(name, value) =>
+                previewLayerShaderParameter('stroke', name, value)
+              }
               onShaderParameterChange={(name, value) =>
-                updateLayerShaderParameter(layer.id, roundedFrame, 'stroke', name, value)
+                commitLayerShaderParameter('stroke', name, value)
               }
               onChange={(paint) => {
                 if (isShaderPaint(paint)) setTextStroke({ strokePaint: paint });
@@ -946,8 +984,11 @@ export function InspectorPanel() {
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
               shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterPreview={(name, value) =>
+                previewLayerShaderParameter('fill', name, value)
+              }
               onShaderParameterChange={(name, value) =>
-                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+                commitLayerShaderParameter('fill', name, value)
               }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />
@@ -1055,8 +1096,11 @@ export function InspectorPanel() {
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
               shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterPreview={(name, value) =>
+                previewLayerShaderParameter('fill', name, value)
+              }
               onShaderParameterChange={(name, value) =>
-                updateLayerShaderParameter(layer.id, roundedFrame, 'fill', name, value)
+                commitLayerShaderParameter('fill', name, value)
               }
               onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
             />

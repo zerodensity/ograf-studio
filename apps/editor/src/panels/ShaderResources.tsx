@@ -12,7 +12,7 @@ import { useProjectStore } from '../state/projectStore';
 import { runDiscreteHistoryStep } from '../state/historyStore';
 import { SHADER_RESOURCE_MIME, encodeShaderResourceDrag } from '../state/shaderDrag';
 import {
-  collectShaderResources,
+  collectStoredShaderResources,
   shaderPaintWithPatch,
   shaderResourcePatchBetween,
   shaderResourceTarget,
@@ -72,21 +72,20 @@ function ShaderResourceDialog({
   const draftRef = useRef(draft);
   const sourceRef = useRef(source);
   const [error, setError] = useState<string | null>(null);
-  const dirty =
-    isNew ||
-    source !== baseline.fragmentSource ||
-    JSON.stringify(draft) !== JSON.stringify(baseline);
-  const save = () => {
+  const [dirty, setDirty] = useState(
+    () =>
+      isNew ||
+      (request.draftSource !== undefined && request.draftSource !== baseline.fragmentSource),
+  );
+  const save = async () => {
     try {
       const next = shaderPaintWithPatch(draftRef.current, { fragmentSource: sourceRef.current });
-      if (isNew || next.fragmentSource !== baseline.fragmentSource) {
-        const canvas = document.createElement('canvas');
-        const renderer = createShaderRenderer(canvas, next, { width: 4, height: 4 });
-        try {
-          renderer.checkReady();
-        } finally {
-          renderer.dispose();
-        }
+      const canvas = document.createElement('canvas');
+      const renderer = createShaderRenderer(canvas, next, { width: 4, height: 4 });
+      try {
+        await renderer.ready();
+      } finally {
+        renderer.dispose();
       }
       const target = request.target;
       runDiscreteHistoryStep(
@@ -177,6 +176,7 @@ function ShaderResourceDialog({
                 onDraftSourceChange={(next) => {
                   sourceRef.current = next;
                   setSource(next);
+                  setDirty(true);
                   setError(null);
                 }}
                 applyLabel="Preview shader"
@@ -184,6 +184,7 @@ function ShaderResourceDialog({
                   const next = shaderPaintWithPatch(draftRef.current, patch);
                   draftRef.current = next;
                   setDraft(next);
+                  setDirty(true);
                   setError(null);
                 }}
               />
@@ -205,7 +206,7 @@ function ShaderResourceDialog({
           type="button"
           className="shader-resource-save"
           disabled={!dirty || (!isNew && !resource) || resource?.locked}
-          onClick={save}
+          onClick={() => void save()}
         >
           Save shader
         </button>
@@ -218,7 +219,7 @@ function ShaderResourceDialog({
 export function ShaderResources() {
   const project = useProjectStore((state) => state.project);
   const removeShader = useProjectStore((state) => state.removeShaderResource);
-  const resources = useMemo(() => collectShaderResources(project), [project]);
+  const resources = useMemo(() => collectStoredShaderResources(project), [project]);
   const [open, setOpen] = useState(false);
   const [editor, setEditor] = useState<ShaderEditorRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -270,7 +271,7 @@ export function ShaderResources() {
           {open &&
             (resources.length === 0 ? (
               <p className="panel-placeholder">
-                Create a shader, then drag it onto Fill or Outline.
+                Create a saved shader, then drag it onto Fill or Outline.
               </p>
             ) : (
               resources.map((resource) => (

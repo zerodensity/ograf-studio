@@ -120,6 +120,7 @@ const EFFECT_HELP: Record<EffectType, Record<string, string>> = {
     angle:
       'Rotate the colors around the hue wheel in degrees. 0 keeps the original colors; 360 is one complete turn.',
   },
+  shader: {},
 };
 
 export function effectParameterHelp(type: EffectType, key: string): string {

@@ -321,7 +321,7 @@ void mainImage(out vec4 c, in vec2 p) { c = vec4(amount + offset.x); }`;
           {
             type: 'update_element',
             layerId: layer.id,
-            patch: { fragmentSource: `${fragmentSource}\nfloat x = iChannel0;` },
+            patch: { fragmentSource: `${fragmentSource}\nfloat x = iChannel1;` },
           },
         ],
       }),
@@ -340,5 +340,32 @@ void mainImage(out vec4 c, in vec2 p) { c = vec4(amount + offset.x); }`;
       }),
     ).toThrow(/resolutionScale/);
     expect(session.revision).toBe(0);
+  });
+
+  it('authors one portable iChannel0 image through the shader element contract', () => {
+    const session = new AuthoringSession(createProject(), 'shader-image');
+    const result = session.apply({
+      expectedRevision: 0,
+      operations: [
+        {
+          type: 'add_layer',
+          kind: 'shader',
+          element: {
+            fragmentSource:
+              'void mainImage(out vec4 c, in vec2 p) { c = texture(iChannel0, p / iResolution.xy); }',
+            inputImage: {
+              source: 'data:image/jpeg;base64,/9j/2Q==',
+              name: 'plate.jpg',
+              wrap: 'clamp',
+              filter: 'linear',
+            },
+          },
+        },
+      ],
+    });
+    expect(result.validation.valid).toBe(true);
+    expect(
+      getElementShaderPaint(result.project.compositions[0]!.layers[0]!.element)?.inputImage,
+    ).toMatchObject({ name: 'plate.jpg', wrap: 'clamp', filter: 'linear' });
   });
 });

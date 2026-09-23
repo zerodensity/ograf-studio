@@ -281,6 +281,7 @@ const effectPatchSchema = z
       .optional(),
     blendOpacity: z.number().min(0).max(1).optional(),
     params: z.record(z.string(), z.union([z.number().finite(), z.string()])).optional(),
+    shader: z.unknown().optional(),
   })
   .strict();
 

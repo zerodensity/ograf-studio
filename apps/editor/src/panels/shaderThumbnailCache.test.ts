@@ -28,16 +28,21 @@ function owner() {
 }
 beforeEach(() => {
   rendererFactory.mockReset();
-  rendererFactory.mockImplementation(() => ({ render: vi.fn(), dispose: vi.fn() }));
+  rendererFactory.mockImplementation(() => ({
+    ready: vi.fn(async () => {}),
+    render: vi.fn(),
+    dispose: vi.fn(),
+  }));
 });
 afterEach(() => vi.useRealTimers());
 
 describe('shader resource thumbnail snapshots', () => {
-  it('renders actual shader time in the owning document and captures before disposing GPU resources', () => {
+  it('renders actual shader time in the owning document and captures before disposing GPU resources', async () => {
     const target = owner();
     const events: string[] = [];
     const renderer = {
       render: vi.fn((time: number) => events.push(`render:${time}`)),
+      ready: vi.fn(async () => events.push('ready')),
       dispose: vi.fn(() => events.push('dispose')),
     };
     rendererFactory.mockReturnValue(renderer);
@@ -45,87 +50,95 @@ describe('shader resource thumbnail snapshots', () => {
       events.push('capture');
       return 'data:image/png;base64,thumbnail';
     });
-    expect(new ShaderThumbnailCache().get(target.document, paint)).toEqual({
+    await expect(new ShaderThumbnailCache().get(target.document, paint)).resolves.toEqual({
       kind: 'ready',
       dataUrl: 'data:image/png;base64,thumbnail',
     });
     expect(target.document.createElement).toHaveBeenCalledWith('canvas');
     expect(rendererFactory).toHaveBeenCalledWith(target.canvas, paint, { width: 160, height: 90 });
-    expect(events).toEqual(['render:2000', 'capture', 'dispose']);
+    expect(events).toEqual(['ready', 'render:2000', 'capture', 'dispose']);
     expect(renderer.dispose).toHaveBeenCalledTimes(1);
     expect(target.canvas.remove).toHaveBeenCalledTimes(1);
     expect([target.canvas.width, target.canvas.height]).toEqual([1, 1]);
   });
 
-  it('reuses cached PNGs across expansion/documents and keys every rendering parameter', () => {
+  it('reuses cached PNGs across expansion/documents and keys every rendering parameter', async () => {
     const first = owner(),
       detached = owner(),
       cache = new ShaderThumbnailCache();
-    const result = cache.get(first.document, paint);
-    expect(cache.get(detached.document, { ...paint })).toBe(result);
+    const result = await cache.get(first.document, paint);
+    expect(await cache.get(detached.document, { ...paint })).toBe(result);
     expect(detached.document.createElement).not.toHaveBeenCalled();
     for (const changed of [
       { ...paint, fragmentSource: `${paint.fragmentSource}\n// variant` },
       { ...paint, speed: 2 },
       { ...paint, resolutionScale: 0.5 },
       { ...paint, parameters: { waveFrequency: 4 } },
+      {
+        ...paint,
+        inputImage: {
+          source: 'data:image/png;base64,iVBORw0KGgo=',
+          wrap: 'repeat' as const,
+          filter: 'linear' as const,
+        },
+      },
     ])
-      cache.get(detached.document, changed);
-    expect(rendererFactory).toHaveBeenCalledTimes(5);
+      await cache.get(detached.document, changed);
+    expect(rendererFactory).toHaveBeenCalledTimes(6);
     expect(shaderThumbnailKey({ ...paint, parameters: { a: 1, b: [2, 3] } })).toBe(
       shaderThumbnailKey({ ...paint, parameters: { b: [2, 3], a: 1 } }),
     );
   });
 
-  it('evicts the least recently used thumbnail when its bounded cache fills', () => {
+  it('evicts the least recently used thumbnail when its bounded cache fills', async () => {
     const target = owner(),
       cache = new ShaderThumbnailCache(2);
     const second = { ...paint, speed: 2 },
       third = { ...paint, speed: 3 };
-    cache.get(target.document, paint);
-    cache.get(target.document, second);
-    cache.get(target.document, paint);
-    cache.get(target.document, third);
-    cache.get(target.document, paint);
+    await cache.get(target.document, paint);
+    await cache.get(target.document, second);
+    await cache.get(target.document, paint);
+    await cache.get(target.document, third);
+    await cache.get(target.document, paint);
     expect(rendererFactory).toHaveBeenCalledTimes(3);
-    cache.get(target.document, second);
+    await cache.get(target.document, second);
     expect(rendererFactory).toHaveBeenCalledTimes(4);
   });
 
   it.each(['render', 'capture'])(
     'disposes on %s failure and reuses the compact error result',
-    (stage) => {
+    async (stage) => {
       const target = owner(),
         cache = new ShaderThumbnailCache();
-      const renderer = { render: vi.fn(), dispose: vi.fn() };
+      const renderer = { ready: vi.fn(async () => {}), render: vi.fn(), dispose: vi.fn() };
       rendererFactory.mockReturnValue(renderer);
       const fail = () => {
         throw new Error('Shader preview failed');
       };
       if (stage === 'render') renderer.render.mockImplementation(fail);
       else target.canvas.toDataURL.mockImplementation(fail);
-      const result = cache.get(target.document, paint);
+      const result = await cache.get(target.document, paint);
       expect(result).toEqual({ kind: 'error', message: 'Shader preview failed' });
       expect(renderer.dispose).toHaveBeenCalledTimes(1);
       expect(target.canvas.remove).toHaveBeenCalledTimes(1);
-      expect(cache.get(target.document, paint)).toBe(result);
+      expect(await cache.get(target.document, paint)).toBe(result);
       expect(rendererFactory).toHaveBeenCalledTimes(1);
     },
   );
 
-  it('releases the temporary canvas when shader construction fails', () => {
+  it('releases the temporary canvas when shader construction fails', async () => {
     const target = owner();
     rendererFactory.mockImplementation(() => {
       throw new Error('Invalid fragment shader');
     });
-    expect(new ShaderThumbnailCache().get(target.document, paint)).toEqual({
+    await expect(new ShaderThumbnailCache().get(target.document, paint)).resolves.toEqual({
       kind: 'error',
       message: 'Invalid fragment shader',
     });
     expect(target.canvas.remove).toHaveBeenCalledTimes(1);
   });
 
-  it('cancels work for closed rows and does not deliver results after cancellation', () => {
+  it('cancels work for closed rows and does not deliver results after cancellation', async () => {
     vi.useFakeTimers();
     const target = owner(),
       cache = new ShaderThumbnailCache(),
@@ -134,16 +147,20 @@ describe('shader resource thumbnail snapshots', () => {
     const cancel = scheduleShaderThumbnail(target, paint, stale, cache);
     cancel();
     scheduleShaderThumbnail(target, { ...paint, speed: 2 }, current, cache);
-    vi.runAllTimers();
+    await vi.runAllTimersAsync();
     expect(rendererFactory).toHaveBeenCalledTimes(1);
     expect(stale).not.toHaveBeenCalled();
     expect(current).toHaveBeenCalledTimes(1);
 
     let cancelDuringRender = () => {};
     const dispose = vi.fn();
-    rendererFactory.mockReturnValue({ render: () => cancelDuringRender(), dispose });
+    rendererFactory.mockReturnValue({
+      ready: vi.fn(async () => {}),
+      render: () => cancelDuringRender(),
+      dispose,
+    });
     cancelDuringRender = scheduleShaderThumbnail(target, { ...paint, speed: 3 }, stale, cache);
-    vi.runAllTimers();
+    await vi.runAllTimersAsync();
     expect(stale).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledTimes(1);
   });

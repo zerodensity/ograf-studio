@@ -175,7 +175,7 @@ export class CodexAdapter implements ProviderAdapter {
       }
     });
     await this.#request('initialize', {
-      clientInfo: { name: 'ograf_studio', version: '0.22.0-rc.1' },
+      clientInfo: { name: 'ograf_studio', version: '0.22.0-rc.2' },
       capabilities: { experimentalApi: true },
     });
     this.#write({ method: 'initialized' });

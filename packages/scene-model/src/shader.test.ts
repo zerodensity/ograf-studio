@@ -57,8 +57,8 @@ describe('single-pass shader contract', () => {
   });
 
   it.each([
-    'iChannel0',
-    'iChannelResolution',
+    'iChannel1',
+    'iChannelTime',
     'iMouse',
     'iDate',
     'iFrame',

@@ -233,6 +233,14 @@ export interface ShaderParameterDefinition {
 
 export type ShaderPaintSlot = 'fill' | 'stroke';
 
+/** One portable static texture exposed to Image-pass GLSL as iChannel0. */
+export interface ShaderImageInput {
+  source: string;
+  name?: string;
+  wrap: 'clamp' | 'repeat';
+  filter: 'linear' | 'nearest';
+}
+
 export interface ShaderPaint {
   type: 'shader';
   /** Optional author-facing resource name; absent uses the object and paint slot. */
@@ -241,6 +249,7 @@ export interface ShaderPaint {
   speed: number;
   resolutionScale: number;
   parameters: Record<string, ShaderParameterValue>;
+  inputImage?: ShaderImageInput;
 }
 
 /** @deprecated Import compatibility only; current scenes use a rectangle with ShaderPaint. */
@@ -295,7 +304,14 @@ export interface LayerEffects {
 }
 
 export type EffectType =
-  'blur' | 'drop-shadow' | 'glow' | 'brightness' | 'contrast' | 'saturate' | 'hue-rotate';
+  | 'blur'
+  | 'drop-shadow'
+  | 'glow'
+  | 'brightness'
+  | 'contrast'
+  | 'saturate'
+  | 'hue-rotate'
+  | 'shader';
 export interface LayerEffect {
   id: string;
   name: string;
@@ -305,6 +321,8 @@ export interface LayerEffect {
   blendMode?: EffectBlendMode;
   blendOpacity?: number;
   params: Record<string, number | string>;
+  /** Present only for a true post-process shader effect; iChannel0 is the incoming stack image. */
+  shader?: ShaderPaint;
   /** Compatibility adapter for pre-stack property tracks and color bindings. */
   legacy?: 'blur' | 'drop-shadow';
 }

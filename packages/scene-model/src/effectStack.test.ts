@@ -10,6 +10,7 @@ import {
   getEffectStack,
   sampleEffectStack,
   ensureLegacyEffects,
+  effectStackErrors,
 } from './effectStack';
 import { layerEffectsToCssFilter } from './layerEffects';
 import { effectStackToSvg } from './effectRendering';
@@ -114,5 +115,27 @@ describe('composable effects', () => {
     l.effects = ensureLegacyEffects({ ...l.effects, blur: 5 }, { blur: 5 });
     expect(getEffectStack(l.effects).filter((e) => e.legacy === 'blur')).toHaveLength(1);
     expect(layerEffectsToCssFilter(l.effects)).toBe('blur(5px)');
+  });
+  it('creates and duplicates a true post-process shader whose iChannel0 is supplied by the stack', () => {
+    const layer = createLayerOfKind('rectangle');
+    layer.effects.stack = [];
+    const shader = addEffect(layer, 'shader', { blendMode: 'normal' });
+    expect(shader.shader?.fragmentSource).toContain('texture(iChannel0');
+    expect(effectStackErrors(layer.effects)).toEqual([]);
+    const copy = duplicateEffect(layer, shader.id);
+    expect(copy.shader).toEqual(shader.shader);
+    expect(copy.shader).not.toBe(shader.shader);
+    expect(() =>
+      updateEffect(layer, shader.id, {
+        shader: {
+          ...shader.shader!,
+          inputImage: {
+            source: 'data:image/png;base64,iVBORw0KGgo=',
+            wrap: 'repeat',
+            filter: 'linear',
+          },
+        },
+      }),
+    ).toThrow(/incoming stack image/);
   });
 });
