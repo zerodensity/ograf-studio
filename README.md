@@ -1,5 +1,11 @@
 # <picture><source media="(prefers-color-scheme: dark)" srcset="apps/editor/src/assets/ebu-ograf-logo-mono-white.svg"><img src="docs/images/ograf-logo-colour.svg" alt="OGraf" width="119" height="40"></picture> Studio
 
+<p align="center">
+  <img src="docs/images/tvbeurope-best-of-show-ibc-2026.png" alt="TVBEurope Best of Show at IBC 2026 Winner" width="200">
+</p>
+
+<p align="center"><strong>OGraf Studio won TVBEurope’s Best of Show Award at IBC 2026.</strong></p>
+
 Create animated, data-driven broadcast graphics visually or with AI.
 
 OGraf Studio is an open-source, browser-based editor for EBU OGraf-compatible HTML5 graphics:
