@@ -97,6 +97,7 @@ import {
   type DesignToken,
   type DesignTokenTargetProperty,
   type DesignTokenType,
+  type TypographyVariant,
   type Composition,
   type ComponentDefinition,
   type CompositionLayout,
@@ -353,6 +354,13 @@ interface ProjectActions {
   addDesignToken: (type?: DesignTokenType) => string;
   updateDesignToken: (tokenId: string, patch: Partial<Omit<DesignToken, 'id'>>) => void;
   removeDesignToken: (tokenId: string) => void;
+  addTypographyVariant: () => string;
+  updateTypographyVariant: (
+    variantId: string,
+    patch: Partial<Omit<TypographyVariant, 'id'>>,
+  ) => void;
+  removeTypographyVariant: (variantId: string) => void;
+  syncTypographySelector: () => void;
   bindDesignToken: (
     layerId: string,
     tokenId: string,
@@ -471,6 +479,63 @@ export function getActiveComposition(project: Project, activeCompositionId: stri
     throw new Error(`Active composition not found: ${activeCompositionId}`);
   }
   return composition;
+}
+
+function syncTypographySelector(composition: Composition, create = false): void {
+  const designSystem = composition.designSystem;
+  const variants = (designSystem.typographyVariants ?? []).filter((variant) => variant.key);
+  let field = designSystem.typographySelectorFieldId
+    ? composition.dataFields.find(
+        (candidate) => candidate.id === designSystem.typographySelectorFieldId,
+      )
+    : undefined;
+
+  if (variants.length === 0) {
+    if (field) {
+      const fieldId = field.id;
+      composition.dataFields = composition.dataFields.filter(
+        (candidate) => candidate.id !== fieldId,
+      );
+      for (const layer of composition.layers)
+        layer.bindings = layer.bindings.filter((binding) => binding.fieldId !== fieldId);
+    }
+    delete designSystem.typographySelectorFieldId;
+    return;
+  }
+  if (!field && !create) return;
+  if (!field) {
+    field = createFieldDefinition('select', {
+      key: 'typographySet',
+      label: 'Typography set',
+      description: 'Switch the Brand Kit headline and body fonts together.',
+    });
+    composition.dataFields.push(field);
+    designSystem.typographySelectorFieldId = field.id;
+  }
+
+  field.type = 'select';
+  field.options = variants.map((variant) => ({ value: variant.key, label: variant.name }));
+  if (!field.options.some((option) => option.value === field!.defaultValue))
+    field.defaultValue = field.options[0]!.value;
+
+  for (const layer of composition.layers) {
+    if (layer.element.type !== 'text') continue;
+    const headline = layer.semantics.role === 'headline';
+    const valueMap = Object.fromEntries(
+      variants.flatMap((variant) => {
+        const family = headline ? variant.headlineFontFamily : variant.bodyFontFamily;
+        return family ? [[variant.key, family]] : [];
+      }),
+    );
+    const existing = layer.bindings.find(
+      (binding) => binding.fieldId === field!.id && binding.targetProperty === 'fontFamily',
+    );
+    if (existing) existing.valueMap = valueMap;
+    else {
+      layer.bindings = layer.bindings.filter((binding) => binding.targetProperty !== 'fontFamily');
+      layer.bindings.push({ fieldId: field.id, targetProperty: 'fontFamily', valueMap });
+    }
+  }
 }
 
 function getDefaultAuthoringKeyframeId(composition: Composition): string {
@@ -1078,6 +1143,7 @@ export const useProjectStore = create<ProjectStore>()(
           materializeAnimationTracks(layer);
           composition.layers.push(layer);
           syncShaderParameterFields(composition, layer);
+          syncTypographySelector(composition);
         });
         return layer.id;
       },
@@ -2580,6 +2646,7 @@ export const useProjectStore = create<ProjectStore>()(
               ...new Set(patch.tags.map((tag) => tag.trim()).filter(Boolean)),
             ];
           }
+          syncTypographySelector(composition);
         }),
 
       setDesignSystemName: (name) =>
@@ -2661,6 +2728,54 @@ export const useProjectStore = create<ProjectStore>()(
             return;
           composition.designSystem.tokens = composition.designSystem.tokens.filter(
             (token) => token.id !== tokenId,
+          );
+        }),
+
+      addTypographyVariant: () => {
+        const variantId = createId('typography-variant');
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const variants = (composition.designSystem.typographyVariants ??= []);
+          let index = variants.length + 1;
+          while (variants.some((variant) => variant.key === `set_${index}`)) index += 1;
+          variants.push({
+            id: variantId,
+            key: `set_${index}`,
+            name: `Typography set ${index}`,
+            headlineFontFamily: '',
+            bodyFontFamily: '',
+          });
+        });
+        return variantId;
+      },
+
+      updateTypographyVariant: (variantId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const variant = composition.designSystem.typographyVariants?.find(
+            (candidate) => candidate.id === variantId,
+          );
+          if (!variant) return;
+          Object.assign(variant, patch);
+          variant.key = variant.key.trim();
+          variant.name = variant.name.trim() || variant.key;
+          syncTypographySelector(composition);
+        }),
+
+      removeTypographyVariant: (variantId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          composition.designSystem.typographyVariants = (
+            composition.designSystem.typographyVariants ?? []
+          ).filter((variant) => variant.id !== variantId);
+          syncTypographySelector(composition);
+        }),
+
+      syncTypographySelector: () =>
+        set((state) => {
+          syncTypographySelector(
+            getActiveComposition(state.project, state.activeCompositionId),
+            true,
           );
         }),
 

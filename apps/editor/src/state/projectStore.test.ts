@@ -257,4 +257,70 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
       composition.layers.find((layer) => layer.id === ticker.layers.crawl)?.loop,
     ).not.toBeNull();
   });
+
+  it('creates one exported selector for Brand Kit typography sets', () => {
+    const store = useProjectStore.getState();
+    const headlineId = store.addLayer('text');
+    const bodyId = store.addLayer('text');
+    store.setLayerSemantics(headlineId, { role: 'headline' });
+    const latinId = store.addTypographyVariant();
+    store.updateTypographyVariant(latinId, {
+      name: 'Latin',
+      headlineFontFamily: 'Headline Latin',
+      bodyFontFamily: 'Body Latin',
+    });
+    const arabicId = store.addTypographyVariant();
+    store.updateTypographyVariant(arabicId, {
+      name: 'Arabic',
+      headlineFontFamily: 'Headline Arabic',
+      bodyFontFamily: 'Body Arabic',
+    });
+    store.syncTypographySelector();
+
+    const current = () =>
+      getActiveComposition(
+        useProjectStore.getState().project,
+        useProjectStore.getState().activeCompositionId,
+      );
+    const composition = current();
+    expect(composition.dataFields).toHaveLength(1);
+    expect(composition.dataFields[0]).toMatchObject({
+      key: 'typographySet',
+      label: 'Typography set',
+      type: 'select',
+      options: [
+        { value: 'set_1', label: 'Latin' },
+        { value: 'set_2', label: 'Arabic' },
+      ],
+    });
+    expect(composition.layers.find((layer) => layer.id === headlineId)?.bindings).toContainEqual({
+      fieldId: composition.dataFields[0]!.id,
+      targetProperty: 'fontFamily',
+      valueMap: { set_1: 'Headline Latin', set_2: 'Headline Arabic' },
+    });
+    expect(composition.layers.find((layer) => layer.id === bodyId)?.bindings).toContainEqual({
+      fieldId: composition.dataFields[0]!.id,
+      targetProperty: 'fontFamily',
+      valueMap: { set_1: 'Body Latin', set_2: 'Body Arabic' },
+    });
+
+    useProjectStore.getState().setLayerSemantics(bodyId, { role: 'headline' });
+    expect(current().layers.find((layer) => layer.id === bodyId)?.bindings[0]?.valueMap).toEqual({
+      set_1: 'Headline Latin',
+      set_2: 'Headline Arabic',
+    });
+    const laterBodyId = useProjectStore.getState().addLayer('text');
+    expect(
+      current().layers.find((layer) => layer.id === laterBodyId)?.bindings[0]?.valueMap,
+    ).toEqual({
+      set_1: 'Body Latin',
+      set_2: 'Body Arabic',
+    });
+
+    useProjectStore.getState().removeTypographyVariant(latinId);
+    expect(current().dataFields[0]?.options).toEqual([{ value: 'set_2', label: 'Arabic' }]);
+    useProjectStore.getState().removeTypographyVariant(arabicId);
+    expect(current().dataFields).toHaveLength(0);
+    expect(current().layers.every((layer) => layer.bindings.length === 0)).toBe(true);
+  });
 });

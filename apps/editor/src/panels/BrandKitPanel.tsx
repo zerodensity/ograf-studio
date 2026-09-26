@@ -19,6 +19,18 @@ export function BrandKitPanel() {
   const addDesignToken = useProjectStore((s) => s.addDesignToken);
   const updateDesignToken = useProjectStore((s) => s.updateDesignToken);
   const removeDesignToken = useProjectStore((s) => s.removeDesignToken);
+  const addTypographyVariant = useProjectStore((s) => s.addTypographyVariant);
+  const updateTypographyVariant = useProjectStore((s) => s.updateTypographyVariant);
+  const removeTypographyVariant = useProjectStore((s) => s.removeTypographyVariant);
+  const syncTypographySelector = useProjectStore((s) => s.syncTypographySelector);
+  const typographyVariants = composition.designSystem.typographyVariants ?? [];
+  const fontFamilies = Array.from(
+    new Set(
+      composition.assets
+        .filter((asset) => asset.kind === 'font')
+        .map((asset) => asset.fontFamily || asset.name.replace(/\.[^.]+$/, '')),
+    ),
+  );
   const [selectedStylePack, setSelectedStylePack] = useState<StylePackId>(
     stylePackIdForComposition(composition) ?? 'news',
   );
@@ -103,6 +115,89 @@ export function BrandKitPanel() {
             Original styles were not saved with this older pack. Removal can only detach it.
           </p>
         )}
+        <section className="brand-kit-typography" aria-label="Typography sets">
+          <div className="resources-tree-toolbar">
+            <strong>Typography sets</strong>
+            <button type="button" onClick={addTypographyVariant}>
+              + Set
+            </button>
+          </div>
+          {typographyVariants.length === 0 ? (
+            <p className="panel-placeholder">No typography sets.</p>
+          ) : (
+            <div className="resources-tree-items">
+              {typographyVariants.map((variant) => (
+                <div className="brand-kit-typography-set" key={variant.id}>
+                  <input
+                    aria-label="Typography set name"
+                    value={variant.name}
+                    onChange={(event) =>
+                      updateTypographyVariant(variant.id, { name: event.target.value })
+                    }
+                  />
+                  <label>
+                    <span>Headline</span>
+                    <select
+                      value={variant.headlineFontFamily}
+                      onChange={(event) =>
+                        updateTypographyVariant(variant.id, {
+                          headlineFontFamily: event.target.value,
+                        })
+                      }
+                    >
+                      <option value="">Choose imported font</option>
+                      {fontFamilies.map((family) => (
+                        <option key={family} value={family}>
+                          {family}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Body</span>
+                    <select
+                      value={variant.bodyFontFamily}
+                      onChange={(event) =>
+                        updateTypographyVariant(variant.id, { bodyFontFamily: event.target.value })
+                      }
+                    >
+                      <option value="">Choose imported font</option>
+                      {fontFamilies.map((family) => (
+                        <option key={family} value={family}>
+                          {family}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="data-table-delete"
+                    onClick={() => removeTypographyVariant(variant.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            disabled={
+              typographyVariants.length === 0 ||
+              typographyVariants.some(
+                (variant) => !variant.headlineFontFamily || !variant.bodyFontFamily,
+              )
+            }
+            onClick={syncTypographySelector}
+          >
+            {composition.designSystem.typographySelectorFieldId
+              ? 'Update exported selector'
+              : 'Create exported selector'}
+          </button>
+          <p className="inspector-hint">
+            Headline layers use the headline font. Other text layers use the body font.
+          </p>
+        </section>
         <div className="resources-tree-toolbar">
           <input
             aria-label="Brand kit name"

@@ -59,3 +59,28 @@
   background: transparent;
   cursor: pointer;
 }
+.brand-kit-typography {
+  display: grid;
+  gap: 4px;
+  padding: 5px 0;
+  border-block: 1px solid var(--border-color, #343434);
+}
+.brand-kit-typography-set {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto;
+  gap: 4px;
+  align-items: end;
+  padding: 5px;
+  border: 1px solid var(--border-color, #343434);
+}
+.brand-kit-typography-set label {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 2px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.brand-kit-typography-set > button {
+  grid-column: 2;
+  grid-row: 1;
+}

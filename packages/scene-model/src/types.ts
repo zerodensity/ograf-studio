@@ -406,9 +406,21 @@ export interface DesignTokenBinding {
   targetProperty: DesignTokenTargetProperty;
 }
 
+/** An author-defined pair of fonts that can be exposed as one runtime typography choice. */
+export interface TypographyVariant {
+  id: string;
+  key: string;
+  name: string;
+  headlineFontFamily: string;
+  bodyFontFamily: string;
+}
+
 export interface DesignSystem {
   name: string;
   tokens: DesignToken[];
+  typographyVariants?: TypographyVariant[];
+  /** Data field generated for the exported typography-set control. */
+  typographySelectorFieldId?: string;
   /** Authoring-only values replaced by the first applied pack, retained across pack switches. */
   stylePackRestore?: StylePackRestoreState;
   /** Active pack palette links to existing color controls and their authored consumers. */
