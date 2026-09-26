@@ -5,9 +5,26 @@ import {
   createFieldDefinition,
   createProject,
 } from '@ograf-editor/scene-model';
-import { buildPreviewDataFromTestValues, resolvePreviewDataRecord } from './previewData';
+import {
+  buildPreviewDataFromTestValues,
+  resolvePreviewDataRecord,
+  resolvePreviewFormValue,
+} from './previewData';
 
 describe('preview data', () => {
+  it('falls back when a persisted test value is not a current Select option', () => {
+    const field = createFieldDefinition('select', {
+      defaultValue: 'latin',
+      options: [
+        { value: 'latin', label: 'Latin' },
+        { value: 'arabic', label: 'Arabic' },
+      ],
+    });
+
+    expect(resolvePreviewFormValue(field, 'arabic')).toBe('arabic');
+    expect(resolvePreviewFormValue(field, 'old-font-stack')).toBe('latin');
+  });
+
   it('uses field defaults while preserving explicit falsey test values', () => {
     const composition = createProject().compositions[0]!;
     const headline = createFieldDefinition('text', { key: 'headline', defaultValue: 'Default' });
