@@ -181,7 +181,8 @@
   white-space: nowrap;
 }
 
-.preview-data-row input {
+.preview-data-row input,
+.preview-data-row select {
   flex: 1;
   min-width: 0;
   background: var(--bg-canvas);
@@ -308,7 +309,8 @@
   color: var(--text);
 }
 
-.preview-data-row > input {
+.preview-data-row > input,
+.preview-data-row > select {
   width: calc(100% - 12px);
   margin: 3px 6px;
 }

@@ -713,13 +713,34 @@ export function PreviewExportPanel() {
                   className="preview-data-row"
                 >
                   <span>{field.label || field.key}</span>
-                  <input
-                    type="text"
-                    value={String(dataForm[field.key] ?? '')}
-                    onChange={(e) =>
-                      setDataForm((prev) => ({ ...prev, [field.key]: e.target.value }))
-                    }
-                  />
+                  {field.type === 'select' ? (
+                    <select
+                      value={String(dataForm[field.key] ?? field.defaultValue ?? '')}
+                      onChange={(event) =>
+                        setDataForm((previous) => ({
+                          ...previous,
+                          [field.key]: event.target.value,
+                        }))
+                      }
+                    >
+                      {field.options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={String(dataForm[field.key] ?? '')}
+                      onChange={(event) =>
+                        setDataForm((previous) => ({
+                          ...previous,
+                          [field.key]: event.target.value,
+                        }))
+                      }
+                    />
+                  )}
                 </PropertyRow>
               ))}
             </div>

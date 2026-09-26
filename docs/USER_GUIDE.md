@@ -273,6 +273,16 @@ For recent changes, see the [release notes](releases/0.21.md).
 Manage a selected layer's data links under **Properties → Data Bindings**. Binding indicators are
 not drawn over the canvas artwork.
 
+To let an operator choose a text layer's font, create a **Select** data field with the permitted
+font-family values, then bind it to **Font family**. The field appears as a dropdown in
+**Preview & Export** and in schema-aware playout controls.
+
+Text layers can also bind font size and weight, outline width, alignment, line height, letter
+spacing, baseline shift, text transform, minimum font size, overflow and text sizing. Use numeric
+fields for measurements and Select fields containing the values offered by the matching text
+property. The binding editor filters fields, nested value paths and layer properties to compatible
+types; an existing incompatible binding remains visible so it can be repaired or removed.
+
 ## Fullscreen preview
 
 In **Preview & Export**, choose **Fullscreen** to fill the current display with the graphic.

@@ -1058,8 +1058,8 @@ export function renderAnimatedElementAtTime(
 /**
  * The element a compiled layer should render with, given runtime data — mirrors the editor's
  * design-time `resolveEffectiveElement` (apps/editor/src/state/dataBinding.ts), adapted to the
- * compiled descriptor's shape (data keyed by field `key`, not `fieldId`). All current bindable
- * properties are string-typed, so the override always stringifies.
+ * compiled descriptor's shape (data keyed by field `key`, not `fieldId`). The shared value
+ * applicator preserves paint objects and validated numeric text properties.
  */
 export function resolveBoundElement(layer: CompiledLayer, data: Record<string, unknown>): Element {
   const bindings = layer.bindings ?? (layer.binding ? [layer.binding] : []);

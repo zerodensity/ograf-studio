@@ -19,7 +19,7 @@ import {
 } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { useShaderParameterPreviewStore } from '../state/shaderParameterPreviewStore';
-import { bindableProperties } from '../state/dataBinding';
+import { bindableProperties, propertyAcceptsField } from '../state/dataBinding';
 import type {
   BlendMode,
   CornerRadii,
@@ -33,6 +33,7 @@ import type {
 import {
   BLEND_MODES,
   createCornerRadii,
+  fieldDefinitionAtPath,
   findLayerKeyframeAtFrame,
   getLayerPropertyValueAtFrame,
   getElementFill,
@@ -1454,6 +1455,29 @@ export function InspectorPanel() {
             const sourcePaths = field
               ? listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })
               : [];
+            const properties = bindableProperties(layer.element, layer.effects);
+            const target = properties.find((property) => property.value === binding.targetProperty);
+            const selectedSource = sourcePaths.find(
+              (path) => JSON.stringify(path.path) === JSON.stringify(binding.sourcePath ?? []),
+            );
+            const selectedField =
+              field && selectedSource
+                ? fieldDefinitionAtPath(field, selectedSource.path, {
+                    fromArrayItem: field.type === 'array',
+                  })
+                : undefined;
+            const compatibleFields = composition.dataFields.filter((candidate) => {
+              if (candidate.id === binding.fieldId) return true;
+              if (!target) return false;
+              return listFieldLeafPaths(candidate, {
+                fromArrayItem: candidate.type === 'array',
+              }).some((path) => {
+                const leaf = fieldDefinitionAtPath(candidate, path.path, {
+                  fromArrayItem: candidate.type === 'array',
+                });
+                return leaf ? propertyAcceptsField(target, leaf) : false;
+              });
+            });
             return (
               <div className="inspector-binding" key={`${binding.targetProperty}:${index}`}>
                 <PropertyRow
@@ -1473,7 +1497,12 @@ export function InspectorPanel() {
                       const nextPath = nextField
                         ? (listFieldLeafPaths(nextField, {
                             fromArrayItem: nextField.type === 'array',
-                          })[0]?.path ?? [])
+                          }).find((path) => {
+                            const leaf = fieldDefinitionAtPath(nextField, path.path, {
+                              fromArrayItem: nextField.type === 'array',
+                            });
+                            return !target || (leaf ? propertyAcceptsField(target, leaf) : false);
+                          })?.path ?? [])
                         : [];
                       const bindings = layer.bindings.map((candidate, candidateIndex) =>
                         candidateIndex === index
@@ -1483,7 +1512,7 @@ export function InspectorPanel() {
                       setLayerBindings(layer.id, bindings);
                     }}
                   >
-                    {composition.dataFields.map((field) => (
+                    {compatibleFields.map((field) => (
                       <option key={field.id} value={field.id}>
                         {field.label || field.key}
                       </option>
@@ -1511,11 +1540,20 @@ export function InspectorPanel() {
                         );
                       }}
                     >
-                      {sourcePaths.map((path) => (
-                        <option key={JSON.stringify(path.path)} value={JSON.stringify(path.path)}>
-                          {path.label}
-                        </option>
-                      ))}
+                      {sourcePaths
+                        .filter((path) => {
+                          const leaf = field
+                            ? fieldDefinitionAtPath(field, path.path, {
+                                fromArrayItem: field.type === 'array',
+                              })
+                            : undefined;
+                          return !target || (leaf ? propertyAcceptsField(target, leaf) : false);
+                        })
+                        .map((path) => (
+                          <option key={JSON.stringify(path.path)} value={JSON.stringify(path.path)}>
+                            {path.label}
+                          </option>
+                        ))}
                     </select>
                   </PropertyRow>
                 )}
@@ -1538,15 +1576,16 @@ export function InspectorPanel() {
                       setLayerBindings(layer.id, bindings);
                     }}
                   >
-                    {bindableProperties(layer.element, layer.effects)
+                    {properties
                       .filter(
                         (property) =>
                           property.value === binding.targetProperty ||
-                          !layer.bindings.some(
+                          (!layer.bindings.some(
                             (candidate, candidateIndex) =>
                               candidateIndex !== index &&
                               candidate.targetProperty === property.value,
-                          ),
+                          ) &&
+                            (!selectedField || propertyAcceptsField(property, selectedField))),
                       )
                       .map((property) => (
                         <option key={property.value} value={property.value}>
@@ -1555,6 +1594,45 @@ export function InspectorPanel() {
                       ))}
                   </select>
                 </PropertyRow>
+                {selectedField?.type === 'select' &&
+                  binding.targetProperty === 'fontFamily' &&
+                  selectedField.options.map((option) => (
+                    <PropertyRow
+                      key={option.value}
+                      help={`Font family used when ${selectedField.label || selectedField.key} is ${option.label}.`}
+                      className="inspector-row"
+                    >
+                      <span>{option.label}</span>
+                      <select
+                        aria-label={`Binding ${index + 1} map ${option.label}`}
+                        value={String(binding.valueMap?.[option.value] ?? '')}
+                        onChange={(event) => {
+                          const valueMap = { ...binding.valueMap };
+                          if (event.target.value) valueMap[option.value] = event.target.value;
+                          else delete valueMap[option.value];
+                          const bindings = layer.bindings.map((candidate, candidateIndex) =>
+                            candidateIndex === index
+                              ? {
+                                  ...candidate,
+                                  ...(Object.keys(valueMap).length > 0 ? { valueMap } : {}),
+                                  ...(Object.keys(valueMap).length === 0
+                                    ? { valueMap: undefined }
+                                    : {}),
+                                }
+                              : candidate,
+                          );
+                          setLayerBindings(layer.id, bindings);
+                        }}
+                      >
+                        <option value="">Use incoming value</option>
+                        {importedFontOptions.map((font) => (
+                          <option key={font.value} value={font.value}>
+                            {font.label}
+                          </option>
+                        ))}
+                      </select>
+                    </PropertyRow>
+                  ))}
                 <button
                   type="button"
                   className="inspector-binding-remove"
@@ -1575,24 +1653,50 @@ export function InspectorPanel() {
             type="button"
             disabled={
               composition.dataFields.length === 0 ||
-              bindableProperties(layer.element, layer.effects).every((property) =>
-                layer.bindings.some((binding) => binding.targetProperty === property.value),
+              composition.dataFields.every((field) =>
+                listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' }).every((path) =>
+                  bindableProperties(layer.element, layer.effects).every((property) => {
+                    const leaf = fieldDefinitionAtPath(field, path.path, {
+                      fromArrayItem: field.type === 'array',
+                    });
+                    return (
+                      layer.bindings.some((binding) => binding.targetProperty === property.value) ||
+                      !leaf ||
+                      !propertyAcceptsField(property, leaf)
+                    );
+                  }),
+                ),
               )
             }
             onClick={() => {
-              const targetProperty = bindableProperties(layer.element, layer.effects).find(
-                (property) =>
-                  !layer.bindings.some((binding) => binding.targetProperty === property.value),
-              )?.value;
-              const fieldId = composition.dataFields[0]?.id;
-              if (targetProperty && fieldId) {
-                const field = composition.dataFields[0]!;
-                const sourcePath =
-                  listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })[0]?.path ??
-                  [];
+              const properties = bindableProperties(layer.element, layer.effects);
+              const match = composition.dataFields.flatMap((field) =>
+                listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' }).flatMap(
+                  (path) =>
+                    properties
+                      .filter((property) => {
+                        const leaf = fieldDefinitionAtPath(field, path.path, {
+                          fromArrayItem: field.type === 'array',
+                        });
+                        return (
+                          !layer.bindings.some(
+                            (binding) => binding.targetProperty === property.value,
+                          ) &&
+                          !!leaf &&
+                          propertyAcceptsField(property, leaf)
+                        );
+                      })
+                      .map((property) => ({ field, path, property })),
+                ),
+              )[0];
+              if (match) {
                 setLayerBindings(layer.id, [
                   ...layer.bindings,
-                  { fieldId, targetProperty, sourcePath },
+                  {
+                    fieldId: match.field.id,
+                    targetProperty: match.property.value,
+                    sourcePath: match.path.path,
+                  },
                 ]);
               }
             }}
