@@ -455,6 +455,7 @@ export function applyAnimatedPaint(
   const serialized = renderHost.dataset?.ografBasePaint;
   const content = renderHost.firstElementChild as HTMLElement | null;
   if (!content) return;
+  textFitCallbacks.get(renderHost)?.();
   if (serialized) {
     const paint = JSON.parse(serialized) as Paint;
     const fillHost = content.querySelector<HTMLElement>('[data-ograf-path-fill]') ?? content;
@@ -636,7 +637,41 @@ export function renderElementContent(
           });
         }
         content.textContent = element.content;
+        if (element.autoFit === 'auto-size') {
+          content.style.width = 'max-content';
+          content.style.height = 'max-content';
+        }
         container.appendChild(content);
+        if (element.autoFit === 'auto-size') {
+          const fit = () => {
+            if (textFitCallbacks.get(container) !== fit) return;
+            // Computed dimensions are unscaled CSS pixels and retain subpixel
+            // precision, unlike scrollWidth or transformed client bounds.
+            const style = getComputedStyle(content);
+            const width = Math.max(1, Number.parseFloat(style.width) || 1);
+            const height = Math.max(1, Number.parseFloat(style.height) || 1);
+            container.style.width = `${width}px`;
+            container.style.height = `${height}px`;
+            if (container.classList.contains('layer-content-host') && container.parentElement) {
+              container.parentElement.style.width = `${width}px`;
+              container.parentElement.style.height = `${height}px`;
+            }
+          };
+          textFitCallbacks.set(container, fit);
+          const mounted: MountedTextFit = {};
+          textFits.set(container, mounted);
+          fit();
+          if (typeof ResizeObserver !== 'undefined') {
+            mounted.observer = new ResizeObserver(fit);
+            mounted.observer.observe(content);
+          }
+          if (document.fonts) {
+            mounted.fontSet = document.fonts;
+            mounted.onFontsLoaded = fit;
+            document.fonts.addEventListener('loadingdone', fit);
+            void document.fonts.ready.then(fit);
+          }
+        }
         if (
           element.autoFit === 'shrink-to-fit' ||
           element.autoFit === 'fit-to-width' ||

@@ -644,23 +644,29 @@ export function Stage({ style }: { style?: CSSProperties }) {
   );
   const maskTestValues = useTestDataStore((state) => state.values);
   useEffect(() => {
-    const descriptor = compileDescriptor(composition, { includeGuides: true });
-    const frame = useTimelineStore.getState().currentFrame;
-    applyCompiledMasks(
-      descriptor,
-      layerRefs.current,
-      new Map(
-        descriptor.layers.map((layer) => [
-          layer.id,
-          sampleCompiledLayerVisualState(
-            layer,
-            frame,
-            undefined,
-            previewBindingData(composition.dataFields, useTestDataStore.getState().values),
-          ),
-        ]),
-      ),
-    );
+    const refreshMasks = () => {
+      const descriptor = compileDescriptor(composition, { includeGuides: true });
+      const frame = useTimelineStore.getState().currentFrame;
+      applyCompiledMasks(
+        descriptor,
+        layerRefs.current,
+        new Map(
+          descriptor.layers.map((layer) => [
+            layer.id,
+            sampleCompiledLayerVisualState(
+              layer,
+              frame,
+              undefined,
+              previewBindingData(composition.dataFields, useTestDataStore.getState().values),
+            ),
+          ]),
+        ),
+      );
+    };
+    refreshMasks();
+    const observer = new ResizeObserver(() => refreshMasks());
+    for (const element of layerRefs.current.values()) observer.observe(element);
+    return () => observer.disconnect();
   }, [composition, maskTestValues]);
   useEffect(() => {
     const frameRate = composition.frameRate;
