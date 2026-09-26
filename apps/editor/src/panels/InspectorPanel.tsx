@@ -4,7 +4,12 @@ import { PropertyRow } from '../components/PropertyRow';
 import { EffectStackEditor } from './EffectStackEditor';
 import { ImageSourceEditor } from './ImageSourceEditor';
 import { LayerLightingEditor } from './LayerLightingEditor';
-import { getEffectStack, EFFECT_CATALOG, effectProperty } from '@ograf-editor/scene-model';
+import {
+  getEffectStack,
+  EFFECT_CATALOG,
+  effectProperty,
+  effectParameterValue,
+} from '@ograf-editor/scene-model';
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { LayerMaskEditor } from './LayerMaskEditor';
 import { TilingPatternEditor } from './TilingPatternEditor';
@@ -25,6 +30,7 @@ import type {
   CornerRadii,
   DesignTokenTargetProperty,
   DesignTokenType,
+  Layer,
   LayerTransform,
   ShaderPaintSlot,
   ShaderParameterValue,
@@ -69,6 +75,91 @@ const TRANSFORM_FIELDS: { key: keyof LayerTransform; label: string; step?: numbe
   { key: 'height', label: 'H' },
   { key: 'rotation', label: 'Rotation' },
 ];
+
+const NUMERIC_MAPPING_PROPERTIES = new Set([
+  'fontSize',
+  'fontWeight',
+  'strokeWidth',
+  'lineHeight',
+  'letterSpacing',
+  'baselineShift',
+  'minFontSize',
+]);
+
+const ENUM_MAPPING_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  textAlign: [
+    { value: 'left', label: 'Left' },
+    { value: 'center', label: 'Center' },
+    { value: 'right', label: 'Right' },
+  ],
+  verticalAlign: [
+    { value: 'top', label: 'Top' },
+    { value: 'middle', label: 'Middle' },
+    { value: 'bottom', label: 'Bottom' },
+  ],
+  textTransform: [
+    { value: 'none', label: 'None' },
+    { value: 'uppercase', label: 'Uppercase' },
+    { value: 'lowercase', label: 'Lowercase' },
+    { value: 'capitalize', label: 'Capitalize' },
+  ],
+  overflowPolicy: [
+    { value: 'visible', label: 'Visible' },
+    { value: 'clip', label: 'Clip' },
+    { value: 'ellipsis', label: 'Ellipsis' },
+  ],
+  autoFit: [
+    { value: 'auto-size', label: 'Auto size box' },
+    { value: 'shrink-to-fit', label: 'Shrink text to box' },
+    { value: 'fit-to-width', label: 'Fit to width' },
+    { value: 'squeeze', label: 'Squeeze' },
+    { value: 'fixed', label: 'Fixed box' },
+  ],
+};
+
+function isColorMappingProperty(property: string): boolean {
+  return (
+    property === 'fill' ||
+    property === 'color' ||
+    property === 'strokeColor' ||
+    property === 'dropShadowColor' ||
+    property.endsWith('.color')
+  );
+}
+
+function colorInputValue(value: string): string {
+  return /^#[0-9a-f]{6}$/i.test(value) ? value : '#000000';
+}
+
+function selectOptionConstantValueMap(
+  field: { type: string; options?: Array<{ value: string }> },
+  value: unknown,
+): Record<string, string> | undefined {
+  if (field.type !== 'select' || !field.options) return undefined;
+  const mappedValue =
+    typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+      ? String(value)
+      : '';
+  return Object.fromEntries(field.options.map((option) => [option.value, mappedValue]));
+}
+
+function layerBindingPropertyValue(layer: Layer, property: string): unknown {
+  if (property === 'dropShadowColor') return layer.effects.dropShadowColor;
+  const effectValue = effectParameterValue(layer.effects, property);
+  if (effectValue !== undefined) return effectValue;
+
+  const segments = property.replaceAll(/\[(\d+)\]/g, '.$1').split('.');
+  let value: unknown = layer.element;
+  for (const segment of segments) {
+    if (!value || typeof value !== 'object') return undefined;
+    value = (value as Record<string, unknown>)[segment];
+  }
+  if (property === 'fill' && value && typeof value === 'object') {
+    if ('color' in value) return (value as { color: unknown }).color;
+    if ('stops' in value && Array.isArray(value.stops)) return value.stops[0]?.color;
+  }
+  return value;
+}
 
 function elementSectionLabel(type: string): string {
   return type
@@ -1477,7 +1568,18 @@ export function InspectorPanel() {
                         : [];
                       const bindings = layer.bindings.map((candidate, candidateIndex) =>
                         candidateIndex === index
-                          ? { ...candidate, fieldId: event.target.value, sourcePath: nextPath }
+                          ? {
+                              ...candidate,
+                              fieldId: event.target.value,
+                              sourcePath: nextPath,
+                              valueMap:
+                                candidate.valueMap && nextField
+                                  ? selectOptionConstantValueMap(
+                                      nextField,
+                                      layerBindingPropertyValue(layer, candidate.targetProperty),
+                                    )
+                                  : undefined,
+                            }
                           : candidate,
                       );
                       setLayerBindings(layer.id, bindings);
@@ -1530,9 +1632,17 @@ export function InspectorPanel() {
                     aria-label={`Binding ${index + 1} property`}
                     value={binding.targetProperty}
                     onChange={(event) => {
+                      const targetProperty = event.target.value;
+                      const nextValueMap =
+                        binding.valueMap && field?.type === 'select'
+                          ? selectOptionConstantValueMap(
+                              field,
+                              layerBindingPropertyValue(layer, targetProperty),
+                            )
+                          : undefined;
                       const bindings = layer.bindings.map((candidate, candidateIndex) =>
                         candidateIndex === index
-                          ? { ...candidate, targetProperty: event.target.value }
+                          ? { ...candidate, targetProperty, valueMap: nextValueMap }
                           : candidate,
                       );
                       setLayerBindings(layer.id, bindings);
@@ -1555,19 +1665,136 @@ export function InspectorPanel() {
                       ))}
                   </select>
                 </PropertyRow>
-                <button
-                  type="button"
-                  className="inspector-binding-remove"
-                  aria-label={`Remove binding ${index + 1}`}
-                  onClick={() =>
-                    setLayerBindings(
-                      layer.id,
-                      layer.bindings.filter((_, candidateIndex) => candidateIndex !== index),
-                    )
-                  }
-                >
-                  Remove
-                </button>
+                {field?.type === 'select' &&
+                  binding.valueMap &&
+                  field.options.map((option) => {
+                    const mappedValue = binding.valueMap?.[option.value];
+                    const mappingValue =
+                      typeof mappedValue === 'string' ||
+                      typeof mappedValue === 'number' ||
+                      typeof mappedValue === 'boolean'
+                        ? String(mappedValue)
+                        : option.value;
+                    const enumOptions = ENUM_MAPPING_OPTIONS[binding.targetProperty];
+                    const updateMapping = (value: string) => {
+                      const valueMap = { ...binding.valueMap };
+                      valueMap[option.value] = value || option.value;
+                      setLayerBindings(
+                        layer.id,
+                        layer.bindings.map((candidate, candidateIndex) =>
+                          candidateIndex === index
+                            ? {
+                                ...candidate,
+                                valueMap: Object.keys(valueMap).length > 0 ? valueMap : undefined,
+                              }
+                            : candidate,
+                        ),
+                      );
+                    };
+                    return (
+                      <PropertyRow
+                        key={option.value}
+                        help={`Value assigned to ${binding.targetProperty} when ${field.label || field.key} is ${option.label}.`}
+                        className="inspector-row"
+                      >
+                        <span>{option.label}</span>
+                        {binding.targetProperty === 'fontFamily' ? (
+                          <select
+                            aria-label={`Binding ${index + 1} map ${option.label}`}
+                            value={mappingValue}
+                            onChange={(event) => updateMapping(event.target.value)}
+                          >
+                            {availableFontOptions.map((font) => (
+                              <option key={font.value} value={font.value}>
+                                {font.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : isColorMappingProperty(binding.targetProperty) ? (
+                          <input
+                            type="color"
+                            aria-label={`Binding ${index + 1} map ${option.label}`}
+                            value={colorInputValue(mappingValue)}
+                            onChange={(event) => updateMapping(event.target.value)}
+                          />
+                        ) : NUMERIC_MAPPING_PROPERTIES.has(binding.targetProperty) ? (
+                          <input
+                            type="number"
+                            step="any"
+                            aria-label={`Binding ${index + 1} map ${option.label}`}
+                            value={mappingValue}
+                            placeholder={option.value}
+                            onChange={(event) => updateMapping(event.target.value)}
+                          />
+                        ) : enumOptions ? (
+                          <select
+                            aria-label={`Binding ${index + 1} map ${option.label}`}
+                            value={mappingValue}
+                            onChange={(event) => updateMapping(event.target.value)}
+                          >
+                            {enumOptions.map((value) => (
+                              <option key={value.value} value={value.value}>
+                                {value.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            aria-label={`Binding ${index + 1} map ${option.label}`}
+                            value={mappingValue}
+                            placeholder={option.value}
+                            onChange={(event) => updateMapping(event.target.value)}
+                          />
+                        )}
+                      </PropertyRow>
+                    );
+                  })}
+                <div className="inspector-binding-actions">
+                  {field?.type === 'select' && (
+                    <label className="inspector-binding-mode">
+                      <input
+                        type="checkbox"
+                        aria-label={`Binding ${index + 1} advanced mapping`}
+                        checked={Boolean(binding.valueMap)}
+                        onChange={(event) =>
+                          setLayerBindings(
+                            layer.id,
+                            layer.bindings.map((candidate, candidateIndex) =>
+                              candidateIndex === index
+                                ? {
+                                    ...candidate,
+                                    valueMap: event.target.checked
+                                      ? selectOptionConstantValueMap(
+                                          field,
+                                          layerBindingPropertyValue(
+                                            layer,
+                                            candidate.targetProperty,
+                                          ),
+                                        )
+                                      : undefined,
+                                  }
+                                : candidate,
+                            ),
+                          )
+                        }
+                      />
+                      Advanced mapping
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    className="inspector-binding-remove"
+                    aria-label={`Remove binding ${index + 1}`}
+                    onClick={() =>
+                      setLayerBindings(
+                        layer.id,
+                        layer.bindings.filter((_, candidateIndex) => candidateIndex !== index),
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
             );
           })}

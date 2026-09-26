@@ -29,7 +29,7 @@ import {
 } from '../state/ografCompatibility';
 import { useFitZoom } from '../canvas/useFitZoom';
 import { transparencyCheckerboardStyle } from '../canvas/compositionBackground';
-import { resolvePreviewDataRecord } from '../state/previewData';
+import { resolvePreviewDataRecord, resolvePreviewFormValue } from '../state/previewData';
 import { canReusePreviewForShaderParameters } from '../state/shaderPreviewReuse';
 import { enterPreviewFullscreen, installPreviewShortcuts } from '../state/previewPresentation';
 import { measureAgentText } from '../state/agentCapture';
@@ -183,7 +183,7 @@ export function PreviewExportPanel() {
   const resetDataForm = () => {
     const next: Record<string, TestValue> = {};
     for (const field of composition.dataFields) {
-      next[field.key] = testValues[field.id] ?? field.defaultValue;
+      next[field.key] = resolvePreviewFormValue(field, testValues[field.id]);
     }
     setDataForm(next);
   };
@@ -713,13 +713,34 @@ export function PreviewExportPanel() {
                   className="preview-data-row"
                 >
                   <span>{field.label || field.key}</span>
-                  <input
-                    type="text"
-                    value={String(dataForm[field.key] ?? '')}
-                    onChange={(e) =>
-                      setDataForm((prev) => ({ ...prev, [field.key]: e.target.value }))
-                    }
-                  />
+                  {field.type === 'select' ? (
+                    <select
+                      value={String(dataForm[field.key] ?? field.defaultValue)}
+                      onChange={(event) =>
+                        setDataForm((previous) => ({
+                          ...previous,
+                          [field.key]: event.target.value,
+                        }))
+                      }
+                    >
+                      {field.options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={String(dataForm[field.key] ?? '')}
+                      onChange={(event) =>
+                        setDataForm((previous) => ({
+                          ...previous,
+                          [field.key]: event.target.value,
+                        }))
+                      }
+                    />
+                  )}
                 </PropertyRow>
               ))}
             </div>

@@ -37,6 +37,47 @@ describe('resolveEffectiveElement', () => {
     });
   });
 
+  it('maps one select field to multiple typography properties', () => {
+    const layer = createTextLayer();
+    const typography = createFieldDefinition('select', {
+      defaultValue: 'latin',
+      options: [
+        { value: 'latin', label: 'Latin' },
+        { value: 'arabic', label: 'Arabic' },
+      ],
+    });
+    layer.bindings = [
+      {
+        fieldId: typography.id,
+        targetProperty: 'fontFamily',
+        valueMap: { latin: 'Arial', arabic: 'Noto Sans Arabic' },
+      },
+      {
+        fieldId: typography.id,
+        targetProperty: 'fontSize',
+        valueMap: { latin: '64', arabic: '72' },
+      },
+      {
+        fieldId: typography.id,
+        targetProperty: 'lineHeight',
+        valueMap: { latin: '1.1', arabic: '1.3' },
+      },
+    ];
+
+    expect(resolveEffectiveElement(layer, {}, [], [typography])).toMatchObject({
+      fontFamily: 'Arial',
+      fontSize: 64,
+      lineHeight: 1.1,
+    });
+    expect(
+      resolveEffectiveElement(layer, { [typography.id]: 'arabic' }, [], [typography]),
+    ).toMatchObject({
+      fontFamily: 'Noto Sans Arabic',
+      fontSize: 72,
+      lineHeight: 1.3,
+    });
+  });
+
   it('previews the first runtime collection item through a nested source path', () => {
     const layer = createTextLayer();
     const field = createFieldDefinition('array', {

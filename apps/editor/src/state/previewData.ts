@@ -1,7 +1,25 @@
-import { resolveAssetValue, type Composition, type FieldValue } from '@ograf-editor/scene-model';
+import {
+  resolveAssetValue,
+  type Composition,
+  type FieldDefinition,
+  type FieldValue,
+} from '@ograf-editor/scene-model';
 
 function hasOwn(record: Record<string, FieldValue>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+/** Keeps the Preview & Export form compatible with the current field definition after schema edits. */
+export function resolvePreviewFormValue(
+  field: FieldDefinition,
+  testValue: FieldValue | undefined,
+): FieldValue {
+  if (
+    field.type === 'select' &&
+    (typeof testValue !== 'string' || !field.options.some((option) => option.value === testValue))
+  )
+    return field.defaultValue;
+  return testValue ?? field.defaultValue;
 }
 
 function resolveFieldValue(

@@ -102,6 +102,26 @@
   color: #ff7b86;
 }
 
+.inspector-binding-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inspector-binding-mode {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.inspector-binding-mode input {
+  margin: 0;
+}
+
 .inspector-button-row button,
 .inspector-row button {
   border: 1px solid var(--border);
