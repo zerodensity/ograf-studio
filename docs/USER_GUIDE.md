@@ -273,6 +273,11 @@ For recent changes, see the [release notes](releases/0.21.md).
 Manage a selected layer's data links under **Properties → Data Bindings**. Binding indicators are
 not drawn over the canvas artwork.
 
+## JavaScript scripting
+
+Use **Scripts > Layer expressions** for individual numeric properties, or **Scripts** for a
+composition script and imported JavaScript modules. See the [scripting guide](EXPRESSIONS.md).
+
 ## Fullscreen preview
 
 In **Preview & Export**, choose **Fullscreen** to fill the current display with the graphic.

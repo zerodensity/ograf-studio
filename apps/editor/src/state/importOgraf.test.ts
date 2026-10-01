@@ -187,6 +187,53 @@ function editableFixture() {
 }
 
 describe('best-effort OGraf import', () => {
+  it('preserves expression sources, layer references and disabled properties without embedded source', async () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const rectangle = createLayerOfKind('rectangle');
+    rectangle.name = 'Rectangle';
+    rectangle.keyframes = [createLayerKeyframe(0, defaultTransformFor('rectangle'))];
+    const text = createLayerOfKind('text');
+    text.keyframes = [createLayerKeyframe(0, defaultTransformFor('text'))];
+    text.expressions = {
+      x: 'const rect = layer("Rectangle");\nreturn rect.x + rect.width + 100;',
+      opacity: 'ease(0, 1, frame / 10, "quad-out")',
+    };
+    text.expressionsEnabled = { x: true, opacity: false };
+    composition.expressionApiVersion = 23;
+    composition.scripting = {
+      enabled: true,
+      source: 'layer("Rectangle").x = helpers.offset(10);',
+      modules: [{ fileName: 'helpers.js', source: 'export const offset = x => x + 20;' }],
+    };
+    composition.layers = [rectangle, text];
+    const descriptor = compileDescriptor(composition);
+    const manifest = assembleManifest(project, composition, descriptor);
+    const imported = await importOgrafData(
+      'expressions.ograf.zip',
+      await packageBytes({
+        [`${manifest.id}.ograf.json`]: JSON.stringify(manifest),
+        'main.js': generateMainJs(descriptor, ''),
+      }),
+    );
+
+    expect(imported.mode).toBe('compiled-descriptor');
+    const restored = imported.project.compositions[0]!;
+    expect(restored.expressionApiVersion).toBe(23);
+    expect(restored.scripting).toEqual(composition.scripting);
+    expect(compileDescriptor(restored).scripting).toEqual(composition.scripting);
+    expect(compileDescriptor(restored).expressionApiVersion).toBe(23);
+    expect(restored.layers.find((layer) => layer.id === rectangle.id)?.name).toBe('Rectangle');
+    expect(restored.layers.find((layer) => layer.id === text.id)).toMatchObject({
+      expressions: text.expressions,
+      expressionsEnabled: text.expressionsEnabled,
+    });
+    expect(compileDescriptor(restored).layers.find((layer) => layer.id === text.id)).toMatchObject({
+      expressions: text.expressions,
+      expressionsEnabled: text.expressionsEnabled,
+    });
+  });
+
   it('restores editable shader source and controls from a compiled package without source data', async () => {
     const project = createProject();
     const composition = project.compositions[0]!;

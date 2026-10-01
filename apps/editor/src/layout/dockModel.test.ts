@@ -35,7 +35,13 @@ describe('dock layout model', () => {
       ['layers', 'chat'],
       ['resources'],
     ]);
-    expect(layout.zones.right[0]?.panes).toEqual(['inspector', 'brand-kit', 'data', 'export']);
+    expect(layout.zones.right[0]?.panes).toEqual([
+      'inspector',
+      'brand-kit',
+      'data',
+      'scripts',
+      'export',
+    ]);
     expect(layout.zones.bottom[0]?.panes).toEqual(['timeline']);
     expect(DOCK_PANE_LABELS.inspector).toBe('Properties');
   });
@@ -57,6 +63,7 @@ describe('dock layout model', () => {
       'inspector',
       'brand-kit',
       'data',
+      'scripts',
       'export',
       'timeline',
     ]);
@@ -73,11 +80,23 @@ describe('dock layout model', () => {
       'inspector',
       'before',
     );
-    expect(before.zones.right[0]?.panes).toEqual(['export', 'inspector', 'brand-kit', 'data']);
+    expect(before.zones.right[0]?.panes).toEqual([
+      'export',
+      'inspector',
+      'brand-kit',
+      'data',
+      'scripts',
+    ]);
     expect(before.zones.right[0]?.activePane).toBe('export');
 
-    const after = dockPaneAdjacentToTab(before, 'export', 'right-properties', 'data', 'after');
-    expect(after.zones.right[0]?.panes).toEqual(['inspector', 'brand-kit', 'data', 'export']);
+    const after = dockPaneAdjacentToTab(before, 'export', 'right-properties', 'scripts', 'after');
+    expect(after.zones.right[0]?.panes).toEqual([
+      'inspector',
+      'brand-kit',
+      'data',
+      'scripts',
+      'export',
+    ]);
   });
 
   it('inserts a pane from another dock group at the requested tab position', () => {
@@ -93,6 +112,7 @@ describe('dock layout model', () => {
       'brand-kit',
       'timeline',
       'data',
+      'scripts',
       'export',
     ]);
     expect(moved.zones.bottom).toEqual([]);
@@ -163,8 +183,8 @@ describe('dock layout model', () => {
       ...Object.values(restored.zones).flatMap((groups) => groups.flatMap((group) => group.panes)),
       ...restored.floating.map((pane) => pane.pane),
     ];
-    expect(new Set(panes).size).toBe(8);
-    expect(panes).toHaveLength(8);
+    expect(new Set(panes).size).toBe(9);
+    expect(panes).toHaveLength(9);
     expect(restored.zones.left[0]?.activePane).toBe('layers');
   });
 

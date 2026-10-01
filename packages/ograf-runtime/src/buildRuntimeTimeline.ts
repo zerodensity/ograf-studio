@@ -2,9 +2,7 @@ import { applyLayerEffectsFilter } from './effectCompositing';
 import gsap from 'gsap';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
 import {
-  clipPathForParentBounds,
   EFFECT_ANIMATION_PROPERTIES,
-  getTrackValueAtFrame,
   parseEffectProperty,
   isGradientStopOffsetProperty,
   parseShaderAnimationProperty,
@@ -12,8 +10,8 @@ import {
   type AnimatableLayerProperty,
   type LayerEffects,
   type LayerTransform,
+  type ExpressionDiagnostic,
 } from '@ograf-editor/scene-model';
-import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import { easingForGsap } from './easing';
 import { applyAnimatedPaint, resolveBoundEffects } from './renderElement';
 import { applyCompiledMasks } from './maskRendering';
@@ -30,17 +28,6 @@ const DIRECT_GSAP_PROPERTIES: Partial<Record<keyof LayerTransform, string>> = {
   opacity: 'opacity',
 };
 
-function compiledPoseAtFrame(layer: CompiledLayer, frame: number): LayerTransform {
-  const first = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]?.transform;
-  if (!first) throw new Error(`Compiled layer "${layer.id}" has no transform key.`);
-  return Object.fromEntries(
-    TRANSFORM_ANIMATION_PROPERTIES.map((property) => [
-      property,
-      getTrackValueAtFrame(layer.animationTracks[property] ?? [], frame, first[property]),
-    ]),
-  ) as unknown as LayerTransform;
-}
-
 /**
  * Builds one paused GSAP timeline spanning every keyframe in sequence, from an already-compiled
  * descriptor (frame positions precomputed — this never re-derives them, unlike the editor's own
@@ -52,6 +39,7 @@ export function buildRuntimeTimeline(
   descriptor: CompiledGraphicDescriptor,
   layerEls: Map<string, HTMLElement>,
   dataProvider: () => Record<string, unknown> = () => ({}),
+  onDiagnostics?: (diagnostics: ExpressionDiagnostic[]) => void,
 ): gsap.core.Timeline {
   const tl = gsap.timeline({ paused: true });
   const frameRate = descriptor.frameRate;
@@ -180,36 +168,6 @@ export function buildRuntimeTimeline(
             dataProvider(),
           ),
         );
-      if (!layer.clipParentId) continue;
-      const parent = layerEls.get(layer.clipParentId);
-      if (!child || !parent) {
-        if (child) child.style.clipPath = 'inset(50%)';
-        continue;
-      }
-      const parentLayer = descriptor.layers.find(
-        (candidate) => candidate.id === layer.clipParentId,
-      );
-      const radius =
-        parentLayer?.element.type === 'rectangle' ? parentLayer.element.borderRadius : 0;
-      if (parentLayer) {
-        child.style.clipPath = clipPathForParentBounds(
-          layer.lighting
-            ? sampleCompiledLayerVisualState(
-                layer,
-                frame,
-                compiledLoopElapsedFrames(descriptor, layer, frame),
-              ).transform
-            : compiledPoseAtFrame(layer, frame),
-          parentLayer.lighting
-            ? sampleCompiledLayerVisualState(
-                parentLayer,
-                frame,
-                compiledLoopElapsedFrames(descriptor, parentLayer, frame),
-              ).transform
-            : compiledPoseAtFrame(parentLayer, frame),
-          radius,
-        );
-      }
     }
     applyCompiledMasks(
       descriptor,
@@ -225,35 +183,34 @@ export function buildRuntimeTimeline(
           ),
         ]),
       ),
+      dataProvider(),
+      onDiagnostics,
     );
   };
-  const hasDynamicRendering = descriptor.layers.some(
-    (layer) =>
-      layer.clipParentId ||
-      layer.mask ||
-      layer.element.type === 'pattern' ||
-      layer.lighting ||
-      layer.effects.stack?.some((e) => !e.legacy) ||
-      layer.isMaskOnly ||
-      Object.keys(layer.animationTracks).some(
-        (property) =>
-          isGradientStopOffsetProperty(property) ||
-          property === 'strokeWidth' ||
-          !!parseShaderAnimationProperty(property),
-      ),
-  );
-  if (hasDynamicRendering) {
-    const clipClock = { progress: 0 };
-    tl.to(
-      clipClock,
-      {
-        progress: 1,
-        duration: endFrame / frameRate,
-        ease: 'none',
-        onUpdate: updateDynamicRendering,
-      },
-      0,
+  const hasDynamicRendering =
+    descriptor.scripting?.enabled ||
+    descriptor.layers.some(
+      (layer) =>
+        layer.clipParentId ||
+        layer.expressions ||
+        layer.mask ||
+        layer.element.type === 'pattern' ||
+        (layer.element.type === 'text' && layer.element.autoFit === 'auto-size') ||
+        layer.lighting ||
+        layer.effects.stack?.some((e) => !e.legacy) ||
+        layer.isMaskOnly ||
+        Object.keys(layer.animationTracks).some(
+          (property) =>
+            isGradientStopOffsetProperty(property) ||
+            property === 'strokeWidth' ||
+            !!parseShaderAnimationProperty(property),
+        ),
     );
+  if (!hasDynamicRendering) onDiagnostics?.([]);
+  if (hasDynamicRendering) {
+    // A timeline callback runs after all property tweens for this tick. A child tween at a
+    // later start frame would otherwise overwrite the expression's computed transform.
+    tl.eventCallback('onUpdate', updateDynamicRendering);
     updateDynamicRendering();
   }
   tl.to({}, { duration: 0 }, endFrame / frameRate);

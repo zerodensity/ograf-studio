@@ -13,7 +13,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/theme-one-dark": "^6.1.3",
+    "@codemirror/view": "^6.43.13",
     "@fontsource/nunito": "^5.3.0",
+    "@ograf-editor/agent-tools": "*",
     "@ograf-editor/codegen": "*",
     "@ograf-editor/ograf-runtime": "*",
     "@ograf-editor/ograf-types": "*",
@@ -26,8 +33,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-moveable": "^0.56.0",
-    "zustand": "^5.0.15",
-    "@ograf-editor/agent-tools": "*"
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

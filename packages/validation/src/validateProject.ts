@@ -1,4 +1,5 @@
 import {
+  scriptingErrors,
   isGradientPaint,
   isShaderPaint,
   getElementFill,
@@ -268,6 +269,7 @@ function validateFieldDefaultValue(
 
 function validateComposition(composition: Composition, errors: string[], warnings: string[]): void {
   const prefix = `Composition "${composition.name}"`;
+  for (const error of scriptingErrors(composition)) errors.push(`${prefix}: ${error}`);
   for (const error of stylePackColorLinkErrors(composition)) errors.push(`${prefix}: ${error}`);
   const patternIds = new Set<string>();
   for (const pattern of composition.patterns) {

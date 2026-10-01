@@ -39,6 +39,7 @@ export interface CompiledFontResource {
 
 export interface CompiledLayer {
   id: string;
+  name?: string;
   isVisible: boolean;
   blendMode?: BlendMode;
   element: Element;
@@ -56,6 +57,10 @@ export interface CompiledLayer {
     | null;
   /** Ordered bindings; each target property may appear at most once. */
   bindings: CompiledLayerBinding[];
+  expressions?: Partial<Record<'x' | 'y' | 'width' | 'height' | 'rotation' | 'opacity', string>>;
+  expressionsEnabled?: Partial<
+    Record<'x' | 'y' | 'width' | 'height' | 'rotation' | 'opacity', boolean>
+  >;
   /** Legacy editor-generated descriptors before document v11. */
   binding?: CompiledLayerBinding | null;
   /** Runtime-only clipping relation; general authoring parent metadata remains compiled away. */
@@ -63,7 +68,12 @@ export interface CompiledLayer {
   isMaskOnly?: boolean;
   mask?: import('@ograf-editor/scene-model').LayerMask | null;
   /** Runtime-only visibility/data identity for one bounded collection slot. */
-  collectionItem?: { collectionId: string; dataKey: string; index: number };
+  collectionItem?: {
+    prototypeLayerId?: string;
+    collectionId: string;
+    dataKey: string;
+    index: number;
+  };
 }
 
 export interface CompiledRuntimeCollection {
@@ -115,8 +125,22 @@ export interface CompiledCustomActionRef {
   name: string;
 }
 
+export interface ScriptModule {
+  fileName: string;
+  source: string;
+}
+
+export interface CompositionScripting {
+  modules: ScriptModule[];
+  source: string;
+  enabled: boolean;
+}
+
 /** A flattened, runtime-ready representation of a Composition — what `GraphicElement` interprets. */
 export interface CompiledGraphicDescriptor {
+  scripting?: CompositionScripting;
+  /** Missing means API v1; unknown versions must not be reinterpreted. */
+  expressionApiVersion?: number;
   width: number;
   height: number;
   backgroundColor: string;

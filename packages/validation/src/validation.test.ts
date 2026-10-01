@@ -346,3 +346,18 @@ describe('project validation', () => {
     expect(validateProject(project).errors.join(' ')).toMatch(/capacity must equal field maxItems/);
   });
 });
+
+describe('scripting project fields', () => {
+  it('reports malformed scripting and expression values', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    Object.assign(composition, { scripting: { enabled: true, source: null, modules: [] } });
+    const layer = createLayerOfKind('text');
+    Object.assign(layer, { expressions: { x: 12 } });
+    composition.layers.push(layer);
+    const result = validateProject(project);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((error) => error.includes('Scripting source'))).toBe(true);
+    expect(result.errors.some((error) => error.includes('expressions.x'))).toBe(true);
+  });
+});

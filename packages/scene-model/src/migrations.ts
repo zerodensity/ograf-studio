@@ -1,3 +1,4 @@
+import { scriptingErrors } from './scriptingValidation';
 import {
   createFieldDefinition,
   createDefaultTransform,
@@ -266,6 +267,10 @@ function normalizeComposition(composition: LegacyComposition): Composition {
         semantics: createLayerSemantics(legacyLayer.semantics),
         designTokenBindings: legacyLayer.designTokenBindings ?? [],
         componentLink: legacyLayer.componentLink ?? null,
+        ...(legacyLayer.expressions ? { expressions: legacyLayer.expressions } : {}),
+        ...(legacyLayer.expressionsEnabled
+          ? { expressionsEnabled: legacyLayer.expressionsEnabled }
+          : {}),
         keyframes: sortLayerKeyframes(legacyLayer.keyframes).map((keyframe) => ({
           ...keyframe,
           transform: normalizeAuthoredTransform(keyframe.transform),
@@ -390,6 +395,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
 
   return {
     ...composition,
+    expressionApiVersion: composition.expressionApiVersion ?? 1,
     updateTransitionFrames: Math.max(0, Math.round(composition.updateTransitionFrames ?? 0)),
     keyframes: normalizedKeyframes,
     transitions,
@@ -434,6 +440,8 @@ function normalizeComposition(composition: LegacyComposition): Composition {
           semantics: createLayerSemantics(layer.semantics),
           designTokenBindings: layer.designTokenBindings ?? [],
           componentLink: null,
+          ...(layer.expressions ? { expressions: layer.expressions } : {}),
+          ...(layer.expressionsEnabled ? { expressionsEnabled: layer.expressionsEnabled } : {}),
         };
         if (
           normalizedLayer.element.type === 'text' &&
@@ -479,6 +487,10 @@ function normalizeComposition(composition: LegacyComposition): Composition {
 
 /** Upgrade an editor project without mutating the parsed/autosaved source object. */
 export function migrateProject(project: Project | LegacyProject): Project {
+  // Recover editable filename errors (including autosaved partial edits). Export validation
+  // and runtime diagnostics still enforce valid, unique module names.
+  const errors = project.compositions.flatMap((composition) => scriptingErrors(composition, false));
+  if (errors.length) throw new Error(errors.join('\n'));
   const cloned = cloneProject(project as LegacyProject);
   if (cloned.shaders !== undefined && !Array.isArray(cloned.shaders))
     throw new Error('Project shader library must be an array.');

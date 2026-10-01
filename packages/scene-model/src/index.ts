@@ -45,3 +45,12 @@ export * from './projectThumbnail';
 export { createId } from './id';
 export * from './patternLighting';
 export * from './stylePackColorLinks';
+export * from './expressions';
+export * from './scriptModules';
+export * from './expressionTransforms';
+
+export * from './expressionBounds';
+
+export { SCRIPT_LOG_EVENT, type ScriptLogEntry, type ScriptLogLevel } from './scriptConsole';
+
+export * from './scriptingValidation';

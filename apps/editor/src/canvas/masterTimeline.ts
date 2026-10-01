@@ -3,6 +3,7 @@ import { compileDescriptor } from '@ograf-editor/codegen';
 import { buildRuntimeTimeline } from '@ograf-editor/ograf-runtime';
 import { previewBindingData } from '../state/dataBinding';
 import { useTestDataStore } from '../state/testDataStore';
+import { publishExpressionDiagnostics } from '../state/expressionDiagnosticsStore';
 
 /**
  * Builds one paused GSAP timeline spanning every Keyframe in sequence, with a label at each
@@ -24,5 +25,6 @@ export function buildMasterTimeline(
     compileDescriptor(composition, { includeGuides: true }),
     layerRefs,
     () => previewBindingData(composition.dataFields, useTestDataStore.getState().values),
+    (diagnostics) => publishExpressionDiagnostics(composition.id, diagnostics),
   );
 }

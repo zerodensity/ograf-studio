@@ -9,6 +9,8 @@ import {
   defaultTransformForRole,
 } from '@ograf-editor/scene-model';
 import { expandRuntimeCollections, isRuntimeCollectionLayerActive } from './runtimeCollections';
+import { resolveFrameExpressions } from './expressionRendering';
+import { sampleCompiledLayerVisualState } from './loopRendering';
 
 describe('runtime collection expansion', () => {
   it('creates bounded item-major layers with remapped clipping, paths, and offsets', () => {
@@ -25,6 +27,9 @@ describe('runtime collection expansion', () => {
     });
     const plate = createLayerOfKind('rectangle');
     const label = createLayerOfKind('text');
+    plate.name = 'Plate';
+    plate.expressions = { width: 'thisLayer.width + 100' };
+    label.expressions = { x: 'layer("Plate").x + layer("Plate").width + 10' };
     plate.groupId = 'item-group';
     plate.clipChildren = true;
     label.groupId = 'item-group';
@@ -64,6 +69,15 @@ describe('runtime collection expansion', () => {
     expect(compiled.collections?.[0]?.prototypeLayers).toHaveLength(2);
     const expanded = expandRuntimeCollections(compiled);
     expect(expanded.layers).toHaveLength(6);
+    const states = new Map(
+      expanded.layers.map((layer) => [layer.id, sampleCompiledLayerVisualState(layer, 0)]),
+    );
+    const resolved = resolveFrameExpressions(expanded, states);
+    for (let index = 0; index < 3; index++) {
+      const platePose = resolved.get(expanded.layers[index * 2]!.id)!.transform;
+      const labelPose = resolved.get(expanded.layers[index * 2 + 1]!.id)!.transform;
+      expect(labelPose.x).toBe(platePose.x + platePose.width + 10);
+    }
     const firstPlate = expanded.layers[0]!;
     const firstLabel = expanded.layers[1]!;
     const secondPlate = expanded.layers[2]!;
@@ -76,6 +90,7 @@ describe('runtime collection expansion', () => {
       itemIndex: 1,
     });
     expect(secondLabel.collectionItem).toEqual({
+      prototypeLayerId: label.id,
       collectionId: 'collection',
       dataKey: 'leaderboard',
       index: 1,

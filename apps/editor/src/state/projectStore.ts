@@ -201,7 +201,13 @@ interface ProjectActions {
     patch: Partial<
       Pick<
         Composition,
-        'name' | 'width' | 'height' | 'frameRate' | 'updateTransitionFrames' | 'backgroundColor'
+        | 'name'
+        | 'width'
+        | 'height'
+        | 'frameRate'
+        | 'updateTransitionFrames'
+        | 'backgroundColor'
+        | 'scripting'
       >
     >,
   ) => void;
@@ -305,6 +311,12 @@ interface ProjectActions {
   ) => void;
   removeLayerLoop: (layerId: string) => void;
   updateLayerElement: (layerId: string, patch: Partial<ElementFields>) => void;
+  updateLayerExpressions: (layerId: string, expressions: Layer['expressions']) => void;
+  setLayerExpressionEnabled: (
+    layerId: string,
+    property: keyof NonNullable<Layer['expressions']>,
+    enabled: boolean,
+  ) => void;
   editLayerPath: (layerId: string, edit: PathEdit, frame?: number) => void;
   updateLayerTextStroke: (
     layerId: string,
@@ -1905,6 +1917,24 @@ export const useProjectStore = create<ProjectStore>()(
             syncShaderParameterFields(composition, layer);
             pruneInvalidGradientStopTracks(layer);
           }
+        }),
+
+      updateLayerExpressions: (layerId, expressions) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (layer && !layer.isLocked) {
+            layer.expressions = expressions;
+            if (expressions) composition.expressionApiVersion ??= 1;
+          }
+        }),
+
+      setLayerExpressionEnabled: (layerId, property, enabled) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (layer && !layer.isLocked)
+            layer.expressionsEnabled = { ...(layer.expressionsEnabled ?? {}), [property]: enabled };
         }),
 
       updateLayerShaderParameter: (layerId, frame, slot, name, value) =>

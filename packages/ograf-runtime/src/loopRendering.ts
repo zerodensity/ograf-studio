@@ -31,6 +31,9 @@ export interface CompiledLayerVisualState {
   effects: LayerEffects;
   paintTracks: LayerAnimationTracks;
   paintFrame: number;
+  expressionFrame?: number;
+  /** Existing direct exit transition progress; composition frame retains its own meaning. */
+  expressionExitProgress?: number;
   patternFrame?: number;
 }
 
@@ -147,6 +150,11 @@ export function interpolateCompiledLayerVisualState(
     effects,
     paintTracks,
     paintFrame: 0,
+    expressionFrame: interpolate(
+      source.expressionFrame ?? 0,
+      target.expressionFrame ?? targetFrame,
+      clampedProgress,
+    ),
     ...(layer.element.type === 'pattern'
       ? { patternFrame: (progress < 1 ? source.patternFrame : target.patternFrame) ?? 0 }
       : {}),
@@ -269,6 +277,7 @@ export function sampleCompiledLayerVisualState(
     ...lit,
     paintTracks,
     paintFrame: 0,
+    expressionFrame: baseFrame,
     ...(layer.element.type === 'pattern' ? { patternFrame: loopElapsedFrames ?? 0 } : {}),
   };
 }
@@ -278,7 +287,14 @@ export function applyCompiledLayerVisualState(
   state: CompiledLayerVisualState,
   elapsedMs = 0,
 ): void {
-  const { transform } = state;
+  applyCompiledLayerTransform(element, state.transform);
+  applyLayerEffectsFilter(element, state.effects, elapsedMs);
+  applyAnimatedPaint(element, state.paintTracks, state.paintFrame);
+  if (state.patternFrame !== undefined) renderPatternAtElapsed(element, state.patternFrame);
+}
+
+/** Expressions change geometry without restarting paint, shader effects or pattern clocks. */
+export function applyCompiledLayerTransform(element: HTMLElement, transform: LayerTransform): void {
   gsap.set(element, {
     x: transform.x,
     y: transform.y,
@@ -288,9 +304,6 @@ export function applyCompiledLayerVisualState(
     opacity: transform.opacity,
     transformOrigin: `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`,
   });
-  applyLayerEffectsFilter(element, state.effects, elapsedMs);
-  applyAnimatedPaint(element, state.paintTracks, state.paintFrame);
-  if (state.patternFrame !== undefined) renderPatternAtElapsed(element, state.patternFrame);
 }
 
 /** Applies clipping after every participating layer pose has been resolved. */

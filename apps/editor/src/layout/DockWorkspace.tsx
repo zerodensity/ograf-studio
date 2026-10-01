@@ -14,6 +14,7 @@ import { useAgentReviewStore } from '../state/agentReviewStore';
 import { ResourcesPanel } from '../panels/ResourcesPanel';
 import { BrandKitPanel } from '../panels/BrandKitPanel';
 import { InspectorPanel } from '../panels/InspectorPanel';
+import { ScriptsPanel } from '../panels/ScriptsPanel';
 import { DataPanel } from '../panels/DataPanel';
 import { PreviewExportPanel } from '../panels/PreviewExportPanel';
 import { TimelinePanel } from '../panels/TimelinePanel';
@@ -94,6 +95,8 @@ function PaneBody({ pane }: { pane: DockPaneId }) {
       return <BrandKitPanel />;
     case 'inspector':
       return <InspectorPanel />;
+    case 'scripts':
+      return <ScriptsPanel />;
     case 'data':
       return <DataPanel />;
     case 'export':

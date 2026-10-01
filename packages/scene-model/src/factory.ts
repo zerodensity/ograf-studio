@@ -493,6 +493,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
     width: 1920,
     height: 1080,
     backgroundColor: '#000000',
+    expressionApiVersion: 1,
     frameRate: DEFAULT_FRAME_RATE,
     updateTransitionFrames: 0,
     layout: {

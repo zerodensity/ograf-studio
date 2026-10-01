@@ -4,6 +4,32 @@ export interface ParsedCssTransform {
   rotation: number;
 }
 
+/** Read unzoomed rendered geometry; client rectangles would include canvas zoom and rotation. */
+export function renderedLayerGeometry(
+  element: HTMLElement | undefined,
+  fallback: { x: number; y: number; width: number; height: number },
+): { x: number; y: number; width: number; height: number } {
+  if (!element) return fallback;
+  const position = element.style.transform ? parseCssTransform(element.style.transform) : fallback;
+  const width = Number.parseFloat(element.style.width);
+  const height = Number.parseFloat(element.style.height);
+  return {
+    x: position.x,
+    y: position.y,
+    width: Number.isFinite(width) ? width : fallback.width,
+    height: Number.isFinite(height) ? height : fallback.height,
+  };
+}
+
+/** A canvas drag changes the authored position by the visible delta, even when an expression offsets it. */
+export function authoredPositionAfterDrag(
+  authored: number,
+  displayedBefore: number,
+  displayedAfter: number,
+): number {
+  return authored + displayedAfter - displayedBefore;
+}
+
 function numbers(value: string): number[] {
   return value.split(',').map((part) => Number.parseFloat(part.trim()));
 }

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ograf-editor/ograf-types": "*"
+    "@ograf-editor/ograf-types": "*",
+    "sucrase": "3.35.1"
   },
   "devDependencies": {
     "typescript": "~6.0.2"

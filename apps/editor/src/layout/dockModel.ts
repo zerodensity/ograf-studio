@@ -5,6 +5,7 @@ export const DOCK_PANE_IDS = [
   'brand-kit',
   'inspector',
   'data',
+  'scripts',
   'export',
   'timeline',
 ] as const;
@@ -20,6 +21,7 @@ export const DOCK_PANE_LABELS: Record<DockPaneId, string> = {
   'brand-kit': 'Brand Kit',
   inspector: 'Properties',
   data: 'Data',
+  scripts: 'Scripts',
   export: 'Preview & Export',
   timeline: 'Timeline',
 };
@@ -74,7 +76,7 @@ export function createDefaultDockLayout(): DockLayoutState {
       right: [
         {
           id: 'right-properties',
-          panes: ['inspector', 'brand-kit', 'data', 'export'],
+          panes: ['inspector', 'brand-kit', 'data', 'scripts', 'export'],
           activePane: 'inspector',
           weight: 1,
         },

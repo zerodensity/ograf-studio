@@ -51,6 +51,7 @@ building executables and verification.
 ## Documentation
 
 - [Using Studio](docs/USER_GUIDE.md) — projects, images, SVG and Lottie.
+- [JavaScript scripting](docs/EXPRESSIONS.md) — property expressions, composition scripts and modules.
 - [AI authoring](docs/AI_AUTHORING.md) — built-in chat, MCP clients and the authoring skill.
 - [What's new](docs/releases/0.22.md) — 0.22 release highlights.
 - [Contributing](CONTRIBUTING.md) — community development and verification.

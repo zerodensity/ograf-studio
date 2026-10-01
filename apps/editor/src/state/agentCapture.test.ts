@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createComposition,
+  createProject,
   createFieldDefinition,
   createImageLayer,
   createLayerOfKind,
@@ -25,6 +26,10 @@ const runtime = vi.hoisted(() => {
     ready: vi.fn(async () => {}),
     deterministic: vi.fn(),
     pattern: vi.fn(),
+    content: vi.fn(),
+    masks: vi.fn(),
+    effects: vi.fn(),
+    dispose: vi.fn(),
   };
 });
 vi.mock('@ograf-editor/ograf-runtime', async (original) => ({
@@ -34,6 +39,10 @@ vi.mock('@ograf-editor/ograf-runtime', async (original) => ({
   waitForElementContentReady: runtime.ready,
   setLottieDeterministicRendering: runtime.deterministic,
   renderPatternAtElapsed: runtime.pattern,
+  renderElementContent: runtime.content,
+  applyCompiledMasks: runtime.masks,
+  applyLayerEffectsFilter: runtime.effects,
+  disposeElementContent: runtime.dispose,
 }));
 afterAll(() => vi.unstubAllGlobals());
 import {
@@ -44,6 +53,7 @@ import {
   renderCaptureElementFrame,
   resolveCaptureElement,
   settleCaptureContent,
+  captureAgentPng,
 } from './agentCapture';
 import { inferResolvedFamily, rasterize } from './agentCapture';
 import { getFontEmbedCSS, toCanvas } from 'html-to-image';
@@ -51,6 +61,89 @@ import { captureMaskedCanvas } from './maskedCapture';
 import { acquireProjectFonts } from './projectFonts';
 vi.mock('html-to-image', () => ({ getFontEmbedCSS: vi.fn(), toCanvas: vi.fn() }));
 vi.mock('./maskedCapture', () => ({ captureMaskedCanvas: vi.fn() }));
+
+describe('scripted thumbnail layout', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetAllMocks();
+  });
+
+  it('mounts and settles geometry before scripts, includes revealable layers and cleans up', async () => {
+    class Node {
+      style = {};
+      dataset: Record<string, string> = {};
+      parent: Node | null = null;
+      children: Node[] = [];
+      appendChild(child: Node) {
+        child.parent = this;
+        this.children.push(child);
+      }
+      remove() {
+        if (this.parent)
+          this.parent.children = this.parent.children.filter((node) => node !== this);
+        this.parent = null;
+      }
+      querySelector() {
+        return null;
+      }
+      querySelectorAll(selector: string): Node[] {
+        return this.children.flatMap((child) => [
+          ...(selector.includes('data-agent-capture-layer') && child.dataset.agentCaptureLayer
+            ? [child]
+            : []),
+          ...child.querySelectorAll(selector),
+        ]);
+      }
+    }
+    const body = new Node();
+    const events: string[] = [];
+    vi.stubGlobal('document', {
+      body,
+      createElement: () => new Node(),
+      fonts: { ready: Promise.resolve() },
+    });
+    vi.stubGlobal('window', { setTimeout: vi.fn(() => 0) });
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      events.push('layout');
+      callback(0);
+      return 0;
+    });
+    runtime.ready.mockResolvedValue(undefined);
+    runtime.content.mockImplementation((host: Node) => {
+      expect(host.parent?.parent?.parent).toBe(body);
+      events.push('content');
+    });
+    runtime.masks.mockImplementation((_descriptor, elements) => {
+      expect(events).toContain('layout');
+      expect(elements.size).toBe(2);
+      events.push('scripts');
+    });
+    vi.mocked(getFontEmbedCSS).mockResolvedValue('');
+    vi.mocked(toCanvas).mockImplementation(async () => {
+      expect(events.indexOf('scripts')).toBeGreaterThan(events.indexOf('layout'));
+      expect(events.lastIndexOf('layout')).toBeGreaterThan(events.indexOf('scripts'));
+      return { toDataURL: () => 'data:image/png;base64,cG5n' } as HTMLCanvasElement;
+    });
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    composition.layers = [createLayerOfKind('rectangle'), createLayerOfKind('rectangle')];
+    for (const layer of composition.layers)
+      layer.keyframes = [createLayerKeyframe(0, defaultTransformForRole('rectangle', 'step'))];
+    composition.layers[1]!.isVisible = false;
+    composition.scripting = { enabled: true, source: '', modules: [] };
+    const capture = await captureAgentPng({
+      target: 'composition',
+      project,
+      frame: 0,
+      maxDimension: 320,
+      matte: 'transparent',
+    });
+    expect(capture.data).toBe('cG5n');
+    expect(runtime.masks).toHaveBeenCalledOnce();
+    expect(runtime.dispose).toHaveBeenCalledTimes(2);
+    expect(body.children).toHaveLength(0);
+  });
+});
 
 describe('embedded capture fonts', () => {
   afterEach(() => {

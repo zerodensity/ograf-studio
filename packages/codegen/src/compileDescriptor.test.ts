@@ -35,6 +35,28 @@ const POSE = {
 };
 
 describe('compileDescriptor', () => {
+  it('pins legacy expressions to API v1 and preserves unknown API versions', () => {
+    const composition = createComposition({ layers: [createLayerOfKind('rectangle')] });
+    composition.layers[0]!.expressions = { x: 'x + 1' };
+    delete composition.expressionApiVersion;
+    expect(compileDescriptor(composition).expressionApiVersion).toBe(1);
+    composition.expressionApiVersion = 23;
+    expect(compileDescriptor(composition).expressionApiVersion).toBe(23);
+  });
+  it('preserves expression source and individual enable flags in exported graphics', () => {
+    const layer = createLayerOfKind('rectangle');
+    layer.expressions = {
+      x: 'const t = frame / 20; return ease(0, 100, t, "quad-out");',
+      opacity: 'data.fade == 0 ? 1 : time',
+    };
+    layer.expressionsEnabled = { x: true, opacity: false };
+    const descriptor = compileDescriptor(compositionWith([layer]));
+    const mainJs = generateMainJs(descriptor, 'class GraphicElement {}');
+    const exported = JSON.parse(mainJs.match(/const exportedDescriptor = (.*);/)![1]!);
+    expect(exported.layers[0].expressions).toEqual(layer.expressions);
+    expect(exported.layers[0].expressionsEnabled).toEqual(layer.expressionsEnabled);
+  });
+
   it('preserves shader source and playback controls in the compiled and exported descriptor', () => {
     const shader = createLayerOfKind('shader');
     const paint = getElementShaderPaint(shader.element)!;

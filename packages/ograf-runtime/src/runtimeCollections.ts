@@ -49,7 +49,12 @@ function offsetLayer(
       }
     : null;
   layer.bindings = layer.bindings.map((binding) => ({ ...binding, itemIndex: index }));
-  layer.collectionItem = { collectionId: collection.id, dataKey: collection.dataKey, index };
+  layer.collectionItem = {
+    prototypeLayerId: prototype.id,
+    collectionId: collection.id,
+    dataKey: collection.dataKey,
+    index,
+  };
   return layer;
 }
 

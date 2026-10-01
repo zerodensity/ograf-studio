@@ -803,6 +803,8 @@ function projectFromDescriptor(
     layer.effects = { ...layer.effects, ...clone(compiled.effects) };
     layer.keyframes = clone(compiled.keyframes);
     layer.animationTracks = clone(compiled.animationTracks);
+    if (compiled.expressions) layer.expressions = clone(compiled.expressions);
+    if (compiled.expressionsEnabled) layer.expressionsEnabled = clone(compiled.expressionsEnabled);
     if (layer.element.type === 'text' && !layer.animationTracks.strokeWidth?.length) {
       layer.animationTracks.strokeWidth =
         getResolvedLayerAnimationTracks(layer).strokeWidth?.map((key) => ({ ...key })) ?? [];
@@ -886,6 +888,8 @@ function projectFromDescriptor(
     width: descriptor.width,
     height: descriptor.height,
     frameRate: descriptor.frameRate,
+    expressionApiVersion: descriptor.expressionApiVersion ?? 1,
+    ...(descriptor.scripting ? { scripting: clone(descriptor.scripting) } : {}),
     backgroundColor: descriptor.backgroundColor,
     layers,
     keyframes: lifecycle.keyframes,

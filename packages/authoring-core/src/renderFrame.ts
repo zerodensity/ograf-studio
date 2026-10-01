@@ -28,6 +28,12 @@ import {
   roundedRectangleSvgPath,
   resolveElementAssetReferences,
   valueAtSourcePath,
+  resolveExpressionTransforms,
+  EXPRESSION_PROPERTIES,
+  expressionDataScope,
+  expressionSourceRect,
+  expressionTimelineScope,
+  type ExpressionScope,
   type Composition,
   type Element,
   type FieldValue,
@@ -141,6 +147,7 @@ function layerSvg(
   composition: Composition,
   data: Record<string, FieldValue>,
   options: {
+    transform?: LayerTransform;
     itemValue?: FieldValue;
     collectionFieldId?: string;
     offsetX?: number;
@@ -149,9 +156,11 @@ function layerSvg(
   } = {},
 ): string {
   if (!layer.isVisible || layer.isGuide || layer.isMaskOnly) return '';
-  const transform = { ...getLayerTransformAtFrame(layer, frame) };
-  transform.x += options.offsetX ?? 0;
-  transform.y += options.offsetY ?? 0;
+  const transform = { ...(options.transform ?? getLayerTransformAtFrame(layer, frame)) };
+  if (!options.transform) {
+    transform.x += options.offsetX ?? 0;
+    transform.y += options.offsetY ?? 0;
+  }
   let effects = getLayerEffectsAtFrame(layer, frame);
   for (const binding of layer.bindings) {
     if (
@@ -341,13 +350,117 @@ export function renderCompositionFrameSvg(
       };
     }),
   };
+  const data = Object.fromEntries(
+    composition.dataFields.map((field) => [field.key, field.defaultValue]),
+  );
+  const expressionScope: ExpressionScope = {
+    frame: normalizedFrame,
+    time: normalizedFrame / composition.frameRate,
+    'comp.width': composition.width,
+    'comp.height': composition.height,
+    ...expressionDataScope(data),
+    ...expressionTimelineScope(
+      computeKeyframeFrames(composition).map((key, index) => ({
+        frame: key.frame,
+        role: composition.keyframes[index]!.role,
+      })),
+      normalizedFrame,
+    ),
+  };
+  const expressionTransforms = resolveExpressionTransforms(
+    composition.layers.flatMap((layer) => {
+      const collection = composition.runtimeCollections.find((entry) =>
+        entry.prototypeLayerIds.includes(layer.id),
+      );
+      const transform = getLayerTransformAtFrame(layer, normalizedFrame);
+      const samplers = (index?: number) => {
+        const sampleFrame = (seconds: number) =>
+          Math.max(0, Math.min(seconds * composition.frameRate, getTotalFrames(composition)));
+        const sampleTransform = (seconds: number) => {
+          const pose = getLayerTransformAtFrame(layer, sampleFrame(seconds));
+          return {
+            ...pose,
+            x: pose.x + (index === undefined ? 0 : collection!.offsetPerItem.x * index),
+            y: pose.y + (index === undefined ? 0 : collection!.offsetPerItem.y * index),
+          };
+        };
+        return {
+          sampleTransform,
+          sourceRectAtTime: (seconds: number, includeExtents: boolean) => {
+            let element = layer.bindings.reduce<Element>((resolved, binding) => {
+              const field = composition.dataFields.find((entry) => entry.id === binding.fieldId);
+              const root = field ? data[field.key] : undefined;
+              const item =
+                index !== undefined && collection?.fieldId === field?.id && Array.isArray(root)
+                  ? root[index]
+                  : root;
+              const value = valueAtSourcePath(item, binding.sourcePath);
+              return value === undefined
+                ? resolved
+                : applyElementDataValue(
+                    resolved,
+                    binding.targetProperty,
+                    binding.valueMap?.[String(value)] ?? value,
+                  );
+            }, layer.element);
+            if (element.type === 'text')
+              element = {
+                ...element,
+                strokeWidth: getLayerPropertyValueAtFrame(
+                  layer,
+                  'strokeWidth',
+                  sampleFrame(seconds),
+                ),
+              };
+            return expressionSourceRect(element, sampleTransform(seconds), includeExtents);
+          },
+        };
+      };
+      if (!collection) return [{ ...layer, transform, ...samplers() }];
+      return Array.from({ length: collection.capacity }, (_, index) => ({
+        ...layer,
+        id: `${collection.id}::${index}::${layer.id}`,
+        prototypeLayerId: layer.id,
+        ...samplers(index),
+        referenceScope: JSON.stringify([collection.id, index]),
+        transform: {
+          ...transform,
+          x: transform.x + collection.offsetPerItem.x * index,
+          y: transform.y + collection.offsetPerItem.y * index,
+        },
+      }));
+    }),
+    expressionScope,
+    undefined,
+    composition.expressionApiVersion,
+    composition.scripting ? structuredClone(composition.scripting) : undefined,
+  );
+  composition.layers = composition.layers.map((candidate) => {
+    if (!candidate.expressions && !composition.scripting?.enabled) return candidate;
+    const transform = expressionTransforms.get(candidate.id);
+    if (!transform) return candidate;
+    const animationTracks = { ...candidate.animationTracks };
+    for (const property of EXPRESSION_PROPERTIES) {
+      if (
+        !composition.scripting?.enabled &&
+        (!candidate.expressions?.[property] || candidate.expressionsEnabled?.[property] === false)
+      )
+        continue;
+      animationTracks[property] = [
+        {
+          id: `expression:${candidate.id}:${property}`,
+          frame: normalizedFrame,
+          value: transform[property],
+          easing: 'linear',
+        },
+      ];
+    }
+    return { ...candidate, animationTracks };
+  });
   const background =
     composition.backgroundColor === 'transparent'
       ? ''
       : `<rect width="100%" height="100%" fill="${escapeXml(composition.backgroundColor)}"/>`;
-  const data = Object.fromEntries(
-    composition.dataFields.map((field) => [field.key, field.defaultValue]),
-  );
   const collectionByLayerId = new Map(
     composition.runtimeCollections.flatMap((collection) =>
       collection.prototypeLayerIds.map((layerId) => [layerId, collection] as const),
@@ -372,6 +485,7 @@ export function renderCompositionFrameSvg(
               const prototype = composition.layers.find((candidate) => candidate.id === layerId);
               return prototype
                 ? layerSvg(prototype, normalizedFrame, composition.frameRate, composition, data, {
+                    transform: expressionTransforms.get(`${collection.id}::${index}::${layerId}`)!,
                     itemValue,
                     collectionFieldId: collection.fieldId,
                     offsetX: collection.offsetPerItem.x * index,

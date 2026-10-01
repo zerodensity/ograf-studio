@@ -5,7 +5,6 @@ import { compileDescriptor, type CompiledLayer } from '@ograf-editor/codegen';
 import {
   applyLayerEffectsFilter,
   applyAnimatedPaint,
-  applyCompiledClipPaths,
   applyCompiledMasks,
   disposeElementContent,
   expandRuntimeCollections,
@@ -368,12 +367,12 @@ function sequenceFrame(element: Element, frame: number, frameRate: number): numb
   return element.loop ? raw % element.frames.length : Math.min(raw, element.frames.length - 1);
 }
 
-function buildCompositionDom(
+async function buildCompositionDom(
   composition: Composition,
   frame: number,
   matte: string,
   dataOverrides?: Record<string, FieldValue>,
-): HTMLDivElement {
+): Promise<HTMLDivElement> {
   const data = {
     ...Object.fromEntries(composition.dataFields.map((field) => [field.key, field.defaultValue])),
     ...dataOverrides,
@@ -404,9 +403,15 @@ function buildCompositionDom(
   const descriptor = expandRuntimeCollections(compileDescriptor(composition));
   const rendered = new Map<string, HTMLElement>();
   const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
+  // Text fitting and GSAP transform parsing require a connected layout tree.
+  // Keep it behind the editor, but mount it before rendering any layer content.
+  document.body.appendChild(root);
   try {
     for (const layer of descriptor.layers) {
-      if (!layer.isVisible || !isRuntimeCollectionLayerActive(layer, data)) {
+      if (
+        (!layer.isVisible && !descriptor.scripting?.enabled) ||
+        !isRuntimeCollectionLayerActive(layer, data)
+      ) {
         continue;
       }
       const state = sampleCompiledLayerVisualState(
@@ -423,6 +428,7 @@ function buildCompositionDom(
         left: '0',
         top: '0',
         boxSizing: 'border-box',
+        display: layer.isVisible ? '' : 'none',
         width: `${transform.width}px`,
         height: `${transform.height}px`,
         opacity: String(transform.opacity),
@@ -446,15 +452,18 @@ function buildCompositionDom(
       rendered.set(layer.id, layerRoot);
       states.set(layer.id, state);
     }
-    applyCompiledClipPaths(descriptor, rendered, states);
+    // Evaluate scripts once, after authored text/media geometry has settled. The caller
+    // settles again after script writes so replaced media and fitted text reach the PNG.
+    await settleCaptureContent(root);
     applyCompiledMasks(descriptor, rendered, states, data);
     return root;
   } catch (error) {
-    // Shader compilation/drawing can fail before the detached capture tree is returned.
+    // Shader compilation/drawing can fail before the capture tree is returned.
     // Release every context mounted so far, including the layer that failed to render.
     for (const layer of root.querySelectorAll<HTMLElement>('[data-agent-capture-layer]')) {
       disposeElementContent(layer);
     }
+    root.remove();
     throw error;
   }
 }
@@ -468,13 +477,12 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
     );
   }
 
-  let wrapper = buildCompositionDom(
+  let wrapper = await buildCompositionDom(
     composition,
     request.frame,
     request.matte,
     request.dataOverrides,
   );
-  document.body.appendChild(wrapper);
 
   try {
     await settleCaptureContent(wrapper);
@@ -494,13 +502,12 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
         disposeElementContent(layer);
       }
       wrapper.remove();
-      wrapper = buildCompositionDom(
+      wrapper = await buildCompositionDom(
         composition,
         request.frame,
         request.matte,
         request.dataOverrides,
       );
-      document.body.appendChild(wrapper);
       await settleCaptureContent(wrapper);
       raster = await rasterize(
         wrapper,

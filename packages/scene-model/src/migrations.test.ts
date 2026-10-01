@@ -15,6 +15,18 @@ import { getShaderAnimatableProperties } from './shaderAnimation';
 import type { LayerTransform, Project } from './types';
 
 describe('migrateProject', () => {
+  it('preserves composition scripts and embedded modules on project reload', () => {
+    const project = createProject();
+    const scripting = {
+      enabled: false,
+      source: 'layer("Title").x = helpers.gap;',
+      modules: [{ fileName: 'helpers.js', source: 'export const gap = 20;' }],
+    };
+    project.compositions[0]!.scripting = scripting;
+    expect(migrateProject(JSON.parse(JSON.stringify(project))).compositions[0]!.scripting).toEqual(
+      scripting,
+    );
+  });
   it('never materializes unkeyed shader tracks during reload and preserves explicitly authored constant keys', () => {
     const project = createProject();
     const layer = createLayerOfKind('text');
