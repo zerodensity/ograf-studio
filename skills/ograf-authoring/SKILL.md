@@ -88,7 +88,7 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 - `.ogs` is editable source for this editor. Legacy `.ogeproj` sources remain readable, but new
   saves use `.ogs`. Project source is not an OGraf manifest or a playout package.
 - `.ograf.zip` is certified playout output. Existing packages can be converted through the visible
-  editor's **Import OGraf** workflow, but arbitrary third-party JavaScript is opaque and conversion
+  editor's **File → Import OGraf package…** workflow, but arbitrary third-party JavaScript is opaque and conversion
   may be lossy. Preserve and report the editor's recovery/loss summary.
 - The MCP server does not expose a raw package-decompilation tool. When the user asks to open or
   convert an existing OGraf package, use the visible editor workflow rather than fabricating a

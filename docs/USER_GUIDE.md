@@ -4,14 +4,14 @@
 
 ## File types
 
-| File                      | Purpose                             | How to open it                                                                                  |
-| ------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `.ogs`                    | Editable OGraf Studio source        | **Open Project**                                                                                |
-| Remote `.ogs` URL         | Public/CORS-enabled editable source | **Open URL**                                                                                    |
-| `.ograf.zip`              | Certified playout package           | **Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
-| Loose OGraf package files | Manifest, `main.js`, and resources  | Select them together with **Import OGraf**                                                      |
-| SVG and raster images     | Reusable image assets               | **Add Image** at the top of **Layers**, or drop files onto the canvas                           |
-| Lottie `.json`            | Looping vector animation layer      | **Add Lottie JSON** at the top of **Layers**                                                    |
+| File                      | Purpose                             | How to open it                                                                                                  |
+| ------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `.ogs`                    | Editable OGraf Studio source        | **File → Open…**                                                                                                |
+| Remote `.ogs` URL         | Public/CORS-enabled editable source | **File → Open from URL…**                                                                                       |
+| `.ograf.zip`              | Certified playout package           | **File → Import OGraf package…** for best-effort editable conversion, or extract it for an OGraf player/devtool |
+| Loose OGraf package files | Manifest, `main.js`, and resources  | Select them together with **File → Import OGraf package…**                                                      |
+| SVG and raster images     | Reusable image assets               | **Add Image** at the top of **Layers**, or drop files onto the canvas                                           |
+| Lottie `.json`            | Looping vector animation layer      | **Add Lottie JSON** at the top of **Layers**                                                                    |
 
 An `.ogs` file is not an OGraf manifest and should not be opened directly in an OGraf playout
 tool. A `.ograf.zip` is the deployable output, but arbitrary third-party JavaScript cannot always be
@@ -24,7 +24,7 @@ browser downloads, picker saves, reference templates, and MCP saves use `.ogs` e
 
 ### Template thumbnails
 
-**Save Project** includes a thumbnail preview and frame selector. By default it uses the first
+**File → Save project…** (**Ctrl+S**) includes a thumbnail preview and frame selector. By default it uses the first
 OGraf step of the main composition, or frame 0 when there are no steps. Enter another frame to
 override it, or use the previous/next-frame buttons; the choice is stored in the `.ogs` file.
 The preview keeps a fixed size while changing frames.
@@ -52,7 +52,7 @@ as non-blocking playout warnings because both configurations remain legal OGraf 
 
 ### Remote project URLs
 
-Use **Open URL** to download editable `.ogs` source from an absolute HTTP or HTTPS URL. OGraf
+Use **File → Open from URL…** to download editable `.ogs` source from an absolute HTTP or HTTPS URL. OGraf
 Studio sends no credentials, follows only HTTP(S) redirects, limits the response to 32 MiB, parses
 and validates the source before loading, and asks before replacing the current project. The remote
 server must allow browser CORS access.
@@ -582,8 +582,10 @@ unrelated preview values remain available. Playout can still override the values
 
 **Edit** has Undo, Redo, Cut, Copy, Paste, Duplicate, Delete, Group or Ungroup, Select all, and
 Deselect all, with the same shortcuts on the canvas (**Ctrl+X/C/V**, **Ctrl+G**,
-**Ctrl+Shift+G**). Text fields keep their own copy, paste, and undo. **Export…** beside **Save
-Project** opens Preview & Export. **Window → Reset layout** puts docked panes back where Studio
+**Ctrl+Shift+G**). Text fields keep their own copy, paste, and undo. **File** holds New project,
+Open… (**Ctrl+O**), Open from URL…, Import OGraf package…, Save project… (**Ctrl+S**), and Preview
+& Export… (**Ctrl+E**); on macOS use **Cmd**. Once a menu is open, pointing at another menu opens
+it instead. **Window → Reset layout** puts docked panes back where Studio
 first placed them. **Help** lists every keyboard shortcut, links to this guide, and shows the
 version.
 

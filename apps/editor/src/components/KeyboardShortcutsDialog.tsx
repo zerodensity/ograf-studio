@@ -5,6 +5,14 @@ const MOD = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) 
 
 export const KEYBOARD_SHORTCUT_GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
   {
+    title: 'File',
+    items: [
+      [`${MOD}+O`, 'Open project'],
+      [`${MOD}+S`, 'Save project'],
+      [`${MOD}+E`, 'Preview & Export'],
+    ],
+  },
+  {
     title: 'Edit',
     items: [
       [`${MOD}+Z`, 'Undo'],

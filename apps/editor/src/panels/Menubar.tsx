@@ -39,6 +39,9 @@ import {
 import { useLayerClipboardStore } from '../state/layerClipboardStore';
 import { usePaneRequestStore } from '../state/paneRequestStore';
 import { KeyboardShortcutsDialog } from '../components/KeyboardShortcutsDialog';
+import { fileMenuShortcut } from '../state/fileMenuShortcuts';
+
+type MenuId = 'file' | 'edit' | 'window' | 'help';
 
 const USER_GUIDE_URL = 'https://github.com/zerodensity/ograf-studio/blob/stable/docs/USER_GUIDE.md';
 const MOD = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -75,44 +78,34 @@ export function Menubar({
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState('');
   const [remoteBusy, setRemoteBusy] = useState(false);
-  const [editMenuOpen, setEditMenuOpen] = useState(false);
-  const [windowMenuOpen, setWindowMenuOpen] = useState(false);
-  const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+  // One menu open at a time; once one is open, hovering another switches to it.
+  const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
+  const editMenuOpen = openMenu === 'edit';
+  const windowMenuOpen = openMenu === 'window';
+  const helpMenuOpen = openMenu === 'help';
+  const fileMenuOpen = openMenu === 'file';
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const editMenuRef = useRef<HTMLDivElement>(null);
-  const windowMenuRef = useRef<HTMLDivElement>(null);
-  const helpMenuRef = useRef<HTMLDivElement>(null);
+  const menusRef = useRef<HTMLElement>(null);
   const clipboardCount = useLayerClipboardStore((state) => state.layers.length);
   const revealPane = usePaneRequestStore((state) => state.reveal);
   const resetLayout = usePaneRequestStore((state) => state.resetLayout);
-  const closeMenus = () => {
-    setEditMenuOpen(false);
-    setWindowMenuOpen(false);
-    setHelpMenuOpen(false);
-  };
+  const closeMenus = () => setOpenMenu(null);
+  const toggleMenu = (menu: MenuId) => setOpenMenu((open) => (open === menu ? null : menu));
+  const menuHoverProps = (menu: MenuId) => ({
+    onMouseEnter: () => setOpenMenu((open) => (open && open !== menu ? menu : open)),
+  });
   const history = useSyncExternalStore(subscribeHistory, getHistorySnapshot, getHistorySnapshot);
   const agentConnected = useAgentBridgeStatus((state) => state.connected);
   const agentActivity = useAgentBridgeStatus((state) => state.activity);
 
   useEffect(() => {
-    if (!editMenuOpen && !windowMenuOpen && !helpMenuOpen) return;
+    if (!openMenu) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (
-        editMenuRef.current?.contains(target) ||
-        windowMenuRef.current?.contains(target) ||
-        helpMenuRef.current?.contains(target)
-      )
-        return;
-      setEditMenuOpen(false);
-      setWindowMenuOpen(false);
-      setHelpMenuOpen(false);
+      if (menusRef.current?.contains(event.target as Node)) return;
+      setOpenMenu(null);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setEditMenuOpen(false);
-      setWindowMenuOpen(false);
-      setHelpMenuOpen(false);
+      if (event.key === 'Escape') setOpenMenu(null);
     };
     document.addEventListener('pointerdown', closeOnOutsidePointer);
     document.addEventListener('keydown', closeOnEscape);
@@ -120,19 +113,19 @@ export function Menubar({
       document.removeEventListener('pointerdown', closeOnOutsidePointer);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [editMenuOpen, windowMenuOpen, helpMenuOpen]);
+  }, [openMenu]);
 
   const applyUndo = (steps = 1) => {
     const label = history.past.at(-1)?.label;
     undo(steps);
-    setEditMenuOpen(false);
+    closeMenus();
     setStatus(steps === 1 && label ? `Undid: ${label}` : `Undid ${steps} changes`);
   };
 
   const applyRedo = (steps = 1) => {
     const label = history.future[0]?.label;
     redo(steps);
-    setEditMenuOpen(false);
+    closeMenus();
     setStatus(steps === 1 && label ? `Redid: ${label}` : `Redid ${steps} changes`);
   };
 
@@ -143,13 +136,13 @@ export function Menubar({
     const layerIds = composition ? selectableLayerIds(composition) : [];
     window.getSelection()?.removeAllRanges();
     selectMany(layerIds);
-    setEditMenuOpen(false);
+    closeMenus();
     setStatus(`Selected ${layerIds.length} layer${layerIds.length === 1 ? '' : 's'}`);
   };
 
   const handleDuplicate = () => {
     const duplicatedIds = duplicateSelectedLayers();
-    setEditMenuOpen(false);
+    closeMenus();
     if (duplicatedIds.length > 0) {
       setStatus(`Duplicated ${duplicatedIds.length} layer${duplicatedIds.length === 1 ? '' : 's'}`);
     }
@@ -157,13 +150,13 @@ export function Menubar({
 
   const plural = (count: number) => `${count} layer${count === 1 ? '' : 's'}`;
   const runLayerCommand = (command: () => string) => {
-    setEditMenuOpen(false);
+    closeMenus();
     setStatus(command());
   };
 
   const handleDeselect = () => {
     deselectAll();
-    setEditMenuOpen(false);
+    closeMenus();
     setStatus('Selection cleared');
   };
 
@@ -248,6 +241,26 @@ export function Menubar({
   };
 
   const handleSave = () => setSaveDialogOpen(true);
+  const handleExport = () => revealPane('export');
+  const runFileCommand = (command: () => void | Promise<void>) => {
+    closeMenus();
+    void command();
+  };
+
+  const fileShortcutHandlers = useRef({ save: handleSave, open: handleOpen, export: handleExport });
+  fileShortcutHandlers.current = { save: handleSave, open: handleOpen, export: handleExport };
+  useEffect(() => {
+    const runShortcut = (event: KeyboardEvent) => {
+      const shortcut = fileMenuShortcut(event);
+      if (!shortcut || event.repeat) return;
+      // Browsers would otherwise save the page, open a file picker or focus the address bar.
+      event.preventDefault();
+      setOpenMenu(null);
+      void fileShortcutHandlers.current[shortcut]();
+    };
+    document.addEventListener('keydown', runShortcut);
+    return () => document.removeEventListener('keydown', runShortcut);
+  }, []);
 
   return (
     <header className="menubar" style={style}>
@@ -276,47 +289,69 @@ export function Menubar({
         Studio
       </span>
       <span className="menubar-project-name">{projectName}</span>
-      <nav className="menubar-actions">
-        <button type="button" onClick={handleNew}>
-          New
-        </button>
-        <button type="button" onClick={handleOpen}>
-          Open
-        </button>
-        <button type="button" onClick={() => setRemoteDialogOpen(true)}>
-          Open URL
-        </button>
-        <button
-          type="button"
-          onClick={handleImportOgraf}
-          title="Best-effort conversion from an OGraf .zip package or *.ograf.json manifest."
-        >
-          Import OGraf
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          title="Save editable .ogs source with a transparent PNG thumbnail."
-        >
-          Save Project
-        </button>
-        <button
-          type="button"
-          onClick={() => revealPane('export')}
-          title="Open Preview & Export to test and export the .ograf.zip package."
-        >
-          Export…
-        </button>
-        <div className="menubar-edit-control" ref={editMenuRef}>
+      <nav className="menubar-actions" ref={menusRef}>
+        <div className="menubar-edit-control" {...menuHoverProps('file')}>
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={fileMenuOpen}
+            onClick={() => toggleMenu('file')}
+          >
+            File
+          </button>
+          {fileMenuOpen ? (
+            <div className="menubar-edit-menu menubar-file-menu" role="menu" aria-label="File">
+              <button type="button" role="menuitem" onClick={() => runFileCommand(handleNew)}>
+                <span>New project</span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runFileCommand(handleOpen)}>
+                <span>Open…</span>
+                <kbd>{MOD}+O</kbd>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => runFileCommand(() => setRemoteDialogOpen(true))}
+              >
+                <span>Open from URL…</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                title="Best-effort conversion from an OGraf .zip package or *.ograf.json manifest."
+                onClick={() => runFileCommand(handleImportOgraf)}
+              >
+                <span>Import OGraf package…</span>
+              </button>
+              <div className="menubar-menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                title="Save editable .ogs source with a transparent PNG thumbnail."
+                onClick={() => runFileCommand(handleSave)}
+              >
+                <span>Save project…</span>
+                <kbd>{MOD}+S</kbd>
+              </button>
+              <div className="menubar-menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                title="Open Preview & Export to test and export the .ograf.zip package."
+                onClick={() => runFileCommand(handleExport)}
+              >
+                <span>Preview &amp; Export…</span>
+                <kbd>{MOD}+E</kbd>
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <div className="menubar-edit-control" {...menuHoverProps('edit')}>
           <button
             type="button"
             aria-haspopup="menu"
             aria-expanded={editMenuOpen}
-            onClick={() => {
-              setEditMenuOpen((open) => !open);
-              setWindowMenuOpen(false);
-              setHelpMenuOpen(false);
-            }}
+            onClick={() => toggleMenu('edit')}
           >
             Edit
           </button>
@@ -468,16 +503,12 @@ export function Menubar({
             </div>
           ) : null}
         </div>
-        <div className="menubar-window-control" ref={windowMenuRef}>
+        <div className="menubar-window-control" {...menuHoverProps('window')}>
           <button
             type="button"
             aria-haspopup="menu"
             aria-expanded={windowMenuOpen}
-            onClick={() => {
-              setWindowMenuOpen((open) => !open);
-              setEditMenuOpen(false);
-              setHelpMenuOpen(false);
-            }}
+            onClick={() => toggleMenu('window')}
           >
             Window
           </button>
@@ -494,7 +525,7 @@ export function Menubar({
                     onClick={() => {
                       if (detached.windows[pane]) detached.open(pane);
                       else onToggleDockPane?.(pane);
-                      setWindowMenuOpen(false);
+                      closeMenus();
                     }}
                   >
                     <span aria-hidden="true">{open ? '✓' : ''}</span>
@@ -509,7 +540,7 @@ export function Menubar({
                 role="menuitem"
                 onClick={() => {
                   resetLayout();
-                  setWindowMenuOpen(false);
+                  closeMenus();
                   setStatus('Panes back in their original places');
                 }}
               >
@@ -519,16 +550,12 @@ export function Menubar({
             </div>
           ) : null}
         </div>
-        <div className="menubar-window-control" ref={helpMenuRef}>
+        <div className="menubar-window-control" {...menuHoverProps('help')}>
           <button
             type="button"
             aria-haspopup="menu"
             aria-expanded={helpMenuOpen}
-            onClick={() => {
-              setHelpMenuOpen((open) => !open);
-              setEditMenuOpen(false);
-              setWindowMenuOpen(false);
-            }}
+            onClick={() => toggleMenu('help')}
           >
             Help
           </button>
