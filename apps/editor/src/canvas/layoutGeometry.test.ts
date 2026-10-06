@@ -38,6 +38,18 @@ describe('canvas layout geometry', () => {
     expect(distributedPatches(items, 'horizontal').get('b')).toEqual({ x: 180 });
   });
 
+  it('aligns to fixed bounds such as the canvas, even for a single layer', () => {
+    const canvas = { x: 0, y: 0, width: 1920, height: 1080 };
+    const card = [
+      { id: 'a', pose: createDefaultTransform({ x: 40, y: 50, width: 300, height: 200 }) },
+    ];
+    expect(alignedPatches(card, 'horizontal-center', canvas).get('a')).toEqual({ x: 810 });
+    expect(alignedPatches(card, 'vertical-center', canvas).get('a')).toEqual({ y: 440 });
+    expect(alignedPatches(card, 'right', canvas).get('a')).toEqual({ x: 1620 });
+    expect(alignedPatches(card, 'bottom', canvas).get('a')).toEqual({ y: 880 });
+    expect(alignedPatches(card, 'left').size).toBe(0);
+  });
+
   it('snaps edges/centres to guides and optionally contains bounds', () => {
     expect(
       snapLayerPosition(

@@ -168,6 +168,9 @@ import {
   type AlignmentMode,
   type DistributionMode,
 } from '../canvas/layoutGeometry';
+
+/** What alignment lines layers up against: their shared bounds or the whole canvas. */
+export type AlignmentTarget = 'selection' | 'canvas';
 import { useTimelineStore } from './timelineStore';
 import { useLayerClipboardStore } from './layerClipboardStore';
 import { planLifecycleRetime, type LifecycleRetimePlan } from './lifecycleRetime';
@@ -445,7 +448,12 @@ interface ProjectActions {
   renameTimelineFolder: (folderId: string, name: string) => void;
   setTimelineFolderColor: (folderId: string, color: string) => void;
   removeTimelineFolder: (folderId: string) => void;
-  alignLayers: (layerIds: string[], frame: number, mode: AlignmentMode) => void;
+  alignLayers: (
+    layerIds: string[],
+    frame: number,
+    mode: AlignmentMode,
+    target?: AlignmentTarget,
+  ) => void;
   distributeLayers: (layerIds: string[], frame: number, mode: DistributionMode) => void;
   reorderLayers: (orderedLayerIds: string[]) => void;
 
@@ -3449,13 +3457,17 @@ export const useProjectStore = create<ProjectStore>()(
           );
         }),
 
-      alignLayers: (layerIds, frame, mode) =>
+      alignLayers: (layerIds, frame, mode, target = 'selection') =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const items = composition.layers
             .filter((layer) => layerIds.includes(layer.id) && !layer.isLocked)
             .map((layer) => ({ id: layer.id, pose: getLayerTransformAtFrame(layer, frame) }));
-          for (const [layerId, patch] of alignedPatches(items, mode)) {
+          const canvas =
+            target === 'canvas'
+              ? { x: 0, y: 0, width: composition.width, height: composition.height }
+              : undefined;
+          for (const [layerId, patch] of alignedPatches(items, mode, canvas)) {
             const layer = composition.layers.find((candidate) => candidate.id === layerId);
             if (layer) {
               if (useTimelineStore.getState().autoKeyframe)

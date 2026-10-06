@@ -1,0 +1,121 @@
+.add-element-tools {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.element-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.add-element-tools button {
+  min-height: var(--ui-row-height);
+  background: #292929;
+  border: 1px solid #444;
+  border-radius: 2px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.add-element-tools button:hover {
+  color: #fff;
+  background: #383838;
+  border-color: var(--accent-focus);
+}
+
+.add-element-tools .element-tool-button {
+  position: relative;
+  width: 26px;
+  height: var(--ui-row-height);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--bg-panel-raised) 82%, transparent);
+}
+
+.add-element-tools .element-tool-button:hover,
+.add-element-tools .element-tool-button:focus-visible {
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-panel-raised));
+  border-color: var(--accent);
+  outline: none;
+}
+
+.element-tool-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.element-tool-icon .element-tool-guide {
+  opacity: 0.35;
+  stroke-dasharray: 1.5 1.5;
+}
+
+.element-tool-button::after {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 7px);
+  left: 50%;
+  padding: 4px 7px;
+  content: attr(data-tooltip);
+  color: var(--text-heading);
+  background: #111318;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: 0 5px 16px rgb(0 0 0 / 45%);
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -3px);
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+  white-space: nowrap;
+}
+
+.element-tool-button:hover::after,
+.element-tool-button:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* Inline under the tools so the panel's scroll container never clips it. */
+.chart-picker-popover {
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.chart-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.add-element-tools .chart-picker-header button {
+  min-height: 20px;
+  padding: 0 5px;
+}
+
+.add-element-tools .chart-preset-gallery button {
+  min-height: 52px;
+  padding: 5px 2px;
+  border-radius: 4px;
+  background: var(--bg-panel-raised);
+}
