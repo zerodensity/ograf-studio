@@ -240,6 +240,18 @@ function packageDescriptorResources(
     } else if (layer.element.type === 'image-sequence') {
       layer.element.frames = layer.element.frames.map(packageUri);
     }
+    if (layer.element.type === 'image') {
+      // Mapped data values (e.g. a select field choosing an icon) bypass element.src at runtime.
+      for (const binding of layer.bindings ?? []) {
+        if (binding.targetProperty !== 'src' || !binding.valueMap) continue;
+        binding.valueMap = Object.fromEntries(
+          Object.entries(binding.valueMap).map(([key, value]) => [
+            key,
+            typeof value === 'string' ? packageUri(value) : value,
+          ]),
+        );
+      }
+    }
   }
   for (const cue of packaged.mediaCues ?? []) {
     cue.sources = cue.sources.map((source) =>
