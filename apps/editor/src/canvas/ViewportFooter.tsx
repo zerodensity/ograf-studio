@@ -1,3 +1,4 @@
+import { SnapshotButton } from './SnapshotButton';
 import { STAGE_ZOOM_PRESETS } from './stageZoom';
 import './ViewportFooter.css';
 
@@ -20,6 +21,8 @@ export function ViewportFooter({
   const percent = Math.round(zoom * 100);
   return (
     <div className="viewport-footer" role="toolbar" aria-label="Viewport">
+      <SnapshotButton />
+      <span className="viewport-footer-separator" aria-hidden="true" />
       <div className="viewport-footer-zoom">
         <button
           type="button"

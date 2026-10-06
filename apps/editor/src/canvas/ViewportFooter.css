@@ -52,3 +52,22 @@
   background: #383838;
   border-color: var(--accent-focus);
 }
+
+.viewport-footer .viewport-footer-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  padding: 0;
+}
+
+.viewport-footer-separator {
+  width: 1px;
+  height: 20px;
+  background: #444;
+}
+
+.viewport-footer-status {
+  margin-right: auto;
+  color: var(--text-dim);
+  font-size: var(--ui-font-size-compact);
+}
