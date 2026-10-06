@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "mcp:start": "npm run build --workspace @ograf-editor/ograf-runtime && npm run start --workspace @ograf-editor/mcp-server",
+    "mcp:dev": "npm run build --workspace @ograf-editor/ograf-runtime && npm run dev --workspace @ograf-editor/mcp-server",
     "contracts:generate": "tsx scripts/generateMcpContracts.ts",
     "contracts:check": "tsx scripts/generateMcpContracts.ts --check",
     "prompt:generate": "tsx scripts/generateInAppPrompt.ts",

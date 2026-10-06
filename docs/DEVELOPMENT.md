@@ -35,6 +35,10 @@ Start the editor first, then use a second terminal:
 npm run mcp:start
 ```
 
+While changing server, authoring or codegen code, use `npm run mcp:dev` instead. It restarts the
+server when an imported source file changes, so exports pick up the new code without a manual
+restart. The editor reconnects to the bridge on its own.
+
 Endpoints:
 
 - MCP: `http://127.0.0.1:4318/mcp`
