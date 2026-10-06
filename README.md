@@ -34,8 +34,10 @@ lower thirds, scoreboards, tickers, full-screen graphics and reusable templates.
 ## Get started
 
 [Download a single-file server](https://github.com/zerodensity/ograf-studio/releases/latest) for
-Windows x64 or Linux x64/ARM64. Run it and open **http://127.0.0.1:4318/**.
-On Linux, first run `chmod +x <downloaded-file>`.
+Windows x64, macOS (Apple silicon or Intel) or Linux x64/ARM64. Run it and open
+**http://127.0.0.1:4318/**.
+On macOS and Linux, first run `chmod +x <downloaded-file>`. The macOS binaries are not signed or
+notarized yet, so also run `xattr -d com.apple.quarantine <downloaded-file>` before the first launch.
 No Node.js, npm or Bun installation is needed. Platform verification and signing details accompany each release.
 
 To run from source with Node.js 22+:

@@ -1,4 +1,4 @@
-name: Publish Windows and Linux release
+name: Publish Windows, macOS and Linux release
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 25
     env:
-      OGRAF_STANDALONE_PLATFORMS: windows,linux
+      OGRAF_STANDALONE_PLATFORMS: windows,macos,linux
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,7 +47,7 @@ jobs:
         run: |
           $cache = Join-Path $env:USERPROFILE '.bun/install/cache'
           New-Item -ItemType Directory -Force $cache | Out-Null
-          foreach ($target in @('bun-windows-x64-baseline', 'bun-linux-x64', 'bun-linux-aarch64')) {
+          foreach ($target in @('bun-windows-x64-baseline', 'bun-darwin-x64', 'bun-darwin-aarch64', 'bun-linux-x64', 'bun-linux-aarch64')) {
             $destination = Join-Path $env:RUNNER_TEMP $target
             New-Item -ItemType Directory -Force $destination | Out-Null
             gh release download bun-v1.3.11 --repo oven-sh/bun --pattern "$target.zip" --dir $destination
@@ -97,6 +97,8 @@ jobs:
           compression-level: 0
           path: |
             release/OGrafStudioServer.exe
+            release/OGrafStudioServer-macos-x64
+            release/OGrafStudioServer-macos-arm64
             release/OGrafStudioServer-linux-x64
             release/OGrafStudioServer-linux-arm64
             release/ograf-authoring.zip
@@ -129,7 +131,7 @@ jobs:
           import { createHash } from 'node:crypto';
           import { execFileSync } from 'node:child_process';
           const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex');
-          const files = ['OGrafStudioServer.exe', 'OGrafStudioServer-linux-x64', 'OGrafStudioServer-linux-arm64', 'ograf-authoring.zip'];
+          const files = ['OGrafStudioServer.exe', 'OGrafStudioServer-macos-x64', 'OGrafStudioServer-macos-arm64', 'OGrafStudioServer-linux-x64', 'OGrafStudioServer-linux-arm64', 'ograf-authoring.zip'];
           const sourceCommit = readFileSync('release/SOURCE-COMMIT.txt', 'utf8').trim();
           if (sourceCommit !== execFileSync('git', ['rev-parse', 'HEAD'], {encoding:'utf8'}).trim()) throw new Error('Build source mismatch');
           const manifest = {
@@ -139,7 +141,7 @@ jobs:
             sourceCommit, builtAt: new Date().toISOString(),
             build: {runner:'windows-latest', node:'22', bun:'1.3.11', dependencies:'npm ci from committed lockfile'},
             validation: {repositoryGate:true, dependencyAudit:true, binaryFormatAndArchitecture:true, windowsStartupHttpMcpAndAssets:true, linuxX64StartupAndHttp:true, nativeArm64:false},
-            signing: {windowsSigned:false},
+            signing: {windowsSigned:false, macOSSigned:false, macOSNotarized:false},
             workflow: `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
             artifacts: files.map(file => ({file, bytes:statSync(`release/${file}`).size, sha256:sha256(`release/${file}`)}))
           };
@@ -158,7 +160,7 @@ jobs:
             if [[ "$RELEASE_TAG" == *-rc.* ]]; then release_args+=(--prerelease --latest=false); fi
             gh release create "$RELEASE_TAG" --verify-tag --draft "${release_args[@]}" --title "OGraf Studio ${RELEASE_TAG#v}" --notes-file "docs/releases/${RELEASE_TAG#v}.md"
           fi
-          for file in OGrafStudioServer.exe OGrafStudioServer-linux-x64 OGrafStudioServer-linux-arm64 ograf-authoring.zip RELEASE-MANIFEST.json SHA256SUMS.txt; do
+          for file in OGrafStudioServer.exe OGrafStudioServer-macos-x64 OGrafStudioServer-macos-arm64 OGrafStudioServer-linux-x64 OGrafStudioServer-linux-arm64 ograf-authoring.zip RELEASE-MANIFEST.json SHA256SUMS.txt; do
             gh release upload "$RELEASE_TAG" "release/$file" --clobber
           done
           gh release view "$RELEASE_TAG" --json assets > release/uploaded-assets.json
