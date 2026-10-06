@@ -53,7 +53,6 @@ import { LayerNode } from './LayerNode';
 import { PathEditor } from './PathEditor';
 import { usePathEditStore } from '../state/pathEditStore';
 import { pathConversionError } from '@ograf-editor/scene-model';
-import { AddElementToolbar } from './AddElementToolbar';
 import { useImagePlacement } from '../state/useImagePlacement';
 import { useFitZoom } from './useFitZoom';
 import { parseCssTransform } from './transformGeometry';
@@ -68,6 +67,7 @@ import { transparencyCheckerboardStyle } from './compositionBackground';
 import { viewportScrollForPointer, type ViewportPanOrigin } from './viewportPan';
 import { snapLayerPosition } from './layoutGeometry';
 import { CanvasLayoutOverlay } from './CanvasLayoutOverlay';
+import { RepeatPreviewOverlay } from './RepeatPreviewOverlay';
 import { CanvasRulers } from './CanvasRulers';
 import { CanvasOutsideDimmer } from './CanvasOutsideDimmer';
 import { CanvasPresentationBackground } from './CanvasPresentationBackground';
@@ -1014,7 +1014,6 @@ export function Stage({ style }: { style?: CSSProperties }) {
 
   return (
     <section className="canvas-stage" style={style}>
-      <AddElementToolbar />
       {editingPath && selectedLayer && (
         <PathEditor
           key={selectedLayer.id}
@@ -1230,6 +1229,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
                   );
                 })}
                 <CanvasLayoutOverlay composition={composition} zoom={zoom} />
+                <RepeatPreviewOverlay composition={composition} zoom={zoom} />
               </div>
             </div>
             <div

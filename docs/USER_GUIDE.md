@@ -524,6 +524,11 @@ aligns to the canvas, so the centre buttons put it in the middle of the screen. 
 spaces three or more layers evenly, **Order** moves them back or forward, and **Group** keeps them
 together.
 
+**Properties → Repeat** turns the selection into a row or column of copies, each with its own data
+fields (Item 1, Item 2…) for playout. Set the total **Copies**, the **Direction**, and the **Gap**;
+while the pointer is over the section, dashed outlines show where the copies will land. **Create
+repeater** adds them as ordinary grouped layers.
+
 **Properties → Animate In / Out** gives a selected layer an entrance and an exit without editing
 keys. Choose **Fade**, **Slide** (a short move with a fade, 80 px by default), **Fly** (from or to
 beyond the canvas edge), or **Focus** (a fade out of blur), pick a direction with the arrows, and
