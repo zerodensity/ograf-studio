@@ -512,11 +512,17 @@ greyscale).
 **K**, the button or the key, shows the key: the alpha channel as greyscale on black. It only
 changes the view and is never saved.
 
-**Properties** lists what most layers need first: Transform, Animate In / Out, the layer's
-content, Data Bindings, Effects, and a summary of its Visual rules with **Open Rules**. Brand
+**Properties** lists what most layers need first: Alignment, Transform, Animate In / Out, the
+layer's content, Data Bindings, Effects, and a summary of its Visual rules with **Open Rules**. Brand
 tokens, compositing and masks, layout relationships, data change transitions, and semantic intent
 sit under **Advanced**; typing in **Filter properties…** still finds them. The built-in blur and
 drop shadow stay out of the Effects list while they are off; **Show built-in…** lists them.
+
+**Properties → Alignment** lines up the selection. **Align to** chooses the shared bounds of the
+selected layers (**Selection**) or the whole composition (**Canvas**); a single layer always
+aligns to the canvas, so the centre buttons put it in the middle of the screen. **Distribute**
+spaces three or more layers evenly, **Order** moves them back or forward, and **Group** keeps them
+together.
 
 **Properties → Animate In / Out** gives a selected layer an entrance and an exit without editing
 keys. Choose **Fade**, **Slide** (a short move with a fade, 80 px by default), **Fly** (from or to

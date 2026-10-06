@@ -13,34 +13,6 @@
   box-sizing: border-box;
 }
 
-.arrange-toolbar {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 3px;
-  padding-left: 6px;
-  border-left: 1px solid var(--border);
-}
-
-.layout-toolbar {
-  display: flex;
-  flex: none;
-  gap: 3px;
-  padding-left: 6px;
-  border-left: 1px solid var(--border);
-}
-
-.layout-toolbar-divider {
-  width: 1px;
-  align-self: stretch;
-  margin: 0 2px;
-  background: var(--border);
-}
-
-.layout-toolbar button {
-  padding-inline: 7px;
-}
-
 .add-element-toolbar button {
   min-height: var(--ui-row-height);
   background: #292929;
@@ -54,70 +26,4 @@
   color: #fff;
   background: #383838;
   border-color: var(--accent-focus);
-}
-
-.add-element-toolbar .arrange-tool-button {
-  position: relative;
-  width: 26px;
-  height: var(--ui-row-height);
-  display: grid;
-  place-items: center;
-  padding: 0;
-  color: var(--text-dim);
-  background: color-mix(in srgb, var(--bg-panel-raised) 82%, transparent);
-}
-
-.add-element-toolbar .arrange-tool-button:hover:not(:disabled),
-.add-element-toolbar .arrange-tool-button:focus-visible:not(:disabled) {
-  color: var(--text-heading);
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg-panel-raised));
-  border-color: var(--accent);
-  outline: none;
-}
-
-.add-element-toolbar .arrange-tool-button:disabled {
-  color: color-mix(in srgb, var(--text-dim) 45%, transparent);
-  cursor: default;
-  opacity: 0.55;
-}
-
-.arrange-tool-icon {
-  width: 20px;
-  height: 20px;
-  display: block;
-  fill: color-mix(in srgb, currentColor 13%, transparent);
-  stroke: currentColor;
-  stroke-width: 1.55;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.arrange-tool-button::after {
-  position: absolute;
-  z-index: 100;
-  top: calc(100% + 7px);
-  left: 50%;
-  padding: 4px 7px;
-  content: attr(data-tooltip);
-  color: var(--text-heading);
-  background: #111318;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  box-shadow: 0 5px 16px rgb(0 0 0 / 45%);
-  font-size: 10px;
-  line-height: 1;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -3px);
-  transition:
-    opacity 100ms ease,
-    transform 100ms ease;
-  white-space: nowrap;
-}
-
-.arrange-tool-button:hover:not(:disabled)::after,
-.arrange-tool-button:focus-visible:not(:disabled)::after {
-  opacity: 1;
-  transform: translate(-50%, 0);
 }

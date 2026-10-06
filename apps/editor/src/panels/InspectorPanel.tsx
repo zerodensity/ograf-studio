@@ -1,4 +1,5 @@
 import { useEditorWindow } from '../layout/EditorWindow';
+import { AlignmentSection } from './AlignmentSection';
 import { TRANSFORM_HELP } from './propertyHelp';
 import { WithWarning } from '../components/WarningBadge';
 import { PropertyRow } from '../components/PropertyRow';
@@ -674,6 +675,7 @@ export function InspectorPanel() {
             <code>{playoutField.key}</code>). Rename or describe it under Data → Fields.
           </p>
         ) : null}
+        <AlignmentSection />
         <CollapsibleSection
           sectionId="properties.transform"
           title={autoKeyframe ? `Transform — key at frame ${roundedFrame}` : 'Transform'}
