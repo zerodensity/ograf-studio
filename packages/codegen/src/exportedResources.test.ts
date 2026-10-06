@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createAsset,
   createComposition,
+  createFieldDefinition,
   createImageLayer,
   createLayerOfKind,
   createMediaPaint,
@@ -349,6 +350,57 @@ describe('exported package resource resolution', () => {
     ]);
     expect(Graphic.descriptor.mediaCues?.[0]?.sources[0]).toMatchObject({
       src: 'https://renderer.example/package/assets/cue-audio.ogg',
+    });
+  });
+
+  it('packages asset references inside image src valueMaps so mapped data resolves at runtime', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const sun = createAsset({
+      name: 'Sun',
+      mimeType: 'image/svg+xml',
+      dataUri: 'data:image/svg+xml,%3Csvg%2F%3E',
+    });
+    const rain = createAsset({
+      name: 'Rain',
+      mimeType: 'image/png',
+      dataUri: 'data:image/png;base64,AA==',
+    });
+    composition.assets.push(sun, rain);
+    const field = createFieldDefinition('select', {
+      key: 'condition',
+      options: [
+        { value: 'sun', label: 'Sun' },
+        { value: 'rain', label: 'Rain' },
+      ],
+      defaultValue: 'sun',
+    });
+    composition.dataFields.push(field);
+    const image = createImageLayer();
+    if (image.element.type !== 'image') throw new Error('Expected image');
+    image.element.src = `asset:${sun.id}`;
+    image.bindings = [
+      {
+        fieldId: field.id,
+        targetProperty: 'src',
+        valueMap: { sun: `asset:${sun.id}`, rain: `asset:${rain.id}` },
+      },
+    ];
+    composition.layers.push(image);
+
+    const artifacts = buildExportArtifactsWithRuntime(project, composition, runtime);
+
+    expect(artifacts.mainJs).not.toContain(`asset:${sun.id}`);
+    expect(artifacts.mainJs).not.toContain(`asset:${rain.id}`);
+    const Graphic = evaluate(
+      'https://cdn.example/graphics/weather/main.js',
+      JSON.parse(/const exportedDescriptor = (.*);\n/.exec(artifacts.mainJs)![1]!),
+      artifacts.resources.map((resource) => resource.path),
+    );
+    const binding = Graphic.descriptor.layers[0]!.bindings![0]!;
+    expect(binding.valueMap).toEqual({
+      sun: `https://cdn.example/graphics/weather/assets/${sun.id}.svg`,
+      rain: `https://cdn.example/graphics/weather/assets/${rain.id}.png`,
     });
   });
 });
