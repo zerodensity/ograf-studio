@@ -74,11 +74,14 @@ import { CanvasPresentationBackground } from './CanvasPresentationBackground';
 import { isPersistentGroupSelection, selectionIdsForLayer } from './groupSelection';
 import {
   captureStageZoomAnchor,
+  clampStageZoom,
   nextStageZoom,
   scrollForStageZoom,
+  stageViewShortcut,
   stageZoomDirectionForWheel,
   type StageZoomAnchor,
 } from './stageZoom';
+import { ViewportFooter } from './ViewportFooter';
 import { nextOgrafStepFrame } from './ografStepPlayback';
 import { ShaderPreviewClock } from './shaderPreviewClock';
 import { StageLoopPreviewClock } from './stageLoopPreviewClock';
@@ -202,6 +205,8 @@ export function Stage({ style }: { style?: CSSProperties }) {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const fitZoom = useFitZoom(viewportRef, composition.width, composition.height);
   const [manualZoom, setManualZoom] = useState<number | null>(null);
+  // Bumped by Fit so the frame recentres even when the zoom level itself does not change.
+  const [viewResetCount, setViewResetCount] = useState(0);
   const zoom = manualZoom ?? fitZoom;
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
@@ -261,12 +266,12 @@ export function Stage({ style }: { style?: CSSProperties }) {
     [applyStageOrigin, pasteboard, syncStageCameraCss],
   );
 
-  const requestStageZoom = useCallback(
-    (direction: 'in' | 'out', client?: { x: number; y: number }) => {
+  const requestStageZoomTo = useCallback(
+    (targetZoom: number, client?: { x: number; y: number }) => {
       const viewport = viewportRef.current;
       if (!viewport) return;
       const currentZoom = zoomRef.current;
-      const nextZoom = nextStageZoom(currentZoom, direction);
+      const nextZoom = clampStageZoom(targetZoom);
       if (nextZoom === currentZoom) return;
       const rect = viewport.getBoundingClientRect();
       const viewportX = client ? client.x - rect.left : viewport.clientWidth / 2;
@@ -284,6 +289,18 @@ export function Stage({ style }: { style?: CSSProperties }) {
     },
     [],
   );
+
+  const requestStageZoom = useCallback(
+    (direction: 'in' | 'out', client?: { x: number; y: number }) =>
+      requestStageZoomTo(nextStageZoom(zoomRef.current, direction), client),
+    [requestStageZoomTo],
+  );
+
+  const fitStageView = useCallback(() => {
+    pendingZoomAnchorRef.current = null;
+    setManualZoom(null);
+    setViewResetCount((count) => count + 1);
+  }, []);
 
   useEffect(() => {
     setManualZoom(null);
@@ -644,6 +661,13 @@ export function Stage({ style }: { style?: CSSProperties }) {
       }
       if (e.key === 'Shift') shiftPressedRef.current = true;
       if (isInteractiveShortcutTarget(e.target)) return;
+      const viewShortcut = stageViewShortcut(e);
+      if (viewShortcut) {
+        e.preventDefault();
+        if (viewShortcut === 'fit') fitStageView();
+        else requestStageZoomTo(1);
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && ['+', '=', '-', '_'].includes(e.key)) {
         e.preventDefault();
         requestStageZoom(e.key === '+' || e.key === '=' ? 'in' : 'out');
@@ -678,9 +702,11 @@ export function Stage({ style }: { style?: CSSProperties }) {
     };
   }, [
     clearLayerKeyframe,
+    fitStageView,
     removeLayer,
     removeLayerKeyframe,
     requestStageZoom,
+    requestStageZoomTo,
     select,
     selectedLayerId,
     selectedLayerIds,
@@ -949,7 +975,14 @@ export function Stage({ style }: { style?: CSSProperties }) {
     viewport.scrollTop = scroll.top;
     syncStageCameraCss(viewport);
     recenterStageViewport(viewport);
-  }, [applyStageOrigin, pasteboard, recenterStageViewport, syncStageCameraCss, zoom]);
+  }, [
+    applyStageOrigin,
+    pasteboard,
+    recenterStageViewport,
+    syncStageCameraCss,
+    viewResetCount,
+    zoom,
+  ]);
 
   useLayoutEffect(() => {
     // updateTarget (rather than updateRect) refreshes transform-origin as well as the outer bounds.
@@ -1003,7 +1036,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
           ref={viewportRef}
           data-ograf-zoom={zoom}
           aria-label={`Canvas viewport, ${Math.round(zoom * 100)}% zoom`}
-          title="Mouse wheel or Ctrl/Command+plus/minus to zoom; middle-drag to pan"
+          title="Mouse wheel or Ctrl/Command+plus/minus to zoom; Shift+1 to fit; middle-drag to pan"
           tabIndex={0}
           style={transparencyCheckerboardStyle(1)}
           onDragOver={(event) => {
@@ -1331,6 +1364,13 @@ export function Stage({ style }: { style?: CSSProperties }) {
           stageOriginRef={stageOriginRef}
         />
       </div>
+      <ViewportFooter
+        zoom={zoom}
+        onZoomIn={() => requestStageZoom('in')}
+        onZoomOut={() => requestStageZoom('out')}
+        onZoomTo={requestStageZoomTo}
+        onFit={fitStageView}
+      />
       {objectMenu && (
         <ContextMenu
           x={objectMenu.x}
