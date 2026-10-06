@@ -66,8 +66,11 @@
   background: #444;
 }
 
+.viewport-footer-spacer {
+  flex: 1;
+}
+
 .viewport-footer-status {
-  margin-right: auto;
   color: var(--text-dim);
   font-size: var(--ui-font-size-compact);
 }

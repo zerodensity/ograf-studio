@@ -1,3 +1,4 @@
+import { RecipeSelect } from './RecipeSelect';
 import { SnapshotButton } from './SnapshotButton';
 import { STAGE_ZOOM_PRESETS } from './stageZoom';
 import { KEY_VIEW_COLOR_MATRIX, KEY_VIEW_FILTER_ID } from './viewportKeyView';
@@ -26,6 +27,8 @@ export function ViewportFooter({
   const percent = Math.round(zoom * 100);
   return (
     <div className="viewport-footer" role="toolbar" aria-label="Viewport">
+      <RecipeSelect />
+      <span className="viewport-footer-spacer" />
       <button
         type="button"
         className="viewport-footer-icon viewport-key-toggle"

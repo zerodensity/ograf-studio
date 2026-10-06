@@ -1,47 +1,16 @@
-.add-element-toolbar {
-  position: relative;
-  z-index: 2;
+.add-element-tools {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.element-tools {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
-  padding: 2px 4px;
-  flex: none;
-  background: #2f2f2f;
-  border-bottom: 1px solid var(--border);
-  /* Keeps the canvas from jumping when selection buttons appear. */
-  min-height: calc(var(--ui-row-height) + 6px);
-  box-sizing: border-box;
-}
-
-.arrange-toolbar {
-  display: flex;
-  flex: none;
   align-items: center;
   gap: 3px;
-  padding-left: 6px;
-  border-left: 1px solid var(--border);
 }
 
-.layout-toolbar {
-  display: flex;
-  flex: none;
-  gap: 3px;
-  padding-left: 6px;
-  border-left: 1px solid var(--border);
-}
-
-.layout-toolbar-divider {
-  width: 1px;
-  align-self: stretch;
-  margin: 0 2px;
-  background: var(--border);
-}
-
-.layout-toolbar button {
-  padding-inline: 7px;
-}
-
-.add-element-toolbar button {
+.add-element-tools button {
   min-height: var(--ui-row-height);
   background: #292929;
   border: 1px solid #444;
@@ -50,13 +19,13 @@
   cursor: pointer;
 }
 
-.add-element-toolbar button:hover {
+.add-element-tools button:hover {
   color: #fff;
   background: #383838;
   border-color: var(--accent-focus);
 }
 
-.add-element-toolbar .arrange-tool-button {
+.add-element-tools .element-tool-button {
   position: relative;
   width: 26px;
   height: var(--ui-row-height);
@@ -67,33 +36,32 @@
   background: color-mix(in srgb, var(--bg-panel-raised) 82%, transparent);
 }
 
-.add-element-toolbar .arrange-tool-button:hover:not(:disabled),
-.add-element-toolbar .arrange-tool-button:focus-visible:not(:disabled) {
+.add-element-tools .element-tool-button:hover,
+.add-element-tools .element-tool-button:focus-visible {
   color: var(--text-heading);
   background: color-mix(in srgb, var(--accent) 14%, var(--bg-panel-raised));
   border-color: var(--accent);
   outline: none;
 }
 
-.add-element-toolbar .arrange-tool-button:disabled {
-  color: color-mix(in srgb, var(--text-dim) 45%, transparent);
-  cursor: default;
-  opacity: 0.55;
-}
-
-.arrange-tool-icon {
+.element-tool-icon {
   width: 20px;
   height: 20px;
   display: block;
-  fill: color-mix(in srgb, currentColor 13%, transparent);
+  fill: none;
   stroke: currentColor;
-  stroke-width: 1.55;
+  stroke-width: 1.65;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 
-.arrange-tool-button::after {
+.element-tool-icon .element-tool-guide {
+  opacity: 0.35;
+  stroke-dasharray: 1.5 1.5;
+}
+
+.element-tool-button::after {
   position: absolute;
   z-index: 100;
   top: calc(100% + 7px);
@@ -116,8 +84,38 @@
   white-space: nowrap;
 }
 
-.arrange-tool-button:hover:not(:disabled)::after,
-.arrange-tool-button:focus-visible:not(:disabled)::after {
+.element-tool-button:hover::after,
+.element-tool-button:focus-visible::after {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+/* Inline under the tools so the panel's scroll container never clips it. */
+.chart-picker-popover {
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.chart-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.add-element-tools .chart-picker-header button {
+  min-height: 20px;
+  padding: 0 5px;
+}
+
+.add-element-tools .chart-preset-gallery button {
+  min-height: 52px;
+  padding: 5px 2px;
+  border-radius: 4px;
+  background: var(--bg-panel-raised);
 }
