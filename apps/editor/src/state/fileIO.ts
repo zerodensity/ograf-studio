@@ -52,7 +52,7 @@ export function clearAutosave(): void {
   }
 }
 
-function downloadBlob(blob: Blob, name: string): void {
+export function downloadBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
