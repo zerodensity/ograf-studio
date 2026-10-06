@@ -9,9 +9,33 @@ export interface StageZoomAnchor {
   viewportY: number;
 }
 
+/** Fixed levels offered next to Fit in the viewport footer. */
+export const STAGE_ZOOM_PRESETS = [0.25, 0.5, 1, 2] as const;
+
+export function clampStageZoom(zoom: number): number {
+  return Math.min(MAX_STAGE_ZOOM, Math.max(MIN_STAGE_ZOOM, zoom));
+}
+
 export function nextStageZoom(current: number, direction: 'in' | 'out'): number {
   const factor = direction === 'in' ? STAGE_ZOOM_FACTOR : 1 / STAGE_ZOOM_FACTOR;
-  return Math.min(MAX_STAGE_ZOOM, Math.max(MIN_STAGE_ZOOM, current * factor));
+  return clampStageZoom(current * factor);
+}
+
+export type StageViewShortcut = 'fit' | 'actual-size';
+
+/** Shift+1 fits the frame, Shift+0 shows it at 100%. Uses the physical key, so layouts that
+ * type a symbol for Shift+digit still work. */
+export function stageViewShortcut(event: {
+  code: string;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+}): StageViewShortcut | null {
+  if (!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return null;
+  if (event.code === 'Digit1') return 'fit';
+  if (event.code === 'Digit0') return 'actual-size';
+  return null;
 }
 
 export function stageZoomDirectionForWheel(deltaY: number): 'in' | 'out' | null {

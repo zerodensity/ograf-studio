@@ -1,0 +1,90 @@
+.viewport-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 4px 6px;
+  background: #2f2f2f;
+  border-top: 1px solid var(--border);
+}
+
+.viewport-footer-zoom {
+  display: flex;
+  gap: 2px;
+}
+
+.viewport-footer button,
+.viewport-footer select {
+  min-height: 26px;
+  padding: 2px 10px;
+  color: var(--text);
+  font: inherit;
+  background: #292929;
+  border: 1px solid #444;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+/* #root beats the global control style in index.css; the native macOS arrow overflowed 22px. */
+#root .viewport-footer select {
+  box-sizing: border-box;
+  min-width: 72px;
+  height: 26px;
+  min-height: 26px;
+  padding: 2px 24px 2px 8px;
+  appearance: none;
+  background: #292929
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23aaa' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    no-repeat right 8px center;
+  border: 1px solid #444;
+  border-radius: var(--radius-control);
+}
+
+#root .viewport-footer select:hover {
+  background-color: #383838;
+  border-color: var(--accent-focus);
+}
+
+.viewport-footer button:hover,
+.viewport-footer select:hover {
+  color: #fff;
+  background: #383838;
+  border-color: var(--accent-focus);
+}
+
+.viewport-footer .viewport-footer-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  padding: 0;
+}
+
+.viewport-footer-separator {
+  width: 1px;
+  height: 20px;
+  background: #444;
+}
+
+.viewport-footer-status {
+  margin-right: auto;
+  color: var(--text-dim);
+  font-size: var(--ui-font-size-compact);
+}
+
+.viewport-footer .viewport-key-toggle {
+  font-weight: 700;
+}
+
+.viewport-footer .viewport-key-toggle[aria-pressed='true'] {
+  color: #000;
+  background: #fff;
+  border-color: #fff;
+}
+
+.viewport-footer-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
