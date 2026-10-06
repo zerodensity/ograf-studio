@@ -1,5 +1,6 @@
 import { SnapshotButton } from './SnapshotButton';
 import { STAGE_ZOOM_PRESETS } from './stageZoom';
+import { KEY_VIEW_COLOR_MATRIX, KEY_VIEW_FILTER_ID } from './viewportKeyView';
 import './ViewportFooter.css';
 
 interface ViewportFooterProps {
@@ -8,19 +9,44 @@ interface ViewportFooterProps {
   onZoomOut: () => void;
   onZoomTo: (zoom: number) => void;
   onFit: () => void;
+  keyView: boolean;
+  onToggleKeyView: () => void;
 }
 
-/** Bottom bar of the canvas: zoom level, presets, Fit and 100%. */
+/** Bottom bar of the canvas: key view, snapshot, zoom level, presets, Fit and 100%. */
 export function ViewportFooter({
   zoom,
   onZoomIn,
   onZoomOut,
   onZoomTo,
   onFit,
+  keyView,
+  onToggleKeyView,
 }: ViewportFooterProps) {
   const percent = Math.round(zoom * 100);
   return (
     <div className="viewport-footer" role="toolbar" aria-label="Viewport">
+      <button
+        type="button"
+        className="viewport-footer-icon viewport-key-toggle"
+        aria-pressed={keyView}
+        aria-label="Key view"
+        title="Key view: show the alpha channel as greyscale (K)"
+        onClick={onToggleKeyView}
+      >
+        K
+      </button>
+      <svg
+        className="viewport-footer-defs"
+        width="0"
+        height="0"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <filter id={KEY_VIEW_FILTER_ID} colorInterpolationFilters="sRGB">
+          <feColorMatrix type="matrix" values={KEY_VIEW_COLOR_MATRIX} />
+        </filter>
+      </svg>
       <SnapshotButton />
       <span className="viewport-footer-separator" aria-hidden="true" />
       <div className="viewport-footer-zoom">

@@ -504,6 +504,9 @@ The camera button in that bar saves the current frame as a PNG at composition si
 on a checkerboard, on black, or as a **Fill + Key** pair (the frame on black plus its alpha as
 greyscale).
 
+**K**, the button or the key, shows the key: the alpha channel as greyscale on black. It only
+changes the view and is never saved.
+
 **Properties** lists what most layers need first: Transform, Animate In / Out, the layer's
 content, Data Bindings, Effects, and a summary of its Visual rules with **Open Rules**. Brand
 tokens, compositing and masks, layout relationships, data change transitions, and semantic intent

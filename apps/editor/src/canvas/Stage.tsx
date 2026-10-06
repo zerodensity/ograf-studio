@@ -71,6 +71,7 @@ import { CanvasLayoutOverlay } from './CanvasLayoutOverlay';
 import { CanvasRulers } from './CanvasRulers';
 import { CanvasOutsideDimmer } from './CanvasOutsideDimmer';
 import { CanvasPresentationBackground } from './CanvasPresentationBackground';
+import { KEY_VIEW_FILTER_ID, isKeyViewShortcut } from './viewportKeyView';
 import { isPersistentGroupSelection, selectionIdsForLayer } from './groupSelection';
 import {
   captureStageZoomAnchor,
@@ -207,6 +208,8 @@ export function Stage({ style }: { style?: CSSProperties }) {
   const [manualZoom, setManualZoom] = useState<number | null>(null);
   // Bumped by Fit so the frame recentres even when the zoom level itself does not change.
   const [viewResetCount, setViewResetCount] = useState(0);
+  // Viewport-only: shows the alpha channel as greyscale. Never saved with the project.
+  const [keyView, setKeyView] = useState(false);
   const zoom = manualZoom ?? fitZoom;
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
@@ -661,6 +664,11 @@ export function Stage({ style }: { style?: CSSProperties }) {
       }
       if (e.key === 'Shift') shiftPressedRef.current = true;
       if (isInteractiveShortcutTarget(e.target)) return;
+      if (isKeyViewShortcut(e)) {
+        e.preventDefault();
+        setKeyView((on) => !on);
+        return;
+      }
       const viewShortcut = stageViewShortcut(e);
       if (viewShortcut) {
         e.preventDefault();
@@ -1038,7 +1046,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
           aria-label={`Canvas viewport, ${Math.round(zoom * 100)}% zoom`}
           title="Mouse wheel or Ctrl/Command+plus/minus to zoom; Shift+1 to fit; middle-drag to pan"
           tabIndex={0}
-          style={transparencyCheckerboardStyle(1)}
+          style={keyView ? { background: '#000' } : transparencyCheckerboardStyle(1)}
           onDragOver={(event) => {
             if (event.dataTransfer.types.includes('Files')) {
               event.preventDefault();
@@ -1131,7 +1139,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
                 transform: `scale(${zoom})`,
               }}
             >
-              <CanvasPresentationBackground composition={composition} />
+              {!keyView && <CanvasPresentationBackground composition={composition} />}
               <div
                 className="canvas-stage-frame"
                 style={{
@@ -1142,6 +1150,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
                   backgroundColor: composition.backgroundColor,
                   isolation: 'isolate',
                   overflow: composition.layout.overflowPreview,
+                  ...(keyView ? { filter: `url(#${KEY_VIEW_FILTER_ID})` } : {}),
                 }}
                 onMouseDown={(e) => {
                   if (e.target !== e.currentTarget) return;
@@ -1370,6 +1379,8 @@ export function Stage({ style }: { style?: CSSProperties }) {
         onZoomOut={() => requestStageZoom('out')}
         onZoomTo={requestStageZoomTo}
         onFit={fitStageView}
+        keyView={keyView}
+        onToggleKeyView={() => setKeyView((on) => !on)}
       />
       {objectMenu && (
         <ContextMenu

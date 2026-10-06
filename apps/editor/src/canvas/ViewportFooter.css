@@ -71,3 +71,20 @@
   color: var(--text-dim);
   font-size: var(--ui-font-size-compact);
 }
+
+.viewport-footer .viewport-key-toggle {
+  font-weight: 700;
+}
+
+.viewport-footer .viewport-key-toggle[aria-pressed='true'] {
+  color: #000;
+  background: #fff;
+  border-color: #fff;
+}
+
+.viewport-footer-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
