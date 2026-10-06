@@ -17,6 +17,7 @@ import {
 } from '../state/agentLayerReference';
 import './LayerListPanel.css';
 import { isDomNode } from '../layout/EditorWindow';
+import { AddElementTools } from '../canvas/AddElementTools';
 
 function LayerVisibilityIcon({ visible }: { visible: boolean }) {
   return (
@@ -69,13 +70,14 @@ export function LayerListPanel() {
 
   return (
     <Panel title="Layers">
+      <AddElementTools />
       <CollapsibleSection
         sectionId="layers.stack"
         title={`Layer stack (${layers.length})`}
         contentClassName="layer-list-section-content"
       >
         {layers.length === 0 ? (
-          <p className="panel-placeholder">No layers yet. Add one from the canvas toolbar.</p>
+          <p className="panel-placeholder">No layers yet. Add one with the buttons above.</p>
         ) : (
           <>
             <p className="layer-list-drag-hint">

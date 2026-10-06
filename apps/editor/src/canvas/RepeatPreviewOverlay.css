@@ -1,0 +1,21 @@
+.repeat-preview-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.repeat-preview-copy {
+  position: absolute;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  background: rgb(255 176 58 / 12%);
+  border: 2px dashed #ffb03a;
+}
+
+.repeat-preview-copy span {
+  color: #ffb03a;
+  font: 700 12px/1 var(--sans);
+  white-space: nowrap;
+}

@@ -168,6 +168,9 @@ import {
   type AlignmentMode,
   type DistributionMode,
 } from '../canvas/layoutGeometry';
+
+/** What alignment lines layers up against: their shared bounds or the whole canvas. */
+export type AlignmentTarget = 'selection' | 'canvas';
 import { useTimelineStore } from './timelineStore';
 import { useLayerClipboardStore } from './layerClipboardStore';
 import { planLifecycleRetime, type LifecycleRetimePlan } from './lifecycleRetime';
@@ -445,7 +448,12 @@ interface ProjectActions {
   renameTimelineFolder: (folderId: string, name: string) => void;
   setTimelineFolderColor: (folderId: string, color: string) => void;
   removeTimelineFolder: (folderId: string) => void;
-  alignLayers: (layerIds: string[], frame: number, mode: AlignmentMode) => void;
+  alignLayers: (
+    layerIds: string[],
+    frame: number,
+    mode: AlignmentMode,
+    target?: AlignmentTarget,
+  ) => void;
   distributeLayers: (layerIds: string[], frame: number, mode: DistributionMode) => void;
   reorderLayers: (orderedLayerIds: string[]) => void;
 
@@ -1620,23 +1628,32 @@ export const useProjectStore = create<ProjectStore>()(
 
       addRepeater: (layerIds, count = 3, direction = 'horizontal', gap = 24) => {
         if (layerIds.length === 0 || count < 2) return null;
-        let result!: MaterializedRepeater;
+        // materializeRepeater structuredClones layers, which fails on immer drafts,
+        // so it runs on a plain copy that then replaces the composition.
+        const snapshot = get();
+        const working = structuredClone(
+          getActiveComposition(snapshot.project, snapshot.activeCompositionId),
+        );
+        let result: MaterializedRepeater;
         try {
-          set((state) => {
-            const composition = getActiveComposition(state.project, state.activeCompositionId);
-            result = materializeRepeater(composition, {
-              layerIds,
-              items: Array.from({ length: count }, (_, index) => ({
-                label: `Item ${index + 1}`,
-              })),
-              direction,
-              gap,
-            });
+          result = materializeRepeater(working, {
+            layerIds,
+            items: Array.from({ length: count }, (_, index) => ({
+              label: `Item ${index + 1}`,
+            })),
+            direction,
+            gap,
           });
-          return result;
         } catch {
           return null;
         }
+        set((state) => {
+          const index = state.project.compositions.findIndex(
+            (composition) => composition.id === working.id,
+          );
+          if (index >= 0) state.project.compositions[index] = working;
+        });
+        return result;
       },
 
       pasteLayers: (layers, offset = 20) => {
@@ -3449,13 +3466,17 @@ export const useProjectStore = create<ProjectStore>()(
           );
         }),
 
-      alignLayers: (layerIds, frame, mode) =>
+      alignLayers: (layerIds, frame, mode, target = 'selection') =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const items = composition.layers
             .filter((layer) => layerIds.includes(layer.id) && !layer.isLocked)
             .map((layer) => ({ id: layer.id, pose: getLayerTransformAtFrame(layer, frame) }));
-          for (const [layerId, patch] of alignedPatches(items, mode)) {
+          const canvas =
+            target === 'canvas'
+              ? { x: 0, y: 0, width: composition.width, height: composition.height }
+              : undefined;
+          for (const [layerId, patch] of alignedPatches(items, mode, canvas)) {
             const layer = composition.layers.find((candidate) => candidate.id === layerId);
             if (layer) {
               if (useTimelineStore.getState().autoKeyframe)

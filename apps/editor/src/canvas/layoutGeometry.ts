@@ -4,17 +4,32 @@ export { resizeConstrainedTransform } from '@ograf-editor/scene-model';
 export type AlignmentMode =
   'left' | 'horizontal-center' | 'right' | 'top' | 'vertical-center' | 'bottom';
 export type DistributionMode = 'horizontal' | 'vertical';
+export interface AlignmentBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
+/**
+ * Aligns items to their shared bounds, or to `bounds` (e.g. the canvas) when given.
+ * Shared-bounds alignment needs two items; fixed bounds work for a single one.
+ */
 export function alignedPatches(
   items: Array<{ id: string; pose: LayerTransform }>,
   mode: AlignmentMode,
+  bounds?: AlignmentBounds,
 ): Map<string, Partial<LayerTransform>> {
   const result = new Map<string, Partial<LayerTransform>>();
-  if (items.length < 2) return result;
-  const left = Math.min(...items.map((item) => item.pose.x));
-  const right = Math.max(...items.map((item) => item.pose.x + item.pose.width));
-  const top = Math.min(...items.map((item) => item.pose.y));
-  const bottom = Math.max(...items.map((item) => item.pose.y + item.pose.height));
+  if (items.length < (bounds ? 1 : 2)) return result;
+  const left = bounds ? bounds.x : Math.min(...items.map((item) => item.pose.x));
+  const right = bounds
+    ? bounds.x + bounds.width
+    : Math.max(...items.map((item) => item.pose.x + item.pose.width));
+  const top = bounds ? bounds.y : Math.min(...items.map((item) => item.pose.y));
+  const bottom = bounds
+    ? bounds.y + bounds.height
+    : Math.max(...items.map((item) => item.pose.y + item.pose.height));
   const centerX = (left + right) / 2;
   const centerY = (top + bottom) / 2;
   for (const item of items) {

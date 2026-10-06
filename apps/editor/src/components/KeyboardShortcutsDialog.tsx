@@ -24,6 +24,9 @@ export const KEYBOARD_SHORTCUT_GROUPS: Array<{ title: string; items: Array<[stri
     title: 'Canvas',
     items: [
       [`${MOD}+= · ${MOD}+-`, 'Zoom in · out'],
+      ['Shift+1', 'Fit the frame'],
+      ['Shift+0', 'Zoom to 100%'],
+      ['K', 'Key view: show the alpha channel'],
       ['Middle-drag', 'Pan'],
       ['Shift+drag', 'Move along one axis'],
       ['Escape', 'Finish path editing'],
