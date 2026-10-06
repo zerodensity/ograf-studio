@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_STAGE_ZOOM,
   MIN_STAGE_ZOOM,
+  STAGE_ZOOM_PRESETS,
   captureStageZoomAnchor,
+  clampStageZoom,
   nextStageZoom,
   scrollForStageZoom,
+  stageViewShortcut,
   stageZoomDirectionForWheel,
 } from './stageZoom';
 
@@ -21,6 +24,30 @@ describe('stage zoom', () => {
     expect(stageZoomDirectionForWheel(120)).toBe('out');
     expect(stageZoomDirectionForWheel(0)).toBeNull();
     expect(stageZoomDirectionForWheel(Number.NaN)).toBeNull();
+  });
+
+  it('offers presets inside the zoom range and clamps arbitrary levels', () => {
+    expect(STAGE_ZOOM_PRESETS).toContain(1);
+    for (const preset of STAGE_ZOOM_PRESETS) expect(clampStageZoom(preset)).toBe(preset);
+    expect(clampStageZoom(100)).toBe(MAX_STAGE_ZOOM);
+    expect(clampStageZoom(0)).toBe(MIN_STAGE_ZOOM);
+  });
+
+  it('maps Shift+1 to fit and Shift+0 to actual size by physical key', () => {
+    const press = (code: string, modifiers: Record<string, boolean> = {}) => ({
+      code,
+      shiftKey: modifiers.shift ?? true,
+      ctrlKey: modifiers.ctrl ?? false,
+      metaKey: modifiers.meta ?? false,
+      altKey: modifiers.alt ?? false,
+    });
+    expect(stageViewShortcut(press('Digit1'))).toBe('fit');
+    expect(stageViewShortcut(press('Digit0'))).toBe('actual-size');
+    expect(stageViewShortcut(press('Digit1', { shift: false }))).toBeNull();
+    expect(stageViewShortcut(press('Digit1', { meta: true }))).toBeNull();
+    expect(stageViewShortcut(press('Digit0', { ctrl: true }))).toBeNull();
+    expect(stageViewShortcut(press('Digit1', { alt: true }))).toBeNull();
+    expect(stageViewShortcut(press('Digit2'))).toBeNull();
   });
 
   it('keeps the logical point under the pointer stable', () => {

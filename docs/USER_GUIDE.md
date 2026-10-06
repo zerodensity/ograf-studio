@@ -497,6 +497,9 @@ can use geometric masks, but cannot currently supply an alpha mask for another o
 
 ## Editing and animation
 
+The bar under the canvas sets the zoom: **−** and **+**, a menu of presets, **Fit**
+(**Shift+1**) to frame the whole composition again, and **100%** (**Shift+0**).
+
 **Properties** lists what most layers need first: Transform, Animate In / Out, the layer's
 content, Data Bindings, Effects, and a summary of its Visual rules with **Open Rules**. Brand
 tokens, compositing and masks, layout relationships, data change transitions, and semantic intent
