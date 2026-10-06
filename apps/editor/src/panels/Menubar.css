@@ -404,3 +404,7 @@
   background: var(--bg-hover, rgb(255 255 255 / 6%));
   outline: none;
 }
+
+.menubar-file-menu {
+  width: 260px;
+}

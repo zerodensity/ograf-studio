@@ -4,14 +4,14 @@
 
 ## File types
 
-| File                      | Purpose                             | How to open it                                                                                  |
-| ------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `.ogs`                    | Editable OGraf Studio source        | **Open Project**                                                                                |
-| Remote `.ogs` URL         | Public/CORS-enabled editable source | **Open URL**                                                                                    |
-| `.ograf.zip`              | Certified playout package           | **Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
-| Loose OGraf package files | Manifest, `main.js`, and resources  | Select them together with **Import OGraf**                                                      |
-| SVG and raster images     | Reusable image assets               | **Add Image** above the canvas, or drop files onto the canvas                                   |
-| Lottie `.json`            | Looping vector animation layer      | **+ Lottie JSON** above the canvas                                                              |
+| File                      | Purpose                             | How to open it                                                                                                  |
+| ------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `.ogs`                    | Editable OGraf Studio source        | **File → Open…**                                                                                                |
+| Remote `.ogs` URL         | Public/CORS-enabled editable source | **File → Open from URL…**                                                                                       |
+| `.ograf.zip`              | Certified playout package           | **File → Import OGraf package…** for best-effort editable conversion, or extract it for an OGraf player/devtool |
+| Loose OGraf package files | Manifest, `main.js`, and resources  | Select them together with **File → Import OGraf package…**                                                      |
+| SVG and raster images     | Reusable image assets               | **Add Image** at the top of **Layers**, or drop files onto the canvas                                           |
+| Lottie `.json`            | Looping vector animation layer      | **Add Lottie JSON** at the top of **Layers**                                                                    |
 
 An `.ogs` file is not an OGraf manifest and should not be opened directly in an OGraf playout
 tool. A `.ograf.zip` is the deployable output, but arbitrary third-party JavaScript cannot always be
@@ -24,7 +24,7 @@ browser downloads, picker saves, reference templates, and MCP saves use `.ogs` e
 
 ### Template thumbnails
 
-**Save Project** includes a thumbnail preview and frame selector. By default it uses the first
+**File → Save project…** (**Ctrl+S**) includes a thumbnail preview and frame selector. By default it uses the first
 OGraf step of the main composition, or frame 0 when there are no steps. Enter another frame to
 override it, or use the previous/next-frame buttons; the choice is stored in the `.ogs` file.
 The preview keeps a fixed size while changing frames.
@@ -52,7 +52,7 @@ as non-blocking playout warnings because both configurations remain legal OGraf 
 
 ### Remote project URLs
 
-Use **Open URL** to download editable `.ogs` source from an absolute HTTP or HTTPS URL. OGraf
+Use **File → Open from URL…** to download editable `.ogs` source from an absolute HTTP or HTTPS URL. OGraf
 Studio sends no credentials, follows only HTTP(S) redirects, limits the response to 32 MiB, parses
 and validates the source before loading, and asks before replacing the current project. The remote
 server must allow browser CORS access.
@@ -70,7 +70,7 @@ the credential-free browser loader, although a CORS-enabled time-limited signed 
 
 ### Adding and replacing images
 
-Click **Add Image** above the canvas to choose files or pick a thumbnail from the template's
+Click **Add Image** at the top of **Layers** to choose files or pick a thumbnail from the template's
 existing images. You can also drop image files directly onto the canvas. Each image becomes a
 named layer at its original proportions; large images fit within 80% of the canvas and smaller
 images retain their native size. Multiple files are added together with a slight offset.
@@ -100,7 +100,7 @@ limits before committing one revision-checked asset transaction.
 
 ### Lottie animations
 
-Use **+ Lottie JSON** above the canvas, or replace the JSON from a selected Lottie layer's
+Use **Add Lottie JSON** at the top of **Layers**, or replace the JSON from a selected Lottie layer's
 Properties. The first supported profile is intentionally deterministic and portable:
 
 - the Bodymovin/Lottie JSON is embedded in the editable project and exported OGraf module;
@@ -124,7 +124,8 @@ exported graphic in the intended playout environment.
 
 ### Chart.js charts
 
-Choose **Chart** above the canvas, then select a type from the visual gallery in Properties.
+Choose **Add Chart** at the top of **Layers**, then select a type from the visual gallery that
+opens there.
 The gallery includes vertical, horizontal and stacked bars; line and area; pie and doughnut;
 radar and polar-area charts. Resize the layer on the canvas. Set text color, legend and grid in
 Properties, then edit series, rows, values and colors directly. **Advanced · edit JSON** handles
@@ -142,7 +143,7 @@ keyframes can also move or fade the whole layer.
 
 ### Procedural patterns
 
-Choose **Resources → Patterns → Add pattern**, or the pattern tool above the canvas. Pick a
+Choose **Resources → Patterns → Add pattern**, or the pattern tool at the top of **Layers**. Pick a
 visual preset—Dots, Stripes, Chevrons, Diamonds, Checkerboard, or Monogram—and choose **Create
 pattern**. Leave **Add to canvas** enabled to place it immediately, or disable it to keep a
 reusable resource for later.
@@ -497,11 +498,36 @@ can use geometric masks, but cannot currently supply an alpha mask for another o
 
 ## Editing and animation
 
-**Properties** lists what most layers need first: Transform, Animate In / Out, the layer's
-content, Data Bindings, Effects, and a summary of its Visual rules with **Open Rules**. Brand
+Add layers with the buttons at the top of **Layers**: rectangle, ellipse, chart, text, image,
+path, procedural pattern, image sequence, and Lottie. **+ Recipe…**, at the left of the bar under
+the canvas, inserts a ready-made lower third, bug, ticker, scoreboard, or clock.
+
+The bar under the canvas sets the zoom: **−** and **+**, a menu of presets, **Fit**
+(**Shift+1**) to frame the whole composition again, and **100%** (**Shift+0**).
+
+The camera button in that bar saves the current frame as a PNG at composition size: with alpha,
+on a checkerboard, on black, or as a **Fill + Key** pair (the frame on black plus its alpha as
+greyscale).
+
+**K**, the button or the key, shows the key: the alpha channel as greyscale on black. It only
+changes the view and is never saved.
+
+**Properties** lists what most layers need first: Alignment, Transform, Animate In / Out, the
+layer's content, Data Bindings, Effects, and a summary of its Visual rules with **Open Rules**. Brand
 tokens, compositing and masks, layout relationships, data change transitions, and semantic intent
 sit under **Advanced**; typing in **Filter properties…** still finds them. The built-in blur and
 drop shadow stay out of the Effects list while they are off; **Show built-in…** lists them.
+
+**Properties → Alignment** lines up the selection. **Align to** chooses the shared bounds of the
+selected layers (**Selection**) or the whole composition (**Canvas**); a single layer always
+aligns to the canvas, so the centre buttons put it in the middle of the screen. **Distribute**
+spaces three or more layers evenly, **Order** moves them back or forward, and **Group** keeps them
+together.
+
+**Properties → Repeat** turns the selection into a row or column of copies, each with its own data
+fields (Item 1, Item 2…) for playout. Set the total **Copies**, the **Direction**, and the **Gap**;
+while the pointer is over the section, dashed outlines show where the copies will land. **Create
+repeater** adds them as ordinary grouped layers.
 
 **Properties → Animate In / Out** gives a selected layer an entrance and an exit without editing
 keys. Choose **Fade**, **Slide** (a short move with a fade, 80 px by default), **Fly** (from or to
@@ -556,8 +582,10 @@ unrelated preview values remain available. Playout can still override the values
 
 **Edit** has Undo, Redo, Cut, Copy, Paste, Duplicate, Delete, Group or Ungroup, Select all, and
 Deselect all, with the same shortcuts on the canvas (**Ctrl+X/C/V**, **Ctrl+G**,
-**Ctrl+Shift+G**). Text fields keep their own copy, paste, and undo. **Export…** beside **Save
-Project** opens Preview & Export. **Window → Reset layout** puts docked panes back where Studio
+**Ctrl+Shift+G**). Text fields keep their own copy, paste, and undo. **File** holds New project,
+Open… (**Ctrl+O**), Open from URL…, Import OGraf package…, Save project… (**Ctrl+S**), and Preview
+& Export… (**Ctrl+E**); on macOS use **Cmd**. Once a menu is open, pointing at another menu opens
+it instead. **Window → Reset layout** puts docked panes back where Studio
 first placed them. **Help** lists every keyboard shortcut, links to this guide, and shows the
 version.
 
