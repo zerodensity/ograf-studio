@@ -3,6 +3,7 @@ import {
   createFieldDefinition,
   createLayerPropertyKeyframe,
   findLayerKeyframeAtFrame,
+  getLayerTransformAtFrame,
   type Layer,
 } from '@ograf-editor/scene-model';
 import { getActiveComposition, useProjectStore } from './projectStore';
@@ -352,6 +353,18 @@ describe('layer editing commands', () => {
     );
     expect(poses.map((pose) => pose.y)).toEqual([100, 100, 100]);
     expect(poses.map((pose) => pose.x)).toEqual([0, 300, 600]);
+  });
+
+  it('repeats a selection into data-driven copies from the editor store', () => {
+    const id = useProjectStore.getState().addLayer('rectangle');
+    useProjectStore.getState().updateLayerTransform(id, 0, { x: 100, width: 200 });
+    const repeater = useProjectStore.getState().addRepeater([id], 4, 'horizontal', 20);
+    expect(repeater?.items).toHaveLength(4);
+    const layers = activeComposition().layers;
+    expect(layers).toHaveLength(4);
+    expect(layers.map((layer) => getLayerTransformAtFrame(layer, 0).x)).toEqual([
+      100, 320, 540, 760,
+    ]);
   });
 
   it('centres a single layer on the canvas when aligning to the canvas', () => {

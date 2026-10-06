@@ -1628,23 +1628,32 @@ export const useProjectStore = create<ProjectStore>()(
 
       addRepeater: (layerIds, count = 3, direction = 'horizontal', gap = 24) => {
         if (layerIds.length === 0 || count < 2) return null;
-        let result!: MaterializedRepeater;
+        // materializeRepeater structuredClones layers, which fails on immer drafts,
+        // so it runs on a plain copy that then replaces the composition.
+        const snapshot = get();
+        const working = structuredClone(
+          getActiveComposition(snapshot.project, snapshot.activeCompositionId),
+        );
+        let result: MaterializedRepeater;
         try {
-          set((state) => {
-            const composition = getActiveComposition(state.project, state.activeCompositionId);
-            result = materializeRepeater(composition, {
-              layerIds,
-              items: Array.from({ length: count }, (_, index) => ({
-                label: `Item ${index + 1}`,
-              })),
-              direction,
-              gap,
-            });
+          result = materializeRepeater(working, {
+            layerIds,
+            items: Array.from({ length: count }, (_, index) => ({
+              label: `Item ${index + 1}`,
+            })),
+            direction,
+            gap,
           });
-          return result;
         } catch {
           return null;
         }
+        set((state) => {
+          const index = state.project.compositions.findIndex(
+            (composition) => composition.id === working.id,
+          );
+          if (index >= 0) state.project.compositions[index] = working;
+        });
+        return result;
       },
 
       pasteLayers: (layers, offset = 20) => {
