@@ -23,6 +23,7 @@ import { importEditableProjectFromOgraf, type OgrafImportResult } from '../state
 import { DOCK_PANE_IDS, DOCK_PANE_LABELS, type DockPaneId } from '../layout/dockModel';
 import { selectableLayerIds } from '../state/selectAllLayers';
 import './Menubar.css';
+import { ProjectNameField } from './ProjectNameField';
 import { useDetachedWindows } from '../layout/detachedWindowContext';
 import { duplicateSelectedLayers } from '../state/editorShortcuts';
 import { STUDIO_BUILD_DATE, STUDIO_VERSION } from '../state/buildInfo';
@@ -59,7 +60,6 @@ export function Menubar({
   closedDockPanes?: DockPaneId[];
   onToggleDockPane?: (pane: DockPaneId) => void;
 }) {
-  const projectName = useProjectStore((s) => s.project.name);
   const detached = useDetachedWindows();
   const newProject = useProjectStore((s) => s.newProject);
   const loadProject = useProjectStore((s) => s.loadProject);
@@ -275,7 +275,7 @@ export function Menubar({
         <OgrafLogo />
         Studio
       </span>
-      <span className="menubar-project-name">{projectName}</span>
+      <ProjectNameField />
       <nav className="menubar-actions">
         <button type="button" onClick={handleNew}>
           New

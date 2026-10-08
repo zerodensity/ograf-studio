@@ -26,6 +26,26 @@
 .menubar-project-name {
   color: var(--text-dim);
   font-size: var(--ui-font-size-compact);
+  cursor: text;
+}
+
+.menubar-project-name:hover,
+.menubar-project-name:focus-visible {
+  color: var(--text);
+}
+
+.menubar-project-name-input {
+  width: 220px;
+  height: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--accent-focus);
+  border-radius: var(--radius-control);
+  outline: none;
+  background: var(--bg-control);
+  box-shadow: 0 0 0 1px var(--accent-focus);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ui-font-size-compact);
 }
 
 .menubar-actions {
