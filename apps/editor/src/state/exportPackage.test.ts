@@ -8,6 +8,7 @@ import {
   createProject,
   lottiePlayerFrameAtTime,
 } from '@ograf-editor/scene-model';
+import { RUNTIME_NOTICE_PATH } from '@ograf-editor/codegen';
 import { buildExportArtifacts, exportProjectAsZip } from './exportPackage';
 import {
   certificationSeekTimestamps,
@@ -15,6 +16,11 @@ import {
   certifyExportArtifacts,
   certifyProject,
 } from './ografCompatibility';
+
+/** Packaged project assets, without the runtime license notice every package carries. */
+function packagedAssets(artifacts: ReturnType<typeof buildExportArtifacts>) {
+  return artifacts.resources.filter((resource) => resource.path !== RUNTIME_NOTICE_PATH);
+}
 
 describe('canvas pixel certification', () => {
   function webglFixture() {
@@ -177,7 +183,7 @@ describe('export package artifacts', () => {
 
     const artifacts = buildExportArtifacts(project, composition);
     expect(artifacts.valid).toBe(true);
-    expect(artifacts.resources).toHaveLength(1);
+    expect(packagedAssets(artifacts)).toHaveLength(1);
     expect(artifacts.manifestFileName).toBe(`${project.id}.ograf.json`);
     expect(artifacts.mainJs).not.toContain(dataUri);
     expect(artifacts.mainJs).toContain('new URL(value, exportedModuleBaseUrl)');
@@ -224,7 +230,7 @@ describe('export package artifacts', () => {
 
     const artifacts = buildExportArtifacts(project, composition);
     expect(artifacts.errors).toEqual([]);
-    expect(artifacts.resources).toEqual([
+    expect(packagedAssets(artifacts)).toEqual([
       expect.objectContaining({ path: `assets/${asset.id}.svg`, base64: true }),
     ]);
     expect(artifacts.mainJs).not.toContain(`asset:${asset.id}`);
@@ -260,7 +266,7 @@ describe('export package artifacts', () => {
 
     const artifacts = buildExportArtifacts(project, composition);
 
-    expect(artifacts.resources).toEqual([
+    expect(packagedAssets(artifacts)).toEqual([
       expect.objectContaining({ path: 'fonts/rubik-regular.woff2' }),
       expect.objectContaining({
         path: expect.stringMatching(/^licenses\/.+-LICENSE\.txt$/),
