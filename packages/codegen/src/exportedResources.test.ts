@@ -194,6 +194,8 @@ describe('exported package resource resolution', () => {
     expect(notice?.data).toContain('https://github.com/zerodensity/ograf-studio');
     expect(artifacts.mainJs.startsWith('/*!')).toBe(true);
     expect(artifacts.mainJs.split('\n')[0]).toContain('AGPL-3.0-only');
+    expect(artifacts.mainJs.split('\n')[0]).toContain('Runtime Exception');
+    expect(notice?.data).toContain('RUNTIME-EXCEPTION.md');
     expect(artifacts.mainJs.split('\n')[0]).toContain(RUNTIME_NOTICE_PATH);
   });
 

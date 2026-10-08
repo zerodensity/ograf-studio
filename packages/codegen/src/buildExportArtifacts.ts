@@ -31,7 +31,7 @@ export const RUNTIME_NOTICE_PATH = 'licenses/ograf-runtime-NOTICE.txt';
 
 const RUNTIME_SOURCE_URL = 'https://github.com/zerodensity/ograf-studio';
 
-const RUNTIME_LICENSE_BANNER = `/*! OGraf Studio graphic runtime | Copyright Zero Density | SPDX-License-Identifier: AGPL-3.0-only | Source: ${RUNTIME_SOURCE_URL} | See ${RUNTIME_NOTICE_PATH} */`;
+const RUNTIME_LICENSE_BANNER = `/*! OGraf Studio graphic runtime | Copyright Zero Density | License: AGPL-3.0-only with the OGraf Studio Runtime Exception | Source: ${RUNTIME_SOURCE_URL} | See ${RUNTIME_NOTICE_PATH} */`;
 
 const RUNTIME_NOTICE = `This OGraf package embeds the OGraf Studio graphic runtime in main.js.
 
@@ -41,9 +41,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 The runtime is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License, version 3, as published by the Free Software Foundation.
 
+As an additional permission under section 7 of that license, the OGraf Studio Runtime Exception lets you convey this package, and make it available over a network, under terms of your choice, provided this notice is retained. The exception covers this package only, not the runtime conveyed on its own.
+
 The runtime is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
 
 License text: https://www.gnu.org/licenses/agpl-3.0.txt
+Runtime Exception: ${RUNTIME_SOURCE_URL}/blob/stable/packages/ograf-runtime/RUNTIME-EXCEPTION.md
 Source code: ${RUNTIME_SOURCE_URL}
 `;
 
