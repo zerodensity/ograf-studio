@@ -390,6 +390,8 @@ interface ProjectActions {
   removeGroupEffect: (layerIds: string[], effectId: string) => void;
   duplicateGroupEffect: (layerIds: string[], effectId: string) => void;
   reorderGroupEffects: (layerIds: string[], effectIds: string[]) => void;
+  /** Renames the template; blank or unchanged names are ignored. */
+  renameProject: (name: string) => void;
   renameLayer: (layerId: string, name: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
   toggleLayerGuide: (layerId: string) => void;
@@ -2847,6 +2849,14 @@ export const useProjectStore = create<ProjectStore>()(
             }
           }
         }),
+
+      renameProject: (name) => {
+        const trimmed = name.trim();
+        if (!trimmed || trimmed === get().project.name) return;
+        set((state) => {
+          state.project.name = trimmed;
+        });
+      },
 
       renameLayer: (layerId, name) =>
         set((state) => {

@@ -12,6 +12,18 @@ import { getActiveComposition, useProjectStore } from './projectStore';
 
 describe('project store authoring', () => {
   beforeEach(() => useProjectStore.getState().newProject());
+  it('renames the project, trimming the name and ignoring blank or unchanged names', () => {
+    const name = () => useProjectStore.getState().project.name;
+    const before = useProjectStore.getState().project;
+    useProjectStore.getState().renameProject('  Weather Forecast  ');
+    expect(name()).toBe('Weather Forecast');
+    const renamed = useProjectStore.getState().project;
+    useProjectStore.getState().renameProject('   ');
+    useProjectStore.getState().renameProject('Weather Forecast');
+    expect(useProjectStore.getState().project).toBe(renamed);
+    expect(before.name).toBe('Untitled Template');
+  });
+
   it('keeps editable text and independent fill/outline fields when either paint changes', () => {
     const store = useProjectStore.getState();
     const id = store.addLayer('text');
