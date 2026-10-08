@@ -64,4 +64,8 @@ every third-party player.
 
 [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`).
 
+The graphic runtime embedded in exported packages carries an additional permission, the
+[OGraf Studio Runtime Exception](packages/ograf-runtime/RUNTIME-EXCEPTION.md), so exported
+graphics can be distributed and played out under terms of your choice.
+
 [Third-party asset credits](docs/THIRD_PARTY.md).

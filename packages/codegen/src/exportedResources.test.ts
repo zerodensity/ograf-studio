@@ -14,6 +14,7 @@ import {
   buildExportArtifactsWithRuntime,
   EXPORTED_RESOURCE_URLS_KEY,
   generateMainJs,
+  RUNTIME_NOTICE_PATH,
 } from './buildExportArtifacts';
 
 const runtime = `class GraphicElement { load(params) { return params; } updateAction(params) { return params; } setActionsSchedule(params) { return params; } }`;
@@ -182,6 +183,20 @@ describe('exported package resource resolution', () => {
     expect(new Graphic().updateAction({ data: { image: 'assets/icon.svg' } }).data.image).toBe(
       'blob:https://editor.example/resource-0',
     );
+  });
+
+  it('ships a license notice for the runtime embedded in every package', () => {
+    const project = createProject();
+    const artifacts = buildExportArtifactsWithRuntime(project, project.compositions[0]!, runtime);
+    const notice = artifacts.resources.find((resource) => resource.path === RUNTIME_NOTICE_PATH);
+    expect(notice).toMatchObject({ base64: false });
+    expect(notice?.data).toContain('GNU Affero General Public License');
+    expect(notice?.data).toContain('https://github.com/zerodensity/ograf-studio');
+    expect(artifacts.mainJs.startsWith('/*!')).toBe(true);
+    expect(artifacts.mainJs.split('\n')[0]).toContain('AGPL-3.0-only');
+    expect(artifacts.mainJs.split('\n')[0]).toContain('Runtime Exception');
+    expect(notice?.data).toContain('RUNTIME-EXCEPTION.md');
+    expect(artifacts.mainJs.split('\n')[0]).toContain(RUNTIME_NOTICE_PATH);
   });
 
   it('packages percent-encoded SVG as decoded UTF-8 bytes with its MIME type at a custom path', () => {

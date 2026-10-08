@@ -24,3 +24,10 @@ are distributed under the same upstream license.
 
 Chart layers use [Chart.js](https://github.com/chartjs/Chart.js), licensed under MIT. Exports
 containing a chart include its upstream license at `licenses/chartjs-LICENSE.txt`.
+
+## Exported graphic runtime
+
+Every exported package embeds the OGraf Studio graphic runtime (`AGPL-3.0-only` with the
+[OGraf Studio Runtime Exception](../packages/ograf-runtime/RUNTIME-EXCEPTION.md)) in `main.js`.
+The file starts with a license banner, and the package includes the notice at
+`licenses/ograf-runtime-NOTICE.txt` with the license and the source code location.
