@@ -46,6 +46,61 @@ describe('Nodos preset', () => {
     ]);
   });
 
+  it('gives every data field a pin holding its default, in the Nodos type it travels as', () => {
+    const main = composition();
+    main.dataFields = [
+      createFieldDefinition('text', {
+        key: 'headline',
+        label: 'Headline',
+        description: 'Main line',
+        defaultValue: 'Breaking',
+      }),
+      createFieldDefinition('number', { key: 'scale', defaultValue: 1.5 }),
+      createFieldDefinition('integer', { key: 'count', defaultValue: 3 }),
+      createFieldDefinition('boolean', { key: 'live', defaultValue: true }),
+      createFieldDefinition('select-multiple', { key: 'tags', defaultValue: ['a', 'b'] }),
+    ];
+    const pins = buildNodosPresetDefinition(main, {
+      displayName: 'News',
+      category: 'OGraf',
+    }).nodes[0]!.node.pins.slice(4);
+    expect(pins).toEqual([
+      {
+        name: 'headline',
+        display_name: 'Headline',
+        description: 'Main line',
+        type_name: 'string',
+        show_as: 'PROPERTY',
+        can_show_as: 'INPUT_PIN_OR_PROPERTY',
+        data: 'Breaking',
+      },
+      expect.objectContaining({ name: 'scale', type_name: 'double', data: 1.5 }),
+      expect.objectContaining({ name: 'count', type_name: 'int', data: 3 }),
+      expect.objectContaining({ name: 'live', type_name: 'bool', data: true }),
+      expect.objectContaining({ name: 'tags', type_name: 'string', data: '["a","b"]' }),
+    ]);
+  });
+
+  it('refuses a data field named like a pin every ElectroNode has', () => {
+    const main = composition();
+    main.dataFields = [createFieldDefinition('text', { key: 'Width', defaultValue: 'x' })];
+    expect(() =>
+      buildNodosPresetDefinition(main, { displayName: 'News', category: 'OGraf' }),
+    ).toThrow(/Rename the data field "Width"/);
+  });
+
+  it('passes changed data pins to the graphic and decodes JSON fields', () => {
+    const main = composition();
+    main.dataFields = [
+      createFieldDefinition('text', { key: 'headline', defaultValue: 'Breaking' }),
+      createFieldDefinition('select-multiple', { key: 'tags', defaultValue: [] }),
+    ];
+    const page = buildNodosRendererPage('News', main);
+    expect(page).toContain('window.nodos?.onData(');
+    expect(page).toContain('graphic.updateAction({ data })');
+    expect(page).toContain('const jsonFields = new Set(["tags"]);');
+  });
+
   it('plays the graphic with its default data and keeps the data from closing the script', () => {
     const main = composition();
     main.dataFields = [

@@ -55,7 +55,23 @@ after the same certification as the OGraf export. Besides the OGraf package file
   value of every data field, then plays its first step, on a transparent background.
 - `ograf.<Name>.nosnode`, a Nodos node definition file with one preset. Picking the preset in the
   Nodos node menu creates an ElectroNode that shows `nodos.html` at the composition's width, height
-  and frame rate.
+  and frame rate, with one pin per data field.
+
+Each data field becomes a pin named by its key, labelled with its label and holding its default.
+Changing a pin's value in Nodos updates the graphic through `updateAction`, with the data change
+transition the composition defines.
+
+| Data field                                           | Nodos pin type                     |
+| ---------------------------------------------------- | ---------------------------------- |
+| Text, text area, color, image URL, file path, select | `string`                           |
+| Number, percentage                                   | `double`                           |
+| Integer, duration                                    | `int`                              |
+| Boolean                                              | `bool`                             |
+| Gradient, object, array, select multiple             | `string` holding the value as JSON |
+
+A data field cannot be named `URL`, `Width`, `Height`, `FrameRate`, `ShowPreview` or `Output`:
+every ElectroNode already has pins with those names, and the export asks you to rename such a field.
+Passing pin values to the page needs an electroNode that forwards data pins.
 
 The preset's `URL` pin holds `nodos.html` relative to the package. Studio cannot know where the
 package will be served, so RealityHub serves the extracted package and replaces `URL` with the
