@@ -69,6 +69,11 @@ transition the composition defines.
 | Boolean                                              | `bool`                             |
 | Gradient, object, array, select multiple             | `string` holding the value as JSON |
 
+JSON fields start as input pins, so another node can feed them. To drive a template with any Nodos
+type, such as a vector or a tracking value, give the template an object field whose properties match
+the type's JSON, and connect a **Pin2Json** node (`nos.str.Pin2Json`) to that field's pin. Other
+fields start as properties; any pin can be switched between the two in Nodos.
+
 A data field cannot be named `URL`, `Width`, `Height`, `FrameRate`, `ShowPreview` or `Output`:
 every ElectroNode already has pins with those names, and the export asks you to rename such a field.
 Passing pin values to the page needs an electroNode that forwards data pins.

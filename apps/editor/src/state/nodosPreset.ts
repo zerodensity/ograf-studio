@@ -87,7 +87,8 @@ function fieldPin(field: FieldDefinition, value: FieldValue) {
     display_name: field.label,
     ...(field.description.trim() ? { description: field.description.trim() } : {}),
     type_name: typeName,
-    show_as: 'PROPERTY',
+    // JSON fields are mostly fed by a node, such as Pin2Json turning any Nodos type into JSON.
+    show_as: json ? 'INPUT_PIN' : 'PROPERTY',
     can_show_as: 'INPUT_PIN_OR_PROPERTY',
     ...(value === null ? {} : { data: json ? JSON.stringify(value) : value }),
   };

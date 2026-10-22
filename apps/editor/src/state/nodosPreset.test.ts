@@ -77,7 +77,12 @@ describe('Nodos preset', () => {
       expect.objectContaining({ name: 'scale', type_name: 'double', data: 1.5 }),
       expect.objectContaining({ name: 'count', type_name: 'int', data: 3 }),
       expect.objectContaining({ name: 'live', type_name: 'bool', data: true }),
-      expect.objectContaining({ name: 'tags', type_name: 'string', data: '["a","b"]' }),
+      expect.objectContaining({
+        name: 'tags',
+        type_name: 'string',
+        show_as: 'INPUT_PIN',
+        data: '["a","b"]',
+      }),
     ]);
   });
 
