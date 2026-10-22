@@ -2,6 +2,7 @@ import { useEditorWindow } from '../layout/EditorWindow';
 import { PropertyRow } from '../components/PropertyRow';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 import { OgrafLogo } from '../components/OgrafLogo';
+import { NodosPresetDialog } from '../components/NodosPresetDialog';
 import { TemplateSaveDialog } from '../components/TemplateSaveDialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -24,7 +25,12 @@ import {
 } from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useTestDataStore, type TestValue } from '../state/testDataStore';
-import { exportProjectAsZip } from '../state/exportPackage';
+import {
+  exportProjectAsNodosPreset,
+  exportProjectAsZip,
+  type ExportZipResult,
+} from '../state/exportPackage';
+import type { NodosPresetOptions } from '../state/nodosPreset';
 import {
   buildExportArtifacts,
   certifyExportArtifacts,
@@ -160,6 +166,7 @@ export function PreviewExportPanel() {
   const [exportStatus, setExportStatus] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [exportDialogProject, setExportDialogProject] = useState<Project | null>(null);
+  const [nodosPresetProject, setNodosPresetProject] = useState<Project | null>(null);
   const [isCheckingCompatibility, setIsCheckingCompatibility] = useState(false);
   const [compatibility, setCompatibility] = useState<OGrafCompatibilityResult | null>(null);
   const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
@@ -498,14 +505,11 @@ export function PreviewExportPanel() {
     void call('goToTime', params, (g) => g.goToTime(params));
   };
 
-  const handleExport = async (snapshot: Project) => {
+  const runExport = async (exportZip: () => Promise<ExportZipResult>) => {
     setIsExporting(true);
     setExportStatus('');
     try {
-      const exportComposition = snapshot.compositions.find(
-        (item) => item.id === snapshot.mainCompositionId,
-      )!;
-      const result = await exportProjectAsZip(snapshot, exportComposition, exportProfile);
+      const result = await exportZip();
       setCompatibility(result.compatibility);
       if (result.saveResult === 'cancelled') {
         setExportStatus('Export cancelled.');
@@ -522,6 +526,17 @@ export function PreviewExportPanel() {
       setIsExporting(false);
     }
   };
+
+  const mainCompositionOf = (snapshot: Project) =>
+    snapshot.compositions.find((item) => item.id === snapshot.mainCompositionId)!;
+
+  const handleExport = (snapshot: Project) =>
+    runExport(() => exportProjectAsZip(snapshot, mainCompositionOf(snapshot), exportProfile));
+
+  const handleNodosPresetExport = (snapshot: Project, options: NodosPresetOptions) =>
+    runExport(() =>
+      exportProjectAsNodosPreset(snapshot, mainCompositionOf(snapshot), options, exportProfile),
+    );
 
   const handleCompatibilityCheck = async () => {
     setIsCheckingCompatibility(true);
@@ -1091,6 +1106,18 @@ export function PreviewExportPanel() {
             >
               {isExporting ? 'Testing & exporting…' : 'Export .ograf.zip'}
             </button>
+            <button
+              type="button"
+              title="Export the OGraf package with a Nodos preset that RealityHub can send to Nodos."
+              onClick={() =>
+                setNodosPresetProject(
+                  structuredClone({ ...project, mainCompositionId: composition.id }),
+                )
+              }
+              disabled={isExporting || isCheckingCompatibility}
+            >
+              Export Nodos preset…
+            </button>
           </div>
           <p className="panel-placeholder">
             The .ogs file is editable source, not an OGraf manifest. Extract the .ograf.zip and
@@ -1099,6 +1126,15 @@ export function PreviewExportPanel() {
           {exportStatus && <p className="preview-export-status">{exportStatus}</p>}
         </CollapsibleSection>
       </div>
+      {nodosPresetProject && (
+        <NodosPresetDialog
+          defaultName={nodosPresetProject.name || 'Untitled'}
+          fileName={`${nodosPresetProject.name || 'untitled'}${exportProfile.fileNameSuffix ?? ''}.nodos.zip`}
+          onClose={() => setNodosPresetProject(null)}
+          onSaved={() => setNodosPresetProject(null)}
+          save={(options) => handleNodosPresetExport(nodosPresetProject, options)}
+        />
+      )}
       {exportDialogProject && (
         <TemplateSaveDialog
           project={exportDialogProject}

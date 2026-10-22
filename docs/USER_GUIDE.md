@@ -9,6 +9,7 @@
 | `.ogs`                    | Editable OGraf Studio source        | **Open Project**                                                                                |
 | Remote `.ogs` URL         | Public/CORS-enabled editable source | **Open URL**                                                                                    |
 | `.ograf.zip`              | Certified playout package           | **Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
+| `.nodos.zip`              | OGraf package with a Nodos preset   | Extract and serve it; RealityHub sends its preset to Nodos                                      |
 | Loose OGraf package files | Manifest, `main.js`, and resources  | Select them together with **Import OGraf**                                                      |
 | SVG and raster images     | Reusable image assets               | **Add Image** above the canvas, or drop files onto the canvas                                   |
 | Lottie `.json`            | Looping vector animation layer      | **+ Lottie JSON** above the canvas                                                              |
@@ -43,6 +44,23 @@ option automatically; extract the archive before opening the `.ogs` source.
 use previous/next-frame buttons, or select **First OGraf step**. A successful export remembers the
 choice for the template; cancelling leaves it unchanged. The ZIP includes `<id>_thumb.png` and
 references it in the OGraf manifest's `thumbnails` list.
+
+### Nodos presets
+
+**Export Nodos preset…**, next to **Export .ograf.zip**, asks for the name the graphic gets in the
+Nodos node menu and its menu category (`|` separates sub-categories), then exports a `.nodos.zip`
+after the same certification as the OGraf export. Besides the OGraf package files it holds:
+
+- `nodos.html`, a page that plays the graphic: it loads the graphic in real time with the default
+  value of every data field, then plays its first step, on a transparent background.
+- `ograf.<Name>.nosnode`, a Nodos node definition file with one preset. Picking the preset in the
+  Nodos node menu creates an ElectroNode that shows `nodos.html` at the composition's width, height
+  and frame rate.
+
+The preset's `URL` pin holds `nodos.html` relative to the package. Studio cannot know where the
+package will be served, so RealityHub serves the extracted package and replaces `URL` with the
+page's absolute address before sending the preset to Nodos. ElectroNode loads only absolute HTTP,
+HTTPS and file URLs.
 
 For DaVinci Resolve, choose the **Non-real-time** or **Dual** export profile: Resolve loads OGraf
 graphics in non-real-time mode and cannot render a real-time-only package. Enable **Transparent
