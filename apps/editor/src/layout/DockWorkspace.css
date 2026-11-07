@@ -468,30 +468,30 @@ body.is-moving-dock-pane * {
 }
 
 .dock-drop-preview.left {
-  inset: 4px 75% 4px 4px;
+  inset: 4px auto 4px 4px;
+  width: calc(12.5% - 2px);
 }
 
 .dock-drop-preview.right {
-  inset: 4px 4px 4px 75%;
+  inset: 4px 4px 4px auto;
+  width: calc(12.5% - 2px);
 }
 
 .dock-drop-preview.top {
-  inset: 4px 4px 75%;
+  inset: 4px 4px auto;
+  height: calc(12.5% - 2px);
 }
 
 .dock-drop-preview.bottom {
-  inset: 75% 4px 4px;
-}
-
-.dock-workspace.has-bottom-dock .dock-drop-preview.bottom {
-  inset: calc(100% - var(--dock-bottom-size)) 4px var(--dock-bottom-preview-size);
+  inset: auto 4px 4px;
+  height: calc(12.5% - 2px);
 }
 
 .dock-drop-preview.float {
   left: 50%;
   top: 50%;
   width: min(380px, 60%);
-  height: min(440px, 70%);
+  height: min(220px, 35%);
   transform: translate(-50%, -50%);
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
 }
@@ -552,6 +552,86 @@ body.is-moving-dock-pane * {
   transform: translateX(-50%);
 }
 
+.dock-suppressed-note {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  padding: 5px 10px;
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  box-shadow: 0 5px 18px rgb(0 0 0 / 38%);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: dock-edge-hint-in 100ms ease-out;
+}
+
+/* "Press Esc to move without docking", beside whichever docking preview is showing. */
+.dock-escape-note {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  box-shadow: 0 5px 18px rgb(0 0 0 / 38%);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: dock-edge-hint-in 100ms ease-out;
+}
+
+.dock-escape-note kbd {
+  padding: 2px 5px;
+  color: var(--text-heading);
+  background: var(--bg-control);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* Below the five-target cluster when a tab is dragged. */
+.dock-escape-note.center {
+  left: 50%;
+  top: calc(50% + 81px);
+  transform: translateX(-50%);
+}
+
+/* Next to the edge chip when a floating pane nears an edge. */
+.dock-escape-note.top {
+  left: 50%;
+  top: 86px;
+  transform: translateX(-50%);
+}
+
+.dock-escape-note.bottom {
+  left: 50%;
+  bottom: 86px;
+  transform: translateX(-50%);
+}
+
+.dock-escape-note.left {
+  left: 18px;
+  top: calc(50% + 37px);
+}
+
+.dock-escape-note.right {
+  right: 18px;
+  top: calc(50% + 37px);
+}
+
 @keyframes dock-edge-hint-in {
   from {
     opacity: 0;
@@ -562,4 +642,61 @@ body.is-moving-dock-pane * {
     opacity: 1;
     scale: 1;
   }
+}
+
+/* The outer edges surround the original workspace and its timeline. */
+.dock-inner-workspace {
+  position: relative;
+  grid-column: 3;
+  grid-row: 3;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  overflow: hidden;
+}
+.dock-outer-left {
+  grid-column: 1;
+  grid-row: 1 / -1;
+}
+.dock-outer-right {
+  grid-column: 5;
+  grid-row: 1 / -1;
+}
+.dock-outer-top {
+  grid-column: 3;
+  grid-row: 1;
+}
+.dock-outer-bottom {
+  grid-column: 3;
+  grid-row: 5;
+}
+.dock-outer-guide {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  z-index: 2;
+}
+.dock-outer-guide.left {
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.dock-outer-guide.right {
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.dock-outer-guide.top {
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.dock-outer-guide.bottom {
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.dock-drop-preview.dock-geometry-preview {
+  inset: auto;
+  transform: none;
 }

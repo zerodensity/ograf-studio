@@ -22,6 +22,8 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./chat-references": "./src/chatReferences.ts"
+    "./chat-references": "./src/chatReferences.ts",
+    "./playout": "./src/playoutSchemas.ts",
+    "./template-set-storage": "./src/templateSetStorage.ts"
   }
 }

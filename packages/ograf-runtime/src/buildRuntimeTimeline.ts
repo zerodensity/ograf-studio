@@ -1,168 +1,46 @@
-import { applyLayerEffectsFilter } from './effectCompositing';
-import gsap from 'gsap';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
-import {
-  clipPathForParentBounds,
-  EFFECT_ANIMATION_PROPERTIES,
-  getTrackValueAtFrame,
-  parseEffectProperty,
-  isGradientStopOffsetProperty,
-  parseShaderAnimationProperty,
-  TRANSFORM_ANIMATION_PROPERTIES,
-  normalizeTextAnimation,
-  normalizeChartAnimation,
-  type AnimatableLayerProperty,
-  type LayerEffects,
-  type LayerTransform,
-} from '@ograf-editor/scene-model';
-import type { CompiledLayer } from '@ograf-editor/ograf-types';
-import { easingForGsap } from './easing';
-import { resolveBoundEffects, resolveBoundElement } from './renderElement';
+import { hasTextAnimation } from '@ograf-editor/scene-model';
+import { FramePlayer } from './framePlayer';
+import { resolveBoundElement } from './renderElement';
 import { renderTextAnimationAtFrame } from './textAnimationRendering';
 import { renderChartAnimationAtFrame } from './chartRendering';
 import { applyCompiledMasks } from './maskRendering';
-import { sampleCompiledLayerVisualState, applyCompiledLayerVisualState } from './loopRendering';
-import { compiledLoopElapsedFrames } from './loopRendering';
-import { renderPatternAtElapsed } from './patternRendering';
+import {
+  sampleCompiledLayerVisualState,
+  applyCompiledLayerVisualState,
+  applyCompiledClipPaths,
+  compiledLoopElapsedFrames,
+} from './loopRendering';
 import { applyCompiledAutoLayout } from './autoLayoutRendering';
 import { applyCompiledMotionPaths } from './motionPathRendering';
+import { applyCompiledTextPaths } from './textPathRendering';
+import { applyCompiledModifiers, type CompiledModifierContext } from './modifierRendering';
 
-const DIRECT_GSAP_PROPERTIES: Partial<Record<keyof LayerTransform, string>> = {
-  x: 'x',
-  y: 'y',
-  width: 'width',
-  height: 'height',
-  rotation: 'rotation',
-  opacity: 'opacity',
-};
-
-function compiledPoseAtFrame(layer: CompiledLayer, frame: number): LayerTransform {
-  const first = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]?.transform;
-  if (!first) throw new Error(`Compiled layer "${layer.id}" has no transform key.`);
-  return Object.fromEntries(
-    TRANSFORM_ANIMATION_PROPERTIES.map((property) => [
-      property,
-      getTrackValueAtFrame(layer.animationTracks[property] ?? [], frame, first[property]),
-    ]),
-  ) as unknown as LayerTransform;
+/** Composition-frame keys extend the player; independent local loops retain their own clocks. */
+function descriptorDurationFrames(descriptor: CompiledGraphicDescriptor): number {
+  let durationFrames = 0;
+  for (const keyframe of descriptor.keyframes)
+    durationFrames = Math.max(durationFrames, keyframe.frame);
+  for (const layer of descriptor.layers) {
+    for (const keyframe of layer.keyframes)
+      durationFrames = Math.max(durationFrames, keyframe.frame);
+    for (const keys of Object.values(layer.animationTracks))
+      for (const keyframe of keys ?? []) durationFrames = Math.max(durationFrames, keyframe.frame);
+  }
+  return durationFrames;
 }
 
-/**
- * Builds one paused GSAP timeline spanning every keyframe in sequence, from an already-compiled
- * descriptor (frame positions precomputed — this never re-derives them, unlike the editor's own
- * apps/editor/src/canvas/masterTimeline.ts, which builds the analogous authoring-time timeline
- * directly from Composition data). Layers are first snapped to Keyframe 0's pose via `gsap.set`
- * so the first tween in the chain has a correct "from" value.
- */
+/** One deterministic composition-frame renderer shared by Studio and the exported graphic. */
 export function buildRuntimeTimeline(
   descriptor: CompiledGraphicDescriptor,
   layerEls: Map<string, HTMLElement>,
   dataProvider: () => Record<string, unknown> = () => ({}),
-): gsap.core.Timeline {
-  const tl = gsap.timeline({ paused: true });
-  const frameRate = descriptor.frameRate;
-  const applyInitialStates: Array<() => void> = [];
-
-  for (const keyframe of descriptor.keyframes) {
-    tl.addLabel(keyframe.id, keyframe.frame / frameRate);
-  }
-
-  for (const layer of descriptor.layers) {
-    const el = layerEls.get(layer.id);
-    if (!el) continue;
-    const tracks = layer.animationTracks;
-    const firstTransform = Object.fromEntries(
-      TRANSFORM_ANIMATION_PROPERTIES.map((property) => [
-        property,
-        [...(tracks[property] ?? [])].sort((a, b) => a.frame - b.frame)[0]?.value ??
-          [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]?.transform[property] ??
-          0,
-      ]),
-    ) as unknown as LayerTransform;
-    const originState = {
-      transformOriginX: firstTransform.transformOriginX,
-      transformOriginY: firstTransform.transformOriginY,
-    };
-    const effectState = { ...layer.effects };
-    for (const property of EFFECT_ANIMATION_PROPERTIES) {
-      const first = [...(tracks[property] ?? [])].sort((a, b) => a.frame - b.frame)[0];
-      if (first) effectState[property] = first.value;
-    }
-    const firstEffects = { ...effectState };
-
-    const updateOrigin = () => {
-      el.style.transformOrigin = `${originState.transformOriginX * 100}% ${originState.transformOriginY * 100}%`;
-    };
-    const updateEffects = () => {
-      applyLayerEffectsFilter(
-        el,
-        resolveBoundEffects(layer, dataProvider(), effectState),
-        tl.time() * 1000,
-      );
-    };
-    const applyInitialState = () => {
-      originState.transformOriginX = firstTransform.transformOriginX;
-      originState.transformOriginY = firstTransform.transformOriginY;
-      Object.assign(effectState, firstEffects);
-      gsap.set(el, {
-        x: firstTransform.x,
-        y: firstTransform.y,
-        width: firstTransform.width,
-        height: firstTransform.height,
-        rotation: firstTransform.rotation,
-        opacity: firstTransform.opacity,
-        transformOrigin: `${firstTransform.transformOriginX * 100}% ${firstTransform.transformOriginY * 100}%`,
-      });
-      updateEffects();
-    };
-    applyInitialStates.push(applyInitialState);
-    applyInitialState();
-
-    for (const property of Object.keys(tracks) as AnimatableLayerProperty[]) {
-      if (
-        isGradientStopOffsetProperty(property) ||
-        parseShaderAnimationProperty(property) ||
-        property === 'strokeWidth' ||
-        parseEffectProperty(property)
-      )
-        continue;
-      const keyframes = [...(tracks[property] ?? [])].sort((a, b) => a.frame - b.frame);
-      for (let index = 1; index < keyframes.length; index++) {
-        const from = keyframes[index - 1]!;
-        const to = keyframes[index]!;
-        const common = {
-          duration: (to.frame - from.frame) / frameRate,
-          ease: easingForGsap(to.easing, to.curve),
-        };
-        const directProperty = DIRECT_GSAP_PROPERTIES[property as keyof LayerTransform];
-        if (directProperty) {
-          tl.to(el, { [directProperty]: to.value, ...common }, from.frame / frameRate);
-        } else if (property === 'transformOriginX' || property === 'transformOriginY') {
-          tl.to(
-            originState,
-            { [property]: to.value, ...common, onUpdate: updateOrigin },
-            from.frame / frameRate,
-          );
-        } else {
-          tl.to(
-            effectState,
-            {
-              [property]: to.value,
-              ...common,
-              onUpdate: updateEffects,
-            } as gsap.TweenVars & Partial<LayerEffects>,
-            from.frame / frameRate,
-          );
-        }
-      }
-    }
-  }
-
-  // A lifecycle boundary may extend beyond every layer's last animation key.
-  const endFrame = descriptor.keyframes.at(-1)?.frame ?? 0;
-  const updateDynamicRendering = () => {
-    const frame = tl.time() * frameRate;
+  modifierContextProvider?: () => CompiledModifierContext,
+): FramePlayer {
+  const renderFrame = (frame: number): void => {
+    const elapsedMs = (frame / descriptor.frameRate) * 1000;
     const data = dataProvider();
+    const modifierContext = { timestampMs: elapsedMs, ...modifierContextProvider?.() };
     const states = new Map(
       descriptor.layers.map((layer) => [
         layer.id,
@@ -174,99 +52,38 @@ export function buildRuntimeTimeline(
         ),
       ]),
     );
-    applyCompiledAutoLayout(descriptor, states, data, layerEls);
+    applyCompiledAutoLayout(descriptor, states, data, layerEls, modifierContext);
     applyCompiledMotionPaths(descriptor, states);
+    applyCompiledModifiers(descriptor, states, data, layerEls, modifierContext);
     for (const layer of descriptor.layers) {
-      const child = layerEls.get(layer.id);
+      const element = layerEls.get(layer.id);
       const state = states.get(layer.id);
-      if (child && state) applyCompiledLayerVisualState(child, state, tl.time() * 1000);
-      if (child && layer.element.type === 'pattern')
-        renderPatternAtElapsed(child, compiledLoopElapsedFrames(descriptor, layer, frame) ?? 0);
-      if (child && layer.element.type === 'chart') {
-        const resolved = resolveBoundElement(layer, data);
-        if (resolved.type === 'chart') renderChartAnimationAtFrame(child, resolved, frame);
-      }
-      if (
-        child &&
-        layer.element.type === 'text' &&
-        normalizeTextAnimation(layer.element.textAnimation).type !== 'none'
-      ) {
-        const resolved = resolveBoundElement(layer, data);
-        if (resolved.type === 'text') renderTextAnimationAtFrame(child, resolved, frame);
-      }
-      if (!layer.clipParentId) continue;
-      const parent = layerEls.get(layer.clipParentId);
-      if (!child || !parent) {
-        if (child) child.style.clipPath = 'inset(50%)';
-        continue;
-      }
-      const parentLayer = descriptor.layers.find(
-        (candidate) => candidate.id === layer.clipParentId,
-      );
-      const radius =
-        parentLayer?.element.type === 'rectangle' ? parentLayer.element.borderRadius : 0;
-      if (parentLayer) {
-        child.style.clipPath = clipPathForParentBounds(
-          states.get(layer.id)?.transform ?? compiledPoseAtFrame(layer, frame),
-          states.get(parentLayer.id)?.transform ?? compiledPoseAtFrame(parentLayer, frame),
-          radius,
-        );
+      if (!element || !state) continue;
+      applyCompiledLayerVisualState(element, state, elapsedMs);
+      if (layer.element.type === 'chart' || layer.element.type === 'text') {
+        const boundElement = resolveBoundElement(layer, data);
+        if (boundElement.type === 'chart')
+          renderChartAnimationAtFrame(element, boundElement, frame, frame);
+        else if (
+          boundElement.type === 'text' &&
+          !boundElement.clock &&
+          hasTextAnimation(boundElement)
+        )
+          renderTextAnimationAtFrame(element, boundElement, frame);
       }
     }
-    applyCompiledMasks(descriptor, layerEls, states);
-  };
-  const hasDynamicRendering = descriptor.layers.some(
-    (layer) =>
-      layer.clipParentId ||
-      layer.layoutParentId ||
-      layer.autoLayout?.direction !== 'none' ||
-      layer.motionPath ||
-      layer.mask ||
-      layer.element.type === 'pattern' ||
-      (layer.element.type === 'chart' &&
-        normalizeChartAnimation(layer.element.animation).type !== 'none') ||
-      (layer.element.type === 'text' &&
-        normalizeTextAnimation(layer.element.textAnimation).type !== 'none') ||
-      layer.lighting ||
-      layer.effects.stack?.some((e) => !e.legacy) ||
-      layer.isMaskOnly ||
-      Object.keys(layer.animationTracks).some(
-        (property) =>
-          isGradientStopOffsetProperty(property) ||
-          property === 'strokeWidth' ||
-          !!parseShaderAnimationProperty(property),
-      ),
-  );
-  if (hasDynamicRendering) {
-    const clipClock = { progress: 0 };
-    tl.to(
-      clipClock,
-      {
-        progress: 1,
-        duration: endFrame / frameRate,
-        ease: 'none',
-        onUpdate: updateDynamicRendering,
-      },
-      0,
+    applyCompiledTextPaths(descriptor, states, layerEls, (layer) =>
+      resolveBoundElement(layer, data),
     );
-    updateDynamicRendering();
-  }
-  tl.to({}, { duration: 0 }, endFrame / frameRate);
+    applyCompiledClipPaths(descriptor, layerEls, states);
+    applyCompiledMasks(descriptor, layerEls, states, data);
+  };
 
-  // GSAP's CSSPlugin retains the destination style when a timeline that has already advanced is
-  // sought back to the exact zero boundary. Reassert the authored first pose after such seeks;
-  // otherwise a transparent Start frame can remain visibly stuck at the on-air Step pose until an
-  // unrelated React render touches the element. Keeping this at the shared runtime boundary also
-  // makes editor stop/scrub and exported non-realtime goToTime(0) agree.
-  const nativeSeek = tl.seek.bind(tl);
-  tl.seek = ((position: gsap.Position, suppressEvents?: boolean) => {
-    const result = nativeSeek(position, suppressEvents);
-    if (tl.time() === 0) {
-      for (const applyInitialState of applyInitialStates) applyInitialState();
-    }
-    updateDynamicRendering();
-    return result;
-  }) as typeof tl.seek;
-
-  return tl;
+  const player = new FramePlayer({
+    frameRate: descriptor.frameRate,
+    durationFrames: descriptorDurationFrames(descriptor),
+    renderFrame,
+  });
+  player.seek(0);
+  return player;
 }

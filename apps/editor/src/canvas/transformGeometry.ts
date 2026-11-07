@@ -8,7 +8,7 @@ function numbers(value: string): number[] {
   return value.split(',').map((part) => Number.parseFloat(part.trim()));
 }
 
-/** Reads the transform formats produced by React, GSAP, and Moveable. */
+/** Reads the transform formats produced by React, the frame renderer, and Moveable. */
 export function parseCssTransform(transform: string): ParsedCssTransform {
   const translate3dMatch = transform.match(
     /translate3d\(\s*([-\d.]+)px,\s*([-\d.]+)px,\s*[-\d.]+px\s*\)/,

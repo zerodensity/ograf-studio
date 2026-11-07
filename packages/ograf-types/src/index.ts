@@ -25,6 +25,8 @@ export interface LoadParams {
   data?: unknown;
   renderType: RenderType;
   renderCharacteristics: RenderCharacteristics;
+  /** Coordinated-preview extension: replay a captured system-clock epoch offline. */
+  v_ografReplayClockEpochMs?: number;
 }
 
 export interface UpdateActionParams {
@@ -174,3 +176,4 @@ export const OGRAF_MANIFEST_SCHEMA_URL =
   'https://ograf.ebu.io/v1/specification/json-schemas/graphics/schema.json';
 
 export * from './descriptor';
+export * from './transitionLogicDescriptor';

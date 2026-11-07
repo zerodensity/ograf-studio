@@ -24,11 +24,13 @@ export function ResourceTreeBranch({
 export function ResourceTreeItem({
   label,
   meta,
+  badge,
   preview,
   children,
 }: {
   label: string;
   meta?: string;
+  badge?: string;
   preview?: ReactNode;
   children: ReactNode;
 }) {
@@ -40,6 +42,7 @@ export function ResourceTreeItem({
           <span className="resources-tree-item-name">{label}</span>
           {meta && <span className="resources-tree-item-meta">{meta}</span>}
         </span>
+        {badge && <span className="resources-tree-item-badge">{badge}</span>}
       </summary>
       <div className="resources-tree-item-editor">{children}</div>
     </details>

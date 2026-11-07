@@ -12,17 +12,35 @@
   grid-template-columns: minmax(0, 1fr) clamp(260px, 22vw, 330px);
 }
 
-.timeline-panel.has-animation-graph {
-  grid-template-rows: 26px minmax(64px, 1fr) minmax(120px, 45%);
+.timeline-panel.has-animation-graph .timeline-content {
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr);
+  height: 100%;
 }
 
-.timeline-panel.has-animation-graph .animation-graph-editor {
-  grid-column: 1;
-  grid-row: 3;
+.timeline-graph-view {
+  position: sticky;
+  left: 0;
+  min-height: 0;
 }
 
-.timeline-panel.has-animation-graph .timeline-key-editor {
-  grid-row: 1 / 4;
+.timeline-graph-view .animation-graph-editor {
+  height: 100%;
+  box-sizing: border-box;
+  border-width: 1px 0 0;
+}
+
+.timeline-panel.has-animation-graph .timeline-gutter {
+  overflow-y: auto;
+}
+
+.timeline-panel.has-animation-graph .timeline-tracks {
+  overflow-y: hidden;
+}
+
+.timeline-panel.has-animation-graph .timeline-playhead {
+  height: 42px;
+  bottom: auto;
 }
 
 .timeline-panel:focus-visible {
@@ -80,6 +98,10 @@
 .timeline-keying-section,
 .timeline-retime-section {
   border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
+}
+
+.timeline-toolbar-section-label.is-titlecase {
+  text-transform: none;
 }
 
 .timeline-playback-options {
@@ -195,12 +217,73 @@
   font-variant-numeric: tabular-nums;
 }
 
+.timeline-toolbar .timeline-display-units {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 27px;
+  height: var(--ui-control-height);
+  padding: 0 4px;
+  background: var(--accent);
+  color: white;
+  font-size: 10px;
+}
+
+.timeline-toolbar .timeline-display-units:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .timeline-readout strong {
   min-width: 2ch;
   color: var(--text-heading);
   font-size: 12px;
   font-weight: 600;
   text-align: right;
+}
+
+.timeline-readout .timeline-current-time {
+  width: 11ch;
+  min-width: 64px;
+  height: var(--ui-control-height);
+  box-sizing: border-box;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-heading);
+  font: inherit;
+  font-size: 12px;
+  text-align: right;
+}
+
+.timeline-readout .timeline-current-time:hover,
+.timeline-readout .timeline-current-time:focus-visible {
+  border-color: var(--accent);
+}
+
+.timeline-readout .timeline-current-time[aria-invalid='true'] {
+  border-color: #ffbf69;
+}
+
+.timeline-view-toggle {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.timeline-view-toggle button[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-panel-raised));
+}
+
+.timeline-graph-empty {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: var(--ui-font-size);
+  text-align: center;
 }
 
 .timeline-readout-divider {
@@ -314,6 +397,20 @@
   color: #ffbf69;
 }
 
+.timeline-time-error {
+  position: absolute;
+  left: 6px;
+  top: 30px;
+  z-index: 21;
+  max-width: min(360px, calc(100% - 12px));
+  padding: 6px 8px;
+  border: 1px solid #ffbf69;
+  border-radius: var(--radius-control);
+  background: var(--bg-panel-raised);
+  color: #ffbf69;
+  font-size: var(--ui-font-size-compact);
+}
+
 .timeline-transition-controls,
 .timeline-layer-key-controls {
   display: flex;
@@ -389,6 +486,19 @@
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
   padding: 10px 10px 14px;
+}
+
+.timeline-channel-actions {
+  padding: 0 0 6px;
+}
+
+.timeline-key-editor .timeline-channel-reset {
+  width: 100%;
+  min-height: var(--ui-control-height);
+  padding: 2px 6px;
+  font-size: var(--ui-font-size-compact);
+  text-align: left;
+  white-space: normal;
 }
 
 .timeline-key-editor .timeline-layer-key-controls {
@@ -1248,10 +1358,9 @@
 .timeline-playhead-handle {
   position: absolute;
   top: 0;
-  bottom: 0;
   left: 50%;
   width: 12px;
-  height: auto;
+  height: 16px;
   padding: 0;
   transform: translateX(-50%);
   border: 0;
@@ -1379,4 +1488,23 @@
 .timeline-loop-actions .danger {
   margin-left: auto;
   color: #ff9298;
+}
+.timeline-design-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  min-height: 24px;
+}
+.timeline-design-bar button {
+  margin-left: auto;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-control);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 7px;
+  cursor: pointer;
 }

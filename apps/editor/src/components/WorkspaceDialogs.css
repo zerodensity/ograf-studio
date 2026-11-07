@@ -1,0 +1,172 @@
+.workspace-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #0009;
+}
+.workspace-dialog {
+  width: min(680px, calc(100vw - 40px));
+  max-height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text-main);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 18px 60px #0008;
+  font-size: 12px;
+}
+.workspace-save-dialog {
+  width: min(460px, calc(100vw - 40px));
+}
+.workspace-save-dialog form {
+  min-height: 0;
+  overflow: auto;
+}
+.workspace-dialog header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.workspace-dialog h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.workspace-dialog h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.workspace-dialog p {
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.workspace-dialog header p {
+  margin: 5px 0 0;
+}
+.workspace-dialog button {
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-raised, #252525);
+  color: var(--text-main);
+  font: inherit;
+  cursor: pointer;
+}
+.workspace-dialog button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.workspace-dialog button:focus-visible,
+.workspace-dialog input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.workspace-dialog-content {
+  min-width: 0;
+  padding: 18px;
+  overflow: auto;
+}
+.workspace-dialog-content label {
+  display: grid;
+  gap: 6px;
+  margin: 16px 0 12px;
+}
+.workspace-dialog-content input {
+  min-width: 0;
+  width: 100%;
+  padding: 6px 8px;
+  color: var(--text-main);
+  border: 1px solid var(--border);
+  background: var(--bg-canvas);
+  border-radius: 3px;
+  font: inherit;
+}
+.workspace-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+.workspace-dialog footer span {
+  flex: 1;
+}
+.workspace-dialog button.workspace-primary-action {
+  background: var(--accent);
+  color: #fff;
+}
+.workspace-manager-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  overflow: auto;
+}
+.workspace-manager-body nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+}
+.workspace-manager-body nav button {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  border-color: transparent;
+  background: transparent;
+}
+.workspace-manager-body nav button[aria-current='true'] {
+  background: var(--accent-dim, #395062);
+}
+.workspace-manager-body nav button span {
+  overflow-wrap: anywhere;
+}
+.workspace-manager-body nav small {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.workspace-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.workspace-delete-confirmation {
+  margin-top: 14px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.workspace-pending-windows {
+  display: grid;
+  gap: 8px;
+}
+.workspace-dialog p.workspace-dialog-error,
+.workspace-preferences-error {
+  color: #ff8b8b !important;
+}
+.workspace-dialog-error,
+.workspace-dialog-status {
+  padding: 0 18px;
+}
+.workspace-dialog-status {
+  margin-top: 0;
+}
+@media (max-width: 560px) {
+  .workspace-manager-body {
+    grid-template-columns: 140px minmax(0, 1fr);
+  }
+  .workspace-dialog-content {
+    padding: 12px;
+  }
+}

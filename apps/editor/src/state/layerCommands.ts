@@ -37,9 +37,12 @@ export function deleteLayers(layerIds: string[] = selected()): number {
     .layers.filter((layer) => layerIds.includes(layer.id) && !layer.isLocked)
     .map((layer) => layer.id);
   if (ids.length === 0) return 0;
-  runDiscreteHistoryStep(() => {
-    for (const layerId of ids) useProjectStore.getState().removeLayer(layerId);
-  });
+  runDiscreteHistoryStep(
+    () => {
+      for (const layerId of ids) useProjectStore.getState().removeLayer(layerId);
+    },
+    ids.length === 1 ? 'Delete layer' : `Delete ${ids.length} layers`,
+  );
   useSelectionStore.getState().select(null);
   return ids.length;
 }
@@ -56,7 +59,10 @@ export function canPasteLayers(): boolean {
 export function pasteLayers(): string[] {
   const layers = useLayerClipboardStore.getState().layers;
   if (layers.length === 0) return [];
-  const pasted = runDiscreteHistoryStep(() => useProjectStore.getState().pasteLayers(layers));
+  const pasted = runDiscreteHistoryStep(
+    () => useProjectStore.getState().pasteLayers(layers),
+    'Paste layers',
+  );
   if (pasted.length > 0) useSelectionStore.getState().selectMany(pasted);
   return pasted;
 }
@@ -71,7 +77,10 @@ export function canUngroupLayers(layerIds: string[] = selected()): boolean {
 
 export function groupLayers(layerIds: string[] = selected()): boolean {
   if (!canGroupLayers(layerIds)) return false;
-  const grouped = runDiscreteHistoryStep(() => useProjectStore.getState().groupLayers(layerIds));
+  const grouped = runDiscreteHistoryStep(
+    () => useProjectStore.getState().groupLayers(layerIds),
+    'Group layers',
+  );
   if (grouped) useSelectionStore.getState().selectMany(layerIds);
   return Boolean(grouped);
 }
@@ -79,7 +88,10 @@ export function groupLayers(layerIds: string[] = selected()): boolean {
 export function ungroupLayers(layerIds: string[] = selected()): boolean {
   if (!canUngroupLayers(layerIds)) return false;
   const primary = layerIds.at(-1) ?? null;
-  runDiscreteHistoryStep(() => useProjectStore.getState().ungroupLayers(layerIds));
+  runDiscreteHistoryStep(
+    () => useProjectStore.getState().ungroupLayers(layerIds),
+    'Ungroup layers',
+  );
   useSelectionStore.getState().select(primary);
   return true;
 }

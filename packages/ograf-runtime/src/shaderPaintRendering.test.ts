@@ -3,6 +3,7 @@ import {
   createRectangleLayer,
   createTextLayer,
   createShaderElement,
+  createChartElement,
   type Element,
 } from '@ograf-editor/scene-model';
 const mocks = vi.hoisted(() => ({
@@ -89,6 +90,33 @@ beforeEach(() => {
 });
 
 describe('shader fill content lifecycle', () => {
+  it('keeps chart grid below native shader marks and foreground labels above them', async () => {
+    const mask = {
+      ready: Promise.resolve(),
+      update: vi.fn(async () => ({}) as HTMLCanvasElement),
+      dispose: vi.fn(),
+    };
+    mocks.mask.mockReturnValue(mask);
+    const { container, native } = fixture();
+    const element = createChartElement({ fill: createShaderElement() });
+    mountShaderPaintContent(container, element, {}, native);
+    await waitForShaderPaintContentReady(container);
+    const visual = container.children[0] as HTMLElement;
+    const base = [...visual.children].find(
+      (child) => (child as HTMLElement).dataset.ografShaderBase,
+    ) as HTMLElement;
+    const paint = [...visual.children].find(
+      (child) => (child as HTMLElement).dataset.ografShaderSlotHost === 'fill',
+    ) as HTMLElement;
+    expect(base.style.zIndex).toBe('auto');
+    expect(paint.style.zIndex).toBe('1');
+    expect(native.render.mock.calls[0]?.[1]).toMatchObject({ type: 'chart', fill: 'transparent' });
+    container.dataset.ografChartAnimationFrame = '7';
+    renderShaderPaintAtTime(container, 1000);
+    await waitForShaderPaintContentReady(container);
+    expect(base.dataset.ografChartAnimationFrame).toBe('7');
+    disposeShaderPaintContent(container);
+  });
   it('updates independent slot uniforms without invalidating native layout or coverage', async () => {
     const mask = { ready: Promise.resolve(), update: vi.fn(async () => null), dispose: vi.fn() };
     mocks.mask.mockReturnValue(mask);

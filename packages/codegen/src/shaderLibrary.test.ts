@@ -23,7 +23,9 @@ describe('unused shader library export boundary', () => {
       'class GraphicElement {}',
     );
     expect(artifacts.valid).toBe(true);
-    expect(artifacts.resources).toEqual([]);
+    expect(
+      artifacts.resources.filter((resource) => !resource.path.startsWith('licenses/')),
+    ).toEqual([]);
     expect(artifacts.mainJs).not.toContain('unused-library-source-marker');
     expect(artifacts.manifest.schema).toBeUndefined();
     expect(project.shaders).toHaveLength(1);

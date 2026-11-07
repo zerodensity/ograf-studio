@@ -13,27 +13,31 @@ interface TimelineState {
   isPlaying: boolean;
   pauseAtOgrafSteps: boolean;
   autoKeyframe: boolean;
+  /** Explicit designer intent; ordinary playhead edits never silently offset existing motion. */
+  editScope: 'playhead' | 'whole-animation';
   durationFrames: number;
   /** Editor-only live preview of one layer's local loop clip. */
   previewLoopLayerId: string | null;
-  /** Registered by Stage (the only thing with direct access to the layer DOM nodes GSAP drives). */
+  /** Registered by Stage, which owns the layer DOM nodes driven by the frame player. */
   controller: TimelineController | null;
   setCurrentFrame: (frame: number) => void;
   setPlaying: (isPlaying: boolean) => void;
   setPauseAtOgrafSteps: (pauseAtOgrafSteps: boolean) => void;
   setAutoKeyframe: (autoKeyframe: boolean) => void;
+  setEditScope: (editScope: 'playhead' | 'whole-animation') => void;
   setDurationFrames: (frames: number) => void;
   setPreviewLoopLayerId: (layerId: string | null) => void;
   setController: (controller: TimelineController | null) => void;
   /** Stop the outgoing composition and clear transient playback state before replacing a project. */
-  resetForProjectLoad: () => void;
+  resetForProjectLoad: (frame?: number) => void;
 }
 
 export const useTimelineStore = create<TimelineState>((set, get) => ({
   currentFrame: 0,
   isPlaying: false,
-  pauseAtOgrafSteps: true,
+  pauseAtOgrafSteps: false,
   autoKeyframe: false,
+  editScope: 'playhead',
   durationFrames: 0,
   previewLoopLayerId: null,
   controller: null,
@@ -41,14 +45,16 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   setPlaying: (isPlaying) => set({ isPlaying }),
   setPauseAtOgrafSteps: (pauseAtOgrafSteps) => set({ pauseAtOgrafSteps }),
   setAutoKeyframe: (autoKeyframe) => set({ autoKeyframe }),
+  setEditScope: (editScope) => set({ editScope }),
   setDurationFrames: (frames) => set({ durationFrames: frames }),
   setPreviewLoopLayerId: (previewLoopLayerId) => set({ previewLoopLayerId }),
   setController: (controller) => set({ controller }),
-  resetForProjectLoad: () => {
+  resetForProjectLoad: (frame = 0) => {
     get().controller?.stop();
     set({
-      currentFrame: 0,
+      currentFrame: frame,
       autoKeyframe: false,
+      editScope: 'playhead',
       isPlaying: false,
       durationFrames: 0,
       previewLoopLayerId: null,

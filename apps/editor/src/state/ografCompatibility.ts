@@ -1,12 +1,20 @@
 import graphicRuntimeSource from '@ograf-editor/ograf-runtime/dist/graphic-runtime.js?raw';
 import {
   buildExportArtifactsWithRuntime,
+  compileDescriptor,
   EXPORTED_RESOURCE_URLS_KEY,
   validatePackageLayout,
   type ExportArtifacts,
   type ExportProfile,
 } from '@ograf-editor/codegen';
-import type { CompiledGraphicDescriptor, Graphic, OGrafManifest } from '@ograf-editor/ograf-types';
+import type {
+  CompiledGraphicDescriptor,
+  CompiledTransitionLogicDescriptor,
+  CoordinatedPlayoutSnapshot,
+  Graphic,
+  OGrafManifest,
+  ScheduledAction,
+} from '@ograf-editor/ograf-types';
 import {
   lottiePlayerFrameAtTime,
   getElementShaderPaints,
@@ -15,6 +23,26 @@ import {
   type Project,
 } from '@ograf-editor/scene-model';
 import { createCertificationResourceUrls } from './certificationResources';
+import {
+  certificationMethodTiming,
+  certificationPromiseWithTimeout,
+  type CertificationMethodTiming,
+} from './certificationTiming';
+import {
+  coordinatedCertificationCases,
+  coordinatedCertificationCanvasCounts,
+  coordinatedCertificationConflicts,
+  coordinatedCertificationSuccessErrors,
+  coordinatedCertificationRejectionErrors,
+  coordinatedCertificationOutputIdentity,
+  coordinatedCertificationNextTransitionFrame,
+  createCoordinatedStartupEvidence,
+} from './coordinatedCertification';
+import {
+  assertStudioRendererPluginsAllowed,
+  rendererPluginAllowed,
+  useRendererPluginSettingsStore,
+} from './pluginSettingsStore';
 
 export type { ExportArtifacts } from '@ograf-editor/codegen';
 
@@ -38,6 +66,7 @@ export function buildExportArtifacts(
   composition: Composition,
   profile?: ExportProfile,
 ): ExportArtifacts {
+  assertStudioRendererPluginsAllowed(compileDescriptor(composition).rendererPlugins ?? []);
   return buildExportArtifactsWithRuntime(project, composition, graphicRuntimeSource, profile);
 }
 
@@ -81,25 +110,6 @@ export function certificationSeekTimestamps(elements: Element[]): {
   return { target, rewind: 2_000.5, exercisesAllLotties: false };
 }
 
-function promiseWithTimeout<T>(promise: Promise<T>, method: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeout = window.setTimeout(
-      () => reject(new Error(`${method}() did not resolve within the devtool's 3000 ms limit.`)),
-      3000,
-    );
-    promise.then(
-      (value) => {
-        clearTimeout(timeout);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
-}
-
 function validateReturnPayload(
   method: string,
   payload: unknown,
@@ -134,13 +144,28 @@ function validateReturnPayload(
 
 type CallableGraphic = HTMLElement & Graphic & Record<string, unknown>;
 
+/** Coordinated packages isolate each retained scene in its own shadow tree. */
+function graphicElements<T extends HTMLElement>(
+  graphic: Pick<CallableGraphic, 'shadowRoot'>,
+  selector: string,
+): T[] {
+  const result: T[] = [];
+  const visit = (root: ShadowRoot) => {
+    result.push(...root.querySelectorAll<T>(selector));
+    for (const element of root.querySelectorAll('*'))
+      if (element.shadowRoot) visit(element.shadowRoot);
+  };
+  if (graphic.shadowRoot) visit(graphic.shadowRoot);
+  return result;
+}
+
 export async function canvasPixelSignatures(
   graphic: Pick<CallableGraphic, 'shadowRoot'>,
 ): Promise<{ signatures: string[]; shaderCanvasCount: number; errors: string[] }> {
   const snapshots: Array<{ width: number; height: number; pixels: Uint8Array }> = [];
   const errors: string[] = [];
   let shaderCanvasCount = 0;
-  const canvases = [...(graphic.shadowRoot?.querySelectorAll<HTMLCanvasElement>('canvas') ?? [])];
+  const canvases = graphicElements<HTMLCanvasElement>(graphic, 'canvas');
   for (const [index, canvas] of canvases.entries()) {
     if (canvas.width <= 0 || canvas.height <= 0) {
       errors.push(
@@ -151,7 +176,16 @@ export async function canvasPixelSignatures(
     try {
       let pixels: Uint8Array;
       const isShader = canvas.hasAttribute('data-ograf-shader-canvas');
-      if (isShader) {
+      if (isShader && canvas.dataset?.ografShaderBackend === 'canvas2d') {
+        if (canvas.dataset.ografShaderPaused === 'true')
+          throw new Error('Shader WebGL context is unavailable.');
+        // The runtime shares one GPU context per graphic, and retains each shader's result on
+        // this 2D presentation surface. Reading it does not allocate another WebGL context or
+        // sample the shared GPU canvas after a different layer has drawn into it.
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Shader Canvas2D presentation context is unavailable.');
+        pixels = new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+      } else if (isShader) {
         // Inspect the actual preserved GPU buffer, without a browser presentation/alpha conversion.
         const gl = canvas.getContext('webgl2');
         if (!gl || gl.isContextLost()) throw new Error('Shader WebGL context is unavailable.');
@@ -196,13 +230,13 @@ export async function canvasPixelSignatures(
   return { signatures, shaderCanvasCount, errors };
 }
 
-interface CertificationRealm {
+export interface CertificationRealm {
   frame: HTMLIFrameElement;
   window: Window;
   document: Document;
 }
 
-function createCertificationRealm(): CertificationRealm {
+export function createCertificationRealm(): CertificationRealm {
   const frame = document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
   frame.tabIndex = -1;
@@ -218,7 +252,7 @@ function createCertificationRealm(): CertificationRealm {
   return { frame, window: realmWindow, document: realmDocument };
 }
 
-async function importModuleInRealm(
+export async function importModuleInRealm(
   realm: CertificationRealm,
   moduleUrl: string,
 ): Promise<{ default?: CustomElementConstructor }> {
@@ -251,18 +285,413 @@ async function callGraphicMethod(
   method: keyof Graphic,
   params: unknown,
   extraKeys: string[] = [],
+  timing: CertificationMethodTiming = certificationMethodTiming(
+    undefined,
+    method,
+    params,
+    'realtime',
+  ),
+  requireSuccess = false,
 ): Promise<string[]> {
   const fn = graphic[method];
   if (typeof fn !== 'function') return [`Graphic does not have a ${method}() method.`];
   try {
-    const payload = await promiseWithTimeout(
+    const payload = await certificationPromiseWithTimeout(
       (fn as (params: unknown) => Promise<unknown>).call(graphic, params),
       method,
+      timing,
     );
-    return validateReturnPayload(method, payload, extraKeys);
+    return [
+      ...validateReturnPayload(method, payload, extraKeys),
+      ...(requireSuccess
+        ? coordinatedCertificationSuccessErrors(payload).map((issue) => `${method}(): ${issue}`)
+        : []),
+    ];
   } catch (error) {
     return [`${method}() failed: ${error instanceof Error ? error.message : String(error)}`];
   }
+}
+
+/** Certify the exact coordinated module, including every reachable template state. */
+async function validateCoordinatedLifecycle(
+  realm: CertificationRealm,
+  tagName: string,
+  manifest: OGrafManifest,
+  descriptor: CompiledTransitionLogicDescriptor,
+): Promise<string[]> {
+  const errors: string[] = [];
+  const definition = descriptor.definition;
+  const sharedDescriptors = descriptor.sharedInstances.map((instance) => instance.descriptor);
+  const templates = new Map(descriptor.templates.map((template) => [template.id, template]));
+  let cases: ReturnType<typeof coordinatedCertificationCases>;
+  try {
+    cases = coordinatedCertificationCases(definition);
+  } catch (cause) {
+    return [
+      `Coordinated Take admission: ${cause instanceof Error ? cause.message : String(cause)}`,
+    ];
+  }
+  const statePayload = (state: (typeof definition.states)[number]) => ({
+    slotId: state.slotId,
+    stateId: state.id,
+    data: {
+      ...(templates.get(state.templateId)?.dataDefaults ?? {}),
+      ...(state.dataDefaults ?? {}),
+    },
+  });
+  const modes = [
+    ...(manifest.supportsRealTime ? (['realtime'] as const) : []),
+    ...(manifest.supportsNonRealTime ? (['non-realtime'] as const) : []),
+  ];
+  for (const renderType of modes) {
+    const graphic = realm.document.createElement(tagName) as CallableGraphic;
+    graphic.style.cssText = 'position:fixed;left:-100000px;top:-100000px;visibility:hidden;';
+    realm.document.body.appendChild(graphic);
+    const call = async (
+      method: keyof Graphic,
+      params: unknown,
+      extra: string[] = [],
+      requireSuccess = false,
+    ) => {
+      const issues = await callGraphicMethod(
+        graphic,
+        method,
+        params,
+        extra,
+        certificationMethodTiming(descriptor, method, params, renderType),
+        requireSuccess,
+      );
+      errors.push(...issues.map((issue) => `Coordinated ${renderType}: ${issue}`));
+      return issues.length === 0;
+    };
+    const snapshot = (): CoordinatedPlayoutSnapshot | null => {
+      const read = graphic.getPlayoutSnapshot;
+      if (typeof read !== 'function') return null;
+      try {
+        return (read as () => CoordinatedPlayoutSnapshot).call(graphic);
+      } catch {
+        return null;
+      }
+    };
+    const startupExpected = Object.fromEntries(
+      definition.slots.map((slot) => [
+        slot.id,
+        descriptor.dataDefaults?.slots[slot.id]?.stateId ?? null,
+      ]),
+    );
+    const watchStartup = () => {
+      const evidence = createCoordinatedStartupEvidence(startupExpected);
+      const subscribe = graphic.subscribePlayout;
+      const dispose =
+        typeof subscribe === 'function'
+          ? (
+              subscribe as (listener: (value: CoordinatedPlayoutSnapshot) => void) => () => void
+            ).call(graphic, evidence.observe)
+          : () => {};
+      return {
+        evidence,
+        dispose,
+        assert() {
+          const current = snapshot();
+          evidence.observe(current);
+          errors.push(
+            ...evidence
+              .errors(current)
+              .map((issue) => `Coordinated ${renderType} default Play: ${issue}`),
+          );
+        },
+      };
+    };
+    const rejectPlayWithoutChangingOutput = async (name: string) => {
+      const before = snapshot();
+      try {
+        const params = { goto: 0, skipAnimation: true };
+        const payload = await certificationPromiseWithTimeout(
+          graphic.playAction(params),
+          'playAction',
+          certificationMethodTiming(descriptor, 'playAction', params, renderType),
+        );
+        errors.push(
+          ...coordinatedCertificationRejectionErrors(payload, before, snapshot()).map(
+            (issue) => `Coordinated ${renderType} ${name}: ${issue}`,
+          ),
+        );
+      } catch (cause) {
+        errors.push(
+          `Coordinated ${renderType} ${name}: rejected Play must return an error payload: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      }
+    };
+    const inspect = async (templateId: string, label: string) => {
+      const template = templates.get(templateId);
+      if (!template) return null;
+      if (
+        !graphicElements<HTMLElement>(graphic, '[data-ograf-transition-template]').some(
+          (host) => host.dataset.ografTransitionTemplate === templateId,
+        )
+      )
+        errors.push(`Coordinated ${renderType}: ${label} did not mount its template.`);
+      const expected = coordinatedCertificationCanvasCounts(template, sharedDescriptors);
+      const pixels = await canvasPixelSignatures(graphic);
+      errors.push(...pixels.errors.map((issue) => `${label}: ${issue}`));
+      if (pixels.signatures.length < expected.canvases)
+        errors.push(`${label}: expected at least ${expected.canvases} rendered canvases.`);
+      if (pixels.shaderCanvasCount < expected.shaders)
+        errors.push(`${label}: expected at least ${expected.shaders} inspectable shader canvases.`);
+      return pixels.signatures;
+    };
+    try {
+      if (
+        !(await call(
+          'load',
+          {
+            renderType,
+            renderCharacteristics: {
+              resolution: { width: descriptor.width, height: descriptor.height },
+              frameRate: descriptor.frameRate,
+            },
+            data: defaultsFromManifest(manifest),
+          },
+          [],
+          true,
+        ))
+      )
+        continue;
+      // Exercise the actual generic controller entry point, not just individual custom Takes.
+      if (renderType === 'realtime') {
+        const normal = watchStartup();
+        try {
+          if (await call('playAction', { goto: 0 }, ['currentStep'], true)) normal.assert();
+        } finally {
+          normal.dispose();
+        }
+        await call('stopAction', { skipAnimation: true });
+        await call('updateAction', { data: defaultsFromManifest(manifest), skipAnimation: true });
+        const skipped = watchStartup();
+        try {
+          if (await call('playAction', { goto: 0, skipAnimation: true }, ['currentStep'], true))
+            skipped.assert();
+        } finally {
+          skipped.dispose();
+        }
+      } else {
+        const startup = watchStartup();
+        try {
+          if (
+            (await call(
+              'setActionsSchedule',
+              { schedule: [{ timestamp: 0, action: { type: 'playAction', params: { goto: 0 } } }] },
+              [],
+              true,
+            )) &&
+            (await call('goToTime', { timestamp: 0 }, [], true))
+          ) {
+            // Advance only through observed entry/exit barriers. A long unused recipe must not
+            // push this startup check past a legitimate later timer or Rules-triggered action.
+            for (let phase = 0; phase < definition.slots.length * 2 + 2; phase++) {
+              const current = snapshot();
+              startup.evidence.observe(current);
+              if (startup.evidence.entered) break;
+              const boundary = coordinatedCertificationNextTransitionFrame(current);
+              if (
+                boundary === null ||
+                !(await call(
+                  'goToTime',
+                  { timestamp: (boundary * 1000) / descriptor.frameRate },
+                  [],
+                  true,
+                ))
+              )
+                break;
+            }
+            startup.assert();
+          }
+        } finally {
+          startup.dispose();
+        }
+      }
+      // Invalid selections are staged while fully Off. Their rejected Play cannot partially Take
+      // siblings or alter preparation; this does not claim that active multi-lane Update is atomic.
+      await call('stopAction', { skipAnimation: true });
+      for (const conflict of coordinatedCertificationConflicts(definition)) {
+        await call('customAction', { id: 'transition.clear', payload: {} });
+        const slots = Object.fromEntries(
+          Object.entries(conflict.states).map(([id, stateId]) => [
+            id,
+            { stateId: stateId ?? '', data: {} },
+          ]),
+        );
+        if (await call('updateAction', { data: { slots }, skipAnimation: true }, [], true))
+          await rejectPlayWithoutChangingOutput(conflict.name);
+      }
+      await call('customAction', { id: 'transition.clear', payload: {} });
+      if (renderType === 'realtime') {
+        const retained = new Map(
+          graphicElements<HTMLElement>(graphic, '[data-ograf-transition-shared]').map((host) => [
+            host.dataset.ografTransitionShared!,
+            host,
+          ]),
+        );
+        for (const instance of definition.sharedInstances)
+          if (!retained.has(instance.id))
+            errors.push(`Coordinated output did not prepare shared instance ${instance.name}.`);
+        const takeover = definition.states.find((state) => state.takeOutSlotIds?.length);
+        const occupiedCase =
+          takeover &&
+          [...cases]
+            .sort((left, right) => right.prerequisites.length - left.prerequisites.length)
+            .find(
+              (entry) =>
+                entry.state.slotId !== takeover.slotId &&
+                [...entry.prerequisites, entry.state].some((state) =>
+                  takeover.takeOutSlotIds!.includes(state.slotId),
+                ) &&
+                [...entry.prerequisites, entry.state].every(
+                  (state) => state.slotId !== takeover.slotId,
+                ),
+            );
+        if (takeover && occupiedCase) {
+          for (const state of [...occupiedCase.prerequisites, occupiedCase.state])
+            await call(
+              'customAction',
+              { id: 'transition.take', payload: statePayload(state), skipAnimation: true },
+              [],
+              true,
+            );
+          const before = snapshot();
+          await call(
+            'updateAction',
+            {
+              data: {
+                slots: {
+                  [takeover.slotId]: { stateId: takeover.id, data: statePayload(takeover).data },
+                },
+              },
+              skipAnimation: true,
+            },
+            [],
+            true,
+          );
+          const staged = snapshot();
+          if (
+            before &&
+            staged &&
+            coordinatedCertificationOutputIdentity(before) !==
+              coordinatedCertificationOutputIdentity(staged)
+          )
+            errors.push(
+              'Selecting an Off takeover lane changed existing on-air output before Play.',
+            );
+          await rejectPlayWithoutChangingOutput('conflicting takeover against on-air graphics');
+          await call('customAction', { id: 'transition.clear', payload: {} });
+        }
+        for (const { state, prerequisites } of cases) {
+          await call('customAction', { id: 'transition.clear', payload: {} });
+          for (const prerequisite of prerequisites)
+            await call('customAction', {
+              id: 'transition.take',
+              payload: statePayload(prerequisite),
+              skipAnimation: true,
+            });
+          if (
+            await call('customAction', {
+              id: 'transition.take',
+              payload: statePayload(state),
+              skipAnimation: true,
+            })
+          )
+            await inspect(state.templateId, state.name);
+          const hosts = graphicElements<HTMLElement>(graphic, '[data-ograf-transition-shared]');
+          for (const [id, host] of retained)
+            if (!hosts.includes(host) || host.dataset.ografTransitionShared !== id)
+              errors.push(`Shared instance ${id} was replaced during ${state.name}.`);
+        }
+        const lastState = cases.at(-1)?.state;
+        await call('updateAction', {
+          data: {
+            slots: lastState
+              ? {
+                  [lastState.slotId]: { stateId: lastState.id, data: statePayload(lastState).data },
+                }
+              : {},
+          },
+          skipAnimation: true,
+        });
+        for (const slot of definition.slots)
+          await call('customAction', {
+            id: 'transition.out',
+            payload: { slotId: slot.id },
+            skipAnimation: true,
+          });
+        await call('stopAction', { skipAnimation: true });
+        await call('customAction', { id: 'transition.clear', payload: {} });
+      } else {
+        const longest = Math.max(1, ...definition.transitions.map((item) => item.durationFrames));
+        const intervalFrames = longest * 2 + descriptor.frameRate;
+        const ms = (frame: number) => (frame * 1000) / descriptor.frameRate;
+        const schedule: ScheduledAction[] = [];
+        const samples: Array<{ timestamp: number; templateId: string; name: string }> = [];
+        let frame = 0;
+        for (const { state, prerequisites } of cases) {
+          schedule.push({
+            timestamp: ms(frame++),
+            action: { type: 'customAction', params: { id: 'transition.clear', payload: {} } },
+          });
+          for (const prerequisite of prerequisites)
+            schedule.push({
+              timestamp: ms(frame++),
+              action: {
+                type: 'customAction',
+                params: {
+                  id: 'transition.take',
+                  payload: statePayload(prerequisite),
+                  skipAnimation: true,
+                },
+              },
+            });
+          schedule.push({
+            timestamp: ms(frame),
+            action: {
+              type: 'customAction',
+              params: {
+                id: 'transition.take',
+                payload: statePayload(state),
+              },
+            },
+          });
+          samples.push({
+            timestamp: ms(frame + longest + 1),
+            templateId: state.templateId,
+            name: state.name,
+          });
+          frame += intervalFrames;
+        }
+        schedule.push({ timestamp: ms(frame), action: { type: 'stopAction', params: {} } });
+        if (await call('setActionsSchedule', { schedule })) {
+          let lastPixels: string[] | null = null;
+          for (const sample of samples)
+            if (await call('goToTime', { timestamp: sample.timestamp }))
+              lastPixels = await inspect(sample.templateId, sample.name);
+          const last = samples.at(-1);
+          if (last) {
+            await call('goToTime', { timestamp: 0 });
+            if (await call('goToTime', { timestamp: last.timestamp })) {
+              const repeated = await inspect(last.templateId, last.name);
+              if (lastPixels && JSON.stringify(lastPixels) !== JSON.stringify(repeated))
+                errors.push(
+                  'Coordinated output pixels changed after backward and repeated seeking.',
+                );
+            }
+          }
+          await call('goToTime', { timestamp: ms(frame + longest + 1) });
+        }
+      }
+    } finally {
+      await call('dispose', {});
+      graphic.remove();
+    }
+  }
+  return errors;
 }
 
 async function validateModuleAndLifecycle(
@@ -276,6 +705,11 @@ async function validateModuleAndLifecycle(
   try {
     resources = createCertificationResourceUrls(artifacts.resources);
     realm = createCertificationRealm();
+    (
+      realm.window as unknown as {
+        __OGRAF_STUDIO_RENDERER_PLUGIN_POLICY__: typeof rendererPluginAllowed;
+      }
+    ).__OGRAF_STUDIO_RENDERER_PLUGIN_POLICY__ = rendererPluginAllowed;
     (realm.window as unknown as Record<string, unknown>)[EXPORTED_RESOURCE_URLS_KEY] = {
       [moduleUrl]: resources.urls,
     };
@@ -305,6 +739,29 @@ async function validateModuleAndLifecycle(
       }
     }
     if (moduleErrors.length > 0) return { moduleErrors, lifecycleErrors };
+
+    if (artifacts.transitionDescriptor) {
+      const compiled = (
+        graphicModule.default as CustomElementConstructor & {
+          transitionDescriptor?: CompiledTransitionLogicDescriptor;
+        }
+      ).transitionDescriptor;
+      if (
+        !compiled ||
+        compiled.id !== artifacts.transitionDescriptor.id ||
+        JSON.stringify(compiled.definition) !==
+          JSON.stringify(artifacts.transitionDescriptor.definition)
+      ) {
+        moduleErrors.push(
+          'The exported coordinated definition does not match the compiled package.',
+        );
+        return { moduleErrors, lifecycleErrors };
+      }
+      lifecycleErrors.push(
+        ...(await validateCoordinatedLifecycle(realm, tagName, artifacts.manifest, compiled)),
+      );
+      return { moduleErrors, lifecycleErrors };
+    }
 
     const initialData = defaultsFromManifest(artifacts.manifest);
     const compiledDescriptor = (
@@ -363,12 +820,20 @@ async function validateModuleAndLifecycle(
       const graphic = realm.document.createElement(tagName) as CallableGraphic;
       graphic.style.cssText = 'position:fixed;left:-100000px;top:-100000px;visibility:hidden;';
       realm.document.body.appendChild(graphic);
-      lifecycleErrors.push(...(await callGraphicMethod(graphic, 'load', { renderType })));
+      const call = (method: keyof Graphic, params: unknown, extraKeys: string[] = []) =>
+        callGraphicMethod(
+          graphic,
+          method,
+          params,
+          extraKeys,
+          certificationMethodTiming(compiledDescriptor, method, params, renderType),
+        );
+      lifecycleErrors.push(...(await call('load', { renderType })));
       if (renderType === 'realtime') {
         lifecycleErrors.push(
-          ...(await callGraphicMethod(graphic, 'updateAction', { data: initialData })),
-          ...(await callGraphicMethod(graphic, 'playAction', {}, ['currentStep'])),
-          ...(await callGraphicMethod(graphic, 'stopAction', {})),
+          ...(await call('updateAction', { data: initialData })),
+          ...(await call('playAction', {}, ['currentStep'])),
+          ...(await call('stopAction', {})),
         );
       } else {
         if (!seekTimestamps.exercisesAllLotties) {
@@ -377,7 +842,7 @@ async function validateModuleAndLifecycle(
           );
         }
         lifecycleErrors.push(
-          ...(await callGraphicMethod(graphic, 'setActionsSchedule', {
+          ...(await call('setActionsSchedule', {
             schedule: [
               { timestamp: 0, action: { type: 'updateAction', params: { data: initialData } } },
               { timestamp: 1000, action: { type: 'playAction', params: {} } },
@@ -388,7 +853,7 @@ async function validateModuleAndLifecycle(
               { timestamp: 7000, action: { type: 'stopAction', params: {} } },
             ],
           })),
-          ...(await callGraphicMethod(graphic, 'goToTime', {
+          ...(await call('goToTime', {
             timestamp: seekTimestamps.target,
           })),
         );
@@ -414,10 +879,10 @@ async function validateModuleAndLifecycle(
               `${element.dataset.ografCollectionId}:${element.dataset.ografCollectionIndex}`,
           );
         lifecycleErrors.push(
-          ...(await callGraphicMethod(graphic, 'goToTime', {
+          ...(await call('goToTime', {
             timestamp: seekTimestamps.rewind,
           })),
-          ...(await callGraphicMethod(graphic, 'goToTime', {
+          ...(await call('goToTime', {
             timestamp: seekTimestamps.target,
           })),
         );
@@ -460,7 +925,7 @@ async function validateModuleAndLifecycle(
           );
         }
       }
-      lifecycleErrors.push(...(await callGraphicMethod(graphic, 'dispose', { renderType })));
+      lifecycleErrors.push(...(await call('dispose', { renderType })));
       graphic.remove();
     }
   } catch (error) {
@@ -481,10 +946,27 @@ async function validateModuleAndLifecycle(
 export async function certifyExportArtifacts(
   artifacts: ExportArtifacts,
 ): Promise<OGrafCompatibilityResult> {
-  const projectErrors = artifacts.projectErrors;
+  const policyErrors: string[] = [];
+  const snapshots = [
+    ...(artifacts.descriptor?.rendererPlugins ?? []),
+    ...(artifacts.transitionDescriptor?.templates.flatMap(
+      (template) => template.descriptor.rendererPlugins ?? [],
+    ) ?? []),
+    ...(artifacts.transitionDescriptor?.sharedInstances.flatMap(
+      (instance) => instance.descriptor.rendererPlugins ?? [],
+    ) ?? []),
+  ];
+  if (snapshots.length) await useRendererPluginSettingsStore.getState().initialize();
+  try {
+    assertStudioRendererPluginsAllowed(snapshots);
+  } catch (cause) {
+    policyErrors.push(cause instanceof Error ? cause.message : String(cause));
+  }
+  const projectErrors = [...artifacts.projectErrors, ...policyErrors];
   const manifestErrors = artifacts.manifestErrors;
   const packageErrors = validatePackageLayout(artifacts);
-  const staticChecksPassed = artifacts.valid && packageErrors.length === 0;
+  const staticChecksPassed =
+    artifacts.valid && packageErrors.length === 0 && policyErrors.length === 0;
   const { moduleErrors, lifecycleErrors } = staticChecksPassed
     ? await validateModuleAndLifecycle(artifacts)
     : {
@@ -537,5 +1019,7 @@ export async function certifyProject(project: Project): Promise<OGrafCompatibili
       checks: [{ id: 'project', label: 'Project semantics', valid: false, errors: [error] }],
     };
   }
+  if (compileDescriptor(composition).rendererPlugins?.length)
+    await useRendererPluginSettingsStore.getState().initialize();
   return certifyExportArtifacts(buildExportArtifacts(project, composition));
 }

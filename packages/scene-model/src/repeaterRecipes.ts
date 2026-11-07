@@ -2,6 +2,7 @@ import { buildComponentDefinition, instantiateComponentDefinition } from './comp
 import { computeKeyframeFrames } from './keyframeTiming';
 import { getLayerTransformAtFrame } from './layerAnimation';
 import { createId } from './id';
+import { applyModifierSafeGroupChanges } from './modifierReferences';
 import type { Composition, FieldValue } from './types';
 
 export interface RepeaterRecipeItem {
@@ -91,8 +92,11 @@ export function materializeRepeater(
     definition.dataFields.map((field) => [field.id, field.id]),
   );
   const sourceGroupId = createId('group');
+  applyModifierSafeGroupChanges(
+    composition.layers,
+    new Map(sourceLayers.map((layer) => [layer.id, sourceGroupId])),
+  );
   for (const layer of sourceLayers) {
-    layer.groupId = sourceGroupId;
     layer.semantics.tags = [
       ...new Set([...layer.semantics.tags, 'repeater-item', 'repeater-index-1']),
     ];

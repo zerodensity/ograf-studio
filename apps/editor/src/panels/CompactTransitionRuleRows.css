@@ -1,0 +1,51 @@
+.transition-rule-value {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+.transition-rule-value input {
+  width: 80px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.rule-editor-timing[hidden] {
+  display: none;
+}
+.rule-editor-timing > .rule-editor-note {
+  grid-column: 1 / -1;
+}
+.transition-rule-value small {
+  color: var(--text-dim);
+}
+.transition-rule-layout,
+.transition-rule-layout-fields {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.transition-rule-targets {
+  margin: 0;
+  padding: 6px 8px;
+  min-width: 0;
+  border: 1px solid var(--border);
+}
+.transition-rule-targets > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+.transition-rule-targets input[type='checkbox'] {
+  width: auto;
+  flex: none;
+}
+.transition-rule-layout-fields .tl-behavior-timing {
+  margin: 0;
+  background: transparent;
+}
+.transition-rule-layout-fields .tl-behavior-phase-strip {
+  min-height: 34px;
+}

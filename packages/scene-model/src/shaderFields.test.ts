@@ -2,6 +2,7 @@ import { getElementShaderPaint } from './shader';
 import { describe, expect, it } from 'vitest';
 import { createComposition, createFieldDefinition, createLayerOfKind } from './factory';
 import { syncCompositionShaderParameterFields, syncShaderParameterFields } from './shaderFields';
+import { normalizeDataConnection } from './dataConnections';
 
 const source = `#pragma ograf amount slider min(0) max(2) step(0.1)
 const float amount = 0.5;
@@ -26,6 +27,40 @@ function fixture() {
 }
 
 describe('source-defined shader fields', () => {
+  it('retires only connection mappings whose generated shader controls were actually removed', () => {
+    const { composition, layer } = fixture();
+    const amount = composition.dataFields[0]!;
+    const tint = composition.dataFields[1]!;
+    const ordinary = createFieldDefinition('text', { key: 'headline' });
+    composition.dataFields.push(ordinary);
+    composition.dataConnections = [
+      normalizeDataConnection({
+        mappings: [
+          { fieldId: amount.id, sourcePath: 'amount' },
+          { fieldId: tint.id, sourcePath: 'tint' },
+          { fieldId: ordinary.id, sourcePath: 'headline' },
+          { fieldId: 'unrelated-invalid-import', sourcePath: 'invalid' },
+        ],
+      }),
+    ];
+    getElementShaderPaint(layer.element)!.fragmentSource = source.replace(
+      '#pragma ograf amount slider min(0) max(2) step(0.1)',
+      '',
+    );
+    syncShaderParameterFields(composition, layer);
+    expect(composition.dataConnections[0]!.mappings.map((m) => m.fieldId)).toEqual([
+      tint.id,
+      ordinary.id,
+      'unrelated-invalid-import',
+    ]);
+    composition.layers = [];
+    syncCompositionShaderParameterFields(composition);
+    expect(composition.dataConnections[0]!.mappings.map((m) => m.fieldId)).toEqual([
+      ordinary.id,
+      'unrelated-invalid-import',
+    ]);
+  });
+
   it('creates stable typed fields and preserves exact color defaults', () => {
     const { composition, layer } = fixture();
     expect(composition.dataFields.map((field) => field.type)).toEqual([
@@ -125,5 +160,22 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount ? 1.0 : 0.0)
         (field) => field.generatedShaderParameter?.layerId === duplicate.id,
       ),
     ).toBe(true);
+  });
+
+  it('accepts reordered vector object defaults while preserving internal axes', () => {
+    const { composition, layer } = fixture();
+    const offset = composition.dataFields.find(
+      (field) => field.generatedShaderParameter?.name === 'offset',
+    )!;
+    offset.defaultValue = { y: 0.5, x: 0 };
+    offset.properties.find((field) => field.key === 'x')!.exposeToOgraf = false;
+    expect(() => syncCompositionShaderParameterFields(composition)).not.toThrow();
+    expect(offset.defaultValue).toEqual({ x: 0, y: 0.5 });
+    expect(offset.properties.find((field) => field.key === 'x')?.exposeToOgraf).toBe(false);
+    expect(getElementShaderPaint(layer.element)!.parameters.offset).toEqual([0, 0.5]);
+    offset.defaultValue = { y: 0.5, x: 0, z: 1 };
+    expect(() => syncCompositionShaderParameterFields(composition)).toThrow(
+      /outside its declared range/,
+    );
   });
 });

@@ -1,12 +1,24 @@
-import { useEffect, useState } from 'react';
+import { ColorInput } from '../components/ColorInput';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   normalizeChartAnimation,
+  chartAnimationWithPreset,
   parseChartData,
+  rendererPluginKey,
   type ChartElement,
-  type EasingPreset,
 } from '@ograf-editor/scene-model';
 import { ChartPresetGallery } from './ChartPresetGallery';
-import { EASING_OPTION_GROUPS } from './easingOptions';
+import { ChartDataModeEditor } from './ChartDataModeEditor';
+import { ChartPresentationEditor } from './ChartPresentationEditor';
+import { ChartMarkAnimationEditor } from './ChartMarkAnimationEditor';
+import { EasingPicker } from './EasingPicker';
+import { FrameDurationControl } from './FrameDurationControl';
+import { useActiveComposition, useProjectStore } from '../state/projectStore';
+import {
+  rendererPluginReference,
+  isInstalledChartPlugin,
+  useRendererPluginSettingsStore,
+} from '../state/pluginSettingsStore';
 import './ChartEditor.css';
 
 function NumericCell({
@@ -48,16 +60,43 @@ function NumericCell({
 export function ChartEditor({
   element,
   onChange,
+  layerId,
+  fillEditor,
 }: {
   element: ChartElement;
   onChange: (patch: Partial<ChartElement>) => void;
+  layerId?: string;
+  fillEditor?: ReactNode;
 }) {
+  const settings = useRendererPluginSettingsStore();
+  const composition = useActiveComposition();
+  const selectChartProvider = useProjectStore((state) => state.selectChartProvider);
+  const providers = settings.installed
+    .filter(isInstalledChartPlugin)
+    .filter((entry) => entry.enabled && entry.trusted);
+  const providerKey = element.provider ? rendererPluginKey(element.provider) : '';
+  const pinned = element.provider
+    ? (composition.rendererPlugins ?? []).find(
+        (entry) => rendererPluginKey(rendererPluginReference(entry)) === providerKey,
+      )
+    : undefined;
+  const providerAvailable =
+    Boolean(element.provider) &&
+    providers.some(
+      (entry) => rendererPluginKey(rendererPluginReference(entry.snapshot)) === providerKey,
+    );
   const [dataText, setDataText] = useState(() => JSON.stringify(element.data, null, 2));
   const [error, setError] = useState('');
   const [requestedDatasetIndex, setRequestedDatasetIndex] = useState(0);
   const animation = normalizeChartAnimation(element.animation);
-  const updateAnimation = (patch: Partial<NonNullable<ChartElement['animation']>>) =>
-    onChange({ animation: { ...animation, ...patch } });
+  const updateAnimation = (
+    patch: Partial<NonNullable<ChartElement['animation']>>,
+    clearCurve = false,
+  ) => {
+    const next = { ...animation, ...patch };
+    if (clearCurve) delete next.curve;
+    onChange({ animation: next });
+  };
   const datasetIndex = Math.min(requestedDatasetIndex, element.data.datasets.length - 1);
   const dataset = element.data.datasets[datasetIndex]!;
   useEffect(() => {
@@ -132,8 +171,57 @@ export function ChartEditor({
 
   return (
     <div className="chart-editor">
+      <label className="chart-editor-option">
+        <span>Renderer</span>
+        <select
+          aria-label="Chart renderer"
+          value={providerKey}
+          disabled={!layerId}
+          onChange={(event) => {
+            const entry = providers.find(
+              (item) =>
+                rendererPluginKey(rendererPluginReference(item.snapshot)) === event.target.value,
+            );
+            if (!entry) return;
+            try {
+              selectChartProvider(layerId!, rendererPluginReference(entry.snapshot));
+              setError('');
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : String(cause));
+            }
+          }}
+        >
+          <option value="" disabled>
+            Choose chart renderer…
+          </option>
+          {!providerAvailable && element.provider ? (
+            <option value={providerKey} disabled>
+              {pinned?.manifest.name || element.provider.id} {element.provider.version} · blocked
+            </option>
+          ) : null}
+          {providers.map((entry) => (
+            <option
+              key={rendererPluginKey(rendererPluginReference(entry.snapshot))}
+              value={rendererPluginKey(rendererPluginReference(entry.snapshot))}
+            >
+              {entry.snapshot.manifest.name} {entry.snapshot.manifest.version}
+            </option>
+          ))}
+        </select>
+      </label>
+      {!providerAvailable ? (
+        <p className="chart-editor-error">
+          {element.provider
+            ? 'This pinned renderer is blocked. Open Plugins to review and enable its exact version.'
+            : 'Select an installed chart renderer. Install and enable a plugin in Plugins first.'}
+        </p>
+      ) : null}
       <div className="chart-editor-label">Chart type</div>
-      <ChartPresetGallery selected={element.preset} onSelect={(preset) => onChange({ preset })} />
+      <ChartPresetGallery
+        selected={element.preset}
+        presets={pinned?.manifest.presets}
+        onSelect={(preset) => onChange({ preset })}
+      />
       <label className="chart-editor-option">
         <span>Animation</span>
         <select
@@ -156,63 +244,47 @@ export function ChartEditor({
           <div
             className={`chart-animation-timing${animation.type === 'grow' ? ' has-stagger' : ''}`}
           >
-            <label>
-              <span>Duration (frames)</span>
-              <NumericCell
-                value={animation.durationFrames}
-                min={1}
-                max={1500}
-                label="Chart animation duration in frames"
-                onCommit={(durationFrames) =>
-                  updateAnimation({ durationFrames: Math.round(durationFrames) })
-                }
-              />
-            </label>
-            <label>
-              <span>Delay (frames)</span>
-              <NumericCell
-                value={animation.delayFrames}
-                min={0}
-                max={1500}
-                label="Chart animation delay in frames"
-                onCommit={(delayFrames) =>
-                  updateAnimation({ delayFrames: Math.round(delayFrames) })
-                }
-              />
-            </label>
+            <FrameDurationControl
+              label="Duration"
+              frames={animation.durationFrames}
+              frameRate={composition.frameRate}
+              minFrames={1}
+              maxFrames={1500}
+              onChange={(durationFrames) => updateAnimation({ durationFrames })}
+            />
+            <FrameDurationControl
+              label="Delay"
+              frames={animation.delayFrames}
+              frameRate={composition.frameRate}
+              minFrames={0}
+              maxFrames={1500}
+              onChange={(delayFrames) => updateAnimation({ delayFrames })}
+            />
             {animation.type === 'grow' && (
-              <label title="Frames between consecutive chart items">
-                <span>Stagger (frames)</span>
-                <NumericCell
-                  value={animation.staggerFrames}
-                  min={0}
-                  max={100}
-                  label="Chart animation stagger in frames"
-                  onCommit={(staggerFrames) =>
-                    updateAnimation({ staggerFrames: Math.round(staggerFrames) })
-                  }
-                />
-              </label>
+              <FrameDurationControl
+                label="Stagger"
+                frames={animation.staggerFrames}
+                frameRate={composition.frameRate}
+                minFrames={0}
+                maxFrames={100}
+                onChange={(staggerFrames) => updateAnimation({ staggerFrames })}
+              />
             )}
           </div>
-          <label className="chart-editor-option">
+          <div className="chart-editor-option">
             <span>Easing</span>
-            <select
-              aria-label="Chart animation easing"
+            <EasingPicker
+              label="Chart animation easing"
               value={animation.easing}
-              onChange={(event) => updateAnimation({ easing: event.target.value as EasingPreset })}
-            >
-              {EASING_OPTION_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.options.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </label>
+              {...(animation.curve ? { curve: animation.curve } : {})}
+              onChange={(easing) =>
+                onChange({ animation: chartAnimationWithPreset(animation, easing) })
+              }
+              onCurveChange={(curve) =>
+                curve ? updateAnimation({ curve }) : updateAnimation({}, true)
+              }
+            />
+          </div>
           <label className="chart-editor-option">
             <span>Replay on data update</span>
             <input
@@ -223,12 +295,19 @@ export function ChartEditor({
           </label>
         </>
       )}
+      <ChartMarkAnimationEditor
+        composition={composition}
+        element={element}
+        layerId={layerId}
+        supported={pinned?.manifest.chartFeatures?.includes('mark-animation-v1') ?? false}
+      />
       <label className="chart-editor-option">
         <span>Text color</span>
-        <input
-          type="color"
+        <ColorInput
+          label="Chart text color"
           value={element.textColor}
-          onChange={(event) => onChange({ textColor: event.target.value })}
+          alpha={false}
+          onChange={(color) => onChange({ textColor: color })}
         />
       </label>
       <label className="chart-editor-option">
@@ -257,102 +336,149 @@ export function ChartEditor({
           onChange={(event) => onChange({ showGrid: event.target.checked })}
         />
       </label>
-      <div className="chart-editor-label">Data series</div>
-      <div className="chart-dataset-controls">
-        <select
-          aria-label="Data series"
-          value={datasetIndex}
-          onChange={(event) => setRequestedDatasetIndex(Number(event.target.value))}
-        >
-          {element.data.datasets.map((item, index) => (
-            <option key={index} value={index}>
-              {item.label || `Series ${index + 1}`}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          title="Add series"
-          aria-label="Add data series"
-          disabled={element.data.datasets.length >= 12}
-          onClick={addDataset}
-        >
-          +
-        </button>
-        <button
-          type="button"
-          title="Remove series"
-          aria-label="Remove data series"
-          disabled={element.data.datasets.length <= 1}
-          onClick={removeDataset}
-        >
-          −
-        </button>
-      </div>
-      <input
-        aria-label="Series name"
-        value={dataset.label}
-        onChange={(event) => {
-          const data = structuredClone(element.data);
-          data.datasets[datasetIndex]!.label = event.target.value;
-          updateData(data);
-        }}
+      <ChartPresentationEditor
+        element={{ ...element, animation }}
+        onChange={onChange}
+        supported={pinned?.manifest.chartFeatures?.includes('presentation-v1') ?? false}
+        morphSupported={pinned?.manifest.chartFeatures?.includes('morph-update-v1') ?? false}
       />
-      <div className="chart-rows" role="group" aria-label="Chart rows">
-        {element.data.labels.map((label, index) => (
-          <div className="chart-row" key={index}>
-            <input
-              aria-label={`Label ${index + 1}`}
-              value={label}
-              onChange={(event) => updateRow(index, { label: event.target.value })}
-            />
-            <NumericCell
-              value={dataset.data[index]!}
-              label={`Value for ${label}`}
-              onCommit={(value) => updateRow(index, { value })}
-            />
-            <input
-              type="color"
-              aria-label={`Color ${index + 1}`}
-              value={rowColor(index)}
-              onChange={(event) => updateRow(index, { color: event.target.value })}
-            />
-            <button
-              type="button"
-              aria-label={`Remove row ${index + 1}`}
-              disabled={element.data.labels.length <= 1}
-              onClick={() => removeRow(index)}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-      <button type="button" disabled={element.data.labels.length >= 100} onClick={addRow}>
-        + Add row
-      </button>
-      <details className="chart-editor-advanced">
-        <summary>Advanced · edit JSON</summary>
-        <label className="chart-editor-label" htmlFor="chart-data-json">
-          Chart data (labels and datasets)
-        </label>
-        <textarea
-          id="chart-data-json"
-          value={dataText}
-          onChange={(event) => setDataText(event.target.value)}
-          onBlur={applyData}
-          spellCheck={false}
-          rows={11}
+      {fillEditor && (
+        <fieldset
+          className="chart-fill-editor"
+          disabled={!pinned?.manifest.chartFeatures?.includes('mark-paint-v1')}
+        >
+          {!pinned?.manifest.chartFeatures?.includes('mark-paint-v1') && (
+            <p className="chart-editor-label">
+              Choose a renderer supporting chart fills to use gradients, shaders or media.
+            </p>
+          )}
+          {fillEditor}
+          {element.presentation?.gradient &&
+            pinned?.manifest.chartFeatures?.includes('mark-paint-v1') && (
+              <button
+                type="button"
+                onClick={() => {
+                  const { gradient, ...presentation } = element.presentation!;
+                  onChange({
+                    fill: {
+                      type: 'linear',
+                      angle: 90,
+                      stops: [
+                        { offset: 0, color: gradient!.from, opacity: 1 },
+                        { offset: 1, color: gradient!.to, opacity: 1 },
+                      ],
+                    },
+                    presentation,
+                  });
+                }}
+              >
+                Convert legacy gradient to Fill
+              </button>
+            )}
+        </fieldset>
+      )}
+      <ChartDataModeEditor
+        data={element.data}
+        onChange={(data) => onChange({ data })}
+        supported={pinned?.manifest.chartFeatures?.includes('canonical-data-v1') ?? false}
+      >
+        <div className="chart-editor-label">Data series</div>
+        <div className="chart-dataset-controls">
+          <select
+            aria-label="Data series"
+            value={datasetIndex}
+            onChange={(event) => setRequestedDatasetIndex(Number(event.target.value))}
+          >
+            {element.data.datasets.map((item, index) => (
+              <option key={index} value={index}>
+                {item.label || `Series ${index + 1}`}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            title="Add series"
+            aria-label="Add data series"
+            disabled={element.data.datasets.length >= 12}
+            onClick={addDataset}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            title="Remove series"
+            aria-label="Remove data series"
+            disabled={element.data.datasets.length <= 1}
+            onClick={removeDataset}
+          >
+            −
+          </button>
+        </div>
+        <input
+          aria-label="Series name"
+          value={dataset.label}
+          onChange={(event) => {
+            const data = structuredClone(element.data);
+            data.datasets[datasetIndex]!.label = event.target.value;
+            updateData(data);
+          }}
         />
-        {error && (
-          <p className="chart-editor-error" role="alert">
-            {error}
-          </p>
-        )}
-        <button type="button" onClick={applyData}>
-          Apply data
+        <div className="chart-rows" role="group" aria-label="Chart rows">
+          {element.data.labels.map((label, index) => (
+            <div className="chart-row" key={index}>
+              <input
+                aria-label={`Label ${index + 1}`}
+                value={label}
+                onChange={(event) => updateRow(index, { label: event.target.value })}
+              />
+              <NumericCell
+                value={dataset.data[index]!}
+                label={`Value for ${label}`}
+                onCommit={(value) => updateRow(index, { value })}
+              />
+              <ColorInput
+                label={`Color ${index + 1}`}
+                value={rowColor(index)}
+                alpha={false}
+                onChange={(color) => updateRow(index, { color })}
+              />
+              <button
+                type="button"
+                aria-label={`Remove row ${index + 1}`}
+                disabled={element.data.labels.length <= 1}
+                onClick={() => removeRow(index)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+        <button type="button" disabled={element.data.labels.length >= 100} onClick={addRow}>
+          + Add row
         </button>
-      </details>
+        <details className="chart-editor-advanced">
+          <summary>Advanced · edit JSON</summary>
+          <label className="chart-editor-label" htmlFor="chart-data-json">
+            Chart data (labels and datasets)
+          </label>
+          <textarea
+            id="chart-data-json"
+            value={dataText}
+            onChange={(event) => setDataText(event.target.value)}
+            onBlur={applyData}
+            spellCheck={false}
+            rows={11}
+          />
+          {error && (
+            <p className="chart-editor-error" role="alert">
+              {error}
+            </p>
+          )}
+          <button type="button" onClick={applyData}>
+            Apply data
+          </button>
+        </details>
+      </ChartDataModeEditor>
     </div>
   );
 }

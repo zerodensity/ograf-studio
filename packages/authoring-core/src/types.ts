@@ -1,5 +1,6 @@
 import type {
   PathEdit,
+  CropRect,
   AnimatableLayerProperty,
   BlendMode,
   CubicBezierCurve,
@@ -32,10 +33,64 @@ import type {
   PatternLightingLink,
   TilingPatternPatch,
   MediaCue,
+  RendererPluginReference,
+  FieldDefinition,
+  DataConnectionPatch,
+  LogicFunctionDefinition,
+  TestDataRundown,
 } from '@ograf-editor/scene-model';
 import type { ProjectValidationResult } from '@ograf-editor/validation';
 
 export type AuthoringOperation =
+  | {
+      type: 'add_review_comment';
+      compositionId: string;
+      text: string;
+      author: string;
+      layerId?: string | null;
+      frame: number;
+      x: number;
+      y: number;
+      id?: string;
+      createdAt?: string;
+    }
+  | { type: 'set_review_comment_resolved'; commentId: string; resolved: boolean }
+  | { type: 'save_review_version'; name: string; id?: string; createdAt?: string }
+  | { type: 'set_review_approval'; author: string | null; at?: string }
+  | { type: 'set_test_rundowns'; compositionId?: string; rundowns: TestDataRundown[] }
+  | {
+      type: 'add_modifier';
+      compositionId?: string;
+      layerId: string;
+      modifierType: import('@ograf-editor/scene-model').LayerModifier['type'];
+      params?: Record<string, unknown>;
+      name?: string;
+      enabled?: boolean;
+      index?: number;
+      id?: string;
+    }
+  | {
+      type: 'update_modifier';
+      compositionId?: string;
+      layerId: string;
+      modifierId: string;
+      patch: { name?: string; enabled?: boolean; params?: Record<string, unknown> };
+      scope?: 'authored' | 'frame';
+      frame?: number;
+    }
+  | {
+      type: 'remove_modifier' | 'duplicate_modifier';
+      compositionId?: string;
+      layerId: string;
+      modifierId: string;
+      id?: string;
+    }
+  | {
+      type: 'reorder_modifiers';
+      compositionId?: string;
+      layerId: string;
+      modifierIds: string[];
+    }
   | {
       type: 'set_layer_lighting';
       compositionId?: string;
@@ -93,6 +148,12 @@ export type AuthoringOperation =
       createLayer?: boolean;
     }
   | { type: 'remove_tiling_pattern'; compositionId?: string; patternId: string }
+  | {
+      type: 'remove_renderer_plugin';
+      compositionId?: string;
+      /** Remove only this unused pinned snapshot; installed trust/settings are unaffected. */
+      reference: RendererPluginReference;
+    }
   | { type: 'remove_style_pack'; compositionId?: string }
   | {
       type: 'set_project_metadata';
@@ -115,6 +176,7 @@ export type AuthoringOperation =
       updateTransitionFrames?: number;
       updateInterruption?: 'queue' | 'replace';
       backgroundColor?: string;
+      crop?: CropRect | null;
     }
   | {
       type: 'set_composition_layout';
@@ -232,6 +294,7 @@ export type AuthoringOperation =
       type: 'save_component';
       compositionId?: string;
       id?: string;
+      scope?: 'local' | 'set';
       layerIds: string[];
       name: string;
     }
@@ -241,6 +304,14 @@ export type AuthoringOperation =
       componentId: string;
       offset?: { x?: number; y?: number };
       linked?: boolean;
+      /** Reserved once by MCP for deterministic create-then-edit batches and proposals. */
+      identity?: {
+        instanceId: string;
+        groupId: string;
+        layerIds: Record<string, string>;
+        fieldIds: Record<string, string>;
+        keyIds: Record<string, Record<string, string>>;
+      };
     }
   | {
       type: 'update_component_from_layers';
@@ -253,6 +324,44 @@ export type AuthoringOperation =
       compositionId?: string;
       componentId: string;
       instanceIds?: string[];
+    }
+  | {
+      type: 'update_component_layer';
+      compositionId?: string;
+      componentId: string;
+      sourceLayerId: string;
+      /** Authored layer fields; id and componentLink cannot be changed. Element/effects merge. */
+      patch: Record<string, unknown>;
+    }
+  | {
+      type: 'update_component_field';
+      compositionId?: string;
+      componentId: string;
+      fieldId: string;
+      patch: Partial<
+        Omit<
+          FieldDefinition,
+          'id' | 'generatedShaderParameter' | 'properties' | 'items' | 'defaultTokenId'
+        >
+      > & {
+        defaultTokenId?: string | null;
+        properties?: FieldSchemaInput[];
+        items?: FieldSchemaInput | null;
+      };
+    }
+  | {
+      type: 'reset_component_overrides';
+      compositionId?: string;
+      layerIds: string[];
+      /** JSON Pointer paths; omitted resets every authored override on the selected members. */
+      paths?: string[];
+    }
+  | {
+      type: 'make_component_unique';
+      compositionId?: string;
+      id?: string;
+      instanceId: string;
+      name?: string;
     }
   | {
       type: 'rename_component';
@@ -340,26 +449,38 @@ export type AuthoringOperation =
   | ({
       type: 'create_lower_third';
       compositionId?: string;
+      /** Internal transport identity reserved while resolving batch selectors. */
+      identitySeed?: string;
     } & LowerThirdRecipeOptions)
   | ({
       type: 'create_repeater';
       compositionId?: string;
+      identitySeed?: string;
     } & RepeaterRecipeOptions)
   | ({
       type: 'create_bug';
       compositionId?: string;
+      identitySeed?: string;
     } & BugRecipeOptions)
   | ({
       type: 'create_ticker';
       compositionId?: string;
+      identitySeed?: string;
     } & TickerRecipeOptions)
   | ({
       type: 'create_scoreboard';
       compositionId?: string;
+      identitySeed?: string;
     } & ScoreboardRecipeOptions)
   | ({
       type: 'create_clock';
       compositionId?: string;
+      identitySeed?: string;
+    } & ClockRecipeOptions)
+  | ({
+      type: 'create_countdown';
+      compositionId?: string;
+      identitySeed?: string;
     } & ClockRecipeOptions)
   | {
       type: 'duplicate_group';
@@ -388,6 +509,14 @@ export type AuthoringOperation =
       blendMode?: BlendMode;
     }
   | {
+      type: 'set_layer_crop';
+      compositionId?: string;
+      layerId: string;
+      crop: CropRect | null;
+      coordinateSpace?: 'layer' | 'composition';
+      frame?: number;
+    }
+  | {
       type: 'set_layer_mask';
       compositionId?: string;
       layerId: string;
@@ -409,6 +538,8 @@ export type AuthoringOperation =
       autoLayout?: Partial<import('@ograf-editor/scene-model').LayerAutoLayout>;
       updateTransition?: Partial<import('@ograf-editor/scene-model').LayerUpdateTransition>;
       motionPath?: import('@ograf-editor/scene-model').LayerMotionPath | null;
+      motionBlur?: { enabled: boolean; shutterAngle: number } | null;
+      textPath?: import('@ograf-editor/scene-model').LayerTextPath | null;
     }
   | {
       type: 'set_layer_motion';
@@ -417,6 +548,25 @@ export type AuthoringOperation =
       side: 'in' | 'out';
       /** null clears the preset and holds the on-air pose through that window. */
       spec: import('@ograf-editor/scene-model').LayerMotionSpec | null;
+    }
+  | {
+      type: 'apply_animation_preset';
+      compositionId?: string;
+      layerId: string;
+      reference: RendererPluginReference;
+      presetId: string;
+      side: 'in' | 'out';
+      target?: 'layer' | 'chart-marks';
+      durationFrames: number;
+      offsetFrames?: number;
+      delayFrames?: number;
+      staggerFrames?: number;
+      parameters?: Record<string, number>;
+    }
+  | {
+      type: 'remove_animation_preset_plugin';
+      compositionId?: string;
+      reference: RendererPluginReference;
     }
   | {
       type: 'set_layer_visual_rules';
@@ -487,6 +637,7 @@ export type AuthoringOperation =
       durationFrames?: number;
       phaseOffsetFrames?: number;
       repeatCount?: number | null;
+      timing?: import('@ograf-editor/scene-model').LayerLoopClip['timing'] | null;
     }
   | {
       type: 'set_loop_property_track';
@@ -525,6 +676,16 @@ export type AuthoringOperation =
       frame: number;
     }
   | {
+      type: 'reset_property_animation';
+      compositionId?: string;
+      layerId: string;
+      property: AnimatableLayerProperty;
+      /** Required playhead time used to freeze this channel's static value. */
+      frame: number;
+      /** Optional elapsed local-loop time for held or custom-action playback. */
+      loopElapsedFrames?: number;
+    }
+  | {
       type: 'remove_property_key';
       compositionId?: string;
       layerId: string;
@@ -546,7 +707,26 @@ export type AuthoringOperation =
       layerIds: string[];
     }
   | {
+      type: 'add_data_connection';
+      compositionId?: string;
+      /** Internally reserved so proposal acceptance preserves generated identities. */
+      id?: string;
+      connection: DataConnectionPatch;
+    }
+  | {
+      type: 'update_data_connection';
+      compositionId?: string;
+      connectionId: string;
+      patch: DataConnectionPatch;
+    }
+  | {
+      type: 'remove_data_connection';
+      compositionId?: string;
+      connectionId: string;
+    }
+  | {
       type: 'add_data_field';
+      nodosType?: string;
       defaultTokenId?: string | null;
       compositionId?: string;
       /** Internally preallocated so later operations in the same atomic batch can resolve it. */
@@ -557,6 +737,7 @@ export type AuthoringOperation =
       description?: string;
       defaultValue?: FieldValue;
       required?: boolean;
+      exposeToOgraf?: boolean;
       options?: FieldOption[];
       constraints?: FieldConstraints;
       fileExtensions?: string[];
@@ -565,6 +746,8 @@ export type AuthoringOperation =
     }
   | {
       type: 'update_data_field';
+      /** Null clears the engine-specific type while retaining the ordinary field schema. */
+      nodosType?: string | null;
       defaultTokenId?: string | null;
       compositionId?: string;
       fieldId: string;
@@ -574,6 +757,7 @@ export type AuthoringOperation =
       description?: string;
       defaultValue?: FieldValue;
       required?: boolean;
+      exposeToOgraf?: boolean;
       options?: FieldOption[];
       constraints?: FieldConstraints;
       fileExtensions?: string[];
@@ -613,6 +797,11 @@ export type AuthoringOperation =
       sortDirection?: 'none' | 'ascending' | 'descending';
       pageSize?: number;
       page?: number;
+    }
+  | {
+      type: 'set_logic_functions';
+      compositionId?: string;
+      functions: LogicFunctionDefinition[];
     }
   | {
       type: 'update_runtime_collection';
@@ -672,9 +861,11 @@ export interface AuthoringChangeSummary {
       | 'layer'
       | 'pattern'
       | 'effect'
+      | 'modifier'
       | 'property-key'
       | 'lifecycle-keyframe'
       | 'field'
+      | 'data-connection'
       | 'guide'
       | 'asset'
       | 'timeline-group'
@@ -684,7 +875,9 @@ export interface AuthoringChangeSummary {
       | 'loop'
       | 'design-token'
       | 'runtime-collection'
-      | 'media-cue';
+      | 'media-cue'
+      | 'review-comment'
+      | 'review-version';
     id: string;
   }>;
   clearedBindings: Array<{ layerId: string; layerName: string; fieldId: string }>;
@@ -709,13 +902,15 @@ export interface AuthoringChangeSummary {
   }>;
   semanticBlocks: Array<{
     operationIndex: number;
-    recipe: 'lower-third' | 'bug' | 'ticker' | 'scoreboard' | 'clock';
+    recipe: 'lower-third' | 'bug' | 'ticker' | 'scoreboard' | 'clock' | 'countdown';
     name: string;
     groupId: string;
     timelineGroupId: string;
     layers: Record<string, string>;
     fields: Record<string, string>;
     stylePack?: StylePackId;
+    componentId?: string;
+    instanceId?: string;
   }>;
   stylePacks: Array<{
     operationIndex: number;
@@ -769,6 +964,8 @@ export interface AuthoringSessionChange {
   revision: number;
   source: 'agent' | 'editor' | 'undo' | 'redo' | 'system';
   reason?: string;
+  /** Explicit file-open boundary; ordinary edits and synchronization retain the current set. */
+  documentContext?: 'standalone';
   project: Project;
   summary?: AuthoringChangeSummary;
 }

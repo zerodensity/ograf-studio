@@ -1,6 +1,7 @@
 import { useEditorWindow, isDomElement } from '../layout/EditorWindow';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useMovableDialog } from './useMovableDialog';
 import { useActiveComposition } from '../state/projectStore';
 import { useImagePlacement } from '../state/useImagePlacement';
 import { IMAGE_ACCEPT } from '../state/imageImport';
@@ -9,14 +10,21 @@ import './ImagePicker.css';
 export function ImagePicker({
   onClose,
   replaceLayerId,
+  position,
+  groupId,
+  parentId,
 }: {
   onClose: () => void;
   replaceLayerId?: string;
+  position?: { x: number; y: number };
+  groupId?: string;
+  parentId?: string;
 }) {
   const { document } = useEditorWindow();
   const composition = useActiveComposition();
   const input = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const move = useMovableDialog(dialog);
   const [search, setSearch] = useState('');
   const [dragging, setDragging] = useState(false);
   const { place, busy, error } = useImagePlacement();
@@ -32,12 +40,13 @@ export function ImagePicker({
     };
   }, [document]);
   const choose = async (source: File[] | { assetId: string }) => {
-    if (await place(source, { replaceLayerId })) onClose();
+    if (await place(source, { replaceLayerId, position, groupId, parentId })) onClose();
   };
   return createPortal(
     <dialog
       ref={dialog}
       className="image-picker"
+      {...move.dialogProps}
       aria-labelledby="image-picker-title"
       onCancel={(event) => {
         event.preventDefault();
@@ -51,7 +60,7 @@ export function ImagePicker({
         if (event.dataTransfer.types.includes('Files')) event.preventDefault();
       }}
     >
-      <header className="image-picker-header">
+      <header className="image-picker-header" {...move.handleProps}>
         <div>
           <h2 id="image-picker-title">{replaceLayerId ? 'Replace image' : 'Add images'}</h2>
           <p>

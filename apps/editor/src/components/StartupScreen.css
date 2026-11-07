@@ -1,0 +1,133 @@
+.startup-screen-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 72%);
+}
+
+.startup-screen {
+  width: min(720px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 28px;
+  color: var(--text-primary, #eee);
+  background: var(--panel-bg, #272727);
+  border: 1px solid #555;
+  box-shadow: 0 12px 40px #0009;
+}
+
+.startup-screen h1 {
+  margin: 0;
+  font-size: 22px;
+}
+.startup-screen-header {
+  margin: -28px -28px 20px;
+  padding: 18px 20px 8px;
+  border-bottom: 1px solid #494949;
+  background: rgb(255 255 255 / 3%);
+}
+.startup-screen-header-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.startup-screen-grip {
+  color: #aab8c1;
+  font-size: 22px;
+  line-height: 1;
+}
+.startup-screen-close {
+  margin-left: auto;
+  padding: 6px 12px;
+  border: 1px solid #727272;
+  border-radius: 4px;
+  background: #3e3e3e;
+  color: #f4f4f4;
+  font-size: 13px;
+}
+.startup-screen-close:hover,
+.startup-screen-close:focus-visible {
+  border-color: #65baf1;
+  background: #505050;
+}
+.startup-screen-close span {
+  margin-right: 3px;
+  font-size: 18px;
+  line-height: 0;
+}
+.startup-screen h2 {
+  margin: 24px 0 10px;
+  font-size: 15px;
+}
+.startup-screen p {
+  color: #aaa;
+}
+.startup-screen-settings,
+.startup-screen-open {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.startup-screen-settings label {
+  display: grid;
+  gap: 5px;
+}
+.startup-screen-settings input[type='number'] {
+  width: 112px;
+  box-sizing: border-box;
+}
+.startup-screen-recipes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+.startup-screen-recipes button {
+  min-height: 50px;
+  text-align: left;
+}
+.startup-screen-open {
+  margin-top: 24px;
+}
+.startup-screen-recents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.startup-screen-startup-preference {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 20px;
+}
+.startup-screen-branding {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #494949;
+}
+.startup-screen-brand {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-primary, #eee);
+}
+.startup-screen-build {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  color: #bcbcbc;
+  font-size: 12px;
+}
+.startup-screen-build a {
+  color: #82c9f4;
+}

@@ -1,0 +1,139 @@
+.webcam-camera-settings {
+  box-sizing: border-box;
+  width: min(460px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  margin: auto;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-header);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ui-font-size);
+  box-shadow: 0 20px 70px #0009;
+}
+
+.webcam-camera-settings::backdrop {
+  background: #0008;
+}
+.webcam-camera-settings form {
+  display: grid;
+  gap: 10px;
+}
+.webcam-camera-settings header,
+.webcam-camera-settings footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.webcam-camera-settings header h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--text-heading);
+  font-size: 15px;
+}
+.webcam-camera-settings header button {
+  padding: 1px 7px;
+  font-size: 18px;
+}
+.webcam-camera-readback {
+  display: grid;
+  gap: 3px;
+  padding: 7px 8px;
+  border-radius: 3px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+}
+.webcam-camera-readback strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-weight: 500;
+}
+.webcam-camera-settings fieldset {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+}
+.webcam-camera-settings legend {
+  padding: 0 4px;
+  color: var(--text-heading);
+}
+.webcam-camera-setting-row {
+  display: grid;
+  grid-template-columns: minmax(108px, 0.9fr) minmax(0, 1.6fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.webcam-camera-settings select,
+.webcam-camera-settings input[type='number'] {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+}
+.webcam-camera-settings input[type='checkbox'] {
+  justify-self: start;
+  margin: 0;
+}
+.webcam-camera-number-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px;
+  align-items: center;
+  gap: 5px;
+}
+.webcam-camera-number-control input[type='range'] {
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+}
+.webcam-camera-custom-size {
+  display: flex;
+  align-items: end;
+  gap: 7px;
+  padding-left: 8px;
+}
+.webcam-camera-custom-size label {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+  color: var(--text-dim);
+}
+.webcam-camera-custom-size > span {
+  align-self: center;
+  padding-top: 14px;
+}
+.webcam-camera-settings .webcam-camera-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--ui-font-size-compact);
+  line-height: 1.45;
+}
+.webcam-camera-settings [role='alert'] {
+  margin: 0;
+  color: #ff8b8b;
+}
+.webcam-camera-settings [role='status'] {
+  margin: 0;
+  color: var(--accent-focus);
+}
+.webcam-camera-settings footer > span {
+  flex: 1;
+}
+
+@media (max-width: 400px) {
+  .webcam-camera-settings {
+    padding: 10px;
+  }
+  .webcam-camera-setting-row {
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 5px;
+  }
+  .webcam-camera-number-control {
+    grid-template-columns: minmax(0, 1fr) 57px;
+  }
+}

@@ -8,6 +8,7 @@ import {
 } from '@ograf-editor/scene-model';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
 import { isRuntimeCollectionLayerActive } from './runtimeCollections';
+import { refreshBackdropClip } from './backdropEffectRendering';
 
 const mounted = new WeakMap<HTMLElement, { svg: SVGSVGElement; id: string; markup: string }>();
 let nextId = 0;
@@ -58,6 +59,7 @@ export function applyCompiledMasks(
         mounted.delete(target);
         delete target.dataset.ografLayerMaskId;
       }
+      refreshBackdropClip(target);
       continue;
     }
     if (!entry) {
@@ -106,5 +108,6 @@ export function applyCompiledMasks(
     target.style.maskImage = `url("#${entry.id}")`;
     target.style.maskMode = layer.mask.inverted ? 'luminance' : 'alpha';
     target.style.maskRepeat = 'no-repeat';
+    refreshBackdropClip(target);
   }
 }

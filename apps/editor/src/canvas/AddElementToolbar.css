@@ -1,6 +1,6 @@
 .add-element-toolbar {
   position: relative;
-  z-index: 2;
+  z-index: 8;
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
@@ -8,39 +8,6 @@
   flex: none;
   background: #2f2f2f;
   border-bottom: 1px solid var(--border);
-}
-
-.chart-picker-popover {
-  position: absolute;
-  top: calc(100% + 3px);
-  left: 120px;
-  z-index: 50;
-  width: 340px;
-  box-sizing: border-box;
-  padding: 8px;
-  background: var(--bg-panel-raised);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  box-shadow: 0 8px 28px rgb(0 0 0 / 50%);
-}
-
-.chart-picker-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-  font-size: 12px;
-}
-.add-element-toolbar .chart-picker-header button {
-  min-height: 20px;
-  padding: 0 5px;
-}
-
-.add-element-toolbar .chart-preset-gallery button {
-  min-height: 52px;
-  padding: 5px 2px;
-  border-radius: 4px;
-  background: var(--bg-panel-raised);
 }
 
 .element-tools {
@@ -191,4 +158,132 @@
   padding: 2px 6px;
   background: #292929;
   color: var(--text);
+}
+
+.canvas-backdrop-control,
+.repeat-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.canvas-backdrop-control select {
+  box-sizing: border-box;
+  width: 115px;
+  max-width: 115px;
+  min-height: var(--ui-row-height);
+  color: var(--text);
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+}
+
+.canvas-backdrop-action-slot {
+  position: relative;
+  flex: 0 0 26px;
+  width: 26px;
+  height: var(--ui-row-height);
+}
+
+.canvas-backdrop-action-slot .color-input {
+  width: 26px;
+  height: 100%;
+  flex-wrap: nowrap;
+}
+
+.canvas-backdrop-action-slot .color-input-picker,
+.add-element-toolbar .canvas-backdrop-settings-button {
+  box-sizing: border-box;
+  flex: 0 0 26px;
+  width: 26px;
+  height: var(--ui-row-height);
+  min-height: 0;
+  padding: 2px;
+}
+
+.canvas-backdrop-action-slot .color-input-hex {
+  display: none;
+}
+
+.canvas-backdrop-action-slot .color-input-error {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 81;
+  width: max-content;
+  max-width: 240px;
+  padding: 4px;
+  background: var(--bg-panel-raised);
+}
+
+.canvas-backdrop-popover {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 310px;
+  max-width: min(310px, calc(100vw - 16px));
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  padding: 8px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
+}
+
+.repeat-popover {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 230px;
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
+}
+
+.repeat-popover label {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  align-items: center;
+  gap: 6px;
+}
+
+.repeat-popover input,
+.repeat-popover select {
+  width: 100%;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+}
+
+.repeat-popover p {
+  margin: 0;
+  color: #f2bd66;
+  font-size: 11px;
+}
+
+.repeat-popover > div {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.repeat-ghost-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.repeat-ghost {
+  position: absolute;
+  border: 2px dashed #72baff;
+  background: rgb(69 156 237 / 18%);
 }

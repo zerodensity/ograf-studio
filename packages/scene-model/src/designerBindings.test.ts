@@ -1,7 +1,10 @@
 import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import { applyElementDataValue } from './boundPaint';
-import { syncDesignerBindingDefaults } from './designerBindings';
+import {
+  syncDesignerBindingDefaults,
+  syncDesignerTransformBindingDefaults,
+} from './designerBindings';
 import { addEffect, effectProperty, updateEffect } from './effectStack';
 import {
   createChartLayer,
@@ -33,6 +36,57 @@ function setText(layer: Layer, content: string) {
 }
 
 describe('designer edits to data-bound properties', () => {
+  it('edits bound absolute geometry defaults and the active mapping while leaving alpha authored', () => {
+    const field = createFieldDefinition('object', {
+      properties: [
+        createFieldDefinition('number', { key: 'x', defaultValue: 10 }),
+        createFieldDefinition('text', { key: 'label', defaultValue: 'Keep' }),
+      ],
+      defaultValue: { x: 10, label: 'Keep' },
+    });
+    const { composition, layer } = fixture(createRectangleLayer(), field, 'layer.x');
+    layer.bindings[0]!.sourcePath = ['x'];
+    const result = syncDesignerTransformBindingDefaults(composition, layer, {
+      x: 40,
+      opacity: 0.5,
+    });
+    expect(result.patch).toEqual({ opacity: 0.5 });
+    expect(result.resets).toEqual([{ fieldId: field.id, sourcePath: ['x'] }]);
+    expect(field.defaultValue).toEqual({ x: 40, label: 'Keep' });
+    expect(field.properties[0]!.defaultValue).toBe(40);
+    layer.bindings[0]!.valueMap = { '40': 100, '80': 200 };
+    syncDesignerTransformBindingDefaults(
+      composition,
+      layer,
+      { x: 300 },
+      { [field.id]: { x: 80, label: 'Preview' } },
+    );
+    expect(layer.bindings[0]!.valueMap).toEqual({ '40': 100, '80': 300 });
+    expect(field.defaultValue).toEqual({ x: 40, label: 'Keep' });
+  });
+  it('updates only the first collection prototype item when editing bound geometry', () => {
+    const field = createFieldDefinition('array', {
+      items: createFieldDefinition('object', {
+        properties: [
+          createFieldDefinition('number', { key: 'width', defaultValue: 20 }),
+          createFieldDefinition('text', { key: 'name' }),
+        ],
+      }),
+      defaultValue: [
+        { width: 20, name: 'First' },
+        { width: 30, name: 'Second' },
+      ],
+    });
+    const { composition, layer } = fixture(createRectangleLayer(), field, 'layer.width');
+    layer.bindings[0]!.sourcePath = ['width'];
+    const result = syncDesignerTransformBindingDefaults(composition, layer, { width: 50 });
+    expect(result.patch).toEqual({});
+    expect(field.defaultValue).toEqual([
+      { width: 50, name: 'First' },
+      { width: 30, name: 'Second' },
+    ]);
+    expect(result.resets).toEqual([{ fieldId: field.id, sourcePath: ['0', 'width'] }]);
+  });
   it('updates a text field default and retains its binding so shared layers receive the edit', () => {
     const { composition, layer, field } = fixture(
       createTextLayer(),

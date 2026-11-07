@@ -1,6 +1,7 @@
 import type { AuthoringSession } from '@ograf-editor/authoring-core';
 import type { ExportArtifacts } from '@ograf-editor/codegen';
 import type { FieldValue, Project } from '@ograf-editor/scene-model';
+import type { LivePlayoutRequest } from './playoutSchemas';
 
 export interface CompatibilityResult {
   valid: boolean;
@@ -111,11 +112,13 @@ export interface BrowserMeasureTextResult {
 }
 
 export interface EditorBridgeHealth {
+  templateSetsReady?: boolean;
+  playoutReady?: boolean;
   connected: boolean;
   responsive: boolean;
   latencyMs: number | null;
   lastHeartbeat: string | null;
-  likelyCause: 'tab-throttled' | 'editor-disconnected' | null;
+  likelyCause: 'tab-throttled' | 'editor-disconnected' | 'editor-updating' | null;
   certificationReady: boolean;
   certificationLikelyCause: string | null;
 }
@@ -145,6 +148,14 @@ export interface ProposalDecisionResult {
 }
 
 export interface EditorBridgePort {
+  requestLivePlayout?(
+    request: LivePlayoutRequest,
+    timeoutMs?: number,
+  ): Promise<Record<string, unknown>>;
+  requestTemplateSet?(
+    request: TemplateSetRequest,
+    timeoutMs?: number,
+  ): Promise<Record<string, unknown>>;
   readonly health: EditorBridgeHealth;
   certify(artifacts: ExportArtifacts, timeoutMs?: number): Promise<CompatibilityResult>;
   capture(request: BrowserCaptureRequest, timeoutMs?: number): Promise<PublishedCapture>;
@@ -157,6 +168,21 @@ export interface EditorBridgePort {
     proposal: AuthoringProposal,
     decide: (decision: 'accept' | 'reject') => Promise<ProposalDecisionResult>,
   ): void;
+}
+
+export interface TemplateSetRequest {
+  action: 'read' | 'command' | 'archive' | 'export-coordinated';
+  profile?: 'realtime' | 'non-realtime' | 'dual';
+  expectedRevision?: string;
+  /** Saves a snapshot copy; compact deduplicates source payloads, compatible retains the v5 layout. */
+  archiveMode?: 'compact' | 'compatible';
+  includeProjects?: boolean;
+  resourceUsage?: { slotIds?: string[]; componentIds?: string[] };
+  templateIds?: string[];
+  offset?: number;
+  limit?: number;
+  operation?: Record<string, unknown>;
+  confirm?: boolean;
 }
 
 export interface AuthoringWorkspacePort {

@@ -1,5 +1,6 @@
 import type { Element, MediaPaint, MediaPaintSource, Paint } from './types';
 import { getElementFill } from './shader';
+import { sourceCropErrors, normalizeSourceCrop } from './crop';
 
 export const LIVE_MEDIA_ELEMENT_TAG = 'zd-ograf-media';
 
@@ -17,10 +18,12 @@ export function normalizeMediaPaint(paint: Partial<MediaPaint> = {}): MediaPaint
           ...(source.fallback?.trim() ? { fallback: source.fallback.trim() } : {}),
         }
       : { kind: 'clip', src: source.src?.trim() ?? '' };
+  const crop = normalizeSourceCrop(paint.crop);
   return {
     type: 'media',
     source: normalizedSource,
     fit: paint.fit ?? 'cover',
+    ...(crop ? { crop } : {}),
     positionX: Number.isFinite(paint.positionX) ? Math.max(0, Math.min(1, paint.positionX!)) : 0.5,
     positionY: Number.isFinite(paint.positionY) ? Math.max(0, Math.min(1, paint.positionY!)) : 0.5,
     loop: paint.loop ?? true,
@@ -43,6 +46,7 @@ export function createMediaPaint(overrides: Partial<MediaPaint> = {}): MediaPain
 
 export function validateMediaPaint(paint: MediaPaint): string[] {
   const errors: string[] = [];
+  if (paint.crop) errors.push(...sourceCropErrors(paint.crop));
   if (!['cover', 'contain', 'fill'].includes(paint.fit)) errors.push('media fit is invalid');
   if (!Number.isFinite(paint.positionX) || paint.positionX < 0 || paint.positionX > 1)
     errors.push('media horizontal position must be from 0 to 1');

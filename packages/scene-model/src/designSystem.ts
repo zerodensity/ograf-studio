@@ -1,5 +1,12 @@
 import { isGradientPaint } from './paint';
-import { shaderPaintConflictsWithBinding } from './shader';
+import {
+  getElementShaderPaint,
+  inspectShaderSource,
+  shaderPaintConflictsWithBinding,
+} from './shader';
+import { parseShaderAnimationProperty } from './shaderAnimation';
+import { normalizeShaderParameterValue } from './shaderParameters';
+import { applyElementDataValue } from './boundPaint';
 import type {
   Composition,
   DesignToken,
@@ -13,6 +20,7 @@ import type {
 } from './types';
 import { createCornerRadii } from './cornerRadii';
 import { syncStylePackColorLinks } from './stylePackColorLinks';
+import { syncDesignerBindingDefaults } from './designerBindings';
 import {
   parseEffectProperty,
   effectParameterSpec,
@@ -49,6 +57,30 @@ function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: Desi
     throw new Error(
       'Shader and media paints cannot bind their whole fill or gradient stops; bind a supported inner property instead.',
     );
+  const shaderTarget = parseShaderAnimationProperty(property);
+  if (shaderTarget) {
+    const paint = getElementShaderPaint(layer.element, shaderTarget.slot);
+    const inspection = paint ? inspectShaderSource(paint.fragmentSource) : undefined;
+    const definition = inspection?.valid
+      ? inspection.parameters.find((parameter) => parameter.name === shaderTarget.name)
+      : undefined;
+    if (!definition || shaderTarget.component)
+      throw new Error(`Design tokens require a defined whole shader parameter: ${property}`);
+    const requiredType =
+      definition.control === 'color'
+        ? 'color'
+        : definition.control === 'slider'
+          ? 'number'
+          : undefined;
+    if (!requiredType || token.type !== requiredType)
+      throw new Error(
+        `Shader parameter ${property} needs a ${requiredType ?? 'compatible'} token.`,
+      );
+    const normalized = normalizeShaderParameterValue(definition, token.value);
+    if (typeof normalized === 'number' && normalized !== token.value)
+      throw new Error('Shader token value is outside its allowed range.');
+    return;
+  }
   if (parseEffectProperty(property)) {
     const spec = effectParameterSpec(layer.effects, property);
     if (!spec) throw Error(`Effect parameter not found: ${property}`);
@@ -156,6 +188,10 @@ export function applyDesignTokenBinding(
   assertCompatible(layer, binding, token);
   const value = normalizeDesignTokenValue(token.type, token.value);
   const property: DesignTokenTargetProperty = binding.targetProperty;
+  if (parseShaderAnimationProperty(property)) {
+    layer.element = applyElementDataValue(layer.element, property, value);
+    return;
+  }
   if (parseEffectProperty(property)) {
     const before = effectParameterValue(layer.effects, property);
     layer.effects = withEffectParameter(layer.effects, property, value);
@@ -224,9 +260,30 @@ export function syncDesignToken(composition: Composition, tokenId: string): stri
   if (!token) throw new Error(`Design token not found: ${tokenId}`);
   syncDesignTokenFieldDefaults(composition, tokenId);
   const affected: string[] = [];
-  for (const layer of composition.layers) {
-    for (const binding of layer.designTokenBindings.filter((item) => item.tokenId === tokenId)) {
+  for (const layer of [
+    ...composition.layers,
+    ...composition.components.flatMap((item) => item.layers),
+  ]) {
+    for (const binding of layer.designTokenBindings.filter(
+      (item) => item.tokenId === tokenId && item.overridden !== true,
+    )) {
+      const before = JSON.parse(JSON.stringify({ element: layer.element, effects: layer.effects }));
       applyDesignTokenBinding(layer, binding, token);
+      syncDesignerBindingDefaults(composition, layer, before, [binding.targetProperty]);
+      for (const dataBinding of layer.bindings) {
+        if (
+          token.type === 'color' &&
+          dataBinding.targetProperty === binding.targetProperty &&
+          !dataBinding.valueMap &&
+          !dataBinding.sourcePath?.length
+        ) {
+          const field = [
+            ...composition.dataFields,
+            ...composition.components.flatMap((item) => item.dataFields),
+          ].find((item) => item.id === dataBinding.fieldId);
+          if (field?.type === 'color') field.defaultTokenId = token.id;
+        }
+      }
       affected.push(layer.id);
     }
   }
@@ -251,6 +308,9 @@ export function bindFieldDefaultToken(
 }
 
 export function syncDesignTokenFieldDefaults(composition: Composition, tokenId: string): void {
-  for (const field of composition.dataFields)
+  for (const field of [
+    ...composition.dataFields,
+    ...composition.components.flatMap((item) => item.dataFields),
+  ])
     if (field.defaultTokenId === tokenId) bindFieldDefaultToken(composition, field, tokenId);
 }

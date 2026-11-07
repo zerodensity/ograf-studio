@@ -10,7 +10,7 @@ import {
 } from '@ograf-editor/scene-model';
 import { validateProject } from './validateProject';
 
-describe('Chart.js project validation', () => {
+describe('chart project validation', () => {
   it('accepts a chart and catches malformed datasets', () => {
     const project = createProject();
     const composition = project.compositions[0]!;

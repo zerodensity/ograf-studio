@@ -4,6 +4,8 @@ import {
   closeDockPane,
   createDefaultDockLayout,
   DEFAULT_RULES_UNDOCKED_WIDTH,
+  DEFAULT_PLUGINS_UNDOCKED_WIDTH,
+  DOCK_PANE_IDS,
   detachedWindowWidth,
   DOCK_PANE_LABELS,
   dockPaneAdjacentToTab,
@@ -46,18 +48,36 @@ describe('dock layout model', () => {
   it('starts with the existing editor arrangement', () => {
     const layout = createDefaultDockLayout();
     expect(layout.zones.left.map((group) => group.panes)).toEqual([
-      ['layers', 'chat'],
+      ['templates', 'layers', 'chat'],
       ['resources'],
     ]);
-    expect(layout.zones.right[0]?.panes).toEqual([
+    expect(layout.zones.right[1]?.panes).toEqual([
       'inspector',
+      'modifiers',
       'brand-kit',
       'data',
       'rules',
       'export',
+      'playout-controls',
     ]);
-    expect(layout.zones.bottom[0]?.panes).toEqual(['timeline']);
+    expect(layout.zones.right[0]?.panes).toEqual(['scene-tree']);
+    expect(DOCK_PANE_LABELS.templates).toBe('Templates');
+    expect(DOCK_PANE_LABELS['scene-tree']).toBe('Scene Outliner');
+    expect(layout.zones.bottom[0]?.panes).toEqual(['timeline', 'plugins', 'transitions']);
+    expect(DOCK_PANE_LABELS.plugins).toBe('Plugins');
     expect(DOCK_PANE_LABELS.inspector).toBe('Properties');
+  });
+
+  it('keeps History closed in new and legacy workspaces, then docks it beside Timeline', () => {
+    const initial = createDefaultDockLayout();
+    expect(initial.closed).toContain('history');
+    const legacy = { ...initial, closed: initial.closed.filter((pane) => pane !== 'history') };
+    const restored = parseDockLayout(legacy);
+    expect(restored.closed).toContain('history');
+    const opened = reopenDockPane(restored, 'history');
+    expect(findDockGroup(opened, 'history')).toBe(findDockGroup(opened, 'timeline'));
+    expect(opened.closed).not.toContain('history');
+    expect(opened.floating).toHaveLength(0);
   });
 
   it('moves panes between edge zones without duplicating them', () => {
@@ -66,23 +86,51 @@ describe('dock layout model', () => {
     expect(moved.zones.left.flatMap((group) => group.panes)).not.toContain('resources');
   });
 
+  it('adds Scene Outliner as its own pane when migrating a saved layout and respects saved pane visibility', () => {
+    const legacy = createDefaultDockLayout();
+    legacy.zones.right.shift();
+    legacy.zones.right[0]!.activePane = 'data';
+    legacy.zones.right[0]!.weight = 3;
+    const restored = parseDockLayout(legacy);
+    expect(restored.zones.right[0]).toMatchObject({
+      panes: ['scene-tree'],
+      activePane: 'scene-tree',
+    });
+    expect(restored.zones.right[1]).toMatchObject({ activePane: 'data', weight: 3 });
+    const closed = closeDockPane(restored, 'scene-tree');
+    expect(parseDockLayout(closed).closed).toContain('scene-tree');
+    const floating = floatDockPane(restored, 'scene-tree', { width: 420 });
+    expect(parseDockLayout(floating).floating).toContainEqual(
+      expect.objectContaining({ pane: 'scene-tree', width: 420 }),
+    );
+    expect(findDockGroup(revealDockPane(closed, 'scene-tree'), 'scene-tree')).toBe(
+      'right-scene-tree',
+    );
+    expect(revealDockPane(closed, 'scene-tree').zones.right[0]?.panes).toEqual(['scene-tree']);
+  });
+
   it('stacks a newly bottom-docked pane above the existing bottom pane', () => {
     const moved = dockPaneToZone(createDefaultDockLayout(), 'resources', 'bottom');
-    expect(moved.zones.bottom.map((group) => group.panes)).toEqual([['resources'], ['timeline']]);
+    expect(moved.zones.bottom.map((group) => group.panes)).toEqual([
+      ['resources'],
+      ['timeline', 'plugins', 'transitions'],
+    ]);
   });
 
   it('merges panes into a tab group and activates the dropped pane', () => {
     const moved = dockPaneToGroup(createDefaultDockLayout(), 'timeline', 'right-properties');
-    expect(moved.zones.right[0]?.panes).toEqual([
+    expect(moved.zones.right[1]?.panes).toEqual([
       'inspector',
+      'modifiers',
       'brand-kit',
       'data',
       'rules',
       'export',
+      'playout-controls',
       'timeline',
     ]);
-    expect(moved.zones.right[0]?.activePane).toBe('timeline');
-    expect(moved.zones.bottom).toEqual([]);
+    expect(moved.zones.right[1]?.activePane).toBe('timeline');
+    expect(moved.zones.bottom.map((group) => group.panes)).toEqual([['plugins', 'transitions']]);
   });
 
   it('reorders tabs before or after a hovered tab in the same group', () => {
@@ -94,22 +142,26 @@ describe('dock layout model', () => {
       'inspector',
       'before',
     );
-    expect(before.zones.right[0]?.panes).toEqual([
+    expect(before.zones.right[1]?.panes).toEqual([
       'export',
       'inspector',
+      'modifiers',
       'brand-kit',
       'data',
       'rules',
+      'playout-controls',
     ]);
-    expect(before.zones.right[0]?.activePane).toBe('export');
+    expect(before.zones.right[1]?.activePane).toBe('export');
 
     const after = dockPaneAdjacentToTab(before, 'export', 'right-properties', 'data', 'after');
-    expect(after.zones.right[0]?.panes).toEqual([
+    expect(after.zones.right[1]?.panes).toEqual([
       'inspector',
+      'modifiers',
       'brand-kit',
       'data',
       'export',
       'rules',
+      'playout-controls',
     ]);
   });
 
@@ -121,15 +173,17 @@ describe('dock layout model', () => {
       'data',
       'before',
     );
-    expect(moved.zones.right[0]?.panes).toEqual([
+    expect(moved.zones.right[1]?.panes).toEqual([
       'inspector',
+      'modifiers',
       'brand-kit',
       'timeline',
       'data',
       'rules',
       'export',
+      'playout-controls',
     ]);
-    expect(moved.zones.bottom).toEqual([]);
+    expect(moved.zones.bottom.map((group) => group.panes)).toEqual([['plugins', 'transitions']]);
   });
 
   it('floats and repositions a pane', () => {
@@ -144,7 +198,7 @@ describe('dock layout model', () => {
 
   it('activates tabs without moving panes', () => {
     const activated = activateDockPane(createDefaultDockLayout(), 'right-properties', 'data');
-    expect(activated.zones.right[0]?.activePane).toBe('data');
+    expect(activated.zones.right[1]?.activePane).toBe('data');
   });
 
   it('persists proportional weights for adjacent dock groups', () => {
@@ -158,11 +212,11 @@ describe('dock layout model', () => {
 
   it('closes panes without repair reopening them and reopens them as floating windows', () => {
     const closed = closeDockPane(createDefaultDockLayout(), 'inspector');
-    expect(closed.closed).toEqual(['inspector']);
+    expect(closed.closed).toEqual([...createDefaultDockLayout().closed, 'inspector']);
     expect(findDockGroup(closed, 'inspector')).toBeNull();
 
     const restored = parseDockLayout(closed);
-    expect(restored.closed).toEqual(['inspector']);
+    expect(restored.closed).toEqual([...createDefaultDockLayout().closed, 'inspector']);
     expect(findDockGroup(restored, 'inspector')).toBeNull();
 
     const reopened = reopenDockPane(restored, 'inspector', {
@@ -171,7 +225,7 @@ describe('dock layout model', () => {
       width: 420,
       height: 360,
     });
-    expect(reopened.closed).toEqual([]);
+    expect(reopened.closed).toEqual(createDefaultDockLayout().closed);
     expect(findDockGroup(reopened, 'inspector')).toBeNull();
     expect(reopened.floating).toContainEqual({
       pane: 'inspector',
@@ -196,9 +250,10 @@ describe('dock layout model', () => {
     const panes = [
       ...Object.values(restored.zones).flatMap((groups) => groups.flatMap((group) => group.panes)),
       ...restored.floating.map((pane) => pane.pane),
+      ...restored.closed,
     ];
-    expect(new Set(panes).size).toBe(9);
-    expect(panes).toHaveLength(9);
+    expect(new Set(panes).size).toBe(DOCK_PANE_IDS.length);
+    expect(panes).toHaveLength(DOCK_PANE_IDS.length);
     expect(restored.zones.left[0]?.activePane).toBe('layers');
   });
 
@@ -235,5 +290,168 @@ describe('dock layout model', () => {
     expect(
       dockZoneNearFloatingRect({ left: 300, top: 200, right: 700, bottom: 600 }, bounds),
     ).toBeNull();
+  });
+});
+
+describe('Plugins dock pane placement', () => {
+  function legacyWithoutPlugins(layout = createDefaultDockLayout()) {
+    const legacy = structuredClone(layout);
+    for (const groups of Object.values(legacy.zones))
+      for (const group of groups) {
+        group.panes = group.panes.filter((pane) => pane !== 'plugins');
+        if (!group.panes.includes(group.activePane)) group.activePane = group.panes[0]!;
+      }
+    for (const zone of ['left', 'right', 'top', 'bottom'] as const)
+      legacy.zones[zone] = legacy.zones[zone].filter((group) => group.panes.length > 0);
+    legacy.floating = legacy.floating.filter((pane) => pane.pane !== 'plugins');
+    legacy.closed = legacy.closed.filter((pane) => pane !== 'plugins');
+    return legacy;
+  }
+
+  it('repairs a legacy saved layout next to the actual moved Timeline, without resetting selection or weights', () => {
+    const moved = dockPaneAdjacentToTab(
+      createDefaultDockLayout(),
+      'timeline',
+      'right-properties',
+      'data',
+      'before',
+    );
+    moved.zones.right[1]!.activePane = 'rules';
+    moved.zones.right[1]!.id = 'custom-authoring';
+    moved.zones.right[1]!.weight = 3.75;
+    const legacy = legacyWithoutPlugins(moved);
+    const before = structuredClone(legacy);
+    const restored = parseDockLayout(legacy);
+    expect(restored.zones.right[1]).toMatchObject({
+      id: 'custom-authoring',
+      activePane: 'rules',
+      weight: 3.75,
+      panes: [
+        'inspector',
+        'modifiers',
+        'brand-kit',
+        'timeline',
+        'plugins',
+        'data',
+        'rules',
+        'export',
+        'playout-controls',
+      ],
+    });
+    expect(restored.zones.left).toEqual(before.zones.left);
+    expect(restored.zones.bottom).toEqual(before.zones.bottom);
+    expect(legacy).toEqual(before);
+  });
+
+  it('leaves explicitly closed and separately floating Plugins placements unchanged on load', () => {
+    const closed = closeDockPane(createDefaultDockLayout(), 'plugins');
+    expect(parseDockLayout(closed)).toEqual(closed);
+    const floating = floatDockPane(createDefaultDockLayout(), 'plugins', {
+      x: 61,
+      y: 93,
+      width: 740,
+      height: 330,
+    });
+    expect(parseDockLayout(floating)).toEqual(floating);
+    expect(revealDockPane(floating, 'plugins')).toBe(floating);
+  });
+
+  it('restores closed Plugins immediately after Timeline when revealed or reopened from Window', () => {
+    const moved = dockPaneAdjacentToTab(
+      createDefaultDockLayout(),
+      'timeline',
+      'right-properties',
+      'brand-kit',
+      'before',
+    );
+    const closed = closeDockPane(moved, 'plugins');
+    const before = structuredClone(closed);
+    for (const restored of [revealDockPane(closed, 'plugins'), reopenDockPane(closed, 'plugins')]) {
+      expect(restored.zones.right[1]?.panes).toEqual([
+        'inspector',
+        'modifiers',
+        'timeline',
+        'plugins',
+        'brand-kit',
+        'data',
+        'rules',
+        'export',
+        'playout-controls',
+      ]);
+      expect(restored.zones.right[1]?.activePane).toBe('plugins');
+      expect(restored.closed).not.toContain('plugins');
+      expect(restored.floating).toEqual([]);
+      expect(restored.zones.left).toEqual(before.zones.left);
+    }
+    expect(closed).toEqual(before);
+  });
+
+  it('uses bottom dock fallback without reopening a closed Timeline or moving a floating Timeline', () => {
+    for (const layout of [
+      closeDockPane(createDefaultDockLayout(), 'timeline'),
+      floatDockPane(createDefaultDockLayout(), 'timeline', {
+        x: 70,
+        y: 50,
+        width: 1050,
+        height: 400,
+      }),
+    ]) {
+      const legacy = legacyWithoutPlugins(layout);
+      const restored = parseDockLayout(legacy);
+      expect(restored.zones.bottom.flatMap((group) => group.panes)).toEqual([
+        'transitions',
+        'plugins',
+      ]);
+      expect(restored.floating).toEqual(legacy.floating);
+      expect(restored.closed).toEqual(legacy.closed);
+      const revealed = revealDockPane(closeDockPane(restored, 'plugins'), 'plugins');
+      expect(revealed.zones.bottom.flatMap((group) => group.panes)).toEqual([
+        'plugins',
+        'transitions',
+      ]);
+      expect(revealed.floating).toEqual(legacy.floating);
+      expect(revealed.closed).toEqual(legacy.closed);
+    }
+  });
+
+  it('activates an existing moved Plugins group without relocating it beside Timeline', () => {
+    const moved = dockPaneToGroup(createDefaultDockLayout(), 'plugins', 'left-authoring');
+    const inactive = activateDockPane(moved, 'left-authoring', 'layers');
+    const revealed = revealDockPane(inactive, 'plugins');
+    expect(revealed.zones.left[0]?.activePane).toBe('plugins');
+    expect(findDockGroup(revealed, 'plugins')).toBe('left-authoring');
+    expect(revealed.zones.bottom[0]?.panes).toEqual(['timeline', 'transitions']);
+  });
+
+  it('starts explicitly floated/detached Plugins at 900px, preserving saved sizes', () => {
+    expect(DEFAULT_PLUGINS_UNDOCKED_WIDTH).toBe(900);
+    expect(detachedWindowWidth('plugins')).toBe(900);
+    expect(initialFloatingWidth('plugins', 1600, 360)).toBe(900);
+    expect(initialFloatingWidth('plugins', 700, 360)).toBe(676);
+    expect(floatDockPane(createDefaultDockLayout(), 'plugins').floating[0]?.width).toBe(900);
+    const custom = floatDockPane(createDefaultDockLayout(), 'plugins', { width: 720 });
+    expect(parseDockLayout(custom).floating[0]?.width).toBe(720);
+    expect(parseDockLayout({ ...custom, floating: [{ pane: 'plugins' }] }).floating[0]?.width).toBe(
+      900,
+    );
+  });
+});
+
+describe('Transitions replaces Transition Logic', () => {
+  it('moves a saved Transition Logic tab, floating window or closed pane to Transitions', () => {
+    const legacy = createDefaultDockLayout() as unknown as {
+      zones: { bottom: Array<{ panes: string[]; activePane: string }> };
+    };
+    legacy.zones.bottom[0]!.panes = ['timeline', 'plugins', 'transition-logic'];
+    legacy.zones.bottom[0]!.activePane = 'transition-logic';
+    const restored = parseDockLayout(legacy);
+    expect(restored.zones.bottom[0]?.panes).toEqual(['timeline', 'plugins', 'transitions']);
+    expect(restored.zones.bottom[0]?.activePane).toBe('transitions');
+    const closed = parseDockLayout({
+      ...createDefaultDockLayout(),
+      zones: { ...createDefaultDockLayout().zones, bottom: [] },
+      closed: ['transition-logic'],
+    });
+    expect(closed.closed).toContain('transitions');
   });
 });

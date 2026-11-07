@@ -221,6 +221,7 @@ describe('shader paint model', () => {
       if (
         layer.element.type === 'shader' ||
         layer.element.type === 'audio' ||
+        layer.element.type === 'ticker' ||
         layer.element.type === 'chart'
       )
         throw new Error('Expected canonical paintable object.');

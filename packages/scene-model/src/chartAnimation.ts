@@ -1,4 +1,4 @@
-import { easedProgress } from './layerAnimation';
+import { cubicBezierProgress, easedProgress } from './layerAnimation';
 import type { ChartAnimation, EasingPreset } from './types';
 
 export const DEFAULT_CHART_ANIMATION: ChartAnimation = {
@@ -59,6 +59,21 @@ const boundedFrames = (value: unknown, fallback: number, minimum: number, maximu
     ? Math.max(minimum, Math.min(maximum, Math.round(value)))
     : fallback;
 
+function validCurve(value: unknown): value is NonNullable<ChartAnimation['curve']> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const curve = value as Record<string, unknown>;
+  return (
+    Object.keys(curve).length === 4 &&
+    ['x1', 'y1', 'x2', 'y2'].every(
+      (key) =>
+        typeof curve[key] === 'number' &&
+        Number.isFinite(curve[key]) &&
+        Number(curve[key]) >= 0 &&
+        Number(curve[key]) <= 1,
+    )
+  );
+}
+
 /** Missing persisted animations remain disabled; new-chart factories opt into grow explicitly. */
 export function normalizeChartAnimation(
   animation: Partial<ChartAnimation> | null | undefined,
@@ -76,7 +91,19 @@ export function normalizeChartAnimation(
         ? animation.easing
         : 'cubic-out',
     replayOnUpdate: animation?.replayOnUpdate !== false,
+    ...(validCurve(animation?.curve) ? { curve: { ...animation.curve } } : {}),
+    ...(animation?.updateMode === undefined ? {} : { updateMode: animation.updateMode }),
   };
+}
+
+/** Choosing a named easing replaces any previously authored custom curve. */
+export function chartAnimationWithPreset(
+  animation: Partial<ChartAnimation>,
+  easing: EasingPreset,
+): ChartAnimation {
+  const next = normalizeChartAnimation({ ...animation, easing });
+  delete next.curve;
+  return next;
 }
 
 /** Deterministic data-point sample; expressive easing can overshoot between exact endpoints. */
@@ -94,7 +121,10 @@ export function chartAnimationProgress(
     pointIndex * normalized.staggerFrames;
   if (localFrame <= 0) return 0;
   if (localFrame >= normalized.durationFrames) return 1;
-  return easedProgress(localFrame / normalized.durationFrames, normalized.easing);
+  const progress = localFrame / normalized.durationFrames;
+  return normalized.curve
+    ? cubicBezierProgress(progress, normalized.curve)
+    : easedProgress(progress, normalized.easing);
 }
 
 /** Validate authored values before normalization so mistakes cannot silently become defaults. */
@@ -132,5 +162,9 @@ export function chartAnimationErrors(animation: unknown): string[] {
     errors.push('Chart animation has an unknown easing.');
   if (value.replayOnUpdate !== undefined && typeof value.replayOnUpdate !== 'boolean')
     errors.push('Chart animation replayOnUpdate must be a boolean.');
+  if (value.updateMode !== undefined && !['replay', 'morph'].includes(String(value.updateMode)))
+    errors.push('Chart animation updateMode must be replay or morph.');
+  if (value.curve !== undefined && !validCurve(value.curve))
+    errors.push('Chart animation curve must contain x1, y1, x2 and y2 from 0 to 1.');
   return errors;
 }

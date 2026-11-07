@@ -264,6 +264,11 @@ export function AgentChatPanel() {
           {busy ? elapsedLabel(elapsedSeconds) : ''}
         </span>
       </div>
+      {chat.context ? (
+        <p className="agent-chat-context" role="status" aria-label="Estimated assistant context">
+          {chat.context.message}
+        </p>
+      ) : null}
       <div className="agent-chat-transcript" ref={scrollRef} aria-live="polite">
         {transcriptEntries.length === 0 ? (
           <div className="agent-chat-empty">

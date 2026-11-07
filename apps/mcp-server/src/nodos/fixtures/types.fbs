@@ -1,0 +1,14 @@
+// types.bfbs was serialized with the reflection classes generated in @nodos/editor-sdk 5.1.0.
+// This readable equivalent documents the struct offsets, enum and table used by transport tests.
+namespace demo;
+
+enum Trend:byte { Down = -1, Flat = 0, Up = 1 }
+enum LargeCode:long { SafeMax = 9007199254740991, TooLarge = 9007199254740992 }
+struct Vec2 { x:float; y:float; }
+table Quote { label:string; position:Vec2; trend:Trend = Flat; values:[double]; }
+table Counter { value:int; values:[ubyte]; }
+root_type Quote;
+
+// ElectroNode's output size pin uses this core Nodos type.
+namespace nos.fb;
+struct vec2u { x:uint; y:uint; }

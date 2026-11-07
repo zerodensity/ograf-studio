@@ -67,6 +67,12 @@ export function layerColorValue(layer: Layer, property: string): string | undefi
 }
 
 function writeLayerColor(layer: Layer, property: string, value: string): boolean {
+  if (
+    layer.designTokenBindings.some(
+      (binding) => binding.overridden && binding.targetProperty === property,
+    )
+  )
+    return false;
   if (layerColorValue(layer, property) === undefined) return false;
   if (parseEffectProperty(property))
     layer.effects = withEffectParameter(layer.effects, property, value);

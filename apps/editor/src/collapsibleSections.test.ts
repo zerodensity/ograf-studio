@@ -12,12 +12,24 @@ describe('dock pane disclosure sections', () => {
     ['./panels/InspectorPanel.tsx', 'properties'],
     ['./panels/CompositionSettings.tsx', 'properties'],
     ['./panels/EffectStackEditor.tsx', 'properties'],
-    ['./panels/PreviewExportPanel.tsx', 'preview'],
+    ['./panels/SingleTemplatePreviewExportPanel.tsx', 'preview'],
     ['./panels/TimelinePanel.tsx', 'timeline'],
   ])('%s exposes remembered collapsible groups', (path, prefix) => {
     const text = source(path);
     expect(text).toContain('CollapsibleSection');
-    expect(text).toContain(`sectionId="${prefix}.`);
+    if (path.endsWith('CompositionSettings.tsx')) {
+      expect(text).toContain("mode === 'settings' ? 'settings.template' : 'properties'");
+      expect(text).toContain("sectionId={sectionId('composition')}");
+    } else expect(text).toContain(`sectionId="${prefix}.`);
+  });
+
+  it('routes the Preview & Export dock pane to its remembered single-template sections', () => {
+    const wrapper = source('./panels/PreviewExportPanel.tsx');
+    const panel = source('./panels/SingleTemplatePreviewExportPanel.tsx');
+    expect(wrapper).toContain("from './SingleTemplatePreviewExportPanel'");
+    expect(wrapper).toContain('return <SingleTemplatePreviewExportPanel />');
+    for (const id of ['playback', 'broadcast-qa', 'export'])
+      expect(panel).toContain(`sectionId="preview.${id}"`);
   });
 
   it('retains the existing native disclosure tree in Resources', () => {

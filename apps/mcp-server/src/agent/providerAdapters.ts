@@ -88,27 +88,40 @@ class OpenAiCompatibleAdapter implements ProviderAdapter {
     };
     if (this.config.organization) headers['openai-organization'] = this.config.organization;
     if (this.config.project) headers['openai-project'] = this.config.project;
-    const response = await fetch(providerEndpoint(this.config.baseUrl, '/v1/chat/completions'), {
-      method: 'POST',
-      headers,
-      signal: request.signal,
-      body: JSON.stringify({
-        model: request.model ?? this.config.model,
-        messages: [
-          { role: 'system', content: request.system },
-          ...openAiMessages(request.messages),
-        ],
-        tools: request.tools.map((tool) => ({
-          type: 'function',
-          function: {
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.inputSchema,
-          },
-        })),
-        tool_choice: 'auto',
-      }),
-    });
+    const body: Record<string, unknown> = {
+      model: request.model ?? this.config.model,
+      messages: [{ role: 'system', content: request.system }, ...openAiMessages(request.messages)],
+      tools: request.tools.map((tool) => ({
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.inputSchema,
+        },
+      })),
+      tool_choice: 'auto',
+    };
+    if (request.maxOutputTokens !== undefined) body.max_tokens = request.maxOutputTokens;
+    const send = () =>
+      fetch(providerEndpoint(this.config.baseUrl, '/v1/chat/completions'), {
+        method: 'POST',
+        headers,
+        signal: request.signal,
+        body: JSON.stringify(body),
+      });
+    let response = await send();
+    if (!response.ok && response.status === 400 && request.maxOutputTokens !== undefined) {
+      const error = await response.clone().text();
+      if (
+        /max_tokens/i.test(error) &&
+        /max_completion_tokens/i.test(error) &&
+        /unsupported|not supported|instead/i.test(error)
+      ) {
+        delete body.max_tokens;
+        body.max_completion_tokens = request.maxOutputTokens;
+        response = await send();
+      }
+    }
     if (!response.ok) return readError(response);
     const data = (await response.json()) as Record<string, any>;
     const choice = data.choices?.[0] ?? {};
@@ -189,7 +202,7 @@ class AnthropicAdapter implements ProviderAdapter {
       },
       body: JSON.stringify({
         model: request.model ?? this.config.model,
-        max_tokens: 4_096,
+        max_tokens: request.maxOutputTokens ?? 4_096,
         system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
         messages: anthropicMessages(request.messages),
         tools: request.tools.map((tool) => ({

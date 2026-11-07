@@ -14,10 +14,14 @@ import {
   shaderBackingSizeForLayer,
   ShaderContextLostError,
   shaderTimeSeconds,
+  shaderFragmentSource,
   mountShader,
   updateShaderParameters,
   renderShaderAtTime,
   disposeShader,
+  waitForShadersComplete,
+  shaderContextCounts,
+  subscribeShaderContexts,
 } from './shaderRendering';
 
 const element: ShaderElement = createShaderElement({
@@ -62,6 +66,7 @@ function mockCanvas(
     TEXTURE_2D: 0x0de1,
     TEXTURE0: 0x84c0,
     TEXTURE1: 0x84c1,
+    TEXTURE2: 0x84c2,
     RGBA: 0x1908,
     UNSIGNED_BYTE: 0x1401,
     UNPACK_FLIP_Y_WEBGL: 0x9240,
@@ -90,6 +95,11 @@ function mockCanvas(
     COLOR_BUFFER_BIT: 0x4000,
     TRIANGLES: 4,
     NO_ERROR: 0,
+    SYNC_GPU_COMMANDS_COMPLETE: 0x9117,
+    ALREADY_SIGNALED: 0x911a,
+    TIMEOUT_EXPIRED: 0x911b,
+    CONDITION_SATISFIED: 0x911c,
+    WAIT_FAILED: 0x911d,
     createShader: vi.fn((kind: number) => ({ kind })),
     shaderSource: vi.fn(),
     compileShader: vi.fn(),
@@ -139,6 +149,10 @@ function mockCanvas(
     clear: vi.fn(),
     drawArrays: vi.fn(),
     finish: vi.fn(),
+    fenceSync: vi.fn(() => ({})),
+    flush: vi.fn(),
+    clientWaitSync: vi.fn(() => 0x911a),
+    deleteSync: vi.fn(),
     getError: vi.fn(() => 0),
     getExtension: vi.fn(() => ({ loseContext })),
   };
@@ -241,6 +255,42 @@ describe('shader backing and clock', () => {
 });
 
 describe('WebGL shader lifecycle', () => {
+  it('allocates tint texture and shader logic only when explicitly requested', () => {
+    const ordinary = mockCanvas();
+    const baseline = createShaderRenderer(ordinary.canvas, element, { width: 16, height: 16 });
+    expect(ordinary.gl.activeTexture).not.toHaveBeenCalledWith(ordinary.gl.TEXTURE2);
+    expect(shaderFragmentSource(element.fragmentSource)).not.toContain('ografTextTintSampler');
+    expect(() => baseline.setTextTint(null)).toThrow(/not enabled/);
+    baseline.dispose();
+
+    const fixture = mockCanvas();
+    const tinted = createShaderRenderer(
+      fixture.canvas,
+      element,
+      { width: 16, height: 16 },
+      () => {},
+      true,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(shaderFragmentSource(element.fragmentSource, false, true)).toContain(
+      'ografTint.a / ografCoverage',
+    );
+    expect(fixture.gl.activeTexture).toHaveBeenCalledWith(fixture.gl.TEXTURE2);
+    const texture = {} as TexImageSource;
+    tinted.setTextTint(texture);
+    expect(fixture.gl.texImage2D).toHaveBeenCalledWith(
+      fixture.gl.TEXTURE_2D,
+      0,
+      fixture.gl.RGBA,
+      fixture.gl.RGBA,
+      fixture.gl.UNSIGNED_BYTE,
+      texture,
+    );
+    tinted.render(200);
+    tinted.dispose();
+  });
   it('renders exact absolute time uniforms, preserves captures and releases GPU resources once', () => {
     const { canvas, gl, loseContext } = mockCanvas();
     const renderer = createShaderRenderer(canvas, element, { width: 1920, height: 1080 });
@@ -251,9 +301,11 @@ describe('WebGL shader lifecycle', () => {
     expect(gl.uniform3f).toHaveBeenLastCalledWith({ name: 'iResolution' }, 1920, 1080, 1);
     expect(canvas.getContext).toHaveBeenCalledWith(
       'webgl2',
-      expect.objectContaining({ preserveDrawingBuffer: true }),
+      expect.objectContaining({ preserveDrawingBuffer: true, premultipliedAlpha: true }),
     );
-    expect(gl.finish).toHaveBeenCalledTimes(4);
+    expect(gl.finish).not.toHaveBeenCalled();
+    expect(gl.getError).toHaveBeenCalledTimes(1);
+    expect(gl.fenceSync).not.toHaveBeenCalled();
     expect(gl.texStorage2D).toHaveBeenCalledWith(gl.TEXTURE_2D, 1, gl.RGBA8, 1920, 1080);
     expect(gl.blitFramebuffer).toHaveBeenCalledTimes(4);
     expect(gl.blitFramebuffer).toHaveBeenLastCalledWith(
@@ -300,6 +352,83 @@ describe('WebGL shader lifecycle', () => {
     expect(gl.deleteShader).toHaveBeenCalledTimes(2);
   });
 
+  it('shares one physical context per graphic scope and releases it only after the last renderer', () => {
+    const initial = shaderContextCounts();
+    const shared = mockCanvas();
+    const root = { nodeType: 11, host: {} };
+    const ownerDocument = {
+      createElement: (tag: string) => {
+        if (tag !== 'canvas') throw new Error(`Unexpected element: ${tag}`);
+        return shared.canvas;
+      },
+    };
+    const output = () => {
+      const context = { clearRect: vi.fn(), drawImage: vi.fn() };
+      const canvas = Object.assign(new EventTarget(), {
+        width: 0,
+        height: 0,
+        dataset: {},
+        style: {},
+        ownerDocument,
+        getRootNode: () => root,
+        closest: () => null,
+        getContext: (kind: string) => (kind === '2d' ? context : null),
+      }) as unknown as HTMLCanvasElement;
+      return { canvas, context };
+    };
+    const a = output(),
+      b = output();
+    const first = createShaderRenderer(a.canvas, element, { width: 16, height: 12 });
+    const second = createShaderRenderer(b.canvas, element, { width: 20, height: 10 });
+    expect(a.canvas.dataset.ografShaderBackend).toBe('canvas2d');
+    expect(b.canvas.dataset.ografShaderBackend).toBe('canvas2d');
+    expect(shaderContextCounts().live).toBe(initial.live + 1);
+    first.render(250);
+    second.render(500);
+    expect(a.context.drawImage).toHaveBeenCalledWith(shared.canvas, 0, 0);
+    expect(b.context.drawImage).toHaveBeenCalledWith(shared.canvas, 0, 0);
+    shared.setContextLost(true);
+    shared.canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    expect(shaderContextCounts().lost).toBe(initial.lost + 1);
+    expect(a.canvas.dataset.ografShaderPaused).toBe('true');
+    expect(b.canvas.dataset.ografShaderPaused).toBe('true');
+    shared.setContextLost(false);
+    shared.canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(shaderContextCounts().lost).toBe(initial.lost);
+    expect(a.canvas.dataset.ografShaderPaused).toBeUndefined();
+    expect(b.canvas.dataset.ografShaderPaused).toBeUndefined();
+    expect(a.canvas.dataset.ografShaderBackend).toBe('canvas2d');
+    expect(b.canvas.dataset.ografShaderBackend).toBe('canvas2d');
+    first.dispose();
+    expect(a.canvas.dataset.ografShaderBackend).toBeUndefined();
+    expect(shared.loseContext).not.toHaveBeenCalled();
+    second.render(750);
+    second.dispose();
+    expect(shared.loseContext).toHaveBeenCalledTimes(1);
+    expect(shaderContextCounts()).toEqual(initial);
+  });
+
+  it('counts and reports lost and restored contexts without leaking disposed contexts', () => {
+    const initial = shaderContextCounts();
+    const changes = vi.fn();
+    const unsubscribe = subscribeShaderContexts(changes);
+    const { canvas, setContextLost } = mockCanvas();
+    const renderer = createShaderRenderer(canvas, element, { width: 16, height: 16 });
+    expect(shaderContextCounts().live).toBe(initial.live + 1);
+    setContextLost(true);
+    canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    expect(shaderContextCounts()).toEqual({ live: initial.live, lost: initial.lost + 1 });
+    expect(canvas.dataset.ografShaderPaused).toBe('true');
+    setContextLost(false);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(shaderContextCounts().live).toBe(initial.live + 1);
+    expect(canvas.dataset.ografShaderPaused).toBeUndefined();
+    renderer.dispose();
+    expect(shaderContextCounts()).toEqual(initial);
+    expect(changes).toHaveBeenCalledTimes(4);
+    unsubscribe();
+  });
+
   it('fails readiness during context loss and rebuilds at the requested timestamp on restoration', () => {
     const { canvas, gl, setContextLost } = mockCanvas();
     const errors = vi.fn();
@@ -333,7 +462,7 @@ describe('WebGL shader lifecycle', () => {
     expect(loseContext).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects missing WebGL2 and draw failures instead of reporting a ready blank frame', () => {
+  it('rejects missing WebGL2 and draw failures at explicit frame completion', async () => {
     const unavailable = { getContext: () => null } as unknown as HTMLCanvasElement;
     expect(() => createShaderRenderer(unavailable, element, { width: 16, height: 16 })).toThrow(
       'require WebGL 2',
@@ -341,8 +470,164 @@ describe('WebGL shader lifecycle', () => {
     const { canvas, gl } = mockCanvas();
     const renderer = createShaderRenderer(canvas, element, { width: 16, height: 16 });
     gl.getError.mockReturnValue(1282);
-    expect(() => renderer.render(1000)).toThrow('WebGL error 1282');
+    renderer.render(1000);
+    await expect(renderer.completeFrame()).rejects.toThrow('WebGL error 1282');
     expect(() => renderer.checkReady()).toThrow('WebGL error 1282');
+    renderer.dispose();
+  });
+
+  it('waits asynchronously for submitted GPU work and reuses completion for an unchanged frame', async () => {
+    const { canvas, gl } = mockCanvas();
+    const renderer = createShaderRenderer(canvas, element, { width: 16, height: 16 });
+    gl.clientWaitSync
+      .mockReturnValueOnce(gl.TIMEOUT_EXPIRED)
+      .mockReturnValue(gl.CONDITION_SATISFIED);
+    renderer.render(1000);
+    let completed = false;
+    const frame = renderer.completeFrame();
+    expect(renderer.completeFrame()).toBe(frame);
+    void frame.then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(gl.clientWaitSync).not.toHaveBeenCalled();
+    await frame;
+    expect(gl.clientWaitSync).toHaveBeenCalledTimes(2);
+    expect(gl.clientWaitSync).toHaveBeenLastCalledWith(expect.anything(), 0, 0);
+    expect(gl.flush).toHaveBeenCalledTimes(1);
+    expect(gl.deleteSync).toHaveBeenCalledTimes(1);
+    await renderer.completeFrame();
+    expect(gl.fenceSync).toHaveBeenCalledTimes(1);
+    renderer.render(2000);
+    await renderer.completeFrame();
+    expect(gl.fenceSync).toHaveBeenCalledTimes(2);
+    expect(gl.finish).not.toHaveBeenCalled();
+    renderer.dispose();
+  });
+
+  it('rejects pending completion promptly on context loss and can complete restored frames', async () => {
+    const { canvas, gl, setContextLost } = mockCanvas();
+    const renderer = createShaderRenderer(canvas, element, { width: 16, height: 16 });
+    gl.clientWaitSync.mockReturnValue(gl.TIMEOUT_EXPIRED);
+    const completion = expect(renderer.completeFrame()).rejects.toThrow(ShaderContextLostError);
+    setContextLost(true);
+    canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    await completion;
+    expect(gl.deleteSync).toHaveBeenCalledTimes(1);
+    setContextLost(false);
+    gl.clientWaitSync.mockReturnValue(gl.ALREADY_SIGNALED);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    await renderer.completeFrame();
+    renderer.dispose();
+  });
+
+  it('rejects and releases pending completion when disposed', async () => {
+    const { canvas, gl } = mockCanvas();
+    const renderer = createShaderRenderer(canvas, element, { width: 16, height: 16 });
+    const completion = expect(renderer.completeFrame()).rejects.toThrow('disposed');
+    renderer.dispose();
+    await completion;
+    expect(gl.deleteSync).toHaveBeenCalledTimes(1);
+    expect(gl.clientWaitSync).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed GPU fence rather than resolving a capture with uncompleted pixels', async () => {
+    const { canvas, gl } = mockCanvas();
+    const renderer = createShaderRenderer(canvas, element, { width: 16, height: 16 });
+    gl.clientWaitSync.mockReturnValue(gl.WAIT_FAILED);
+    await expect(renderer.completeFrame()).rejects.toThrow('GPU completion wait failed');
+    expect(() => renderer.checkReady()).toThrow('GPU completion wait failed');
+    expect(gl.deleteSync).toHaveBeenCalledTimes(1);
+    renderer.dispose();
+  });
+
+  it('waits for the current mounted shader frame at seek and capture boundaries', async () => {
+    const { canvas, gl } = mockCanvas();
+    const host = mockHost(canvas);
+    host.querySelectorAll = (() => []) as unknown as typeof host.querySelectorAll;
+    mountShader(host, element, { width: 16, height: 16 });
+    renderShaderAtTime(host, 600);
+    expect(gl.fenceSync).not.toHaveBeenCalled();
+    await waitForShadersComplete(host);
+    expect(gl.fenceSync).toHaveBeenCalledTimes(1);
+    await waitForShadersComplete(host);
+    expect(gl.fenceSync).toHaveBeenCalledTimes(1);
+    renderShaderAtTime(host, 400);
+    await waitForShadersComplete(host);
+    expect(gl.fenceSync).toHaveBeenCalledTimes(2);
+    disposeShader(host);
+  });
+
+  it('bounds a non-completing GPU fence without using a blocking wait', async () => {
+    vi.useFakeTimers();
+    const { canvas, gl } = mockCanvas();
+    const renderer = createShaderRenderer(canvas, element, { width: 16, height: 16 });
+    try {
+      gl.clientWaitSync.mockReturnValue(gl.TIMEOUT_EXPIRED);
+      const completion = expect(renderer.completeFrame()).rejects.toThrow('30000 ms');
+      await vi.advanceTimersByTimeAsync(30_001);
+      await completion;
+      expect(gl.deleteSync).toHaveBeenCalledTimes(1);
+      expect(gl.finish).not.toHaveBeenCalled();
+    } finally {
+      renderer.dispose();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('shader alpha presentation', () => {
+  const source =
+    'void mainImage(out vec4 color, in vec2 coord) { color = vec4(0.8, 0.4, 0.2, 0.5); }';
+  const premultiply = 'ografFragmentColor.rgb *= ografFragmentColor.a;';
+
+  it('associates translucent shader RGB exactly once after coverage and output clamping', () => {
+    const fragment = shaderFragmentSource(source);
+    const coverage =
+      'ografFragmentColor.a *= texture(ografCoverageSampler, gl_FragCoord.xy / iResolution.xy).a;';
+    expect(fragment).toContain(source);
+    expect(fragment.match(/ografFragmentColor\.rgb \*= ografFragmentColor\.a;/g)).toHaveLength(1);
+    expect(fragment.indexOf(coverage)).toBeGreaterThan(fragment.indexOf(source));
+    expect(
+      fragment.indexOf('ografFragmentColor = clamp(ografFragmentColor, 0.0, 1.0);'),
+    ).toBeGreaterThan(fragment.indexOf(coverage));
+    expect(fragment.indexOf(premultiply)).toBeGreaterThan(
+      fragment.indexOf('ografFragmentColor = clamp(ografFragmentColor, 0.0, 1.0);'),
+    );
+  });
+
+  it('preserves straight-alpha effect blending until its final presentation conversion', () => {
+    const fragment = shaderFragmentSource(source, true);
+    const blend =
+      'ografFragmentColor = mix(ografInput, ografEffect, clamp(ografEffectOpacity, 0.0, 1.0));';
+    expect(fragment).toContain(
+      'ografBlend(ografInput.rgb, ografFragmentColor.rgb, ografEffectBlendMode)',
+    );
+    expect(fragment).not.toContain('ografFragmentColor.a *= texture(ografCoverageSampler');
+    expect(fragment.match(/ografFragmentColor\.rgb \*= ografFragmentColor\.a;/g)).toHaveLength(1);
+    expect(fragment.indexOf(premultiply)).toBeGreaterThan(fragment.indexOf(blend));
+  });
+
+  it('restores the same translucent presentation program without accumulating premultiplication', () => {
+    const { canvas, gl, setContextLost } = mockCanvas();
+    const renderer = createShaderRenderer(canvas, createShaderElement({ fragmentSource: source }), {
+      width: 4,
+      height: 2,
+    });
+    renderer.render(1000);
+    setContextLost(true);
+    canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    setContextLost(false);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    const fragments = gl.shaderSource.mock.calls
+      .filter(([shader]) => shader.kind === gl.FRAGMENT_SHADER)
+      .map(([, compiled]) => compiled as string);
+    expect(fragments).toHaveLength(2);
+    expect(fragments[0]).toBe(fragments[1]);
+    expect(fragments[1]!.match(/ografFragmentColor\.rgb \*= ografFragmentColor\.a;/g)).toHaveLength(
+      1,
+    );
     renderer.dispose();
   });
 });
@@ -432,6 +717,44 @@ void mainImage(out vec4 color, in vec2 coord) {
     expect(gl.uniform1f).toHaveBeenLastCalledWith({ name: 'iTime' }, 5);
     renderer.dispose();
     expect(gl.deleteTexture).toHaveBeenCalledTimes(2);
+  });
+
+  it('uploads owned ImageData coverage with the same orientation after context restoration', () => {
+    const { canvas, gl, setContextLost } = mockCanvas();
+    const renderer = createShaderRenderer(canvas, element, { width: 4, height: 2 }, () => {}, true);
+    const coverage = {
+      width: 4,
+      height: 2,
+      data: new Uint8ClampedArray(32),
+    } as ImageData;
+    coverage.data[3] = 64;
+    coverage.data[31] = 192;
+    renderer.setCoverage(coverage);
+    renderer.render(2500);
+    expect(gl.texImage2D).toHaveBeenLastCalledWith(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      coverage,
+    );
+    expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_FLIP_Y_WEBGL, true);
+    setContextLost(true);
+    canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    setContextLost(false);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(gl.texImage2D).toHaveBeenLastCalledWith(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      coverage,
+    );
+    expect(gl.uniform1f).toHaveBeenLastCalledWith({ name: 'iTime' }, 5);
+    expect([coverage.data[3], coverage.data[31]]).toEqual([64, 192]);
+    renderer.dispose();
   });
 
   it('compiles adapted declarations and uploads every supported GLSL parameter type', () => {
@@ -622,6 +945,8 @@ void mainImage(out vec4 color, in vec2 coord) {
 
     expect(gl.uniform1i).toHaveBeenCalledWith({ name: 'iChannel0' }, 1);
     expect(gl.activeTexture).toHaveBeenCalledWith(gl.TEXTURE1);
+    // Image sampling stays straight-alpha before the final presentation conversion.
+    expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     expect(gl.uniform3f).toHaveBeenCalledWith({ name: 'iChannelResolution[0]' }, 64, 32, 1);
     expect(gl.texParameteri).toHaveBeenCalledWith(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     expect(gl.texParameteri).toHaveBeenCalledWith(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -647,6 +972,7 @@ void mainImage(out vec4 color, in vec2 coord) {
     renderer.setInput(input);
     renderer.render(1250);
     await renderer.ready();
+    expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     expect(gl.uniform1i).toHaveBeenCalledWith({ name: 'iChannel0' }, 1);
     expect(gl.uniform1i).toHaveBeenCalledWith({ name: 'ografEffectBlendMode' }, 1);
     expect(gl.uniform1f).toHaveBeenCalledWith({ name: 'ografEffectOpacity' }, 0.6);

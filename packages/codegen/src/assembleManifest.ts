@@ -4,7 +4,11 @@ import {
   type OGrafManifest,
 } from '@ograf-editor/ograf-types';
 import type { Composition, Project } from '@ograf-editor/scene-model';
-import { isMediaPaint } from '@ograf-editor/scene-model';
+import {
+  isMediaPaint,
+  walkElementContents,
+  elementAssetReferences,
+} from '@ograf-editor/scene-model';
 import { compileCustomActions, compileDataSchema } from './compileDataSchema';
 import type { CompiledGraphicDescriptor } from './compileDescriptor';
 
@@ -46,7 +50,12 @@ function compileActionDurations(descriptor: CompiledGraphicDescriptor): Manifest
     },
     {
       type: 'stopAction',
-      duration: msFor(transitionInto(endKeyframeId)?.durationFrames ?? 0),
+      duration: msFor(
+        descriptor.exitTailStartFrame === undefined
+          ? (transitionInto(endKeyframeId)?.durationFrames ?? 0)
+          : (descriptor.keyframes.find((key) => key.id === endKeyframeId)?.frame ??
+              descriptor.exitTailStartFrame) - descriptor.exitTailStartFrame,
+      ),
     },
   ];
 
@@ -68,14 +77,46 @@ export function assembleManifest(
   descriptor: CompiledGraphicDescriptor,
 ): OGrafManifest {
   const schema = compileDataSchema(composition);
-  const customActions = compileCustomActions(composition);
+  const customActions: NonNullable<OGrafManifest['customActions']> =
+    compileCustomActions(composition);
   const compiledLayers = [
     ...descriptor.layers,
     ...(descriptor.collections ?? []).flatMap((collection) => collection.prototypeLayers),
   ];
+  const loopGroups = [
+    ...new Set(
+      compiledLayers.flatMap((layer) => (layer.loop?.timing ? [layer.loop.timing.groupId] : [])),
+    ),
+  ];
+  if (loopGroups.length) {
+    for (const action of ['pause', 'resume', 'next']) {
+      const id = `loop.${action}`;
+      if (customActions.some((existing) => existing.id === id))
+        throw new Error(
+          `Custom action ${id} is reserved by timed loop controls. Rename the custom action.`,
+        );
+      customActions.push({
+        id,
+        name: `${action === 'next' ? 'Advance' : action === 'pause' ? 'Pause' : 'Resume'} a loop group`,
+        schema: {
+          type: 'object',
+          properties: { groupId: { type: 'string', enum: loopGroups } },
+          required: ['groupId'],
+          additionalProperties: false,
+        },
+      });
+    }
+  }
   const mediaPaints = compiledLayers.flatMap((layer) => {
-    const fill = 'fill' in layer.element ? layer.element.fill : undefined;
-    return isMediaPaint(fill) ? [fill] : [];
+    return walkElementContents(layer.element).flatMap((element) => {
+      const fill =
+        element.type === 'ticker'
+          ? element.background
+          : 'fill' in element
+            ? element.fill
+            : undefined;
+      return isMediaPaint(fill) ? [fill] : [];
+    });
   });
   const cueSources = (descriptor.mediaCues ?? []).flatMap((cue) => cue.sources);
   const needsLiveMedia =
@@ -88,6 +129,8 @@ export function assembleManifest(
         : /^https?:\/\//i.test(source.fallback ?? ''),
     ) ||
     compiledLayers.some((layer) => {
+      if (elementAssetReferences(layer.element).some((source) => /^https?:\/\//i.test(source)))
+        return true;
       const element = layer.element;
       if (element.type === 'image') return /^https?:\/\//i.test(element.src ?? '');
       if (element.type === 'audio') return /^https?:\/\//i.test(element.src ?? '');
@@ -116,7 +159,10 @@ export function assembleManifest(
         // Per the EBU schema, these are constraint objects (modeled on MediaTrackConstraints'
         // ConstrainDouble/ConstrainBoolean), not raw values — confirmed against the live schema
         // during the Phase 5a ograf-devtool cross-check, which caught this exact divergence.
-        resolution: { width: { exact: descriptor.width }, height: { exact: descriptor.height } },
+        resolution: {
+          width: { exact: descriptor.crop?.width ?? descriptor.width },
+          height: { exact: descriptor.crop?.height ?? descriptor.height },
+        },
         frameRate: { exact: descriptor.frameRate },
         accessToPublicInternet: { exact: needsPublicInternet },
         ...(needsLiveMedia
@@ -131,6 +177,13 @@ export function assembleManifest(
   if (Object.keys(schema.properties).length > 0)
     manifest.schema = schema as unknown as Record<string, unknown>;
   if (customActions.length > 0) manifest.customActions = customActions;
+  if (loopGroups.length)
+    for (const action of ['pause', 'resume', 'next'])
+      manifest.actionDurations!.push({
+        type: 'customAction',
+        customActionId: `loop.${action}`,
+        duration: 0,
+      });
 
   return manifest;
 }

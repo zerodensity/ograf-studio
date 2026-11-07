@@ -6,13 +6,23 @@ import {
   firedVisualRuleDataRules,
   firedVisualRuleEventRules,
   interpolateVisualRuleValue,
+  isVisualRuleEdgeDataRule,
+  isLayerRuleProperty,
   isVisualRuleSideEffectAction,
   isVisualRuleStateAction,
+  layerRuleModifiers,
+  layerRuleNeutralValue,
+  layerRuleGeometryProperty,
   mergeVisualRuleEffects,
   parseEffectProperty,
   readElementDataValue,
   releaseVisualRuleOverrides,
   visualRuleConditions,
+  visualRuleConditionsHold,
+  visualRuleMouseData,
+  isVisualRuleMouseFieldId,
+  visualRuleScopeLayerIds,
+  visualRuleActionTargets,
   visualRuleTrigger,
   visualRuleValue,
   withEffectParameter,
@@ -20,6 +30,8 @@ import {
   VISUAL_RULE_VISIBILITY_KEY,
   type Element,
   type LayerEffects,
+  type LayerRuleModifiers,
+  type LayerTransform,
   type VisualRuleDataReader,
   type VisualRuleEffect,
   type VisualRuleEngine,
@@ -33,6 +45,7 @@ import type {
 } from '@ograf-editor/ograf-types';
 import { runtimeCollectionItemSelection } from './runtimeCollections';
 import { resolveLayerBindingEffects, resolveLayerBindingElement } from './runtimeBindings';
+import type { RuntimePointerPosition } from './runtimePointer';
 
 type RuntimeData = Record<string, unknown>;
 
@@ -185,6 +198,34 @@ export function visualRuleLayerVisible(layer: CompiledLayer, data: RuntimeData):
   return visualRuleEffectFor(layer, data)?.visibility ?? layer.isVisible;
 }
 
+/** Whether a layer's own rules move, rotate, scale or fade it. */
+function ownsLayerRuleProperty(layer: CompiledLayer): boolean {
+  return (layer.visualRules ?? []).some((rule) =>
+    rule.actions.some(
+      (action) =>
+        action.type === 'property' &&
+        (!action.targetLayerId || action.targetLayerId === layer.id) &&
+        isLayerRuleProperty(action.targetProperty),
+    ),
+  );
+}
+
+/**
+ * Rule offsets for a layer's pose. Published output covers rules on any layer; without it only the
+ * layer's own data rules apply, and layers without such rules skip evaluation entirely.
+ */
+export function visualRuleLayerModifiers(
+  layer: CompiledLayer,
+  data: RuntimeData,
+): LayerRuleModifiers | null {
+  const effect = publishedEffects.has(layer)
+    ? publishedEffects.get(layer)
+    : ownsLayerRuleProperty(layer)
+      ? ownRuleEffect(layer, data)
+      : undefined;
+  return layerRuleModifiers(effect?.properties);
+}
+
 /** Whether runtime data can change this layer's rendered content or visibility. */
 export function layerHasRuntimeVisualInputs(layer: CompiledLayer): boolean {
   const bindings = layer.bindings ?? (layer.binding ? [layer.binding] : []);
@@ -194,9 +235,19 @@ export function layerHasRuntimeVisualInputs(layer: CompiledLayer): boolean {
 }
 
 /** Pointer triggers a layer answers; its element needs pointer events for these. */
-export function pointerVisualRuleTriggers(layer: CompiledLayer): Set<VisualRuleTrigger> {
+export function pointerVisualRuleTriggers(
+  layer: CompiledLayer,
+  engine?: RuntimeVisualRuleEngine,
+): Set<VisualRuleTrigger> {
   return new Set(
-    (layer.visualRules ?? [])
+    (engine
+      ? engine.hosts.flatMap((host) =>
+          host.rules.filter((rule) =>
+            visualRuleScopeLayerIds(engine, host.layerId, rule).includes(layer.id),
+          ),
+        )
+      : (layer.visualRules ?? [])
+    )
       .filter((rule) => rule.enabled && VISUAL_RULE_POINTER_TRIGGERS.has(visualRuleTrigger(rule)))
       .map(visualRuleTrigger),
   );
@@ -213,7 +264,7 @@ interface RuleTransition {
   duration: number;
 }
 
-function sameValue(a: unknown, b: unknown): boolean {
+export function sameValue(a: unknown, b: unknown): boolean {
   return Object.is(a, b) || JSON.stringify(a) === JSON.stringify(b);
 }
 
@@ -228,18 +279,28 @@ export class RuntimeVisualRules {
   readonly targeted: ReadonlySet<string>;
   /** Data keys that data rules read. */
   readonly dataKeys: ReadonlySet<string>;
+  /** The pointer is runtime context, never an editorial field or retained data patch. */
+  readonly hasMouseConditions: boolean;
   readonly #layers: Map<string, CompiledLayer>;
   readonly #frameRate: number;
+  readonly #baseTransform: ((layer: CompiledLayer, at: number) => LayerTransform) | undefined;
   readonly #dataKeysByTarget = new Map<string, Set<string>>();
   #overrides = new Map<string, VisualRuleEffect>();
   #hovered = new Set<string>();
+  #hoverEntries = new Set<CompiledLayerVisualRule>();
   #shown = new Map<string, VisualRuleEffect>();
   #transitions = new Map<string, Map<string, RuleTransition>>();
+  #pointer: RuntimePointerPosition | null = null;
 
-  constructor(layers: readonly CompiledLayer[], frameRate: number) {
+  constructor(
+    layers: readonly CompiledLayer[],
+    frameRate: number,
+    baseTransform?: (layer: CompiledLayer, at: number) => LayerTransform,
+  ) {
     this.engine = createRuntimeVisualRuleEngine(layers);
     this.#layers = new Map(layers.map((layer) => [layer.id, layer]));
     this.#frameRate = frameRate;
+    this.#baseTransform = baseTransform;
     const targeted = new Set<string>();
     const dataKeys = new Set<string>();
     for (const host of this.engine.hosts) {
@@ -254,10 +315,7 @@ export class RuntimeVisualRules {
         for (const key of keys) dataKeys.add(key);
         for (const action of rule.actions) {
           if (!isVisualRuleStateAction(action)) continue;
-          for (const target of this.engine.resolveTarget!(
-            action.targetLayerId || host.layerId,
-            host.layerId,
-          )) {
+          for (const target of visualRuleActionTargets(this.engine, action, host.layerId, rule)) {
             if (target !== host.layerId) targeted.add(target);
             const byTarget = this.#dataKeysByTarget.get(target) ?? new Set<string>();
             for (const key of keys) byTarget.add(key);
@@ -268,6 +326,17 @@ export class RuntimeVisualRules {
     }
     this.targeted = targeted;
     this.dataKeys = dataKeys;
+    this.hasMouseConditions = this.engine.hosts.some((host) =>
+      host.rules.some(
+        (rule) =>
+          rule.enabled &&
+          visualRuleConditions(rule).some(
+            (condition) =>
+              isVisualRuleMouseFieldId(condition.dataKey) ||
+              isVisualRuleMouseFieldId(condition.compareDataKey),
+          ),
+      ),
+    );
   }
 
   /** Data keys whose rules can change this layer. */
@@ -278,8 +347,81 @@ export class RuntimeVisualRules {
   reset(): void {
     this.#overrides.clear();
     this.#hovered.clear();
+    this.#hoverEntries.clear();
     this.#shown.clear();
     this.#transitions.clear();
+    this.#pointer = null;
+  }
+
+  #withPointer(data: RuntimeData): RuntimeData {
+    return visualRuleMouseData(data, this.#pointer);
+  }
+
+  /** Actual coordinate changes fire edge rules once; leaving merely releases pointer state. */
+  pointerChanged(
+    pointer: RuntimePointerPosition | null,
+    data: RuntimeData,
+  ): FiredRuntimeVisualRule[] {
+    if (!pointer) {
+      this.#hovered.clear();
+      this.#hoverEntries.clear();
+    }
+    if (this.#pointer?.x === pointer?.x && this.#pointer?.y === pointer?.y) return [];
+    const previous = this.#withPointer(data);
+    this.#pointer = pointer;
+    const current = this.#withPointer(data);
+    this.#overrides = releaseVisualRuleOverrides(
+      this.engine,
+      this.#overrides,
+      { data: previous, hovered: this.#hovered },
+      { data: current, hovered: this.#hovered },
+    );
+    if (!pointer) return [];
+    const fired: FiredRuntimeVisualRule[] = firedVisualRuleDataRules(
+      this.engine,
+      current,
+      previous,
+    ).map((fired) => ({
+      hostLayerId: fired.hostLayerId,
+      rule: fired.rule,
+      ...(fired.entered ? { sideEffectsOnly: true } : {}),
+    }));
+    // A guarded hover rule can become true while moving inside the same object/group.
+    for (const host of this.engine.hosts) {
+      for (const rule of host.rules) {
+        if (
+          rule.enabled &&
+          visualRuleTrigger(rule) === 'hover' &&
+          !this.#hoverEntries.has(rule) &&
+          visualRuleScopeLayerIds(this.engine, host.layerId, rule).some((id) =>
+            this.#hovered.has(id),
+          ) &&
+          visualRuleConditionsHold(this.engine.reader, rule, host.layerId, current) &&
+          !visualRuleConditionsHold(this.engine.reader, rule, host.layerId, previous)
+        )
+          fired.push({ hostLayerId: host.layerId, rule, sideEffectsOnly: true });
+      }
+    }
+    return fired;
+  }
+
+  /** Same-instance data updates keep event overrides, but not pointer or hover state. */
+  inheritEventOverrides(
+    previous: RuntimeVisualRules,
+    previousData: RuntimeData,
+    currentData: RuntimeData,
+  ): void {
+    const overrides = new Map(
+      [...previous.#overrides]
+        .filter(([layerId]) => this.#layers.has(layerId))
+        .map(([layerId, effect]) => [layerId, structuredClone(effect)] as const),
+    );
+    this.#overrides = releaseVisualRuleOverrides(
+      this.engine,
+      overrides,
+      { data: previousData, hovered: new Set() },
+      { data: currentData, hovered: new Set() },
+    );
   }
 
   delayMs(fired: FiredRuntimeVisualRule): number {
@@ -293,6 +435,8 @@ export class RuntimeVisualRules {
 
   /** Data moved from `previous` to `current`: returns the change rules that fire. */
   dataChanged(previous: RuntimeData, current: RuntimeData): FiredRuntimeVisualRule[] {
+    previous = this.#withPointer(previous);
+    current = this.#withPointer(current);
     this.#overrides = releaseVisualRuleOverrides(
       this.engine,
       this.#overrides,
@@ -306,10 +450,66 @@ export class RuntimeVisualRules {
     }));
   }
 
-  hoverChanged(layerId: string, hovered: boolean, data: RuntimeData): void {
+  /** A coordinated template starts Off: matching data actions become active on its first Take. */
+  dataEntered(data: RuntimeData): FiredRuntimeVisualRule[] {
+    data = this.#withPointer(data);
+    return this.engine.hosts.flatMap((host) =>
+      host.rules
+        .filter(
+          (rule) =>
+            rule.enabled &&
+            visualRuleTrigger(rule) === 'data' &&
+            !isVisualRuleEdgeDataRule(rule) &&
+            visualRuleConditionsHold(this.engine.reader, rule, host.layerId, data),
+        )
+        .map((rule) => ({ hostLayerId: host.layerId, rule, sideEffectsOnly: true })),
+    );
+  }
+
+  /** Hover side effects run on entry, rather than once for every rendered frame. */
+  hoverEntered(layerId: string, data: RuntimeData): FiredRuntimeVisualRule[] {
+    data = this.#withPointer(data);
+    return this.engine.hosts.flatMap((host) =>
+      host.rules.flatMap((rule) => {
+        if (
+          !visualRuleScopeLayerIds(this.engine, host.layerId, rule).includes(layerId) ||
+          !this.#hoverEntries.delete(rule)
+        )
+          return [];
+        return rule.enabled &&
+          visualRuleTrigger(rule) === 'hover' &&
+          visualRuleConditionsHold(this.engine.reader, rule, host.layerId, data)
+          ? [{ hostLayerId: host.layerId, rule, sideEffectsOnly: true }]
+          : [];
+      }),
+    );
+  }
+
+  hoverChanged(
+    layerId: string,
+    hovered: boolean,
+    data: RuntimeData,
+    relatedHostLayerId?: string,
+  ): void {
+    data = this.#withPointer(data);
     const before = new Set(this.#hovered);
-    if (hovered) this.#hovered.add(layerId);
-    else this.#hovered.delete(layerId);
+    if (hovered) {
+      if (relatedHostLayerId) this.#hovered.delete(relatedHostLayerId);
+      this.#hovered.add(layerId);
+    } else {
+      this.#hovered.delete(layerId);
+      if (relatedHostLayerId) this.#hovered.add(relatedHostLayerId);
+    }
+    for (const host of this.engine.hosts) {
+      for (const rule of host.rules) {
+        if (!rule.enabled || visualRuleTrigger(rule) !== 'hover') continue;
+        const members = visualRuleScopeLayerIds(this.engine, host.layerId, rule);
+        const wasHovered = members.some((id) => before.has(id));
+        const isHovered = members.some((id) => this.#hovered.has(id));
+        if (!isHovered) this.#hoverEntries.delete(rule);
+        else if (!wasHovered) this.#hoverEntries.add(rule);
+      }
+    }
     this.#overrides = releaseVisualRuleOverrides(
       this.engine,
       this.#overrides,
@@ -321,9 +521,15 @@ export class RuntimeVisualRules {
   eventFired(
     trigger: Exclude<VisualRuleTrigger, 'data' | 'hover'>,
     data: RuntimeData,
-    scope: { hostLayerId?: string; eventId?: string } = {},
+    scope: {
+      hostLayerId?: string;
+      relatedHostLayerId?: string;
+      eventId?: string;
+      timerAlarmOwnerLayerId?: string;
+      keyboard?: import('@ograf-editor/scene-model').VisualRuleKeyboardInput;
+    } = {},
   ): FiredRuntimeVisualRule[] {
-    return firedVisualRuleEventRules(this.engine, trigger, data, scope);
+    return firedVisualRuleEventRules(this.engine, trigger, this.#withPointer(data), scope);
   }
 
   /** Runs a fired rule's visibility and property actions; returns the rest for the caller. */
@@ -335,11 +541,26 @@ export class RuntimeVisualRules {
         fired.rule.actions,
         fired.hostLayerId,
         (layerId) => this.visible(layerId),
+        fired.rule,
       );
     return fired.rule.actions.filter(isVisualRuleSideEffectAction);
   }
 
-  #baseValue(layer: CompiledLayer, property: string, data: RuntimeData): unknown {
+  #baseValue(
+    layer: CompiledLayer,
+    property: string,
+    data: RuntimeData,
+    at: number,
+    baseTransform = this.#baseTransform,
+  ): unknown {
+    if (isLayerRuleProperty(property))
+      return layerRuleNeutralValue(
+        property,
+        layerRuleGeometryProperty(property)
+          ? (baseTransform?.(layer, at) ??
+              [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]?.transform)
+          : undefined,
+      );
     if (property === 'dropShadowColor')
       return resolveLayerBindingEffects(layer, data).dropShadowColor;
     if (parseEffectProperty(property))
@@ -368,8 +589,8 @@ export class RuntimeVisualRules {
   }
 
   /** Recomputes rule output and starts transitions for values that changed. */
-  update(data: RuntimeData, at: number): void {
-    const states = collectVisualRuleStates(this.engine, data, this.#hovered);
+  update(data: RuntimeData, at: number, baseTransform = this.#baseTransform): void {
+    const states = collectVisualRuleStates(this.engine, this.#withPointer(data), this.#hovered);
     const next = new Map<string, VisualRuleEffect>();
     for (const layerId of new Set([...states.keys(), ...this.#overrides.keys()])) {
       const merged = mergeVisualRuleEffects(states.get(layerId), this.#overrides.get(layerId));
@@ -387,10 +608,14 @@ export class RuntimeVisualRules {
       for (const property of properties) {
         const had = before !== undefined && property in before.properties;
         const has = after !== undefined && property in after.properties;
-        const target = has ? after!.properties[property] : this.#baseValue(layer, property, data);
+        const target = has
+          ? after!.properties[property]
+          : this.#baseValue(layer, property, data, at, baseTransform);
         const shown =
           this.#sample(layerId, property, at)?.value ??
-          (had ? before!.properties[property] : this.#baseValue(layer, property, data));
+          (had
+            ? before!.properties[property]
+            : this.#baseValue(layer, property, data, at, baseTransform));
         if (sameValue(shown, target)) continue;
         const frames =
           (has ? after!.transitionFrames[property] : before?.transitionFrames[property]) ?? 0;

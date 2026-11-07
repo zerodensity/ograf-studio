@@ -3,14 +3,138 @@ import {
   computeKeyframeFrames,
   createFieldDefinition,
   createLayerOfKind,
+  createLayerKeyframe,
+  defaultTransformForRole,
   createProject,
   createMediaCue,
   getEffectStack,
   getLayerTransformAtFrame,
+  buildComponentDefinition,
+  instantiateComponentDefinition,
+  linkExistingComponentLayers,
 } from '@ograf-editor/scene-model';
 import { AuthoringSession, RevisionConflictError } from './session';
 
 describe('AuthoringSession', () => {
+  it('authors text on an editable path atomically and protects supported combinations', () => {
+    const project = createProject();
+    const path = createLayerOfKind('path');
+    const text = createLayerOfKind('text');
+    project.compositions[0]!.layers.push(path, text);
+    const session = new AuthoringSession(project);
+    const link = { sourceLayerId: path.id, startOffset: 12, alignment: 'center' as const };
+    const result = session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'set_layer_layout', layerId: text.id, textPath: link }],
+    });
+    expect(
+      result.project.compositions[0]!.layers.find((item) => item.id === text.id)?.textPath,
+    ).toEqual(link);
+    expect(() =>
+      session.apply({
+        expectedRevision: 1,
+        operations: [{ type: 'remove_layer', layerId: path.id }],
+      }),
+    ).toThrow(/Choose a path/);
+    expect(() =>
+      session.apply({
+        expectedRevision: 1,
+        operations: [{ type: 'update_element', layerId: text.id, patch: { content: 'one\ntwo' } }],
+      }),
+    ).toThrow(/single line/);
+    const cleared = session.apply({
+      expectedRevision: 1,
+      operations: [
+        { type: 'set_layer_layout', layerId: text.id, textPath: null },
+        { type: 'remove_layer', layerId: path.id },
+      ],
+    });
+    expect(
+      cleared.project.compositions[0]!.layers.find((item) => item.id === text.id)?.textPath,
+    ).toBeNull();
+  });
+  it.each(['create_clock', 'create_countdown'] as const)(
+    'replays seeded %s recipe with identical IDs and clock data',
+    (type) => {
+      const session = new AuthoringSession(createProject());
+      const operations = [
+        {
+          type,
+          name: 'Stable',
+          identitySeed: 'recipe-12345678-1234-4567-8912-123456789012',
+          referenceTimeMs: 1700000000000,
+        },
+      ] as const;
+      const projected = session.apply({
+        expectedRevision: 0,
+        operations: [...operations],
+        dryRun: true,
+      });
+      const committed = session.apply({ expectedRevision: 0, operations: [...operations] });
+      expect(committed.project).toEqual(projected.project);
+      expect(committed.summary.generatedIds).toEqual(projected.summary.generatedIds);
+    },
+  );
+  it('updates a component with a newly added mask in place and restores it exactly through undo/redo', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const panel = createLayerOfKind('rectangle');
+    panel.keyframes = [createLayerKeyframe(0, defaultTransformForRole('rectangle', 'step'))];
+    panel.name = 'Panel';
+    composition.layers.push(panel);
+    const asset = buildComponentDefinition(composition, [panel.id], 'Panel component');
+    composition.components.push(asset);
+    const original = linkExistingComponentLayers(composition, asset, [panel.id]);
+    const sibling = instantiateComponentDefinition(composition, asset);
+    composition.layers.push(...sibling.layers);
+    const mask = createLayerOfKind('rectangle');
+    mask.keyframes = [createLayerKeyframe(0, defaultTransformForRole('rectangle', 'step'))];
+    mask.name = 'New mask';
+    composition.layers.push(mask);
+    panel.mask = { sourceLayerId: mask.id, mode: 'alpha', inverted: false };
+    const session = new AuthoringSession(project, 'component-new-child-update');
+    const before = session.snapshot().project;
+    const updated = session.apply({
+      expectedRevision: 0,
+      operations: [
+        {
+          type: 'update_component_from_layers',
+          componentId: asset.id,
+          layerIds: [panel.id, mask.id],
+        },
+      ],
+    });
+    expect(updated.validation.errors).toEqual([]);
+    const after = updated.project;
+    const result = after.compositions[0]!;
+    expect(result.layers.filter((layer) => layer.id === mask.id)).toHaveLength(1);
+    expect(result.layers.find((layer) => layer.id === mask.id)!.componentLink).toMatchObject({
+      instanceId: original.instanceId,
+      sourceLayerId: mask.id,
+    });
+    const siblingMask = result.layers.filter(
+      (layer) =>
+        layer.componentLink?.instanceId === sibling.instanceId &&
+        layer.componentLink.sourceLayerId === mask.id,
+    );
+    expect(siblingMask).toHaveLength(1);
+    expect(
+      result.layers.find((layer) => layer.id === sibling.layerIds[panel.id])!.mask?.sourceLayerId,
+    ).toBe(siblingMask[0]!.id);
+    expect(session.undo(1).project).toEqual(before);
+    expect(session.redo(2).project).toEqual(after);
+    const repeated = session.apply({
+      expectedRevision: 3,
+      operations: [
+        {
+          type: 'update_component_from_layers',
+          componentId: asset.id,
+          layerIds: [panel.id, mask.id],
+        },
+      ],
+    });
+    expect(repeated.project).toEqual(after);
+  });
   it('authors one synchronized effects stack across a persistent canvas group', () => {
     const project = createProject(),
       composition = project.compositions[0]!,
@@ -365,8 +489,8 @@ describe('AuthoringSession', () => {
       recipe: 'lower-third',
       name: 'Election Result',
     });
-    expect(created.project.compositions[0]!.layers).toHaveLength(4);
-    expect(created.summary.generatedIds.filter((entry) => entry.kind === 'layer')).toHaveLength(4);
+    expect(created.project.compositions[0]!.layers).toHaveLength(5);
+    expect(created.summary.generatedIds.filter((entry) => entry.kind === 'layer')).toHaveLength(5);
 
     const headline = created.project.compositions[0]!.layers.find(
       (layer) => layer.semantics.role === 'headline',
@@ -407,10 +531,10 @@ describe('AuthoringSession', () => {
     expect(composition.designSystem.tokens.length).toBeGreaterThan(20);
     expect(
       styled.summary.generatedIds.filter((entry) => entry.kind === 'design-token'),
-    ).toHaveLength(composition.designSystem.tokens.length);
+    ).toHaveLength(0); // The starter already installed Brand Kit tokens; changing packs reuses IDs.
     expect(
       composition.layers.find((layer) => layer.semantics.role === 'headline')?.element,
-    ).toMatchObject({ type: 'text', fontSize: 68, fontWeight: 800 });
+    ).toMatchObject({ type: 'text', fontSize: 68, fontWeight: 900 });
     expect(styled.validation.valid).toBe(true);
   });
 
@@ -434,14 +558,16 @@ describe('AuthoringSession', () => {
     ]);
     expect(
       result.summary.semanticBlocks.every(
-        (block) => Object.keys(block.layers).length > 0 && Object.keys(block.fields).length > 0,
+        (block) =>
+          Object.keys(block.layers).length > 0 &&
+          (block.recipe === 'clock' || Object.keys(block.fields).length > 0),
       ),
     ).toBe(true);
     const ticker = result.summary.semanticBlocks.find((block) => block.recipe === 'ticker')!;
     const crawl = result.project.compositions[0]!.layers.find(
       (layer) => layer.id === ticker.layers.crawl,
     )!;
-    expect(crawl.loop?.tracks.x).toHaveLength(2);
+    expect(crawl.element.type === 'ticker' && crawl.element.speedPixelsPerSecond).toBe(240);
     expect(result.validation.valid).toBe(true);
   });
 
@@ -1508,10 +1634,10 @@ describe('AuthoringSession', () => {
     });
     const refreshedInstance = refreshed.summary.componentInstances[0]!;
     const refreshedLayerId = Object.values(refreshedInstance.layers)[0]!;
-    expect(refreshedLayerId).not.toBe(firstLayerId);
+    expect(refreshedLayerId).toBe(firstLayerId);
     expect(
-      refreshed.project.compositions[0]!.layers.find((layer) => layer.id === firstLayerId),
-    ).toBeUndefined();
+      refreshed.project.compositions[0]!.layers.filter((layer) => layer.id === firstLayerId),
+    ).toHaveLength(1);
     expect(
       refreshed.project.compositions[0]!.layers.find((layer) => layer.id === refreshedLayerId)!
         .element,

@@ -28,8 +28,9 @@ describe('dockable Rules pane', () => {
     const duplicatedId = useProjectStore.getState().duplicateLayerVisualRule(layer.id, ruleId!);
     const rules = useProjectStore.getState().project.compositions[0]!.layers[0]!.visualRules;
     expect(rules).toHaveLength(2);
+    expect(rules[0]).toMatchObject({ id: ruleId, name: 'Rule #1' });
     expect(duplicatedId).not.toBe(ruleId);
-    expect(rules[1]).toMatchObject({ id: duplicatedId, name: 'Visual rule copy' });
+    expect(rules[1]).toMatchObject({ id: duplicatedId, name: 'Rule #2' });
     expect(rules[1]!.actions).not.toBe(rules[0]!.actions);
   });
 
@@ -126,19 +127,38 @@ describe('dockable Rules pane', () => {
     expect(validateProject(updated).errors).toEqual([]);
   });
 
-  it('keeps one rule editor to two compact rows', () => {
+  it('creates a rule directly in the compact editor with an editable object or group target', () => {
     const panel = source('./RulesPanel.tsx');
     const css = source('./RulesPanel.css');
-    expect(panel).toContain('aria-label="New rule target object"');
-    expect(panel).toContain('addRule(targetLayerId, newTrigger)');
+    expect(panel).toContain('onClick={createRule}');
+    expect(panel).toContain('addRule(newRuleOwner.id)');
+    expect(panel).toContain('setExpandedId(`object:${newRuleOwner.id}:${ruleId}`)');
+    expect(panel).toContain('ariaLabel="Rule target"');
+    expect(panel).toContain('options={ownerTargetOptions}');
+    expect(panel).not.toContain('aria-label="New rule target object"');
     expect(panel).toContain('className="rules-editor-row"');
-    expect(panel).toContain('type="color"');
-    expect(panel).toContain('aria-label="Duplicate action"');
+    expect(panel).toContain('<ColorInput');
+    expect(panel).toContain('aria-label={`Duplicate action ${actionIndex + 1}`}');
     expect(panel).toContain('title="Duplicate rule"');
     expect(panel).toContain('actions.splice(actionIndex + 1, 0, structuredClone(action))');
     expect(css).toMatch(/\.rules-editor-row,[\s\S]*display:\s*flex;/);
     expect(css).toMatch(/\.rules-actions\s*\{[^}]*display:\s*grid;/s);
     expect(css).toMatch(/\.rules-action\s*\{[^}]*width:\s*100%;/s);
     expect(css).toMatch(/\.rules-owner\s*\{[^}]*max-width:\s*none;[^}]*white-space:\s*nowrap;/s);
+  });
+
+  it('authors alarm rules in the existing editor and exposes linked Properties rows without a separate dialog', () => {
+    const rules = source('./RulesPanel.tsx');
+    const alarms = source('./ClockTimerAlarms.tsx');
+    expect(rules).toContain("{ label: 'Timers', options: [['timer-alarm', 'Timer alarm']] }");
+    expect(rules).toContain('aria-label="Alarm source timer"');
+    expect(rules).toContain('aria-label="Alarm crossing direction"');
+    expect(rules).toContain('setExpandedId(`object:${ruleRequest.layerId}:${ruleRequest.ruleId}`)');
+    expect(alarms).toContain('sortedTimerAlarmRules(composition.layers, layerId, clock.mode)');
+    expect(alarms).toContain('checked={rule.enabled}');
+    expect(alarms).toContain('.revealRule(composition.id, owner.id, rule.id)');
+    expect(alarms).toContain('removeRule(owner.id, rule.id)');
+    expect(alarms).not.toContain('<dialog');
+    expect(alarms).not.toContain('clock.alarms');
   });
 });

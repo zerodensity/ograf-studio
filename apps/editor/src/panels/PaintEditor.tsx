@@ -1,5 +1,7 @@
+import { ColorInput } from '../components/ColorInput';
 import { WithWarning } from '../components/WarningBadge';
-import { WebcamPreviewControls } from '../components/WebcamPreviewControls';
+import { LiveInputControls } from '../components/LiveInputControls';
+import { defaultLiveMediaInput, liveMediaInputNames } from '../state/liveMediaInputs';
 import { PropertyRow } from '../components/PropertyRow';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -19,6 +21,8 @@ import { shaderPaintWithPatch } from '../state/shaderResources';
 import { SHADER_RESOURCE_MIME, shaderPaintFromResourceDrag } from '../state/shaderDrag';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { mediaPaintReadyToCommit } from './mediaPaintDraft';
+import { SourceCropEditor } from './SourceCropEditor';
+import { MillisecondDurationInput } from './MillisecondDurationControl';
 import { MEDIA_FILE_ACCEPT, mediaFileImportError } from './mediaFileImport';
 import './PaintEditor.css';
 
@@ -27,9 +31,13 @@ const MEDIA_PAINT_WARNING =
 
 interface PaintEditorProps {
   value: Paint | undefined;
+  /** Only set for a paint on an actual scene layer, not a component source or shared style. */
+  layerId?: string;
   onChange: (value: Paint | undefined) => void;
   /** Media keeps its original pixels until a shader fill is chosen. */
   media?: boolean;
+  /** Optional native appearance, such as per-dataset chart colors. */
+  originalLabel?: string;
   allowShader?: boolean;
   allowGradient?: boolean;
   allowMedia?: boolean;
@@ -37,15 +45,21 @@ interface PaintEditorProps {
   disabled?: boolean;
   onShaderParameterChange?: (name: string, value: ShaderParameterValue) => void;
   onShaderParameterPreview?: (name: string, value: ShaderParameterValue) => void;
+  onEditShader?: () => void;
   shaderAnimationActive?: boolean;
 }
 
-const asColor = (value: string) => (/^#[0-9a-f]{6}$/i.test(value) ? value : '#000000');
+const isNonePaint = (value: Paint | undefined) =>
+  typeof value === 'string' &&
+  (['transparent', 'none'].includes(value.trim().toLowerCase()) ||
+    /^#(?:[\da-f]{6}00|[\da-f]{3}0)$/i.test(value.trim()));
 
 export function PaintEditor({
   value,
+  layerId,
   onChange,
   media = false,
+  originalLabel,
   allowShader = true,
   allowGradient = true,
   allowMedia = true,
@@ -53,6 +67,7 @@ export function PaintEditor({
   disabled = false,
   onShaderParameterChange,
   onShaderParameterPreview,
+  onEditShader,
   shaderAnimationActive = false,
 }: PaintEditorProps) {
   const [dragOver, setDragOver] = useState(false);
@@ -67,10 +82,26 @@ export function PaintEditor({
       : typeof value === 'string'
         ? 'solid'
         : value.type;
+  const selectedKind =
+    activeMedia?.source.kind === 'live' ? 'live' : isNonePaint(value) ? 'none' : kind;
+  const composition = useActiveComposition();
   const gradient = isGradientPaint(value) ? value : null;
   const updateGradient = (patch: Partial<GradientPaint>) => {
     if (gradient) onChange({ ...gradient, ...patch });
   };
+  const currentState = useProjectStore.getState();
+  const tokenLayer = currentState.project.compositions
+    .find((item) => item.id === currentState.activeCompositionId)
+    ?.layers.find((item) => item.id === layerId);
+  const tokenFill =
+    label === 'Fill' &&
+    tokenLayer &&
+    ['rectangle', 'ellipse', 'path', 'pattern', 'text'].includes(tokenLayer.element.type);
+  const colorTokenTarget = tokenFill
+    ? tokenLayer.element.type === 'text'
+      ? 'color'
+      : 'fill'
+    : null;
 
   return (
     <div className="paint-editor">
@@ -119,33 +150,47 @@ export function PaintEditor({
               ? 'Choose the text outline paint. Its shader follows editable characters and uses the Stroke Width below. Drop a shader from Resources onto this row to replace it.'
               : activeMedia
                 ? 'Media is this object’s fill. Choosing or dropping a shader here replaces Media; drop the shader onto Effects stack to process the video instead.'
-                : 'Choose the object fill. Drop a shader from Resources onto this row to apply it. Shader controls are declared with #pragma ograf.'
+                : 'Choose the object fill. None keeps a transparent shape with its outline and effects. Drop a shader from Resources onto this row to apply it.'
           }
           className="inspector-row"
         >
           <span>{label}</span>
           <select
-            value={kind}
+            value={selectedKind}
             disabled={disabled}
             onChange={(event) => {
               const next = event.target.value;
+              if (next === 'live') {
+                setMediaDraft(null);
+                onChange(
+                  createMediaPaint({
+                    source: { kind: 'live', tag: defaultLiveMediaInput(composition) },
+                  }),
+                );
+                return;
+              }
               if (next === 'media') {
                 setMediaDraft(createMediaPaint());
                 return;
               }
               setMediaDraft(null);
               onChange(
-                next === 'original'
-                  ? undefined
-                  : next === 'shader'
-                    ? createShaderPaint()
-                    : next === 'solid'
-                      ? '#3b3f4a'
-                      : createDefaultGradient(next as GradientPaint['type']),
+                next === 'none'
+                  ? 'transparent'
+                  : next === 'original'
+                    ? undefined
+                    : next === 'shader'
+                      ? createShaderPaint()
+                      : next === 'solid'
+                        ? '#3b3f4a'
+                        : createDefaultGradient(next as GradientPaint['type']),
               );
             }}
           >
-            {media && <option value="original">Original pixels</option>}
+            {!media && <option value="none">None</option>}
+            {(media || originalLabel) && (
+              <option value="original">{originalLabel ?? 'Original pixels'}</option>
+            )}
             {!media && (
               <>
                 <option value="solid">Solid</option>
@@ -160,6 +205,7 @@ export function PaintEditor({
             )}
             {allowShader && <option value="shader">Shader</option>}
             {allowMedia && <option value="media">Media</option>}
+            {allowMedia && <option value="live">Live input</option>}
           </select>
         </PropertyRow>
       </div>
@@ -177,6 +223,7 @@ export function PaintEditor({
           ) : null}
           <MediaPaintControls
             value={activeMedia}
+            layerId={layerId}
             disabled={disabled}
             onChange={(next) => {
               if (!isMediaPaint(next)) return;
@@ -199,13 +246,15 @@ export function PaintEditor({
           )}
           <ShaderSourceEditor
             element={value}
+            showSourceEditor={false}
+            onEditShader={onEditShader}
             labelPrefix={label === 'Fill' ? 'Shader' : `${label} shader`}
             onChange={(patch) => onChange(shaderPaintWithPatch(value, patch))}
             onParameterChange={onShaderParameterChange}
             onParameterPreview={onShaderParameterPreview}
           />
         </>
-      ) : typeof value === 'string' ? (
+      ) : typeof value === 'string' && selectedKind !== 'none' ? (
         <PropertyRow
           help={
             'Solid fill color inside the shape. For multiple colors or moving highlights, switch the fill type to a gradient.'
@@ -213,10 +262,17 @@ export function PaintEditor({
           className="inspector-row"
         >
           <span>Color</span>
-          <input
-            type="color"
-            value={asColor(value)}
-            onInput={(event) => onChange(event.currentTarget.value)}
+          <ColorInput
+            label={`${label} color`}
+            value={value}
+            disabled={disabled}
+            onChange={onChange}
+            onTokenSelect={
+              layerId && colorTokenTarget
+                ? (tokenId) =>
+                    useProjectStore.getState().bindDesignToken(layerId, tokenId, colorTokenTarget)
+                : undefined
+            }
           />
         </PropertyRow>
       ) : isGradientPaint(value) ? (
@@ -239,60 +295,78 @@ export function PaintEditor({
           <div className="paint-stops">
             {value.stops.map((stop, index) => (
               <div className="paint-stop" key={index}>
-                <input
-                  aria-label={`Stop ${index + 1} color`}
-                  type="color"
-                  value={asColor(stop.color)}
-                  onInput={(event) =>
-                    updateGradient({
-                      stops: value.stops.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, color: event.currentTarget.value } : item,
-                      ),
-                    })
-                  }
-                />
-                <input
-                  aria-label={`Stop ${index + 1} offset`}
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={Math.round(stop.offset * 100)}
-                  onChange={(event) =>
-                    updateGradient({
-                      stops: value.stops.map((item, itemIndex) =>
-                        itemIndex === index
-                          ? {
-                              ...item,
-                              offset: Math.max(0, Math.min(1, Number(event.target.value) / 100)),
-                            }
-                          : item,
-                      ),
-                    })
-                  }
-                />
-                <span>%</span>
-                <input
-                  aria-label={`Stop ${index + 1} opacity`}
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={Math.round(stop.opacity * 100)}
-                  onChange={(event) =>
-                    updateGradient({
-                      stops: value.stops.map((item, itemIndex) =>
-                        itemIndex === index
-                          ? {
-                              ...item,
-                              opacity: Math.max(0, Math.min(1, Number(event.target.value) / 100)),
-                            }
-                          : item,
-                      ),
-                    })
-                  }
-                />
-                <span>% alpha</span>
+                <label className="paint-stop-control">
+                  <span>Color</span>
+                  <ColorInput
+                    label={`Stop ${index + 1} color`}
+                    value={stop.color}
+                    disabled={disabled}
+                    onChange={(color) =>
+                      updateGradient({
+                        stops: value.stops.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, color } : item,
+                        ),
+                      })
+                    }
+                    onTokenSelect={
+                      layerId && tokenFill
+                        ? (tokenId) =>
+                            useProjectStore
+                              .getState()
+                              .bindDesignToken(layerId, tokenId, `fill.stops[${index}].color`)
+                        : undefined
+                    }
+                  />
+                </label>
+                <label className="paint-stop-control">
+                  <span>Position %</span>
+                  <input
+                    aria-label={`Stop ${index + 1} offset`}
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={Math.round(stop.offset * 100)}
+                    onChange={(event) =>
+                      updateGradient({
+                        stops: value.stops.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? {
+                                ...item,
+                                offset: Math.max(0, Math.min(1, Number(event.target.value) / 100)),
+                              }
+                            : item,
+                        ),
+                      })
+                    }
+                  />
+                </label>
+                <label className="paint-stop-control">
+                  <span>Alpha %</span>
+                  <input
+                    aria-label={`Stop ${index + 1} alpha`}
+                    title="100% is opaque; 0% is transparent. Each gradient stop has its own alpha."
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={Math.round(stop.opacity * 100)}
+                    onChange={(event) =>
+                      updateGradient({
+                        stops: value.stops.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? {
+                                ...item,
+                                opacity: Math.max(0, Math.min(1, Number(event.target.value) / 100)),
+                              }
+                            : item,
+                        ),
+                      })
+                    }
+                  />
+                </label>
                 <button
                   type="button"
+                  aria-label={`Delete stop ${index + 1}`}
+                  title={`Delete stop ${index + 1}`}
                   disabled={value.stops.length <= 2}
                   onClick={() =>
                     updateGradient({
@@ -300,22 +374,40 @@ export function PaintEditor({
                     })
                   }
                 >
-                  Delete
+                  ×
                 </button>
               </div>
             ))}
-            <button
-              type="button"
-              onClick={() =>
-                updateGradient({
-                  stops: [...value.stops, { offset: 0.5, color: '#ffffff', opacity: 1 }].sort(
-                    (a, b) => a.offset - b.offset,
-                  ),
-                })
-              }
-            >
-              + Stop
-            </button>
+            <div className="paint-gradient-actions">
+              <button
+                type="button"
+                onClick={() =>
+                  updateGradient({
+                    stops: [...value.stops, { offset: 0.5, color: '#ffffff', opacity: 1 }].sort(
+                      (a, b) => a.offset - b.offset,
+                    ),
+                  })
+                }
+              >
+                + Stop
+              </button>
+              <button
+                type="button"
+                title="Fade the first stop's color and alpha to a fully transparent endpoint."
+                onClick={() => {
+                  const first = value.stops[0]!;
+                  updateGradient({
+                    stops: [
+                      { ...first, offset: 0 },
+                      { offset: 1, color: first.color, opacity: 0 },
+                    ],
+                  });
+                }}
+              >
+                Fade to transparent
+              </button>
+            </div>
+            <p className="paint-alpha-hint">Alpha: 100% opaque · 0% transparent</p>
           </div>
         </>
       ) : null}
@@ -325,10 +417,12 @@ export function PaintEditor({
 
 function MediaPaintControls({
   value,
+  layerId,
   disabled,
   onChange,
 }: {
   value: MediaPaint;
+  layerId?: string;
   disabled: boolean;
   onChange: (value: Paint) => void;
 }) {
@@ -347,14 +441,18 @@ function MediaPaintControls({
   const mediaAssets = composition.assets.filter((asset) => asset.kind === 'media');
   const imageAssets = composition.assets.filter((asset) => asset.kind === 'image');
   const patch = (next: Partial<MediaPaint>) => onChange(createMediaPaint({ ...value, ...next }));
+  const cropReference = value.source.kind === 'clip' ? value.source.src : value.source.fallback;
+  const cropPreview = cropReference?.startsWith('asset:')
+    ? composition.assets.find((asset) => asset.id === cropReference.slice('asset:'.length))?.dataUri
+    : cropReference;
 
   return (
     <div className="media-paint-controls">
       <PropertyRow
-        help="Choose a packaged or URL video clip, or a renderer-owned live source tag. Media paint is always muted."
+        help="Choose a video clip or a live input for this object. Media paint is always muted."
         className="inspector-row"
       >
-        <span>Source type</span>
+        <span>Source</span>
         <WithWarning message={MEDIA_PAINT_WARNING}>
           <select
             value={value.source.kind}
@@ -363,13 +461,13 @@ function MediaPaintControls({
               patch({
                 source:
                   event.target.value === 'live'
-                    ? { kind: 'live', tag: 'programme' }
+                    ? { kind: 'live', tag: defaultLiveMediaInput(composition) }
                     : { kind: 'clip', src: '' },
               })
             }
           >
             <option value="clip">Clip</option>
-            <option value="live">Live</option>
+            <option value="live">Live input</option>
           </select>
         </WithWarning>
       </PropertyRow>
@@ -460,30 +558,19 @@ function MediaPaintControls({
         </>
       ) : (
         <>
-          <PropertyRow
-            help="Renderer-owned identifier exposed through the zd-ograf-media custom element."
-            className="inspector-row"
-          >
-            <span>Live tag</span>
-            <input
-              type="text"
-              value={value.source.tag}
-              disabled={disabled}
-              placeholder="camera.program"
-              onChange={(event) =>
-                patch({
-                  source: {
-                    kind: 'live',
-                    tag: event.target.value,
-                    ...(value.source.kind === 'live' && value.source.fallback
-                      ? { fallback: value.source.fallback }
-                      : {}),
-                  },
-                })
-              }
-            />
-          </PropertyRow>
-          <WebcamPreviewControls tag={value.source.tag} disabled={disabled} />
+          <LiveInputControls
+            inputNames={liveMediaInputNames(composition)}
+            initialName={defaultLiveMediaInput(composition)}
+            currentName={value.source.tag}
+            destination={
+              composition.layers.find((layer) => layer.id === layerId)?.name ?? 'this fill'
+            }
+            disabled={disabled}
+            onUse={(tag) => {
+              patch({ source: { ...value.source, kind: 'live', tag } });
+              return true;
+            }}
+          />
           <PropertyRow
             help="Portable image shown when live media is unavailable."
             className="inspector-row"
@@ -527,6 +614,14 @@ function MediaPaintControls({
           <option value="fill">Stretch</option>
         </select>
       </PropertyRow>
+      <SourceCropEditor
+        layerId={layerId}
+        value={value.crop}
+        src={cropPreview}
+        video={value.source.kind === 'clip'}
+        disabled={disabled}
+        onChange={(crop) => patch({ crop })}
+      />
       <div className="inspector-grid">
         <PropertyRow help="Horizontal focal position." className="inspector-row">
           <span>Position X</span>
@@ -582,42 +677,42 @@ function MediaPaintControls({
               help="Initial offset into the clip in milliseconds."
               className="inspector-row"
             >
-              <span>Offset ms</span>
-              <input
-                type="number"
-                min={0}
-                step={1}
+              <span>Offset</span>
+              <MillisecondDurationInput
+                label="Media offset"
                 value={value.offsetMs}
+                frameRate={composition.frameRate}
                 disabled={disabled}
-                onChange={(event) => patch({ offsetMs: Number(event.target.value) })}
+                onChange={(offsetMs) => patch({ offsetMs: offsetMs ?? value.offsetMs })}
               />
             </PropertyRow>
             <PropertyRow
               help="Optional end trim in milliseconds. Leave blank to use the clip duration."
               className="inspector-row"
             >
-              <span>Trim end ms</span>
-              <input
-                type="number"
-                min={0}
-                value={value.trimEndMs ?? ''}
+              <span>Trim end</span>
+              <MillisecondDurationInput
+                label="Media trim end"
+                value={value.trimEndMs}
+                frameRate={composition.frameRate}
+                allowNull
                 disabled={disabled}
-                onChange={(event) =>
-                  patch({ trimEndMs: event.target.value ? Number(event.target.value) : null })
-                }
+                onChange={(trimEndMs) => patch({ trimEndMs })}
               />
             </PropertyRow>
             <PropertyRow
               help="Composition time in milliseconds when clip playback becomes active."
               className="inspector-row"
             >
-              <span>Timeline start ms</span>
-              <input
-                type="number"
-                min={0}
+              <span>Timeline start</span>
+              <MillisecondDurationInput
+                label="Media timeline start"
                 value={value.timelineStartMs}
+                frameRate={composition.frameRate}
                 disabled={disabled}
-                onChange={(event) => patch({ timelineStartMs: Number(event.target.value) })}
+                onChange={(timelineStartMs) =>
+                  patch({ timelineStartMs: timelineStartMs ?? value.timelineStartMs })
+                }
               />
             </PropertyRow>
           </div>

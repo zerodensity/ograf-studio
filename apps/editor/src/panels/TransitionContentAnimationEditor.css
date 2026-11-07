@@ -1,0 +1,41 @@
+.tr-content-animation {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 4px;
+  margin-block: 5px;
+}
+
+.tr-content-animation-choice,
+.tr-content-animation-options label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.tr-content-animation-choice > span,
+.tr-content-animation-options label > span {
+  color: var(--text-dim);
+  font-size: var(--ui-font-size-compact);
+}
+
+.tr-content-animation select,
+.tr-content-animation input {
+  width: 100%;
+  min-width: 0;
+}
+
+.tr-content-animation-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 4px;
+}
+
+.tr-content-animation-duration {
+  color: var(--text-dim);
+}
+
+.tr-content-animation-error {
+  color: var(--danger, #f19989);
+}

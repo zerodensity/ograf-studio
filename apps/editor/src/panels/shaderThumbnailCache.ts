@@ -1,5 +1,6 @@
 import { createShaderRenderer } from '@ograf-editor/ograf-runtime';
 import type { ShaderPaint } from '@ograf-editor/scene-model';
+import { shaderResourcePreviewPaint } from '../state/shaderResources';
 
 export type ShaderThumbnailResult =
   { kind: 'ready'; dataUrl: string } | { kind: 'error'; message: string };
@@ -40,6 +41,8 @@ const failure = (error: unknown): ShaderThumbnailResult => ({
 /** Stores only small PNG strings/errors. GPU objects never survive a thumbnail request. */
 export class ShaderThumbnailCache {
   #entries = new Map<string, ShaderThumbnailResult>();
+  #pending = new Map<string, Promise<ShaderThumbnailResult>>();
+  #tail: Promise<void> = Promise.resolve();
   #limit: number;
 
   constructor(limit = 32) {
@@ -54,6 +57,28 @@ export class ShaderThumbnailCache {
       this.#entries.set(key, cached);
       return cached;
     }
+    const existing = this.#pending.get(key);
+    if (existing) return existing;
+    // Deferred rows may mount together. Serialize their short-lived snapshots so opening
+    // a large resource list cannot evict active broadcast graphics' WebGL contexts.
+    const job = this.#tail.then(() => this.#render(ownerDocument, paint, key));
+    this.#pending.set(key, job);
+    this.#tail = job.then(
+      () => undefined,
+      () => undefined,
+    );
+    try {
+      return await job;
+    } finally {
+      this.#pending.delete(key);
+    }
+  }
+
+  async #render(
+    ownerDocument: Document,
+    paint: ShaderPaint,
+    key: string,
+  ): Promise<ShaderThumbnailResult> {
     let canvas: HTMLCanvasElement | undefined;
     let renderer: ReturnType<typeof createShaderRenderer> | undefined;
     let result: ShaderThumbnailResult = {
@@ -62,7 +87,10 @@ export class ShaderThumbnailCache {
     };
     try {
       canvas = ownerDocument.createElement('canvas');
-      renderer = createShaderRenderer(canvas, paint, { width: 160, height: 90 });
+      renderer = createShaderRenderer(canvas, shaderResourcePreviewPaint(paint), {
+        width: 160,
+        height: 90,
+      });
       await renderer.ready();
       renderer.render(2000);
       const dataUrl = canvas.toDataURL('image/png');

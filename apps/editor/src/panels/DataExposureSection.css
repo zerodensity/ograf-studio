@@ -1,0 +1,209 @@
+.data-exposure {
+  container-type: inline-size;
+  min-width: 0;
+  font-size: var(--ui-font-size-compact, 11px);
+}
+
+.exposure-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  background: var(--bg-panel);
+}
+
+.exposure-toolbar input,
+.exposure-toolbar select {
+  min-width: 0;
+  height: 25px;
+  color: var(--text);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 2px 5px;
+  font: inherit;
+}
+
+.exposure-toolbar input {
+  flex: 1;
+  width: 0;
+}
+
+.exposure-toolbar select {
+  max-width: 90px;
+}
+
+.exposure-toolbar button {
+  flex: none;
+  width: 23px;
+  height: 25px;
+  padding: 0;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.exposure-toolbar button:hover:not(:disabled) {
+  color: var(--text-heading);
+  border-color: var(--border);
+  background: var(--bg-panel-raised);
+}
+
+.exposure-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.exposure-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px 5px;
+  color: var(--text-dim);
+}
+
+.exposure-summary > :first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exposure-summary > :last-child {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.exposure-tree {
+  padding-bottom: 6px;
+}
+
+.exposure-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 27px;
+  padding-right: 9px;
+  color: var(--text);
+  cursor: default;
+}
+
+.exposure-row:hover {
+  background: var(--bg-hover, rgb(255 255 255 / 5%));
+}
+
+.exposure-item:focus-visible {
+  outline: none;
+}
+
+.exposure-item:focus-visible > .exposure-row {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.exposure-expander {
+  flex: none;
+  width: 15px;
+  height: 23px;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.exposure-expander:disabled {
+  cursor: default;
+}
+
+.exposure-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--text-dim);
+}
+
+.exposure-icon-group {
+  color: #d0b679;
+}
+
+.exposure-icon-layer {
+  color: #bda2db;
+}
+
+.exposure-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exposure-type {
+  flex: none;
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.exposure-status {
+  flex: none;
+  width: 76px;
+  text-align: right;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.exposure-status.is-exposed {
+  color: var(--accent);
+}
+
+.exposure-row input[type='checkbox'] {
+  flex: none;
+  margin: 0 0 0 3px;
+  accent-color: var(--accent);
+}
+
+.exposure-owner {
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--bg-panel-raised) 45%, transparent);
+}
+
+.exposure-owner-count {
+  flex: none;
+  padding-right: 2px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+
+.exposure-internal .exposure-icon-field {
+  opacity: 0.55;
+}
+
+.exposure-empty {
+  margin: 0;
+  padding: 10px 8px;
+  color: var(--text-dim);
+}
+
+@container (max-width: 380px) {
+  .exposure-type {
+    display: none;
+  }
+
+  .exposure-status {
+    width: 66px;
+  }
+}

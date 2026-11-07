@@ -4,6 +4,104 @@
   gap: 4px;
 }
 
+.inspector-component-instance {
+  margin: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent-focus);
+  border-radius: var(--radius-control);
+  background: var(--bg-panel-raised);
+}
+.inspector-component-instance > header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+.inspector-component-instance > header > strong {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inspector-component-link {
+  display: flex;
+  color: var(--accent-focus);
+}
+.inspector-component-link.is-overridden {
+  color: #ddb875;
+}
+.inspector-component-instance > header > small {
+  color: #ddb875;
+}
+.inspector-component-actions .inspector-component-icon,
+.inspector-component-overrides .inspector-component-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  flex: 0 0 26px;
+  padding: 0;
+  font-size: 17px;
+}
+.inspector-component-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-block: 6px;
+}
+.inspector-component-actions button,
+.inspector-component-overrides button {
+  min-height: 24px;
+  padding: 3px 7px;
+  color: var(--text);
+  background: var(--bg-control);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.inspector-component-actions button:hover:not(:disabled),
+.inspector-component-overrides button:hover {
+  border-color: var(--accent-focus);
+  background: var(--bg-hover);
+}
+.inspector-component-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.inspector-component-overrides {
+  display: grid;
+  gap: 4px;
+}
+.inspector-component-overrides > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+}
+.inspector-component-overrides > div > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inspector-component-error {
+  color: #ff9f96;
+  font-size: 11px;
+}
+
+/* Keep the sticky search flush with its scrollport; padded gutters expose scrolling rows. */
+.panel-body:has(> .inspector > .properties-filter) {
+  padding: 0;
+}
+
+.panel-body > .inspector:has(> .properties-filter) {
+  margin: 0;
+}
+
 .properties-filter {
   position: sticky;
   top: 0;
@@ -479,12 +577,112 @@
   white-space: nowrap;
 }
 
+.inspector-brand-origin {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding-left: 0;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.inspector-brand-origin.is-inherited {
+  color: var(--accent);
+}
+.inspector-brand-origin.is-overridden {
+  color: #e9bd76;
+}
+.inspector-brand-origin button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.inspector-brand-origin button:hover {
+  background: var(--bg-hover);
+}
+.inspector-origin-icon {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+}
+.inspector-brand-linked-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 7px;
+  padding: 2px 5px;
+  min-height: var(--ui-row-height);
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+}
+.inspector-brand-linked-summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.inspector-rich-background-button {
+  align-self: flex-start;
+  min-height: var(--ui-control-height);
+  margin: 3px 4px;
+  padding: 1px 5px;
+  font: inherit;
+}
+
 .inspector-row > :is(input, select, textarea, button, .inspector-z-order-control) {
   width: calc(100% - 8px);
   min-width: 0;
   align-self: center;
   justify-self: stretch;
   margin: 1px 4px;
+}
+
+.inspector-animated-value {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  align-items: center;
+  min-width: 0;
+  gap: 3px;
+  padding: 1px 4px;
+}
+
+.inspector-animated-value > input:not([type='range']) {
+  width: 100%;
+  min-width: 0;
+  height: var(--ui-control-height);
+  box-sizing: border-box;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--bg-canvas);
+  color: var(--text);
+}
+
+.inspector-alpha-value {
+  grid-template-columns: minmax(0, 1fr) 54px 22px;
+}
+
+.inspector-alpha-value > input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.inspector-alpha-value .inspector-alpha-number input {
+  height: var(--ui-control-height);
+  box-sizing: border-box;
+  padding: 1px 4px;
 }
 
 .inspector-row > :is(input:not([type='range']):not([type='checkbox']), select, button) {

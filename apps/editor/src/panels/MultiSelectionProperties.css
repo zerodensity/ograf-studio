@@ -1,0 +1,16 @@
+.multi-selection-properties {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  overflow: auto;
+}
+
+.multi-selection-properties p {
+  color: var(--text-dim);
+  margin: 0 0 4px;
+}
+
+.multi-selection-properties h4 {
+  margin: 6px 0;
+}

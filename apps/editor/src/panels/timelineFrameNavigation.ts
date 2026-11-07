@@ -1,5 +1,33 @@
 import { useTimelineStore } from '../state/timelineStore';
 import { computeKeyframeFrames, type Composition } from '@ograf-editor/scene-model';
+import { parseDurationInput, type DurationUnit } from './durationInput';
+import { useSelectionStore } from '../state/selectionStore';
+import { timelineAnimationTracks, timelineLayerKeyframes } from './timelinePropertyVisibility';
+
+/** Keep a primary key inspector in the playhead's domain without disturbing channel selection. */
+export function synchronizeTimelineKeySelection(composition: Composition, frame: number): void {
+  if (useTimelineStore.getState().previewLoopLayerId !== null) return;
+  const selection = useSelectionStore.getState();
+  if (!selection.selectedLayerKeyframeId || !selection.selectedLayerId) return;
+  const layer = composition.layers.find((candidate) => candidate.id === selection.selectedLayerId);
+  const property = selection.selectedLayerProperty;
+  const keys = layer
+    ? property
+      ? (timelineAnimationTracks(layer)[property] ?? [])
+      : timelineLayerKeyframes(layer)
+    : [];
+  const at = Math.max(0, Math.round(frame));
+  const primary = keys.find((key) => key.id === selection.selectedLayerKeyframeId);
+  if (primary?.frame === at) return;
+  const target = keys.find((key) => key.frame === at);
+  useSelectionStore.setState({
+    selectedLayerKeyframeId: target?.id ?? null,
+    selectedLayerKeyframes: target
+      ? [{ layerId: selection.selectedLayerId, keyframeId: target.id, property }]
+      : [],
+    deselectionUndo: null,
+  });
+}
 
 interface ArrowModifiers {
   key: string;
@@ -8,6 +36,36 @@ interface ArrowModifiers {
   metaKey: boolean;
   shiftKey: boolean;
   isComposing?: boolean;
+}
+
+/** Explicit navigation pauses authoring playback and leaves local-loop preview mode. */
+export function seekTimelineFrame(frame: number): number | null {
+  const controller = useTimelineStore.getState().controller;
+  if (!controller || !Number.isFinite(frame)) return null;
+  controller.pause();
+  const state = useTimelineStore.getState();
+  state.setPreviewLoopLayerId(null);
+  const target = Math.max(0, Math.min(state.durationFrames, Math.round(frame)));
+  controller.seek(target);
+  return target;
+}
+
+/** Modifier clicks keep their selection-only behavior for range and multi-key editing. */
+export function seekTimelineKeyframeOnSelect(
+  frame: number,
+  modifiers: Pick<ArrowModifiers, 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>,
+): number | null {
+  if (modifiers.altKey || modifiers.ctrlKey || modifiers.metaKey || modifiers.shiftKey) return null;
+  return seekTimelineFrame(frame);
+}
+
+export function seekTimelineTime(
+  input: string,
+  frameRate: number,
+  unit: DurationUnit,
+): number | null {
+  const parsed = parseDurationInput(input, frameRate, unit);
+  return parsed ? seekTimelineFrame(parsed.frames) : null;
 }
 
 export function timelineFrameDirection(event: ArrowModifiers): -1 | 1 | null {
@@ -85,7 +143,7 @@ export function handleTimelinePlaybackKey(
 export function timelineTargetOwnsArrows(target: Element): boolean {
   return Boolean(
     target.closest(
-      'input, textarea, select, [role="textbox"], [role="spinbutton"], [role="slider"], [role="separator"], [contenteditable]:not([contenteditable="false"])',
+      'input, textarea, select, [data-duration-unit-cycle], [role="textbox"], [role="spinbutton"], [role="slider"], [role="separator"], [contenteditable]:not([contenteditable="false"])',
     ),
   );
 }

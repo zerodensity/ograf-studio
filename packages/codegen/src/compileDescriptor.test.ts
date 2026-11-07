@@ -8,6 +8,7 @@ import {
   createLayerKeyframe,
   createLayerPropertyKeyframe,
   createLayerOfKind,
+  createLayerVisualRule,
   createMediaCue,
   createAsset,
   createTransition,
@@ -38,6 +39,36 @@ const POSE = {
 };
 
 describe('compileDescriptor', () => {
+  it('retains keyboard events, guards, delayed targets and data actions in standalone output', () => {
+    const layer = createLayerOfKind('rectangle');
+    const field = createFieldDefinition('integer', { key: 'count', defaultValue: 0 });
+    layer.visualRules = [
+      createLayerVisualRule({
+        trigger: 'key-down',
+        keyboard: { key: 'A', ctrl: true, alt: false, repeat: true },
+        delayFrames: 7,
+        conditions: [{ fieldId: field.id, sourcePath: [], operator: 'less-than', value: 5 }],
+        actions: [
+          { type: 'set-data', fieldId: field.id, mode: 'increase', value: 1 },
+          { type: 'toggle-visibility', targetLayerId: layer.id, transitionFrames: 8 },
+        ],
+      }),
+    ];
+    const descriptor = compileDescriptor(compositionWith([layer], { dataFields: [field] }));
+    expect(descriptor.layers[0]!.visualRules?.[0]).toMatchObject({
+      trigger: 'key-down',
+      keyboard: { key: 'a', ctrl: true, alt: false, repeat: true },
+      delayFrames: 7,
+      conditions: [{ dataKey: 'count', operator: 'less-than', value: 5 }],
+      actions: [
+        { type: 'set-data', dataKey: 'count', mode: 'increase', value: 1 },
+        { type: 'toggle-visibility', targetLayerId: layer.id, transitionFrames: 8 },
+      ],
+    });
+    expect(descriptor.layers[0]!.visualRules?.[0]?.keyboard).not.toBe(
+      layer.visualRules[0]!.keyboard,
+    );
+  });
   it('publishes typewriter replay duration on its OGraf custom action', () => {
     const text = createLayerOfKind('text');
     if (text.element.type !== 'text') throw new Error('Expected text layer.');

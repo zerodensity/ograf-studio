@@ -1,8 +1,17 @@
-import type { Element } from './types';
+import type { Element, Paint } from './types';
 import { inspectShaderSource, resolveShaderParameters, getElementShaderPaint } from './shader';
-import { isGradientPaint } from './paint';
-import { normalizeShaderParameterValue, shaderColorToHex } from './shaderParameters';
+import { isGradientPaint, validatePaint } from './paint';
+import {
+  normalizeShaderParameterValue,
+  SHADER_PARAMETER_TARGET,
+  shaderColorToHex,
+} from './shaderParameters';
 import { parseChartData } from './chartData';
+import { clockDataSetting, clockSettingsWithData, parseClockTimerManualValue } from './clockTimer';
+import { isLayerRuleProperty } from './layerRuleProperties';
+import { normalizeTicker } from './ticker';
+import { createLayerEffects } from './factory';
+import { effectParameterValue, parseEffectProperty, withEffectParameter } from './effectStack';
 
 const NUMERIC_TEXT_PROPERTIES = new Set([
   'fontSize',
@@ -16,11 +25,113 @@ const NUMERIC_TEXT_PROPERTIES = new Set([
 
 /** Immutable data overrides, shared by Studio, diagnostic capture and exported runtime. */
 export function applyElementDataValue(element: Element, property: string, value: unknown): Element {
+  if (element.type === 'ticker') {
+    if (property === 'items') {
+      let items = value;
+      if (typeof items === 'string') {
+        try {
+          items = JSON.parse(items);
+        } catch {
+          throw new Error('Ticker items must be a JSON array.');
+        }
+      }
+      return normalizeTicker({ ...element, items: items as typeof element.items });
+    }
+    const target = /^items\.([^.]+)\.(.+)$/.exec(property);
+    if (target) {
+      const childProperty = target[2]!;
+      if (childProperty === 'width' || childProperty === 'height')
+        return normalizeTicker({
+          ...element,
+          items: element.items.map((item) =>
+            item.id === target[1] ? { ...item, [childProperty]: Number(value) } : item,
+          ),
+        });
+      return {
+        ...element,
+        items: element.items.map((item) =>
+          item.id === target[1]
+            ? childProperty === 'dropShadowColor' || parseEffectProperty(childProperty)
+              ? {
+                  ...item,
+                  effects:
+                    childProperty === 'dropShadowColor'
+                      ? {
+                          ...(item.effects ?? createLayerEffects()),
+                          dropShadowColor: String(value),
+                        }
+                      : withEffectParameter(
+                          item.effects ?? createLayerEffects(),
+                          childProperty,
+                          value,
+                        ),
+                }
+              : {
+                  ...item,
+                  element: applyElementDataValue(
+                    item.element,
+                    target[2]!,
+                    value,
+                  ) as typeof item.element,
+                }
+            : item,
+        ),
+      };
+    }
+    if (['speedPixelsPerSecond', 'gap', 'entryFade', 'exitFade', 'fadeSoftness'].includes(property))
+      return normalizeTicker({ ...element, [property]: Number(value) });
+    if (['direction', 'textDirection', 'updatePolicy'].includes(property))
+      return normalizeTicker({ ...element, [property]: value });
+  }
+  if (property === 'clock.manualValue') {
+    if (element.type !== 'text' || element.clock?.source !== 'manual') return element;
+    if (
+      (typeof value !== 'number' && typeof value !== 'string') ||
+      parseClockTimerManualValue(element.clock, value) === null
+    )
+      return element;
+    return { ...element, clock: { ...element.clock, manualValue: value } };
+  }
+  const clockSetting = clockDataSetting(property);
+  if (clockSetting) {
+    if (element.type !== 'text' || !element.clock) return element;
+    const clock = clockSettingsWithData(element.clock, clockSetting, value);
+    return clock ? { ...element, clock } : element;
+  }
   if (element.type === 'chart' && property === 'data') {
     return { ...element, data: parseChartData(value) };
   }
-  if (property === 'dropShadowColor' || property.startsWith('effects.')) return element;
-  const shaderTarget = /^(?:(fill|strokePaint)\.)?parameters\.(.+)$/.exec(property);
+  if (element.type === 'chart' && property === 'fill') {
+    if (value == null) {
+      const { fill: _fill, ...original } = element;
+      return original;
+    }
+    const errors = validatePaint(value as Paint);
+    if (errors.length) throw new Error('Chart mark fill: ' + errors.join(' '));
+    return { ...element, fill: value as Paint };
+  }
+  // Layer offsets and effect parameters are applied to the pose and effect stack, not the element.
+  if (
+    property === 'dropShadowColor' ||
+    property.startsWith('effects.') ||
+    isLayerRuleProperty(property)
+  )
+    return element;
+  if (property === 'strokeWidth' && 'strokeWidth' in element) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0
+      ? ({ ...element, strokeWidth: numeric } as Element)
+      : element;
+  }
+  if (property === 'cornerRadius') {
+    const radius = Number(value);
+    if (element.type !== 'rectangle' || !Number.isFinite(radius) || radius < 0) return element;
+    return {
+      ...element,
+      borderRadius: { topLeft: radius, topRight: radius, bottomRight: radius, bottomLeft: radius },
+    };
+  }
+  const shaderTarget = SHADER_PARAMETER_TARGET.exec(property);
   const slot = shaderTarget?.[1] === 'strokePaint' ? 'stroke' : 'fill';
   const shader = getElementShaderPaint(element, slot);
   if (shaderTarget && !shader)
@@ -87,9 +198,37 @@ export function applyElementDataValue(element: Element, property: string, value:
 
 /** The value `applyElementDataValue` would replace; `undefined` when the element lacks it. */
 export function readElementDataValue(element: Element, property: string): unknown {
+  if (element.type === 'ticker') {
+    if (property === 'items') return element.items;
+    const target = /^items\.([^.]+)\.(.+)$/.exec(property);
+    if (target) {
+      const item = element.items.find((item) => item.id === target[1]);
+      if (!item) return undefined;
+      if (target[2] === 'width' || target[2] === 'height') return item[target[2]];
+      if (target[2] === 'dropShadowColor')
+        return (item.effects ?? createLayerEffects()).dropShadowColor;
+      if (parseEffectProperty(target[2]!))
+        return effectParameterValue(item.effects ?? createLayerEffects(), target[2]!);
+      return readElementDataValue(item.element, target[2]!);
+    }
+  }
+  if (property === 'clock.manualValue')
+    return element.type === 'text' && element.clock?.source === 'manual'
+      ? element.clock.manualValue
+      : undefined;
+  const clockSetting = clockDataSetting(property);
+  if (clockSetting)
+    return element.type === 'text' && element.clock ? element.clock[clockSetting] : undefined;
   if (element.type === 'chart' && property === 'data') return JSON.stringify(element.data);
-  if (property === 'dropShadowColor' || property.startsWith('effects.')) return undefined;
-  const shaderTarget = /^(?:(fill|strokePaint)\.)?parameters\.(.+)$/.exec(property);
+  if (
+    property === 'dropShadowColor' ||
+    property.startsWith('effects.') ||
+    isLayerRuleProperty(property)
+  )
+    return undefined;
+  if (property === 'cornerRadius')
+    return element.type === 'rectangle' ? element.borderRadius.topLeft : undefined;
+  const shaderTarget = SHADER_PARAMETER_TARGET.exec(property);
   if (shaderTarget) {
     const shader = getElementShaderPaint(
       element,

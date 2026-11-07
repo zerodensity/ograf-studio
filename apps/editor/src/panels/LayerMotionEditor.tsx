@@ -1,43 +1,78 @@
+import { useState } from 'react';
 import {
   defaultLayerMotionSpec,
+  layerMotionDefaultEasing,
+  layerMotionDirections,
+  layerMotionStagger,
   layerMotionState,
   layerMotionStyleAvailable,
   layerMotionWindows,
   LAYER_MOTION_DEFAULT_DISTANCE,
+  LAYER_MOTION_STAGGER_ORDERS,
   type Composition,
-  type EasingPreset,
   type Layer,
   type LayerMotionDirection,
   type LayerMotionSide,
   type LayerMotionSpec,
+  type LayerMotionStagger,
+  type LayerMotionStaggerOrder,
   type LayerMotionStyle,
+  isAnimationPresetPluginSnapshot,
+  rendererPluginKey,
+  studioPluginReference,
 } from '@ograf-editor/scene-model';
 import { useProjectStore } from '../state/projectStore';
 import { useTimelineStore } from '../state/timelineStore';
 import './LayerMotionEditor.css';
+import { AnimationPresetGallery } from './AnimationPresetGallery';
+import { useRendererPluginSettingsStore } from '../state/pluginSettingsStore';
+import { LAYER_MOTION_FEELS as FEELS } from './layerMotionFeels';
+import { FrameDurationControl } from './FrameDurationControl';
+import { groupMotionPlan } from './groupMotion';
+import { runDiscreteHistoryStep } from '../state/historyStore';
 
 const STYLES: Array<[LayerMotionStyle, string]> = [
   ['fade', 'Fade'],
   ['slide', 'Slide'],
   ['fly', 'Fly'],
+  ['drop', 'Drop'],
+  ['wipe', 'Wipe'],
+  ['grow', 'Grow'],
+  ['scale', 'Scale'],
+  ['pop', 'Pop'],
+  ['spin', 'Spin'],
   ['focus', 'Focus'],
 ];
 
-const DIRECTIONS: Array<[LayerMotionDirection, string, string]> = [
-  ['left', '←', 'left'],
-  ['right', '→', 'right'],
-  ['up', '↑', 'top'],
-  ['down', '↓', 'bottom'],
-];
+const UNAVAILABLE_HINT: Partial<Record<LayerMotionStyle, string>> = {
+  focus: 'Needs the layer’s built-in blur effect',
+  grow: 'Text would reflow while it grows; try Wipe or Scale',
+};
 
-/** Friendly easing names; the incoming (in) and outgoing (out) curve of each feel. */
-const FEELS: Array<{ label: string; in: EasingPreset; out: EasingPreset }> = [
-  { label: 'Smooth', in: 'cubic-out', out: 'cubic-in' },
-  { label: 'Gentle', in: 'sine-out', out: 'sine-in' },
-  { label: 'Snappy', in: 'expo-out', out: 'expo-in' },
-  { label: 'Overshoot', in: 'back-out', out: 'back-in' },
-  { label: 'Linear', in: 'linear', out: 'linear' },
-];
+/** Arrow, and how to finish "From …" / "To …" for each direction. */
+const DIRECTION_LABELS: Record<LayerMotionDirection, [string, string]> = {
+  left: ['←', 'left'],
+  right: ['→', 'right'],
+  up: ['↑', 'top'],
+  down: ['↓', 'bottom'],
+  center: ['↔', 'centre'],
+};
+
+function directionName(
+  style: LayerMotionStyle,
+  side: LayerMotionSide,
+  direction: LayerMotionDirection,
+) {
+  if (style === 'spin') return direction === 'right' ? 'Clockwise' : 'Counter-clockwise';
+  return `${side === 'in' ? 'From' : 'To'} ${DIRECTION_LABELS[direction][1]}`;
+}
+
+const STAGGER_ORDER_LABELS: Record<LayerMotionStaggerOrder, string> = {
+  'left-to-right': 'Left to right',
+  'right-to-left': 'Right to left',
+  'top-to-bottom': 'Top to bottom',
+  'bottom-to-top': 'Bottom to top',
+};
 
 interface LayerMotionEditorProps {
   composition: Composition;
@@ -53,17 +88,38 @@ function MotionSide({
   side,
 }: LayerMotionEditorProps & { side: LayerMotionSide }) {
   const setLayerMotion = useProjectStore((state) => state.setLayerMotion);
+  const settings = useRendererPluginSettingsStore();
+  const [pluginAnchor, setPluginAnchor] = useState<HTMLButtonElement | null>(null);
+  const hasPacks = settings.installed.some(
+    (entry) => entry.enabled && entry.trusted && isAnimationPresetPluginSnapshot(entry.snapshot),
+  );
+  const lastApplied = layer.animationPresets?.[side];
+  const lastPack = lastApplied
+    ? composition.animationPresetPlugins?.find(
+        (snapshot) =>
+          rendererPluginKey(studioPluginReference(snapshot)) ===
+          rendererPluginKey(lastApplied.reference),
+      )
+    : undefined;
+  const lastPreset = lastPack?.presets.find((preset) => preset.id === lastApplied?.presetId);
   const windows = layerMotionWindows(composition);
   const state = layerMotionState(composition, layer, side);
   const spec = state && state !== 'custom' ? state : null;
   const windowFrames = windows ? (side === 'in' ? windows.inFrames : windows.outFrames) : 0;
   const disabled = layer.isLocked || !windows || windowFrames < 1;
-  const apply = (next: LayerMotionSpec | null) => setLayerMotion(layerIds, side, next);
+  const group = composition.layers.filter(
+    (candidate) => layerIds.includes(candidate.id) && !candidate.isLocked,
+  );
+  const stagger = group.length > 1 ? layerMotionStagger(composition, group, side) : undefined;
+  const apply = (next: LayerMotionSpec | null, nextStagger = stagger) =>
+    setLayerMotion(layerIds, side, next, nextStagger);
   const update = (patch: Partial<LayerMotionSpec>) => spec && apply({ ...spec, ...patch });
-  const feel =
-    FEELS.find((candidate) => candidate[side] === (spec?.easing ?? FEELS[0]![side])) ?? FEELS[0]!;
+  const restagger = (patch: Partial<LayerMotionStagger>) =>
+    spec && stagger && apply(spec, { ...stagger, ...patch });
+  const easing = spec ? (spec.easing ?? layerMotionDefaultEasing(spec.style, side)) : undefined;
+  const feel = FEELS.find((candidate) => candidate[side] === easing) ?? FEELS[0]!;
+  const directions = spec ? layerMotionDirections(spec.style) : [];
   const label = side === 'in' ? 'In' : 'Out';
-  const seconds = spec ? spec.durationFrames / composition.frameRate : 0;
 
   const preview = () => {
     const controller = useTimelineStore.getState().controller;
@@ -85,13 +141,15 @@ function MotionSide({
             if (style === 'custom') return;
             if (style === 'none') return apply(null);
             const next = defaultLayerMotionSpec(style as LayerMotionStyle, windowFrames);
+            const keepDirection =
+              spec?.direction && layerMotionDirections(next.style).includes(spec.direction);
             apply(
               spec
                 ? {
                     ...next,
                     durationFrames: spec.durationFrames,
                     ...(spec.easing ? { easing: spec.easing } : {}),
-                    ...(next.direction && spec.direction ? { direction: spec.direction } : {}),
+                    ...(keepDirection ? { direction: spec.direction } : {}),
                   }
                 : next,
             );
@@ -103,11 +161,7 @@ function MotionSide({
               key={style}
               value={style}
               disabled={!layerMotionStyleAvailable(layer, style)}
-              title={
-                layerMotionStyleAvailable(layer, style)
-                  ? undefined
-                  : 'Needs the layer’s built-in blur effect'
-              }
+              title={layerMotionStyleAvailable(layer, style) ? undefined : UNAVAILABLE_HINT[style]}
             >
               {name}
             </option>
@@ -118,29 +172,53 @@ function MotionSide({
             </option>
           ) : null}
         </select>
-        {spec?.direction ? (
+        {spec && directions.length ? (
           <div
             className="layer-motion-directions"
             role="radiogroup"
             aria-label={`${label} direction`}
           >
-            {DIRECTIONS.map(([direction, arrow, name]) => (
-              <button
-                key={direction}
-                type="button"
-                role="radio"
-                aria-checked={spec.direction === direction}
-                aria-label={`${side === 'in' ? 'From' : 'To'} ${name}`}
-                title={`${side === 'in' ? 'From' : 'To'} ${name}`}
-                className={spec.direction === direction ? 'active' : ''}
-                disabled={disabled}
-                onClick={() => update({ direction })}
-              >
-                {arrow}
-              </button>
-            ))}
+            {directions.map((direction) => {
+              const active = (spec.direction ?? directions[0]) === direction;
+              const name = directionName(spec.style, side, direction);
+              return (
+                <button
+                  key={direction}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={name}
+                  title={name}
+                  className={active ? 'active' : ''}
+                  disabled={disabled}
+                  onClick={() => update({ direction })}
+                >
+                  {spec.style === 'spin'
+                    ? direction === 'right'
+                      ? '↻'
+                      : '↺'
+                    : DIRECTION_LABELS[direction][0]}
+                </button>
+              );
+            })}
           </div>
         ) : null}
+        <button
+          type="button"
+          className="layer-motion-plugins"
+          aria-label={`Animation plugins ${label}`}
+          aria-haspopup="dialog"
+          aria-expanded={Boolean(pluginAnchor)}
+          disabled={layer.isLocked || !windows || !hasPacks}
+          title={
+            hasPacks
+              ? 'Apply a preset pack as editable timeline keys'
+              : 'Install an animation preset pack in Plugins'
+          }
+          onClick={(event) => setPluginAnchor(pluginAnchor ? null : event.currentTarget)}
+        >
+          Plugins…
+        </button>
         <button
           type="button"
           className="layer-motion-preview"
@@ -154,21 +232,16 @@ function MotionSide({
       </div>
       {spec ? (
         <div className="layer-motion-row layer-motion-details">
-          <label title={`At most ${windowFrames} frames fit; change the timing on the timeline`}>
-            <input
-              aria-label={`${label} duration in frames`}
-              type="number"
-              min={1}
-              max={windowFrames}
-              value={spec.durationFrames}
-              disabled={disabled}
-              onChange={(event) => {
-                const frames = Math.round(Number(event.target.value));
-                if (Number.isFinite(frames) && frames >= 1) update({ durationFrames: frames });
-              }}
-            />
-            fr <small>{seconds.toFixed(2)} s</small>
-          </label>
+          <FrameDurationControl
+            label={`${label} duration`}
+            frames={spec.durationFrames}
+            frameRate={composition.frameRate}
+            minFrames={1}
+            maxFrames={windowFrames}
+            disabled={disabled}
+            compact
+            onChange={(frames) => update({ durationFrames: frames })}
+          />
           {spec.style === 'slide' ? (
             <label title="How far it travels, in pixels">
               <input
@@ -200,11 +273,55 @@ function MotionSide({
               </option>
             ))}
           </select>
+          {stagger ? (
+            <span className="layer-motion-stagger">
+              <FrameDurationControl
+                label={`${label} stagger`}
+                frames={stagger.frames}
+                frameRate={composition.frameRate}
+                minFrames={0}
+                maxFrames={windowFrames}
+                disabled={disabled}
+                compact
+                onChange={(frames) => restagger({ frames })}
+              />
+              <select
+                aria-label={`${label} stagger order`}
+                value={stagger.order}
+                disabled={disabled || stagger.frames === 0}
+                onChange={(event) =>
+                  restagger({ order: event.target.value as LayerMotionStaggerOrder })
+                }
+              >
+                {LAYER_MOTION_STAGGER_ORDERS.map((order) => (
+                  <option key={order} value={order}>
+                    {STAGGER_ORDER_LABELS[order]}
+                  </option>
+                ))}
+              </select>
+            </span>
+          ) : null}
         </div>
       ) : state === 'custom' ? (
         <p className="layer-motion-hint">
           This layer has its own keys here. Choosing a style replaces them.
         </p>
+      ) : null}
+      {lastApplied ? (
+        <p className="layer-motion-hint">
+          Last applied: {lastPreset?.name || lastApplied.presetId} · editable keys
+        </p>
+      ) : null}
+      {pluginAnchor ? (
+        <AnimationPresetGallery
+          composition={composition}
+          layerIds={layerIds}
+          initialSide={side}
+          initialReference={lastApplied?.reference}
+          initialApplication={lastApplied}
+          anchor={pluginAnchor}
+          onClose={() => setPluginAnchor(null)}
+        />
       ) : null}
     </div>
   );
@@ -220,6 +337,27 @@ export function LayerMotionEditor(props: LayerMotionEditorProps) {
     <div className="layer-motion-editor">
       {windows ? (
         <>
+          {props.layerIds.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => {
+                const layers = props.composition.layers.filter((layer) =>
+                  props.layerIds.includes(layer.id),
+                );
+                const plans = (['in', 'out'] as const).map((side) => ({
+                  side,
+                  items: groupMotionPlan(props.composition, layers, side),
+                }));
+                runDiscreteHistoryStep(() => {
+                  for (const plan of plans)
+                    for (const item of plan.items)
+                      useProjectStore.getState().setLayerMotion(item.layerId, plan.side, item.spec);
+                }, 'Animate group');
+              }}
+            >
+              Animate group
+            </button>
+          ) : null}
           <MotionSide {...props} side="in" />
           <MotionSide {...props} side="out" />
         </>

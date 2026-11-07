@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "kind": "shader-pack",
+  "id": "ograf.zd-news-shaders-2",
+  "version": "1.0.0",
+  "name": "ZD News Shaders 2",
+  "author": "Zero Density",
+  "license": "CC0-1.0",
+  "description": "Twenty single-pass GLSL presets: world news, weather, celebrations, data displays and four layer effects. Installs alongside ZD News Shaders."
+}

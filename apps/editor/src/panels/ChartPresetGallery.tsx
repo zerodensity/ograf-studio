@@ -1,4 +1,6 @@
 import type { ChartPreset } from '@ograf-editor/scene-model';
+import { PluginTemplateGallery } from '../components/PluginTemplateGallery';
+import { filterPluginTemplates } from '../components/pluginTemplateFilter';
 import './ChartEditor.css';
 
 const PRESETS: Array<{ id: ChartPreset; label: string }> = [
@@ -65,24 +67,39 @@ function PresetIcon({ preset }: { preset: ChartPreset }) {
 export function ChartPresetGallery({
   selected,
   onSelect,
+  presets,
+  searchQuery = '',
 }: {
   selected?: ChartPreset;
   onSelect: (preset: ChartPreset) => void;
+  presets?: readonly ChartPreset[];
+  searchQuery?: string;
 }) {
+  const items = filterPluginTemplates(
+    PRESETS.filter(({ id }) => !presets || presets.includes(id)).map(({ id, label }) => ({
+      id,
+      name: label,
+      icon: <PresetIcon preset={id} />,
+    })),
+    searchQuery,
+  );
   return (
-    <div className="chart-preset-gallery" role="group" aria-label="Chart type gallery">
-      {PRESETS.map(({ id, label }) => (
-        <button
-          key={id}
-          type="button"
-          className={selected === id ? 'is-selected' : ''}
-          aria-pressed={selected === id}
-          onClick={() => onSelect(id)}
-        >
-          <PresetIcon preset={id} />
-          <span>{label}</span>
-        </button>
-      ))}
-    </div>
+    <>
+      <PluginTemplateGallery
+        className="chart-preset-gallery"
+        label="Chart type gallery"
+        items={items}
+        selected={selected}
+        onSelect={(id) => {
+          const preset = items.find((entry) => entry.id === id);
+          if (preset) onSelect(preset.id);
+        }}
+      />
+      {items.length === 0 ? (
+        <p className="plugin-template-empty" role="status">
+          No matching templates.
+        </p>
+      ) : null}
+    </>
   );
 }

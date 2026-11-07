@@ -3,6 +3,7 @@ import {
   createMediaPaint,
   createRectangleElement,
   createTextElement,
+  createChartElement,
   LIVE_MEDIA_ELEMENT_TAG,
   type Element,
 } from '@ograf-editor/scene-model';
@@ -191,6 +192,35 @@ describe('Media paint masks on repeated frames', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
+  it('retains the chart media decoder when values change, with separate mark coverage', async () => {
+    const element = createChartElement({
+      fill: createMediaPaint({ source: { kind: 'clip', src: 'synthetic-clip.mp4' }, fit: 'fill' }),
+    });
+    const mounted = fixture('clip', [shapeMask()], { width: 2, height: 2 }, element);
+    await waitForMediaPaintContentReady(mounted.host);
+    const decoder = mounted.document.created.find(
+      (entry) => entry instanceof FakeVideo,
+    ) as FakeVideo;
+    decoder.currentTime = 10;
+    const mask = {
+      ready: Promise.resolve(),
+      update: vi.fn(async () => shapeMask()),
+      dispose: vi.fn(),
+    };
+    maskFactory.create.mockReturnValueOnce(mask);
+    const updated = structuredClone(element);
+    updated.data.datasets[0]!.data[0] = 80;
+    expect(updateMediaPaintContent(mounted.host, updated, {})).toBe(true);
+    await waitForMediaPaintContentReady(mounted.host);
+    expect(mounted.document.created.filter((entry) => entry instanceof FakeVideo)).toEqual([
+      decoder,
+    ]);
+    expect(decoder.load).toHaveBeenCalledTimes(1);
+    expect(mounted.native.render).toHaveBeenCalledTimes(2);
+    expect(mounted.context.pixels).toEqual([0, 1, 0, 0]);
+    disposeMediaPaintContent(mounted.host);
+  });
+
   it('hides styled text base colors without losing typography or changing authored runs', async () => {
     const element = createTextElement({
       content: 'Live capture',
@@ -259,6 +289,55 @@ describe('Media paint masks on repeated frames', () => {
       disposeMediaPaintContent(mounted.host);
     },
   );
+
+  it('marks each new live frame so a held effect stack can refresh its capture', async () => {
+    const mounted = fixture('live', [shapeMask(), null, null]);
+    await waitForMediaPaintContentReady(mounted.host);
+    const first = mounted.canvas.dataset.ografMediaFrame;
+    expect(first).toBeDefined();
+    expect(renderMediaPaintAtTime(mounted.host, 0)).toBe(true);
+    await waitForMediaPaintContentReady(mounted.host);
+    expect(mounted.canvas.dataset.ografMediaFrame).not.toBe(first);
+    disposeMediaPaintContent(mounted.host);
+  });
+
+  it('keeps a live fallback frame marked as unchanged', async () => {
+    const element = createRectangleElement({
+      fill: createMediaPaint({
+        source: { kind: 'live', tag: 'test.synthetic', fallback: 'still.png' },
+        fit: 'fill',
+      }),
+    });
+    const mounted = fixture('live', [shapeMask(), null], { width: 2, height: 2 }, element);
+    const live = mounted.document.created.find((item) => item instanceof FakeLive) as FakeLive;
+    const fallback = mounted.document.created.find(
+      (item) => item instanceof FakeImage,
+    ) as FakeImage & { alpha: () => number; width: number; height: number };
+    Object.assign(fallback, { alpha: () => 1, width: 2, height: 2 });
+    live.getFrame.mockResolvedValue(null as unknown as Frame);
+    await waitForMediaPaintContentReady(mounted.host);
+    const first = mounted.canvas.dataset.ografMediaFrame;
+    expect(first).toBe('fallback');
+    expect(renderMediaPaintAtTime(mounted.host, 0)).toBe(true);
+    await waitForMediaPaintContentReady(mounted.host);
+    expect(mounted.canvas.dataset.ografMediaFrame).toBe(first);
+    disposeMediaPaintContent(mounted.host);
+  });
+
+  it('marks a clip frame by decoded position, unchanged while it is held', async () => {
+    const mounted = fixture('clip', [shapeMask(), null, null, null]);
+    await waitForMediaPaintContentReady(mounted.host);
+    const video = mounted.document.created.find((item) => item instanceof FakeVideo) as FakeVideo;
+    const first = mounted.canvas.dataset.ografMediaFrame;
+    expect(first).toBe(String(video.currentTime));
+    expect(renderMediaPaintAtTime(mounted.host, 0)).toBe(true);
+    await waitForMediaPaintContentReady(mounted.host);
+    expect(mounted.canvas.dataset.ografMediaFrame).toBe(first);
+    expect(renderMediaPaintAtTime(mounted.host, 2000)).toBe(true);
+    await waitForMediaPaintContentReady(mounted.host);
+    expect(mounted.canvas.dataset.ografMediaFrame).toBe('2');
+    disposeMediaPaintContent(mounted.host);
+  });
 
   it('reuses cached alpha on the editor fast update path and accepts refreshed mask coverage', async () => {
     const first = shapeMask();

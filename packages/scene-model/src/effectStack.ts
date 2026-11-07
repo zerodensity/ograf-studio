@@ -31,6 +31,10 @@ export const EFFECT_CATALOG: Record<
     label: 'Blur',
     params: { radius: { label: 'Radius', default: 8, min: 0, max: 256, step: 0.5 } },
   },
+  'backdrop-blur': {
+    label: 'Backdrop blur',
+    params: { radius: { label: 'Radius', default: 12, min: 0, max: 128, step: 0.5 } },
+  },
   'drop-shadow': {
     label: 'Drop shadow',
     params: {
@@ -225,6 +229,8 @@ export function effectStackErrors(effects: LayerEffects): string[] {
   const errors: string[] = [],
     ids = new Set<string>(),
     legacy = new Set<string>();
+  let activeBackdrop = false;
+  let activeShader = false;
   if (effects.stack.length > MAX_EFFECTS)
     errors.push(`Use at most ${MAX_EFFECTS} effects per layer.`);
   for (const effect of effects.stack) {
@@ -250,6 +256,10 @@ export function effectStackErrors(effects: LayerEffects): string[] {
       errors.push('Unknown effect type.');
       continue;
     }
+    if (effect.type === 'backdrop-blur' && (effect.blendMode ?? 'normal') !== 'normal')
+      errors.push(
+        'Backdrop blur supports Normal blending only; Blend opacity controls its strength.',
+      );
     if (
       typeof effect.name !== 'string' ||
       !effect.name.trim() ||
@@ -265,6 +275,10 @@ export function effectStackErrors(effects: LayerEffects): string[] {
         errors.push('Invalid or duplicate legacy effect adapter.');
       legacy.add(effect.legacy);
       continue;
+    }
+    if (effect.enabled && (effect.blendOpacity ?? 1) > 0) {
+      if (effect.type === 'backdrop-blur') activeBackdrop = true;
+      if (effect.type === 'shader') activeShader = true;
     }
     if (effect.type === 'shader') {
       if (!effect.shader) errors.push(`${effect.name} requires shader source.`);
@@ -297,6 +311,22 @@ export function effectStackErrors(effects: LayerEffects): string[] {
         errors.push(`${effect.name}.${key} must use #RRGGBB or #RRGGBBAA.`);
     }
   }
+  if (activeBackdrop && activeShader)
+    errors.push('Backdrop blur and shader effects cannot be enabled together on the same layer.');
+  return errors;
+}
+export function layerEffectErrors(layer: Pick<Layer, 'element' | 'effects'>): string[] {
+  const errors = effectStackErrors(layer.effects);
+  if (
+    layer.element.type !== 'rectangle' &&
+    layer.element.type !== 'ellipse' &&
+    Array.isArray(layer.effects.stack) &&
+    layer.effects.stack.some(
+      (effect) =>
+        effect?.type === 'backdrop-blur' && effect.enabled && (effect.blendOpacity ?? 1) > 0,
+    )
+  )
+    errors.push('Backdrop blur is supported only on rectangles and ellipses.');
   return errors;
 }
 function assertStack(effects: LayerEffects): void {
@@ -320,6 +350,12 @@ export function addEffect(
 ): LayerEffect {
   const spec = EFFECT_CATALOG[type];
   if (!spec) throw Error('Unknown effect type.');
+  if (
+    type === 'backdrop-blur' &&
+    layer.element.type !== 'rectangle' &&
+    layer.element.type !== 'ellipse'
+  )
+    throw Error('Backdrop blur is supported only on rectangles and ellipses.');
   const effect: LayerEffect = {
     id,
     type,
@@ -344,7 +380,11 @@ export function addEffect(
   if (index !== undefined && (!Number.isInteger(index) || index < 0 || index > stack.length))
     throw Error('Effect insertion index is out of range.');
   stack.splice(index ?? stack.length, 0, effect);
-  assertStack({ ...layer.effects, stack });
+  const errors = layerEffectErrors({
+    element: layer.element,
+    effects: { ...layer.effects, stack },
+  });
+  if (errors.length) throw Error(errors.join(' '));
   layer.effects.stack = stack;
   return effect;
 }
@@ -388,7 +428,8 @@ export function updateEffect(layer: Layer, id: string, patch: EffectPatch): Laye
       (effects as unknown as Record<string, unknown>)[property] = value;
     }
   } else effect.params = params;
-  assertStack(effects);
+  const errors = layerEffectErrors({ element: layer.element, effects });
+  if (errors.length) throw Error(errors.join(' '));
   layer.effects = effects;
   return effect;
 }

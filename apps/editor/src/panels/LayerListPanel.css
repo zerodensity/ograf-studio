@@ -124,3 +124,26 @@
 .layer-visibility-slash {
   stroke-width: 1.6;
 }
+.layer-list-error {
+  margin: 4px;
+  padding: 5px;
+  color: #ffad87;
+  background: #663b2028;
+  border: 1px solid #815c3d;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.layer-list-group-header button {
+  width: 100%;
+  padding: 4px 8px;
+  text-align: left;
+  color: var(--text-dim);
+  background: var(--bg-header);
+  border: 0;
+  cursor: pointer;
+}
+.layer-list-shader-paused {
+  color: #ffd29b;
+  background: #4a2c18;
+  white-space: nowrap;
+}

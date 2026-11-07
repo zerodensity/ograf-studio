@@ -12,17 +12,6 @@
   gap: 6px;
   margin: 6px;
 }
-.shader-source-label textarea {
-  width: 100%;
-  min-height: 240px;
-  resize: vertical;
-  box-sizing: border-box;
-  font:
-    11px/1.5 Consolas,
-    monospace;
-  tab-size: 2;
-  white-space: pre;
-}
 .shader-source-error {
   color: #ff9f96;
   white-space: pre-wrap;

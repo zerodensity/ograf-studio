@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { redactProviderError, type AgentProviderConfig } from './config';
 import { createProviderAdapter, supportsAmbientSystemMessage } from './providerAdapters';
 
@@ -54,6 +54,76 @@ function config(provider: AgentProviderConfig['provider'], baseUrl: string): Age
 }
 
 describe('provider adapters', () => {
+  it.each(['anthropic', 'openai-compatible'] as const)(
+    'reserves planned reply tokens for %s',
+    async (provider) => {
+      const endpoint = await mockEndpoint(
+        provider === 'anthropic'
+          ? { content: [], usage: {} }
+          : { choices: [{ message: { content: 'ok' } }] },
+      );
+      await createProviderAdapter(config(provider, endpoint.baseUrl)).complete({
+        system: 'Studio',
+        messages: [{ role: 'user', content: 'Edit' }],
+        tools: [],
+        signal: new AbortController().signal,
+        maxOutputTokens: 1234,
+      });
+      expect((await endpoint.request).body.max_tokens).toBe(1234);
+    },
+  );
+
+  it('uses the modern output-token field only after an explicit legacy-parameter rejection', async () => {
+    const sent: Record<string, unknown>[] = [];
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => {
+      sent.push(JSON.parse(String(options?.body)));
+      return sent.length === 1
+        ? new Response(
+            JSON.stringify({
+              error: {
+                message: 'Unsupported parameter max_tokens; use max_completion_tokens instead',
+              },
+            }),
+            { status: 400 },
+          )
+        : new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }));
+    });
+    try {
+      await createProviderAdapter(config('openai-compatible', 'https://unused.example')).complete({
+        system: 'Studio',
+        messages: [{ role: 'user', content: 'Edit' }],
+        tools: [],
+        signal: new AbortController().signal,
+        maxOutputTokens: 2048,
+      });
+      expect(sent).toHaveLength(2);
+      expect(sent[0]!.max_tokens).toBe(2048);
+      expect(sent[1]!.max_completion_tokens).toBe(2048);
+      expect(sent[1]).not.toHaveProperty('max_tokens');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('does not retry unrelated provider errors when setting the reply ceiling', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('Invalid model', { status: 400 }));
+    try {
+      await expect(
+        createProviderAdapter(config('openai-compatible', 'https://unused.example')).complete({
+          system: 'Studio',
+          messages: [{ role: 'user', content: 'Edit' }],
+          tools: [],
+          signal: new AbortController().signal,
+          maxOutputTokens: 2048,
+        }),
+      ).rejects.toThrow('Invalid model');
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
   it.each(['anthropic', 'openai-compatible'] as const)(
     'preserves numbered image/annotation ordering for %s',
     async (provider) => {

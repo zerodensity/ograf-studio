@@ -13,7 +13,7 @@ export function inlineTextEditTarget(
   layer: Layer,
   fields: FieldDefinition[],
 ): InlineTextEditTarget | null {
-  if (layer.element.type !== 'text' || layer.isLocked) return null;
+  if (layer.element.type !== 'text' || layer.element.clock || layer.isLocked) return null;
   const binding = layer.bindings.find((candidate) => candidate.targetProperty === 'content');
   if (!binding) return { type: 'authored' };
   const field = fields.find((candidate) => candidate.id === binding.fieldId);

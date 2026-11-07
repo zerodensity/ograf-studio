@@ -1,24 +1,51 @@
+import { isGradientPaint as isAnimatorGradient } from '@ograf-editor/scene-model';
+import { supportsTextAnimatorColor, textAnimationCarriesUpdate } from '@ograf-editor/scene-model';
+import { canvasFrame, useCanvasViewStore } from '../state/canvasViewStore';
+import { FontLibraryDialog } from './FontLibraryDialog';
+import { FrameDurationControl } from './FrameDurationControl';
+import { MillisecondDurationInput } from './MillisecondDurationControl';
+import { ColorInput } from '../components/ColorInput';
 import { useEditorWindow } from '../layout/EditorWindow';
 import { TRANSFORM_HELP } from './propertyHelp';
 import { WithWarning } from '../components/WarningBadge';
 import { PropertyRow } from '../components/PropertyRow';
+import { PropertyKeyframeButton } from '../components/PropertyKeyframeButton';
+import { runDiscreteHistoryStep } from '../state/historyStore';
+import { resetTimelineChannelAnimation } from './timelineChannelActions';
+import { InheritanceIcon, ResetInheritanceIcon } from '../components/InheritanceIcons';
 import { LayerMotionEditor } from './LayerMotionEditor';
+import { LayerMotionBlurEditor } from './LayerMotionBlurEditor';
+import { componentOverrideLabel } from './componentOverrideLabel';
+import { TextPathEditor } from './TextPathEditor';
 import { usePaneRequestStore } from '../state/paneRequestStore';
+import { modifierDrivenProperties } from '../state/modifiersEditing';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 import { EffectStackEditor } from './EffectStackEditor';
+import { MultiSelectionProperties } from './MultiSelectionProperties';
+import { openComponentEditor } from './ComponentEditorDialog';
 import { ImageSourceEditor } from './ImageSourceEditor';
+import { SourceCropEditor } from './SourceCropEditor';
+import { LayerCropEditor } from './LayerCropEditor';
 import { LayerLightingEditor } from './LayerLightingEditor';
 import {
   getEffectStack,
   EFFECT_CATALOG,
   effectProperty,
   effectParameterValue,
+  modifierParameterValue,
 } from '@ograf-editor/scene-model';
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { LayerMaskEditor } from './LayerMaskEditor';
 import { TilingPatternEditor } from './TilingPatternEditor';
 import { PatternInstanceActions } from './PatternResources';
 import { usePathEditStore } from '../state/pathEditStore';
+import { useProjectSetStore } from '../state/projectSetStore';
+import { getBrandBindingOrigin, setBrandBindingOverride } from '../state/templateSetBrandKit';
+import {
+  applyTypographyToLayers,
+  resetTypographyProperty,
+  getTypographyOrigin,
+} from '../state/brandKitStyles';
 import { pathConversionError } from '@ograf-editor/scene-model';
 import {
   getLayerTransformAtFrame,
@@ -28,14 +55,17 @@ import {
 } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { useShaderParameterPreviewStore } from '../state/shaderParameterPreviewStore';
+import { openShaderResourceEditor } from '../state/shaderEditorRequest';
 import {
   bindableProperties,
   resolveDesignerElement,
   resolveDesignerEffects,
+  resolveDesignerTransform,
 } from '../state/dataBinding';
 import { useTestDataStore } from '../state/testDataStore';
 import { nextBindingProperty, playoutProperty } from '../state/bindingFieldCreation';
 import type {
+  AnimatableLayerProperty,
   BlendMode,
   CornerRadii,
   DesignTokenTargetProperty,
@@ -45,6 +75,7 @@ import type {
   ShaderPaintSlot,
   ShaderParameterValue,
   TextElement,
+  TypographyProperty,
   VisualRuleTrigger,
 } from '@ograf-editor/scene-model';
 import {
@@ -57,39 +88,205 @@ import {
   getElementShaderPaint,
   sampleShaderAnimationTracks,
   parseShaderAnimationProperty,
+  shaderAnimationPropertySpec,
   isGradientPaint,
   isShaderPaint,
   shaderPaintConflictsWithBinding,
   getPaintAtFrame,
   listFieldLeafPaths,
   getResolvedLayerAnimationTracks,
+  isLayerPropertyAnimated,
   inspectLottieAnimationData,
   isPixelTransformKey,
   parseLottieJson,
   normalizeLayerAutoLayout,
   normalizeTextAnimation,
+  formatClockTimerValue,
+  parseClockTimerManualValue,
   segmentTextAnimationUnits,
   isAnimatedTextSegment,
   textAnimationSplit,
-  type EasingPreset,
   type SemanticLayerRole,
 } from '@ograf-editor/scene-model';
 import { useTimelineStore } from '../state/timelineStore';
 import { CompositionSettings } from './CompositionSettings';
 import { Panel } from './Panel';
 import { alphaPercentToOpacity, opacityToAlphaPercent } from './alphaControl';
-import { EASING_OPTION_GROUPS } from './easingOptions';
+import { EasingPicker } from './EasingPicker';
 import { FONT_OPTIONS } from './fontOptions';
 import { measureAutoSizedText } from './textAutoSize';
 import { PaintEditor } from './PaintEditor';
 import { moveLayerToZOrder } from '../state/layerZOrder';
-import { isPersistentGroupSelection } from '../canvas/groupSelection';
 import { PropertiesFilter } from './PropertiesFilter';
 import { usePropertiesFilter } from './propertiesFilterLogic';
 import { audioFileImportError } from './mediaFileImport';
 import { TextAnimationEditor } from './TextAnimationEditor';
+import { ClockTimerEditor } from './ClockTimerEditor';
+import { TickerEditor } from './TickerEditor';
 import { ChartEditor } from './ChartEditor';
 import './InspectorPanel.css';
+
+function ComponentInstanceControls({
+  layer,
+  composition,
+}: {
+  layer: Layer;
+  composition: ReturnType<typeof useActiveComposition>;
+}) {
+  const { document } = useEditorWindow();
+  const selectMany = useSelectionStore((state) => state.selectMany);
+  const reset = useProjectStore((state) => state.resetComponentOverrides);
+  const makeUnique = useProjectStore((state) => state.makeComponentInstanceUnique);
+  const [error, setError] = useState('');
+  const link = layer.componentLink;
+  if (!link) return null;
+  const source = composition.components.find((component) => component.id === link.componentId);
+  const sourceLayer = source?.layers.find((child) => child.id === link.sourceLayerId);
+  const memberIds = composition.layers
+    .filter(
+      (child) =>
+        child.componentLink?.instanceId === link.instanceId &&
+        child.componentLink.componentId === link.componentId,
+    )
+    .map((child) => child.id);
+  const paths = link.overridePaths ?? [];
+  const fieldOverrideCount = Object.values(link.fieldOverridePaths ?? {}).reduce(
+    (total, values) => total + values.length,
+    0,
+  );
+  const labelFor = (path: string) =>
+    componentOverrideLabel(path, getEffectStack(sourceLayer?.effects ?? layer.effects));
+  const run = (action: () => void) => {
+    try {
+      action();
+      setError('');
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'The component instance could not be changed.',
+      );
+    }
+  };
+  return (
+    <section className="inspector-component-instance" aria-label="Component instance">
+      <header>
+        <span
+          className={`inspector-component-link${paths.length || fieldOverrideCount ? ' is-overridden' : ''}`}
+          title={
+            paths.length || fieldOverrideCount
+              ? `${paths.length + fieldOverrideCount} local overrides`
+              : 'Inherits the component source'
+          }
+          aria-label={
+            paths.length || fieldOverrideCount
+              ? 'Component has local overrides'
+              : 'Inherited component'
+          }
+        >
+          <InheritanceIcon overridden={Boolean(paths.length || fieldOverrideCount)} />
+        </span>
+        <strong
+          title={`Component source: ${source?.name ?? 'Missing source'} · ${sourceLayer?.name ?? layer.name}`}
+        >
+          {source?.name ?? 'Missing source'}
+        </strong>
+        {paths.length || fieldOverrideCount ? (
+          <small title={`${paths.length} layer overrides · ${fieldOverrideCount} field overrides`}>
+            {paths.length + fieldOverrideCount}
+          </small>
+        ) : null}
+      </header>
+      <div className="inspector-component-actions">
+        <button
+          type="button"
+          disabled={!source}
+          aria-label="Edit Component"
+          title="Edit the component source; linked instances inherit its changes"
+          onClick={() =>
+            openComponentEditor(
+              {
+                compositionId: composition.id,
+                componentId: link.componentId,
+                sourceLayerId: link.sourceLayerId,
+              },
+              document,
+            )
+          }
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          aria-label="Select Instance"
+          title="Select all children of this instance"
+          onClick={() => selectMany(memberIds)}
+        >
+          Select
+        </button>
+        <button
+          type="button"
+          title="Create a private component source for this instance"
+          aria-label="Make Unique"
+          disabled={!source}
+          onClick={() =>
+            run(() => {
+              if (!makeUnique(link.instanceId))
+                throw new Error('A private source could not be created for this instance.');
+            })
+          }
+        >
+          Unique
+        </button>
+        {paths.length || fieldOverrideCount ? (
+          <>
+            <button
+              type="button"
+              className="inspector-component-icon"
+              title="Reset this layer to the component source"
+              aria-label="Reset Layer"
+              onClick={() => run(() => reset([layer.id]))}
+            >
+              <ResetInheritanceIcon />
+            </button>
+            <button
+              type="button"
+              className="inspector-component-icon"
+              title="Reset all overrides in this instance"
+              aria-label="Reset Instance"
+              onClick={() => run(() => reset(memberIds))}
+            >
+              <ResetInheritanceIcon />
+            </button>
+          </>
+        ) : null}
+      </div>
+      {paths.length || fieldOverrideCount ? (
+        <>
+          <div className="inspector-component-overrides">
+            {paths.map((path) => (
+              <div key={path}>
+                <span title={labelFor(path)}>{labelFor(path)}</span>
+                <button
+                  type="button"
+                  aria-label={`Reset ${labelFor(path)} to component source`}
+                  title={`Reset ${labelFor(path)} to its source value`}
+                  className="inspector-component-icon"
+                  onClick={() => run(() => reset([layer.id], [path]))}
+                >
+                  <ResetInheritanceIcon />
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+      {error && (
+        <p className="inspector-component-error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
 
 const TRANSFORM_FIELDS: { key: keyof LayerTransform; label: string; step?: number }[] = [
   { key: 'x', label: 'X' },
@@ -150,18 +347,14 @@ function isColorMappingProperty(property: string): boolean {
   );
 }
 
-function colorInputValue(value: string): string {
-  return /^#[0-9a-f]{6}$/i.test(value) ? value : '#000000';
-}
-
 function selectOptionConstantValueMap(
   field: { type: string; options?: Array<{ value: string }> },
   value: unknown,
-): Record<string, string> | undefined {
+): Record<string, string | number | boolean> | undefined {
   if (field.type !== 'select' || !field.options) return undefined;
   const mappedValue =
     typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-      ? String(value)
+      ? value
       : '';
   return Object.fromEntries(field.options.map((option) => [option.value, mappedValue]));
 }
@@ -170,6 +363,8 @@ function layerBindingPropertyValue(layer: Layer, property: string): unknown {
   if (property === 'dropShadowColor') return layer.effects.dropShadowColor;
   const effectValue = effectParameterValue(layer.effects, property);
   if (effectValue !== undefined) return effectValue;
+  const modifierValue = modifierParameterValue(layer, property);
+  if (modifierValue !== undefined) return modifierValue;
 
   const segments = property.replaceAll(/\[(\d+)\]/g, '.$1').split('.');
   let value: unknown = layer.element;
@@ -369,29 +564,161 @@ const VISUAL_RULE_TRIGGER_LABELS: Record<VisualRuleTrigger, string> = {
   hover: 'While hovered',
   click: 'Clicked',
   'double-click': 'Double-clicked',
-  'pointer-enter': 'Mouse over',
-  'pointer-leave': 'Mouse leave',
+  'pointer-enter': 'Mouse enters',
+  'pointer-leave': 'Mouse leaves',
+  'pointer-down': 'Mouse pressed',
+  'pointer-up': 'Mouse released',
+  'key-down': 'Key pressed',
+  'key-up': 'Key released',
   play: 'Played in',
   step: 'Step reached',
   stop: 'Taken out',
   'custom-action': 'Custom action',
+  'timer-alarm': 'Timer alarm',
 };
+
+function BrandBindingOrigin({
+  layer,
+  property,
+}: {
+  layer: Layer;
+  property: DesignTokenTargetProperty;
+}) {
+  const projectSet = useProjectSetStore((state) => state.projectSet);
+  const [error, setError] = useState<string | null>(null);
+  if (layer.typographyBinding && ['fontFamily', 'fontSize', 'fontWeight'].includes(property)) {
+    return <TypographyPropertyOrigin layer={layer} property={property as TypographyProperty} />;
+  }
+  const binding = layer.designTokenBindings.find((item) => item.targetProperty === property);
+  if (!binding) return null;
+  const origin = getBrandBindingOrigin(layer.id, property);
+  const objectOverride = binding.overridden === true;
+  const title =
+    origin.origin === 'inherited'
+      ? `Inherited from ${origin.sourceName ?? 'Brand Kit'}. Editing this property creates an object override.`
+      : origin.origin === 'overridden'
+        ? `Object override. Reset to use ${origin.sourceName ?? 'the linked Brand Kit token'} again.`
+        : `Linked to this template’s Brand Kit${projectSet ? '; not inherited from the set' : ''}.`;
+  return (
+    <small className={`inspector-brand-origin is-${origin.origin}`} title={error ?? title}>
+      {!objectOverride && (
+        <span className="inspector-origin-icon" role="img" aria-label={title}>
+          <InheritanceIcon overridden={origin.origin === 'overridden'} />
+        </span>
+      )}
+      {objectOverride && (
+        <button
+          type="button"
+          aria-label={`Reset ${property} to inherited Brand Kit value`}
+          title={error ?? `Reset ${property} to its inherited Brand Kit value`}
+          disabled={layer.isLocked}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            try {
+              setBrandBindingOverride(layer.id, property, false);
+              setError(null);
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : 'The override could not be reset.');
+            }
+          }}
+        >
+          <ResetInheritanceIcon />
+        </button>
+      )}
+      {error && <span role="alert">!</span>}
+    </small>
+  );
+}
+
+function TypographyPropertyOrigin({
+  layer,
+  property,
+}: {
+  layer: Layer;
+  property: TypographyProperty;
+}) {
+  const projectSet = useProjectSetStore((state) => state.projectSet);
+  const [error, setError] = useState('');
+  const binding = layer.typographyBinding;
+  if (!binding) return null;
+  const overridden = binding.overrides?.includes(property) ?? false;
+  const origin = getTypographyOrigin(binding.presetId);
+  const source =
+    origin.origin === 'overridden'
+      ? `this template’s typography override`
+      : (origin.sourceName ?? 'this template’s typography style');
+  return (
+    <small
+      className={`inspector-brand-origin is-${overridden ? 'overridden' : 'inherited'}`}
+      title={
+        error ||
+        (overridden
+          ? `Object override. Reset ${property} to the typography style.`
+          : `Inherited from ${source}${projectSet ? ` in ${projectSet.name}` : ''}. Editing creates an object override.`)
+      }
+    >
+      {!overridden && (
+        <span className="inspector-origin-icon" role="img" aria-label={`Inherited from ${source}`}>
+          <InheritanceIcon />
+        </span>
+      )}
+      {overridden && (
+        <button
+          type="button"
+          disabled={layer.isLocked}
+          aria-label={`Reset ${property} to typography style`}
+          title={error || `Reset ${property} to its typography style`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            try {
+              resetTypographyProperty(layer.id, property);
+              setError('');
+            } catch (cause) {
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : 'The typography property could not be reset.',
+              );
+            }
+          }}
+        >
+          <ResetInheritanceIcon />
+        </button>
+      )}
+      {error && <span role="alert">!</span>}
+    </small>
+  );
+}
 
 export function InspectorPanel() {
   const { window } = useEditorWindow();
   const composition = useActiveComposition();
   const testValues = useTestDataStore((state) => state.values);
-  const currentFrame = useTimelineStore((s) => s.currentFrame);
-  const autoKeyframe = useTimelineStore((s) => s.autoKeyframe);
+  const playheadFrame = useTimelineStore((s) => s.currentFrame);
+  const viewMode = useCanvasViewStore((s) => s.mode);
+  const currentFrame = canvasFrame(composition, playheadFrame, viewMode);
+  const timelineAutoKeyframe = useTimelineStore((s) => s.autoKeyframe);
+  const editScope = useTimelineStore((s) => s.editScope);
+  const setEditScope = useTimelineStore((s) => s.setEditScope);
+  const autoKeyframe = viewMode === 'animate' && timelineAutoKeyframe;
   const selectedLayerId = useSelectionStore((s) => s.selectedLayerId);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
+  const selectedProperty = useSelectionStore((s) => s.selectedLayerProperty);
   const liveTransform = useSelectionStore((s) => s.liveTransform);
   const previewShaderParameter = useShaderParameterPreviewStore((s) => s.previewParameter);
   const clearShaderParameterPreview = useShaderParameterPreviewStore((s) => s.clearPreview);
   const renameLayer = useProjectStore((s) => s.renameLayer);
   const reorderLayers = useProjectStore((s) => s.reorderLayers);
-  const updateLayerTransform = useProjectStore((s) => s.updateLayerTransform);
-  const updateLayerKeyframeEasing = useProjectStore((s) => s.updateLayerKeyframeEasing);
+  const writeLayerTransform = useProjectStore((s) => s.updateLayerTransform);
+  const updateLayerPropertyKeyframeEasing = useProjectStore(
+    (s) => s.updateLayerPropertyKeyframeEasing,
+  );
+  const updateLayerPropertyKeyframeCurve = useProjectStore(
+    (s) => s.updateLayerPropertyKeyframeCurve,
+  );
+  const toggleLayerPropertyKeyframe = useProjectStore((s) => s.toggleLayerPropertyKeyframe);
   const updateLayerElement = useProjectStore((s) => s.updateLayerElement);
   const importAsset = useProjectStore((s) => s.importAsset);
   const updateLayerTextStroke = useProjectStore((s) => s.updateLayerTextStroke);
@@ -400,12 +727,43 @@ export function InspectorPanel() {
   const setLayerBindings = useProjectStore((s) => s.setLayerBindings);
   const addLayerBinding = useProjectStore((s) => s.addLayerBinding);
   const toggleLayerLock = useProjectStore((s) => s.toggleLayerLock);
-  const setLayerParent = useProjectStore((s) => s.setLayerParent);
+  const writeLayerParent = useProjectStore((s) => s.setLayerParent);
   const setLayerClipChildren = useProjectStore((s) => s.setLayerClipChildren);
   const setLayerConstraints = useProjectStore((s) => s.setLayerConstraints);
-  const setLayerAutoLayout = useProjectStore((s) => s.setLayerAutoLayout);
+  const writeLayerAutoLayout = useProjectStore((s) => s.setLayerAutoLayout);
   const setLayerUpdateTransition = useProjectStore((s) => s.setLayerUpdateTransition);
-  const setLayerMotionPath = useProjectStore((s) => s.setLayerMotionPath);
+  const writeLayerMotionPath = useProjectStore((s) => s.setLayerMotionPath);
+  const [fontLibraryOpen, setFontLibraryOpen] = useState(false);
+  useEffect(() => setFontLibraryOpen(false), [selectedLayerId]);
+  const [layoutError, setLayoutError] = useState('');
+  const [elementEditError, setElementEditError] = useState('');
+  const updateLayerTransform = useCallback(
+    (...args: Parameters<typeof writeLayerTransform>) => {
+      try {
+        writeLayerTransform(...args);
+        setLayoutError('');
+      } catch (cause) {
+        setLayoutError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [writeLayerTransform],
+  );
+  const applyLayoutChange = (mutation: () => void) => {
+    try {
+      mutation();
+      setLayoutError('');
+    } catch (cause) {
+      setLayoutError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const setLayerParent = (...args: Parameters<typeof writeLayerParent>) =>
+    applyLayoutChange(() => writeLayerParent(...args));
+  const setLayerAutoLayout = (...args: Parameters<typeof writeLayerAutoLayout>) =>
+    applyLayoutChange(() => writeLayerAutoLayout(...args));
+  const setLayerMotionPath = (layerId: string, link: Layer['motionPath']) => {
+    applyLayoutChange(() => writeLayerMotionPath(layerId, link));
+  };
+  useEffect(() => setLayoutError(''), [selectedLayerId]);
   const addLayerVisualRule = useProjectStore((s) => s.addLayerVisualRule);
   const revealPane = usePaneRequestStore((s) => s.reveal);
   const setLayerPlayoutEditable = useProjectStore((s) => s.setLayerPlayoutEditable);
@@ -415,6 +773,7 @@ export function InspectorPanel() {
   const unbindDesignToken = useProjectStore((s) => s.unbindDesignToken);
   const [propertyFilter, setPropertyFilter] = useState('');
   const [audioImportError, setAudioImportError] = useState<string | null>(null);
+  const [brandStyleError, setBrandStyleError] = useState('');
   const inspectorRef = useRef<HTMLDivElement>(null);
   usePropertiesFilter(inspectorRef, propertyFilter);
 
@@ -459,26 +818,51 @@ export function InspectorPanel() {
     );
   }
   const autoLayout = normalizeLayerAutoLayout(layer.autoLayout);
-  const effectGroupLayers = isPersistentGroupSelection(composition, selectedLayerIds)
-    ? composition.layers.filter((candidate) => selectedLayerIds.includes(candidate.id))
-    : [layer];
+  const selectedEffectLayers = composition.layers.filter((candidate) =>
+    selectedLayerIds.includes(candidate.id),
+  );
+  if (selectedEffectLayers.length > 1) {
+    return (
+      <MultiSelectionProperties
+        layers={selectedEffectLayers}
+        frame={Math.round(currentFrame)}
+        composition={composition}
+      />
+    );
+  }
+  const effectGroupLayers = selectedEffectLayers.length > 1 ? selectedEffectLayers : [layer];
   const visualRules = layer.visualRules ?? [];
-  const playoutTarget = playoutProperty(layer);
+  const playoutTarget =
+    layer.element.type === 'text' && layer.element.clock ? null : playoutProperty(layer);
   const playoutFieldId = playoutTarget
     ? layer.bindings.find((binding) => binding.targetProperty === playoutTarget.value)?.fieldId
     : undefined;
   const playoutField = composition.dataFields.find((field) => field.id === playoutFieldId) ?? null;
   const pathStretchInsets = layer.element.type === 'path' ? layer.element.stretchInsets : undefined;
   const selectedTextElement = layer.element.type === 'text' ? layer.element : null;
+  const textAnimationOwnsUpdate =
+    selectedTextElement !== null && textAnimationCarriesUpdate(selectedTextElement.textAnimation);
   const selectedTextAnimation = selectedTextElement
     ? normalizeTextAnimation(selectedTextElement.textAnimation)
     : null;
   const selectedTextAnimationUnitCount =
     selectedTextElement && selectedTextAnimation
       ? segmentTextAnimationUnits(
-          selectedTextElement.runs.length
-            ? selectedTextElement.runs.map((run) => run.text).join('')
-            : selectedTextElement.content,
+          selectedTextElement.clock
+            ? formatClockTimerValue(
+                selectedTextElement.clock,
+                selectedTextElement.clock.source === 'manual'
+                  ? (parseClockTimerManualValue(
+                      selectedTextElement.clock,
+                      selectedTextElement.clock.manualValue,
+                    ) ?? 0)
+                  : selectedTextElement.clock.mode === 'clock'
+                    ? selectedTextElement.clock.referenceTimeMs
+                    : selectedTextElement.clock.initialValueMs,
+              )
+            : selectedTextElement.runs.length
+              ? selectedTextElement.runs.map((run) => run.text).join('')
+              : selectedTextElement.content,
           textAnimationSplit(selectedTextAnimation),
           selectedTextElement.language,
         ).filter((segment) =>
@@ -488,6 +872,62 @@ export function InspectorPanel() {
   const selectedAudioElement = layer.element.type === 'audio' ? layer.element : null;
 
   const roundedFrame = Math.round(currentFrame);
+  const editTimeLabel = `${(roundedFrame / composition.frameRate).toFixed(2)}s · frame ${roundedFrame}`;
+  const propertyTracks = getResolvedLayerAnimationTracks(layer);
+  const hasAnimatedTransform = [...TRANSFORM_FIELDS.map(({ key }) => key), 'opacity'].some(
+    (property) => isLayerPropertyAnimated(layer, property as AnimatableLayerProperty),
+  );
+  const propertyKeyControl = (property: keyof LayerTransform, label: string) => {
+    const animated = isLayerPropertyAnimated(layer, property);
+    const keyed =
+      animated && Boolean(propertyTracks[property]?.some((key) => key.frame === roundedFrame));
+    return (
+      <PropertyKeyframeButton
+        key={`${layer.id}:${property}`}
+        label={label}
+        timeLabel={editTimeLabel}
+        animated={animated}
+        keyed={keyed}
+        disabled={layer.isLocked || viewMode !== 'animate'}
+        canReset={animated || Boolean(layer.loop?.tracks[property]?.length)}
+        onReset={() => {
+          try {
+            resetTimelineChannelAnimation(layer.id, property);
+            setLayoutError('');
+          } catch (cause) {
+            setLayoutError(
+              cause instanceof Error ? cause.message : 'The channel animation could not be reset.',
+            );
+          }
+        }}
+        onToggle={() => {
+          try {
+            const timeline = useTimelineStore.getState();
+            timeline.controller?.pause();
+            timeline.setPlaying(false);
+            timeline.controller?.seek(roundedFrame);
+            timeline.setCurrentFrame(roundedFrame);
+            runDiscreteHistoryStep(
+              () => {
+                const keyId = toggleLayerPropertyKeyframe(layer.id, property, roundedFrame);
+                const selection = useSelectionStore.getState();
+                if (keyId) selection.selectLayerKeyframe(layer.id, keyId, property);
+                else selection.selectLayerProperty(layer.id, property);
+              },
+              `${keyed ? 'Remove' : 'Add'} ${label} keyframe`,
+            );
+            setLayoutError('');
+          } catch (cause) {
+            setLayoutError(
+              cause instanceof Error ? cause.message : 'The keyframe could not be changed.',
+            );
+          }
+        }}
+      />
+    );
+  };
+  const editLayerShader = (slot: ShaderPaintSlot) =>
+    openShaderResourceEditor({ compositionId: composition.id, layerId: layer.id, slot }, window);
   const previewLayerShaderParameter = (
     slot: ShaderPaintSlot,
     name: string,
@@ -502,11 +942,20 @@ export function InspectorPanel() {
     clearShaderParameterPreview();
   };
   const activeLayerKeyframe = findLayerKeyframeAtFrame(layer, roundedFrame);
+  const transformProperties: string[] = [...TRANSFORM_FIELDS.map(({ key }) => key), 'opacity'];
+  const selectedTransformProperty =
+    selectedProperty && transformProperties.includes(selectedProperty) ? selectedProperty : null;
+  const activePropertyKey =
+    selectedTransformProperty && isLayerPropertyAnimated(layer, selectedTransformProperty)
+      ? propertyTracks[selectedTransformProperty]?.find((key) => key.frame === roundedFrame)
+      : null;
   const authoredPose = getLayerTransformAtFrame(layer, currentFrame);
+  const boundPose = {
+    ...resolveDesignerTransform(layer, authoredPose, testValues, composition.dataFields),
+    opacity: authoredPose.opacity,
+  };
   const pose =
-    liveTransform?.layerId === layer.id
-      ? { ...authoredPose, ...liveTransform.patch }
-      : authoredPose;
+    liveTransform?.layerId === layer.id ? { ...boundPose, ...liveTransform.patch } : boundPose;
   const isLiveTransform = liveTransform?.layerId === layer.id;
   const alphaPercent = opacityToAlphaPercent(pose.opacity);
   const sampledShaderElement = sampleShaderAnimationTracks(
@@ -533,24 +982,44 @@ export function InspectorPanel() {
       : 0;
   const transformInputValue = (key: keyof LayerTransform): number => {
     if (isLiveTransform) return pose[key];
-    const value = activeLayerKeyframe?.transform[key] ?? pose[key];
+    const value =
+      layer.animationTrackMode === 'independent'
+        ? pose[key]
+        : (activeLayerKeyframe?.transform[key] ?? pose[key]);
     return isPixelTransformKey(key) ? Math.round(value) : value;
   };
 
-  const evaluatedPixelSummary = `X ${authoredPose.x.toFixed(3)} · Y ${authoredPose.y.toFixed(3)} · Width ${authoredPose.width.toFixed(3)} · Height ${authoredPose.height.toFixed(3)}`;
+  const evaluatedPixelSummary = `X ${boundPose.x.toFixed(3)} · Y ${boundPose.y.toFixed(3)} · Width ${boundPose.width.toFixed(3)} · Height ${boundPose.height.toFixed(3)}`;
 
   const setTransform = (key: keyof LayerTransform, value: number) => {
     updateLayerTransform(layer.id, roundedFrame, { [key]: value });
+    if (editScope !== 'playhead' || viewMode !== 'animate') return;
+    const latest = useProjectStore
+      .getState()
+      .project.compositions.find((candidate) => candidate.id === composition.id)
+      ?.layers.find((candidate) => candidate.id === layer.id);
+    if (!latest || !isLayerPropertyAnimated(latest, key)) return;
+    const editedKey = getResolvedLayerAnimationTracks(latest)[key]?.find(
+      (candidate) => candidate.frame === roundedFrame,
+    );
+    if (editedKey) useSelectionStore.getState().selectLayerKeyframe(layer.id, editedKey.id, key);
   };
 
   const setElement = (patch: Partial<ElementFields>) => {
-    updateLayerElement(layer.id, patch);
+    try {
+      updateLayerElement(layer.id, patch);
+      setElementEditError('');
+      return true;
+    } catch (error) {
+      setElementEditError(error instanceof Error ? error.message : String(error));
+      return false;
+    }
   };
 
   const setTextElement = (patch: Partial<TextElement>) => {
     if (layer.element.type !== 'text') return;
     const next = { ...layer.element, ...patch };
-    setElement(patch);
+    if (!setElement(patch)) return;
     if (next.autoFit === 'auto-size') {
       updateLayerTransform(layer.id, roundedFrame, measureAutoSizedText(next));
     }
@@ -583,6 +1052,10 @@ export function InspectorPanel() {
   // Narrowed to a local so it survives into the `.find()` closure below — TS discards narrowing
   // from `layer.element.type === 'image'` once `layer.element` is re-read inside a nested function.
   const sequenceFrames = layer.element.type === 'image-sequence' ? layer.element.frames : [];
+  const sequencePreview = sequenceFrames[0]?.startsWith('asset:')
+    ? composition.assets.find((asset) => asset.id === sequenceFrames[0]!.slice('asset:'.length))
+        ?.dataUri
+    : sequenceFrames[0];
   const selectedFontFamily = layer.element.type === 'text' ? layer.element.fontFamily : '';
   const selectedFontSize = layer.element.type === 'text' ? layer.element.fontSize : 1;
   const importedFontOptions = composition.assets
@@ -627,6 +1100,14 @@ export function InspectorPanel() {
     <Panel title="Properties">
       <div className="inspector" ref={inspectorRef}>
         <PropertiesFilter value={propertyFilter} onChange={setPropertyFilter} />
+        {elementEditError && (
+          <p className="inspector-error" role="alert">
+            {elementEditError}
+          </p>
+        )}
+        {authoredLayer?.componentLink && (
+          <ComponentInstanceControls layer={authoredLayer} composition={composition} />
+        )}
         <PropertyRow
           help={
             "Name used to identify this layer in the editor and by authoring tools. Rename it here; edit a text layer's visible wording under Content."
@@ -674,36 +1155,79 @@ export function InspectorPanel() {
             <code>{playoutField.key}</code>). Rename or describe it under Data → Fields.
           </p>
         ) : null}
+        {(layer.modifiers ?? []).some((modifier) => modifier.enabled) && (
+          <p className="inspector-hint">
+            Smart layout drives {modifierDrivenProperties(layer.modifiers ?? []).join(', ')}. These
+            controls retain the authored base values.{' '}
+            <button type="button" onClick={() => revealPane('modifiers')}>
+              Edit Smart layout
+            </button>
+          </p>
+        )}
         <CollapsibleSection
           sectionId="properties.transform"
-          title={autoKeyframe ? `Transform — key at frame ${roundedFrame}` : 'Transform'}
+          title={
+            editScope === 'whole-animation'
+              ? 'Transform — whole animation'
+              : `Transform — ${editTimeLabel}`
+          }
         >
-          {!autoKeyframe && (
-            <p className="inspector-hint">
-              Edits move all of this layer&apos;s keys. To animate, use Animate In / Out or turn on
-              Auto-keyframe.
+          {layoutError && (
+            <p className="inspector-hint" role="alert">
+              {layoutError}
             </p>
           )}
-          {autoKeyframe && !activeLayerKeyframe && (
-            <div className="inspector-evaluated-pose">
-              <span>Evaluated between keys</span>
-              <output>{evaluatedPixelSummary}</output>
-              <small>Editing creates an integer-pixel keyframe only for this layer.</small>
-            </div>
-          )}
+          <PropertyRow
+            as="div"
+            className="inspector-row"
+            help="At playhead edits animated properties at this time. Whole animation moves existing keys together without changing their timing."
+          >
+            <span>Edit</span>
+            <select
+              aria-label="Transform edit scope"
+              value={editScope}
+              disabled={viewMode !== 'animate'}
+              onChange={(event) =>
+                setEditScope(event.currentTarget.value as 'playhead' | 'whole-animation')
+              }
+            >
+              <option value="playhead">At playhead</option>
+              <option value="whole-animation">Whole animation</option>
+            </select>
+          </PropertyRow>
+          <p className="inspector-hint">
+            {editScope === 'whole-animation'
+              ? 'Edits move the existing animation together; key times stay the same.'
+              : autoKeyframe
+                ? 'Auto-keyframe records changes at this time, including static properties.'
+                : 'Keyed properties record at this time. Use the diamond to animate a property.'}
+          </p>
+          {editScope === 'playhead' &&
+            (autoKeyframe || hasAnimatedTransform) &&
+            !activeLayerKeyframe && (
+              <div className="inspector-evaluated-pose">
+                <span>Evaluated pose at playhead</span>
+                <output>{evaluatedPixelSummary}</output>
+                <small>Keyed properties record changes at the playhead.</small>
+              </div>
+            )}
           <div className="inspector-grid">
             {TRANSFORM_FIELDS.map(({ key, label, step }) => (
-              <PropertyRow help={TRANSFORM_HELP[key]!} className="inspector-row" key={key}>
+              <PropertyRow as="div" help={TRANSFORM_HELP[key]!} className="inspector-row" key={key}>
                 <span>{label}</span>
-                <input
-                  type="number"
-                  step={step ?? 1}
-                  value={transformInputValue(key)}
-                  disabled={layer.isLocked}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    setTransform(key, Number(e.target.value))
-                  }
-                />
+                <div className="inspector-animated-value">
+                  <input
+                    aria-label={label}
+                    type="number"
+                    step={step ?? 1}
+                    value={transformInputValue(key)}
+                    disabled={layer.isLocked}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                      setTransform(key, Number(e.target.value))
+                    }
+                  />
+                  {propertyKeyControl(key, label)}
+                </div>
               </PropertyRow>
             ))}
           </div>
@@ -713,81 +1237,173 @@ export function InspectorPanel() {
               'Layer opacity at the current timeline frame. 0% is fully transparent and 100% is fully opaque; lower values let the background show through.'
             }
             as="div"
-            className="inspector-alpha-control"
+            className="inspector-row"
           >
             <span className="inspector-alpha-label">Alpha</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={0.1}
-              value={alphaPercent}
-              aria-label="Object alpha"
-              onInput={(event) =>
-                setTransform('opacity', alphaPercentToOpacity(Number(event.currentTarget.value)))
-              }
-            />
-            <label className="inspector-alpha-number">
+            <div className="inspector-animated-value inspector-alpha-value">
               <input
-                type="number"
+                type="range"
                 min={0}
                 max={100}
                 step={0.1}
                 value={alphaPercent}
-                aria-label="Object alpha percentage"
-                onChange={(event) =>
-                  setTransform('opacity', alphaPercentToOpacity(Number(event.target.value)))
+                disabled={layer.isLocked}
+                aria-label="Object alpha"
+                onInput={(event) =>
+                  setTransform('opacity', alphaPercentToOpacity(Number(event.currentTarget.value)))
                 }
               />
-              <span>%</span>
-            </label>
+              <label className="inspector-alpha-number">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={alphaPercent}
+                  disabled={layer.isLocked}
+                  aria-label="Object alpha percentage"
+                  onChange={(event) =>
+                    setTransform('opacity', alphaPercentToOpacity(Number(event.target.value)))
+                  }
+                />
+                <span>%</span>
+              </label>
+              {propertyKeyControl('opacity', 'Alpha')}
+            </div>
           </PropertyRow>
 
-          {activeLayerKeyframe && (
+          {activePropertyKey && selectedTransformProperty && (
             <PropertyRow
+              as="div"
               help={
                 'Easing used when the animation arrives at this layer keyframe. It changes the acceleration of the incoming transition without changing its duration.'
               }
               className="inspector-row"
             >
-              <span>Incoming easing (this key)</span>
-              <select
-                aria-label="Selected keyframe easing"
-                value={activeLayerKeyframe.easing}
-                onChange={(event) =>
-                  updateLayerKeyframeEasing(
+              <span>Ease into property key</span>
+              <EasingPicker
+                label="Property key easing"
+                disabled={layer.isLocked}
+                value={activePropertyKey.easing}
+                curve={activePropertyKey.curve}
+                onChange={(easing) =>
+                  updateLayerPropertyKeyframeEasing(
                     layer.id,
-                    activeLayerKeyframe.id,
-                    event.target.value as EasingPreset,
+                    selectedTransformProperty,
+                    activePropertyKey.id,
+                    easing,
                   )
                 }
-              >
-                {EASING_OPTION_GROUPS.map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.options.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+                onCurveChange={(curve) =>
+                  updateLayerPropertyKeyframeCurve(
+                    layer.id,
+                    selectedTransformProperty,
+                    activePropertyKey.id,
+                    curve,
+                  )
+                }
+              />
             </PropertyRow>
           )}
         </CollapsibleSection>
 
+        {layer.element.type !== 'audio' ? (
+          <CollapsibleSection sectionId="properties.crop" title="Crop">
+            <LayerCropEditor
+              layerIds={selectedLayerIds.includes(layer.id) ? selectedLayerIds : [layer.id]}
+            />
+          </CollapsibleSection>
+        ) : null}
         <CollapsibleSection sectionId="properties.motion" title="Animate In / Out">
           <LayerMotionEditor
             composition={composition}
             layer={layer}
             layerIds={selectedLayerIds.includes(layer.id) ? selectedLayerIds : [layer.id]}
           />
+          <LayerMotionBlurEditor layer={layer} />
         </CollapsibleSection>
 
+        {layer.element.type === 'text' && (
+          <CollapsibleSection sectionId="properties.textPath" title="Text on a path">
+            <TextPathEditor key={layer.id} layer={layer} composition={composition} />
+          </CollapsibleSection>
+        )}
+
+        {layer.element.type === 'text' && layer.element.clock ? (
+          <ClockTimerEditor
+            key={layer.id}
+            value={
+              authoredLayer?.element.type === 'text' && authoredLayer.element.clock
+                ? authoredLayer.element.clock
+                : layer.element.clock
+            }
+            layerId={layer.id}
+            disabled={layer.isLocked}
+            onChange={(clock) => setTextElement({ clock, runs: [] })}
+            externalBinding={{
+              fieldId:
+                layer.bindings.find((binding) => binding.targetProperty === 'clock.manualValue')
+                  ?.fieldId ?? null,
+              fields: composition.dataFields
+                .filter((field) =>
+                  ['text', 'textarea', 'number', 'integer', 'select'].includes(field.type),
+                )
+                .map((field) => ({ id: field.id, label: field.label || field.key })),
+              onChange: (fieldId) =>
+                setLayerBindings(layer.id, [
+                  ...layer.bindings.filter(
+                    (binding) => binding.targetProperty !== 'clock.manualValue',
+                  ),
+                  ...(fieldId ? [{ fieldId, targetProperty: 'clock.manualValue' }] : []),
+                ]),
+              onCreate: () => setLayerPlayoutEditable(layer.id, true),
+            }}
+          />
+        ) : null}
         <CollapsibleSection
           sectionId="properties.element"
-          title={elementSectionLabel(layer.element.type)}
+          title={
+            layer.element.type === 'text' && layer.element.clock
+              ? 'Text appearance'
+              : elementSectionLabel(layer.element.type)
+          }
         >
+          {layer.element.type === 'ticker' && (
+            <TickerEditor
+              layerId={layer.id}
+              value={layer.element}
+              composition={composition}
+              disabled={layer.isLocked}
+              onChange={setElement}
+            />
+          )}
+          {layer.designTokenBindings.some(
+            (binding) =>
+              !['fontFamily', 'fontSize', 'fontWeight', 'strokeColor', 'strokeWidth'].includes(
+                binding.targetProperty,
+              ),
+          ) && (
+            <div className="inspector-brand-linked-summary" aria-label="Brand Kit property origins">
+              {layer.designTokenBindings
+                .filter(
+                  (binding) =>
+                    ![
+                      'fontFamily',
+                      'fontSize',
+                      'fontWeight',
+                      'strokeColor',
+                      'strokeWidth',
+                    ].includes(binding.targetProperty),
+                )
+                .map((binding) => (
+                  <span key={binding.targetProperty}>
+                    {tokenTargets.find((target) => target.property === binding.targetProperty)
+                      ?.label ?? binding.targetProperty}
+                    <BrandBindingOrigin layer={layer} property={binding.targetProperty} />
+                  </span>
+                ))}
+            </div>
+          )}
           {layer.element.type === 'image' && (
             <ImageSourceEditor
               key={`image-${layer.id}`}
@@ -799,7 +1415,9 @@ export function InspectorPanel() {
             layer.element.type === 'image-sequence' ||
             layer.element.type === 'lottie') && (
             <PaintEditor
+              layerId={layer.id}
               media
+              onEditShader={() => editLayerShader('fill')}
               disabled={layer.isLocked}
               value={evaluatedPaint ?? layer.element.fill}
               shaderAnimationActive={animatedShaderSlots.has('fill')}
@@ -817,7 +1435,7 @@ export function InspectorPanel() {
               {layer.bindings
                 .map(
                   (binding) =>
-                    bindableProperties(layer.element, layer.effects).find(
+                    bindableProperties(layer.element, layer.effects, layer.modifiers).find(
                       (property) => property.value === binding.targetProperty,
                     )?.label ?? binding.targetProperty,
                 )
@@ -829,6 +1447,8 @@ export function InspectorPanel() {
           {layer.element.type === 'rectangle' && (
             <>
               <PaintEditor
+                layerId={layer.id}
+                onEditShader={() => editLayerShader('fill')}
                 disabled={layer.isLocked}
                 value={evaluatedPaint ?? layer.element.fill}
                 shaderAnimationActive={animatedShaderSlots.has('fill')}
@@ -850,6 +1470,8 @@ export function InspectorPanel() {
           {layer.element.type === 'ellipse' && (
             <>
               <PaintEditor
+                layerId={layer.id}
+                onEditShader={() => editLayerShader('fill')}
                 disabled={layer.isLocked}
                 value={evaluatedPaint ?? layer.element.fill}
                 shaderAnimationActive={animatedShaderSlots.has('fill')}
@@ -867,22 +1489,23 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Stroke Color</span>
-                <input
-                  type="color"
-                  value={
-                    layer.element.strokeColor === 'transparent'
-                      ? '#000000'
-                      : layer.element.strokeColor
-                  }
-                  onChange={(e) => setElement({ strokeColor: e.target.value })}
+                <span>
+                  Stroke Color <BrandBindingOrigin layer={layer} property="strokeColor" />
+                </span>
+                <ColorInput
+                  label="Stroke color"
+                  value={layer.element.strokeColor}
+                  onChange={(color) => setElement({ strokeColor: color })}
+                  onTokenSelect={(id) => bindDesignToken(layer.id, id, 'strokeColor')}
                 />
               </PropertyRow>
               <PropertyRow
                 help={'Thickness of the shape outline in pixels. Zero removes the outline.'}
                 className="inspector-row"
               >
-                <span>Stroke Width</span>
+                <span>
+                  Stroke Width <BrandBindingOrigin layer={layer} property="strokeWidth" />
+                </span>
                 <input
                   type="number"
                   value={layer.element.strokeWidth}
@@ -893,24 +1516,93 @@ export function InspectorPanel() {
           )}
 
           {layer.element.type === 'chart' && (
-            <ChartEditor element={layer.element} onChange={setElement} />
+            <ChartEditor
+              layerId={layer.id}
+              element={layer.element}
+              onChange={setElement}
+              fillEditor={
+                <PaintEditor
+                  layerId={layer.id}
+                  originalLabel="Dataset colors"
+                  onEditShader={() => editLayerShader('fill')}
+                  disabled={layer.isLocked}
+                  value={evaluatedPaint ?? layer.element.fill}
+                  shaderAnimationActive={animatedShaderSlots.has('fill')}
+                  onShaderParameterPreview={(name, value) =>
+                    previewLayerShaderParameter('fill', name, value)
+                  }
+                  onShaderParameterChange={(name, value) =>
+                    commitLayerShaderParameter('fill', name, value)
+                  }
+                  onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+                />
+              }
+            />
           )}
 
           {layer.element.type === 'text' && (
             <>
               <PropertyRow
-                help={
-                  'Text displayed by this layer. A connected playback data field can replace this content at runtime.'
-                }
-                className="inspector-row inspector-row-stacked"
+                help="Apply a named Brand Kit typography style. Its seven text properties stay editable; editing creates a local override and Reset restores the style. Unlinked keeps the current text formatting."
+                className="inspector-row"
               >
-                <span>Content</span>
-                <textarea
-                  rows={3}
-                  value={layer.element.content}
-                  onChange={(e) => setTextElement({ content: e.target.value, runs: [] })}
-                />
+                <span>Typography</span>
+                <select
+                  aria-label="Text typography style"
+                  value={layer.typographyBinding?.presetId ?? ''}
+                  disabled={layer.isLocked}
+                  onChange={(event) => {
+                    try {
+                      const ids = selectedLayerIds.includes(layer.id)
+                        ? selectedLayerIds
+                        : [layer.id];
+                      const textIds = composition.layers
+                        .filter(
+                          (candidate) =>
+                            ids.includes(candidate.id) &&
+                            candidate.element.type === 'text' &&
+                            !candidate.isLocked,
+                        )
+                        .map((candidate) => candidate.id);
+                      applyTypographyToLayers(textIds, event.target.value || null);
+                      setBrandStyleError('');
+                    } catch (cause) {
+                      setBrandStyleError(
+                        cause instanceof Error
+                          ? cause.message
+                          : 'The typography style could not be applied.',
+                      );
+                    }
+                  }}
+                >
+                  <option value="">Unlinked / custom</option>
+                  {(composition.designSystem.typography ?? []).map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </select>
               </PropertyRow>
+              {brandStyleError && (
+                <p className="inspector-error" role="alert">
+                  {brandStyleError}
+                </p>
+              )}
+              {!layer.element.clock ? (
+                <PropertyRow
+                  help={
+                    'Text displayed by this layer. A connected playback data field can replace this content at runtime.'
+                  }
+                  className="inspector-row inspector-row-stacked"
+                >
+                  <span>Content</span>
+                  <textarea
+                    rows={3}
+                    value={layer.element.content}
+                    onChange={(e) => setTextElement({ content: e.target.value, runs: [] })}
+                  />
+                </PropertyRow>
+              ) : null}
               <PropertyRow
                 help="Unicode bidirectional base direction for this text box."
                 className="inspector-row"
@@ -938,95 +1630,107 @@ export function InspectorPanel() {
                   onChange={(event) => setTextElement({ language: event.target.value })}
                 />
               </PropertyRow>
-              <div className="inspector-button-row">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const runs =
-                      layer.element.type === 'text' && layer.element.runs.length
-                        ? [...layer.element.runs, { text: '' }]
-                        : [{ text: layer.element.type === 'text' ? layer.element.content : '' }];
-                    setTextElement({ runs, content: runs.map((run) => run.text).join('') });
-                  }}
-                >
-                  {layer.element.runs.length ? '+ Add styled run' : 'Enable mixed styles'}
-                </button>
-                {layer.element.runs.length ? (
-                  <button type="button" onClick={() => setTextElement({ runs: [] })}>
-                    Use one style
-                  </button>
-                ) : null}
-              </div>
-              {layer.element.runs.map((run, index) => {
-                const updateRun = (patch: Partial<typeof run>) => {
-                  const runs =
-                    layer.element.type === 'text'
-                      ? layer.element.runs.map((candidate, candidateIndex) =>
-                          candidateIndex === index ? { ...candidate, ...patch } : candidate,
-                        )
-                      : [];
-                  setTextElement({
-                    runs,
-                    content: runs.map((candidate) => candidate.text).join(''),
-                  });
-                };
-                return (
-                  <div className="inspector-binding" key={index}>
-                    <input
-                      aria-label={`Styled run ${index + 1} text`}
-                      value={run.text}
-                      onChange={(event) => updateRun({ text: event.target.value })}
-                    />
-                    <label>
-                      Color
-                      <input
-                        type="color"
-                        value={run.color ?? selectedTextElement!.color}
-                        onChange={(event) => updateRun({ color: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      Weight
-                      <input
-                        type="number"
-                        min={100}
-                        max={900}
-                        step={100}
-                        value={run.fontWeight ?? selectedTextElement!.fontWeight}
-                        onChange={(event) => updateRun({ fontWeight: Number(event.target.value) })}
-                      />
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={run.fontStyle === 'italic'}
-                        onChange={(event) =>
-                          updateRun({ fontStyle: event.target.checked ? 'italic' : 'normal' })
-                        }
-                      />
-                      Italic
-                    </label>
+              {!layer.element.clock ? (
+                <>
+                  <div className="inspector-button-row">
                     <button
                       type="button"
                       onClick={() => {
-                        if (layer.element.type !== 'text') return;
-                        const runs = layer.element.runs.filter(
-                          (_, candidateIndex) => candidateIndex !== index,
-                        );
-                        setTextElement({
-                          runs,
-                          content: runs.map((candidate) => candidate.text).join(''),
-                        });
+                        const runs =
+                          layer.element.type === 'text' && layer.element.runs.length
+                            ? [...layer.element.runs, { text: '' }]
+                            : [
+                                {
+                                  text: layer.element.type === 'text' ? layer.element.content : '',
+                                },
+                              ];
+                        setTextElement({ runs, content: runs.map((run) => run.text).join('') });
                       }}
                     >
-                      Remove run
+                      {layer.element.runs.length ? '+ Add styled run' : 'Enable mixed styles'}
                     </button>
+                    {layer.element.runs.length ? (
+                      <button type="button" onClick={() => setTextElement({ runs: [] })}>
+                        Use one style
+                      </button>
+                    ) : null}
                   </div>
-                );
-              })}
+                  {layer.element.runs.map((run, index) => {
+                    const updateRun = (patch: Partial<typeof run>) => {
+                      const runs =
+                        layer.element.type === 'text'
+                          ? layer.element.runs.map((candidate, candidateIndex) =>
+                              candidateIndex === index ? { ...candidate, ...patch } : candidate,
+                            )
+                          : [];
+                      setTextElement({
+                        runs,
+                        content: runs.map((candidate) => candidate.text).join(''),
+                      });
+                    };
+                    return (
+                      <div className="inspector-binding" key={index}>
+                        <input
+                          aria-label={`Styled run ${index + 1} text`}
+                          value={run.text}
+                          onChange={(event) => updateRun({ text: event.target.value })}
+                        />
+                        <label>
+                          Color
+                          <ColorInput
+                            label={`Styled run ${index + 1} color`}
+                            value={run.color ?? selectedTextElement!.color}
+                            onChange={(color) => updateRun({ color })}
+                          />
+                        </label>
+                        <label>
+                          Weight
+                          <input
+                            type="number"
+                            min={100}
+                            max={900}
+                            step={100}
+                            value={run.fontWeight ?? selectedTextElement!.fontWeight}
+                            onChange={(event) =>
+                              updateRun({ fontWeight: Number(event.target.value) })
+                            }
+                          />
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={run.fontStyle === 'italic'}
+                            onChange={(event) =>
+                              updateRun({ fontStyle: event.target.checked ? 'italic' : 'normal' })
+                            }
+                          />
+                          Italic
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (layer.element.type !== 'text') return;
+                            const runs = layer.element.runs.filter(
+                              (_, candidateIndex) => candidateIndex !== index,
+                            );
+                            setTextElement({
+                              runs,
+                              content: runs.map((candidate) => candidate.text).join(''),
+                            });
+                          }}
+                        >
+                          Remove run
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              ) : null}
               <PaintEditor
+                layerId={layer.id}
                 disabled={layer.isLocked}
                 value={evaluatedPaint ?? layer.element.color}
+                onEditShader={() => editLayerShader('fill')}
                 shaderAnimationActive={animatedShaderSlots.has('fill')}
                 onShaderParameterPreview={(name, value) =>
                   previewLayerShaderParameter('fill', name, value)
@@ -1037,7 +1741,9 @@ export function InspectorPanel() {
                 onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
               />
               <PaintEditor
+                layerId={layer.id}
                 label="Outline"
+                onEditShader={() => editLayerShader('stroke')}
                 allowMedia={false}
                 disabled={layer.isLocked}
                 allowGradient={false}
@@ -1062,7 +1768,9 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Stroke Width</span>
+                <span>
+                  Stroke Width <BrandBindingOrigin layer={layer} property="strokeWidth" />
+                </span>
                 <input
                   type="number"
                   min={0}
@@ -1079,7 +1787,9 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Size</span>
+                <span>
+                  Size <BrandBindingOrigin layer={layer} property="fontSize" />
+                </span>
                 <input
                   type="number"
                   min={1}
@@ -1095,7 +1805,9 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Weight</span>
+                <span>
+                  Weight <BrandBindingOrigin layer={layer} property="fontWeight" />
+                </span>
                 <input
                   type="number"
                   min={100}
@@ -1113,7 +1825,9 @@ export function InspectorPanel() {
                 help={'Horizontal alignment of the text within its box: left, centered or right.'}
                 className="inspector-row"
               >
-                <span>Align</span>
+                <span>
+                  Align <TypographyPropertyOrigin layer={layer} property="textAlign" />
+                </span>
                 <select
                   value={layer.element.textAlign}
                   onChange={(e) =>
@@ -1131,7 +1845,9 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Font</span>
+                <span>
+                  Font <BrandBindingOrigin layer={layer} property="fontFamily" />
+                </span>
                 <select
                   className="inspector-font-select"
                   value={selectedFontFamily}
@@ -1147,6 +1863,26 @@ export function InspectorPanel() {
                   ))}
                 </select>
               </PropertyRow>
+              <button
+                type="button"
+                disabled={layer.isLocked}
+                onClick={() => setFontLibraryOpen(true)}
+              >
+                Browse fonts…
+              </button>
+              {fontLibraryOpen && (
+                <FontLibraryDialog
+                  layerId={layer.id}
+                  compositionId={composition.id}
+                  text={
+                    layer.element.runs.length
+                      ? layer.element.runs.map((run) => run.text).join('')
+                      : layer.element.content
+                  }
+                  onApply={(fontFamily) => setTextElement({ fontFamily })}
+                  onClose={() => setFontLibraryOpen(false)}
+                />
+              )}
               <div
                 className="inspector-font-preview"
                 title={`Selected template font: ${layer.element.fontFamily}`}
@@ -1160,7 +1896,9 @@ export function InspectorPanel() {
                   }
                   className="inspector-row"
                 >
-                  <span>Line height</span>
+                  <span>
+                    Line height <TypographyPropertyOrigin layer={layer} property="lineHeight" />
+                  </span>
                   <input
                     type="number"
                     min={0.5}
@@ -1177,7 +1915,9 @@ export function InspectorPanel() {
                   }
                   className="inspector-row"
                 >
-                  <span>Tracking</span>
+                  <span>
+                    Tracking <TypographyPropertyOrigin layer={layer} property="letterSpacing" />
+                  </span>
                   <input
                     type="number"
                     step={0.1}
@@ -1249,7 +1989,9 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Transform</span>
+                <span>
+                  Transform <TypographyPropertyOrigin layer={layer} property="textTransform" />
+                </span>
                 <select
                   value={layer.element.textTransform}
                   onChange={(event) =>
@@ -1346,6 +2088,8 @@ export function InspectorPanel() {
                 />
               </PropertyRow>
               <PaintEditor
+                layerId={layer.id}
+                onEditShader={() => editLayerShader('fill')}
                 disabled={layer.isLocked}
                 value={evaluatedPaint ?? layer.element.fill}
                 shaderAnimationActive={animatedShaderSlots.has('fill')}
@@ -1381,15 +2125,14 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Stroke Color</span>
-                <input
-                  type="color"
-                  value={
-                    layer.element.strokeColor === 'transparent'
-                      ? '#000000'
-                      : layer.element.strokeColor
-                  }
-                  onChange={(e) => setElement({ strokeColor: e.target.value })}
+                <span>
+                  Stroke Color <BrandBindingOrigin layer={layer} property="strokeColor" />
+                </span>
+                <ColorInput
+                  label="Stroke color"
+                  value={layer.element.strokeColor}
+                  onChange={(color) => setElement({ strokeColor: color })}
+                  onTokenSelect={(id) => bindDesignToken(layer.id, id, 'strokeColor')}
                 />
               </PropertyRow>
               <PropertyRow
@@ -1398,7 +2141,9 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Stroke Width</span>
+                <span>
+                  Stroke Width <BrandBindingOrigin layer={layer} property="strokeWidth" />
+                </span>
                 <input
                   type="number"
                   value={layer.element.strokeWidth}
@@ -1508,6 +2253,8 @@ export function InspectorPanel() {
                 </select>
               </PropertyRow>
               <PaintEditor
+                layerId={layer.id}
+                onEditShader={() => editLayerShader('fill')}
                 disabled={layer.isLocked}
                 value={evaluatedPaint ?? layer.element.fill}
                 shaderAnimationActive={animatedShaderSlots.has('fill')}
@@ -1525,15 +2272,14 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Outline color</span>
-                <input
-                  type="color"
-                  value={
-                    layer.element.strokeColor === 'transparent'
-                      ? '#000000'
-                      : layer.element.strokeColor
-                  }
-                  onChange={(e) => setElement({ strokeColor: e.target.value })}
+                <span>
+                  Outline color <BrandBindingOrigin layer={layer} property="strokeColor" />
+                </span>
+                <ColorInput
+                  label="Stroke color"
+                  value={layer.element.strokeColor}
+                  onChange={(color) => setElement({ strokeColor: color })}
+                  onTokenSelect={(id) => bindDesignToken(layer.id, id, 'strokeColor')}
                 />
               </PropertyRow>
               <PropertyRow
@@ -1542,7 +2288,9 @@ export function InspectorPanel() {
                 }
                 className="inspector-row"
               >
-                <span>Outline width</span>
+                <span>
+                  Outline width <BrandBindingOrigin layer={layer} property="strokeWidth" />
+                </span>
                 <input
                   type="number"
                   min={0}
@@ -1560,6 +2308,13 @@ export function InspectorPanel() {
 
           {layer.element.type === 'image-sequence' && (
             <>
+              <SourceCropEditor
+                layerId={layer.id}
+                value={layer.element.crop}
+                src={sequencePreview}
+                disabled={layer.isLocked}
+                onChange={(crop) => updateLayerElement(layer.id, { crop })}
+              />
               {composition.assets.length > 0 && (
                 <PropertyRow
                   help={
@@ -1779,8 +2534,8 @@ export function InspectorPanel() {
               </PropertyRow>
               {(
                 [
-                  ['trimStartMs', 'Trim start ms'],
-                  ['timelineStartMs', 'Timeline start ms'],
+                  ['trimStartMs', 'Trim start'],
+                  ['timelineStartMs', 'Timeline start'],
                 ] as const
               ).map(([property, label]) => (
                 <PropertyRow
@@ -1789,11 +2544,13 @@ export function InspectorPanel() {
                   key={property}
                 >
                   <span>{label}</span>
-                  <input
-                    type="number"
-                    min={0}
+                  <MillisecondDurationInput
+                    label={`Audio ${label.toLowerCase()}`}
                     value={selectedAudioElement[property]}
-                    onChange={(event) => setElement({ [property]: Number(event.target.value) })}
+                    frameRate={composition.frameRate}
+                    onChange={(next) =>
+                      setElement({ [property]: next ?? selectedAudioElement[property] })
+                    }
                   />
                 </PropertyRow>
               ))}
@@ -1801,16 +2558,13 @@ export function InspectorPanel() {
                 help="Optional trim end in milliseconds; blank uses the full clip."
                 className="inspector-row"
               >
-                <span>Trim end ms</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={selectedAudioElement.trimEndMs ?? ''}
-                  onChange={(event) =>
-                    setElement({
-                      trimEndMs: event.target.value ? Number(event.target.value) : null,
-                    })
-                  }
+                <span>Trim end</span>
+                <MillisecondDurationInput
+                  label="Audio trim end"
+                  value={selectedAudioElement.trimEndMs}
+                  frameRate={composition.frameRate}
+                  allowNull
+                  onChange={(trimEndMs) => setElement({ trimEndMs })}
                 />
               </PropertyRow>
             </>
@@ -1819,8 +2573,12 @@ export function InspectorPanel() {
         {layer.element.type === 'text' && selectedTextAnimation ? (
           <TextAnimationEditor
             animation={selectedTextAnimation}
+            clock={!!layer.element.clock}
             unitCount={selectedTextAnimationUnitCount}
             frameRate={composition.frameRate}
+            currentFrame={roundedFrame}
+            colorAllowed={supportsTextAnimatorColor(layer.element)}
+            gradientColor={isAnimatorGradient(layer.element.fill)}
             customActions={composition.customActions}
             onChange={setTextAnimation}
           />
@@ -1938,7 +2696,7 @@ export function InspectorPanel() {
                         setLayerBindings(layer.id, bindings);
                       }}
                     >
-                      {bindableProperties(layer.element, layer.effects)
+                      {bindableProperties(layer.element, layer.effects, layer.modifiers)
                         .filter(
                           (property) =>
                             property.value === binding.targetProperty ||
@@ -1966,7 +2724,10 @@ export function InspectorPanel() {
                           ? String(mappedValue)
                           : option.value;
                       const enumOptions = ENUM_MAPPING_OPTIONS[binding.targetProperty];
-                      const updateMapping = (value: string) => {
+                      const booleanMapping =
+                        shaderAnimationPropertySpec(layer.element, binding.targetProperty)
+                          ?.glslType === 'bool';
+                      const updateMapping = (value: string | boolean) => {
                         const valueMap = { ...binding.valueMap, [option.value]: value };
                         setLayerBindings(
                           layer.id,
@@ -1982,7 +2743,14 @@ export function InspectorPanel() {
                           className="inspector-row"
                         >
                           <span>{option.label}</span>
-                          {binding.targetProperty === 'fontFamily' ? (
+                          {booleanMapping ? (
+                            <input
+                              type="checkbox"
+                              aria-label={`Binding ${index + 1} map ${option.label}`}
+                              checked={mappingValue === 'true'}
+                              onChange={(event) => updateMapping(event.currentTarget.checked)}
+                            />
+                          ) : binding.targetProperty === 'fontFamily' ? (
                             <select
                               aria-label={`Binding ${index + 1} map ${option.label}`}
                               value={mappingValue}
@@ -1995,11 +2763,11 @@ export function InspectorPanel() {
                               ))}
                             </select>
                           ) : isColorMappingProperty(binding.targetProperty) ? (
-                            <input
-                              type="color"
-                              aria-label={`Binding ${index + 1} map ${option.label}`}
-                              value={colorInputValue(mappingValue)}
-                              onChange={(event) => updateMapping(event.target.value)}
+                            <ColorInput
+                              label={`Binding ${index + 1} map ${option.label}`}
+                              value={mappingValue}
+                              alpha={false}
+                              onChange={updateMapping}
                             />
                           ) : NUMERIC_MAPPING_PROPERTIES.has(binding.targetProperty) ? (
                             <input
@@ -2150,11 +2918,14 @@ export function InspectorPanel() {
                   );
                   return (
                     <PropertyRow
-                      help={`Link ${target.label.toLowerCase()} to a shared Brand Kit token. Editing the token updates this property on linked layers. Unlinked removes the connection while keeping the current value.`}
+                      help={`Link ${target.label.toLowerCase()} to a shared Brand Kit token. Inherited properties stay editable; editing creates an object override. Reset restores the token value. Unlinked removes the connection while keeping the current value.`}
                       className="inspector-row"
                       key={target.property}
                     >
-                      <span>{target.label}</span>
+                      <span>
+                        {target.label}{' '}
+                        <BrandBindingOrigin layer={layer} property={target.property} />
+                      </span>
                       <select
                         value={binding?.tokenId ?? ''}
                         onChange={(event) => {
@@ -2204,6 +2975,11 @@ export function InspectorPanel() {
             <LayerMaskEditor composition={composition} layer={layer} key={layer.id} />
           </CollapsibleSection>
           <CollapsibleSection sectionId="properties.layout" title="Layout relationships">
+            {layoutError && (
+              <p role="alert" className="inspector-error">
+                {layoutError}
+              </p>
+            )}
             <PropertyRow
               help="Arrange this layer's direct children automatically in paint order."
               className="inspector-row"
@@ -2413,6 +3189,7 @@ export function InspectorPanel() {
                           orientToPath: layer.motionPath?.orientToPath ?? true,
                           offsetX: layer.motionPath?.offsetX ?? 0,
                           offsetY: layer.motionPath?.offsetY ?? 0,
+                          rotationOffset: layer.motionPath?.rotationOffset ?? 0,
                         }
                       : null,
                   )
@@ -2572,7 +3349,11 @@ export function InspectorPanel() {
                   })
                 }
               >
-                <option value="inherit">Crossfade · composition duration</option>
+                <option value="inherit">
+                  {textAnimationOwnsUpdate && !layer.updateTransition?.durationFrames
+                    ? 'Text animation only'
+                    : 'Crossfade · composition duration'}
+                </option>
                 <option value="none">No transition</option>
                 <option value="crossfade">Crossfade</option>
                 <option value="slide-left">Slide left</option>
@@ -2581,20 +3362,22 @@ export function InspectorPanel() {
                 <option value="slide-down">Slide down</option>
               </select>
             </PropertyRow>
-            <PropertyRow
-              help="Per-layer duration in frames. Zero uses the composition Data change fade."
-              className="inspector-row"
-            >
-              <span>Duration frames</span>
-              <input
-                type="number"
-                min={0}
-                value={layer.updateTransition?.durationFrames ?? 0}
-                onChange={(event) =>
-                  setLayerUpdateTransition(layer.id, { durationFrames: Number(event.target.value) })
-                }
-              />
-            </PropertyRow>
+            <FrameDurationControl
+              label="Update duration"
+              frames={layer.updateTransition?.durationFrames ?? 0}
+              frameRate={composition.frameRate}
+              minFrames={0}
+              disabled={layer.isLocked}
+              propertyColumns
+              labelSuffix={
+                <span>
+                  {textAnimationOwnsUpdate
+                    ? 'Zero plays only the text animation.'
+                    : 'Zero uses the composition update animation.'}
+                </span>
+              }
+              onChange={(durationFrames) => setLayerUpdateTransition(layer.id, { durationFrames })}
+            />
             {(layer.updateTransition?.style ?? 'inherit').startsWith('slide') ? (
               <PropertyRow help="Slide travel distance in pixels." className="inspector-row">
                 <span>Distance</span>

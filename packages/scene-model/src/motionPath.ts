@@ -65,10 +65,22 @@ export function attachTransformToMotionPath(
     dy = localY - originY;
   const x = source.x + originX + dx * Math.cos(radians) - dy * Math.sin(radians);
   const y = source.y + originY + dx * Math.sin(radians) + dy * Math.cos(radians);
+  // The path is stretched from its viewBox into the source layer before rotation. Its
+  // tangent must undergo the same nonuniform stretch as its points before adding a base angle.
+  const tangent = (point.angle * Math.PI) / 180;
+  const tangentAngle =
+    (Math.atan2(
+      (Math.sin(tangent) * source.height) / element.viewBoxHeight,
+      (Math.cos(tangent) * source.width) / element.viewBoxWidth,
+    ) *
+      180) /
+    Math.PI;
   return {
     ...target,
     x: x - target.transformOriginX * target.width + link.offsetX,
     y: y - target.transformOriginY * target.height + link.offsetY,
-    rotation: link.orientToPath ? point.angle + source.rotation : target.rotation,
+    rotation: link.orientToPath
+      ? tangentAngle + source.rotation + (link.rotationOffset ?? 0)
+      : target.rotation,
   };
 }

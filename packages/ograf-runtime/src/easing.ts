@@ -5,8 +5,8 @@ import {
   type EasingPreset,
 } from '@ograf-editor/scene-model';
 
-/** GSAP accepts an easing function; sharing the scene-model sampler prevents preview/runtime drift. */
-export function easingForGsap(
+/** Pure progress mapping through the canonical scene-model easing sampler. */
+export function easingForProgress(
   easing: EasingPreset,
   curve?: CubicBezierCurve,
 ): (progress: number) => number {

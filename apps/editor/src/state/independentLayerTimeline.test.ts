@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { computeKeyframeFrames } from '@ograf-editor/scene-model';
+import { computeKeyframeFrames, createProject } from '@ograf-editor/scene-model';
 import { getLayerTransformAtFrame, useProjectStore } from './projectStore';
 import { useSelectionStore } from './selectionStore';
 import { useTimelineStore } from './timelineStore';
 
 describe('project store independent layer timelines', () => {
   beforeEach(() => {
-    useProjectStore.getState().newProject();
+    // Explicit 12/24-frame composition timing; newly inserted objects remain independently keyed.
+    useProjectStore.getState().loadProject(createProject());
     useTimelineStore.getState().setAutoKeyframe(true);
   });
 
@@ -16,12 +17,37 @@ describe('project store independent layer timelines', () => {
       const layer = useProjectStore
         .getState()
         .project.compositions[0]!.layers.find((candidate) => candidate.id === layerId)!;
-      expect(layer.keyframes.map((keyframe) => keyframe.transform.opacity)).toEqual([1, 1, 1]);
-      expect(layer.animationTracks.opacity?.map((keyframe) => keyframe.value)).toEqual([1, 1, 1]);
+      expect(layer.keyframes.map((keyframe) => keyframe.frame)).toEqual([0]);
+      expect(layer.animationTracks.opacity).toBeUndefined();
+      for (const { frame } of computeKeyframeFrames(
+        useProjectStore.getState().project.compositions[0]!,
+      ))
+        expect(getLayerTransformAtFrame(layer, frame).opacity).toBe(1);
     }
   });
 
-  it('keeps initial frame-zero placement static across lifecycle compatibility keys', () => {
+  it('keeps independent keys scoped on a new five-second UI timeline', () => {
+    useProjectStore.getState().newProject();
+    useTimelineStore.getState().setAutoKeyframe(true);
+    const first = useProjectStore.getState().addLayer('rectangle');
+    const second = useProjectStore.getState().addLayer('rectangle');
+    const before = structuredClone(
+      useProjectStore.getState().project.compositions[0]!.layers[1]!.animationTracks,
+    );
+    useProjectStore.getState().updateLayerTransform(first, 7, { x: 500 });
+    const composition = useProjectStore.getState().project.compositions[0]!;
+    expect(computeKeyframeFrames(composition).map((entry) => entry.frame)).toEqual([0, 13, 125]);
+    expect(
+      composition.layers
+        .find((layer) => layer.id === first)!
+        .animationTracks.x!.find((key) => key.frame === 7)?.value,
+    ).toBe(500);
+    expect(composition.layers.find((layer) => layer.id === second)!.animationTracks).toEqual(
+      before,
+    );
+  });
+
+  it('keeps initial frame-zero placement static across lifecycle markers without authored keys', () => {
     useTimelineStore.getState().setAutoKeyframe(false);
     const layerId = useProjectStore.getState().addLayer('rectangle');
     useProjectStore.getState().setLayerLoop(layerId, { durationFrames: 10 });
@@ -48,9 +74,8 @@ describe('project store independent layer timelines', () => {
         height: 360,
       });
     }
-    expect(layer.animationTracks.x?.map(({ frame, value }) => ({ frame, value }))).toEqual(
-      lifecycleFrames.map((frame) => ({ frame, value: 420 })),
-    );
+    expect(layer.animationTracks).toEqual({});
+    expect(layer.keyframes.map((key) => key.frame)).toEqual([0]);
     expect(layer.loop?.tracks.x?.map((keyframe) => keyframe.value)).toEqual([420, 460]);
   });
 
@@ -70,16 +95,13 @@ describe('project store independent layer timelines', () => {
     expect(layer.animationTracks.x?.map(({ frame, value }) => ({ frame, value }))).toEqual([
       { frame: 0, value: 40 },
       { frame: 12, value: 500 },
-      { frame: 24, value: 100 },
     ]);
     expect(layer.animationTracks.y?.find((keyframe) => keyframe.frame === 7)?.value).toBe(777);
-    expect(layer.animationTracks.y?.filter((keyframe) => keyframe.frame !== 7)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ frame: 0, value: 210 }),
-        expect.objectContaining({ frame: 12, value: 210 }),
-        expect.objectContaining({ frame: 24, value: 210 }),
-      ]),
-    );
+    expect(layer.animationTracks.y?.map(({ frame, value }) => ({ frame, value }))).toEqual([
+      { frame: 0, value: 210 },
+      { frame: 7, value: 777 },
+    ]);
+    expect(getLayerTransformAtFrame(layer, 24)).toMatchObject({ x: 500, y: 777 });
   });
 
   it('keeps descendants aligned when a static parent is placed at frame zero', () => {
@@ -92,6 +114,11 @@ describe('project store independent layer timelines', () => {
       { id: 'loop-start', frame: 0, value: 100, easing: 'linear' },
       { id: 'loop-end', frame: 10, value: 140, easing: 'linear' },
     ]);
+    const childBefore = structuredClone(
+      useProjectStore
+        .getState()
+        .project.compositions[0]!.layers.find((candidate) => candidate.id === childId)!,
+    );
 
     useTimelineStore.getState().setAutoKeyframe(false);
     useProjectStore.getState().updateLayerTransform(parentId, 0, { x: 180, y: 260 });
@@ -101,7 +128,10 @@ describe('project store independent layer timelines', () => {
     const child = composition.layers.find((candidate) => candidate.id === childId)!;
     for (const { frame } of computeKeyframeFrames(composition)) {
       expect(getLayerTransformAtFrame(parent, frame)).toMatchObject({ x: 180, y: 260 });
-      expect(getLayerTransformAtFrame(child, frame)).toMatchObject({ x: 180, y: 260 });
+      expect(getLayerTransformAtFrame(child, frame)).toMatchObject({
+        x: getLayerTransformAtFrame(childBefore, frame).x + 80,
+        y: 260,
+      });
     }
     expect(child.animationTracks.x?.find((keyframe) => keyframe.frame === 6)?.value).toBe(230);
     expect(child.loop?.tracks.x?.map((keyframe) => keyframe.value)).toEqual([180, 220]);
@@ -134,6 +164,8 @@ describe('project store independent layer timelines', () => {
   it('keeps easing isolated to one key on one layer', () => {
     const firstId = useProjectStore.getState().addLayer('rectangle');
     const secondId = useProjectStore.getState().addLayer('rectangle');
+    useProjectStore.getState().addLayerKeyframe(firstId, 12);
+    useProjectStore.getState().addLayerKeyframe(secondId, 12);
     const compositionBefore = useProjectStore.getState().project.compositions[0]!;
     const firstLayerBefore = compositionBefore.layers.find((layer) => layer.id === firstId)!;
     const secondLayerBefore = compositionBefore.layers.find((layer) => layer.id === secondId)!;
@@ -162,6 +194,7 @@ describe('project store independent layer timelines', () => {
   it('moves a key freely while preventing two keys on the same layer frame', () => {
     const layerId = useProjectStore.getState().addLayer('rectangle');
     const keyframeId = useProjectStore.getState().addLayerKeyframe(layerId, 5);
+    useProjectStore.getState().addLayerKeyframe(layerId, 12);
     useProjectStore.getState().moveLayerKeyframe(layerId, keyframeId, 8);
     let layer = useProjectStore
       .getState()
@@ -179,6 +212,7 @@ describe('project store independent layer timelines', () => {
     const layerId = useProjectStore.getState().addLayer('rectangle');
     const firstId = useProjectStore.getState().addLayerKeyframe(layerId, 4);
     const secondId = useProjectStore.getState().addLayerKeyframe(layerId, 8);
+    useProjectStore.getState().addLayerKeyframe(layerId, 12);
 
     const applied = useProjectStore.getState().moveTimelineKeyframesTogether(
       [firstId, secondId].map((keyframeId) => ({
@@ -310,7 +344,7 @@ describe('project store independent layer timelines', () => {
       .getState()
       .project.compositions[0]!.layers.find((candidate) => candidate.id === layerId)!;
     expect(layer.animationTracks.x?.some((keyframe) => keyframe.frame === 7)).toBe(true);
-    expect(layer.animationTracks.y?.some((keyframe) => keyframe.frame === 7)).toBe(false);
+    expect(layer.animationTracks.y).toBeUndefined();
     expect(getLayerTransformAtFrame(layer, 7).x).toBe(640);
   });
 
@@ -323,7 +357,7 @@ describe('project store independent layer timelines', () => {
       .getState()
       .project.compositions[0]!.layers.find((candidate) => candidate.id === layerId)!;
     expect(layer.animationTracks.blur?.find((keyframe) => keyframe.frame === 9)?.value).toBe(14);
-    expect(layer.animationTracks.x?.some((keyframe) => keyframe.frame === 9)).toBe(false);
+    expect(layer.animationTracks.x).toBeUndefined();
   });
 
   it('authors an independent gradient-stop key when its Inspector value changes', () => {
@@ -352,7 +386,7 @@ describe('project store independent layer timelines', () => {
         expect.objectContaining({ frame: 6, value: 0.8 }),
       ]),
     );
-    expect(layer.animationTracks.x?.some((keyframe) => keyframe.frame === 6)).toBe(false);
+    expect(layer.animationTracks.x).toBeUndefined();
   });
 
   it('keeps retiming collision-free and reversible', () => {

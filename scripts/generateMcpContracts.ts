@@ -5,9 +5,13 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { format, resolveConfig } from 'prettier';
 import { createOGrafAuthoringHost } from '../apps/mcp-server/src/index';
 import { createOGrafMcpServer } from '../apps/mcp-server/src/mcpServer';
+import { compactProviderSchema } from '../packages/agent-tools/src/compactProviderSchema';
 
 const CONTRACT_VERSION = 1;
-const MAX_CONTRACT_BYTES = 181_000;
+// Includes template-set commands and crop geometry alongside renderer/preset contracts.
+// Includes validated clock/timer settings and typed text-animation options.
+// Includes live playout inspection/control, with guarded preparation and bounded operator data.
+const MAX_CONTRACT_BYTES = 224_000;
 
 function markdownFor(tools: Awaited<ReturnType<Client['listTools']>>['tools']): string {
   const rows = tools.map((tool) => {
@@ -26,7 +30,7 @@ function markdownFor(tools: Awaited<ReturnType<Client['listTools']>>['tools']): 
     '',
     `Registered tools: ${tools.length}`,
     '',
-    'The exact JSON Schema for every registered tool is in [mcp-contracts.json](./mcp-contracts.json). The schemas are generated from the same Zod definitions registered with the MCP SDK, so documentation drift fails `npm run verify`.',
+    'The JSON Schema for every registered tool is in [mcp-contracts.json](./mcp-contracts.json). The schemas come from the registered MCP SDK definitions; redundant constraints and internal reference names are compacted without changing validation. Documentation drift fails `npm run verify`.',
     '',
     '| Tool | Title | Access | Inputs |',
     '| --- | --- | --- | --- |',
@@ -61,7 +65,10 @@ async function generatedFiles() {
     const contract = {
       contractVersion: CONTRACT_VERSION,
       server: serverVersion,
-      tools: listed.tools,
+      tools: listed.tools.map((tool) => ({
+        ...tool,
+        inputSchema: compactProviderSchema(tool.inputSchema),
+      })),
     };
     const jsonPath = resolve(process.cwd(), 'docs/generated/mcp-contracts.json');
     const markdownPath = resolve(process.cwd(), 'docs/generated/mcp-contracts.md');
@@ -73,7 +80,7 @@ async function generatedFiles() {
     const contractBytes = new TextEncoder().encode(json).byteLength;
     if (contractBytes > MAX_CONTRACT_BYTES) {
       throw new Error(
-        `Generated MCP contract is ${contractBytes} bytes; W2 budget is ${MAX_CONTRACT_BYTES}.`,
+        `Generated MCP contract is ${contractBytes} bytes; budget is ${MAX_CONTRACT_BYTES}.`,
       );
     }
     return {

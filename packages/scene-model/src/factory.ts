@@ -32,6 +32,7 @@ import type {
   Project,
   RectangleElement,
   TextElement,
+  TickerElement,
   Transition,
   EasingPreset,
 } from './types';
@@ -39,7 +40,9 @@ import { normalizeAuthoredTransform } from './authoredTransform';
 import { normalizeCornerRadii } from './cornerRadii';
 import { normalizeShaderElement } from './shader';
 import { normalizeTextAnimation } from './textAnimation';
+import { formatClockTimerValue, normalizeClockTimerSettings } from './clockTimer';
 import { DEFAULT_CHART_ANIMATION, normalizeChartAnimation } from './chartAnimation';
+import { normalizeTicker } from './ticker';
 
 const BASE_TRANSFORM: LayerTransform = {
   x: 100,
@@ -132,6 +135,7 @@ export function createEllipseElement(overrides: Partial<EllipseElement> = {}): E
 export function createChartElement(overrides: Partial<ChartElement> = {}): ChartElement {
   return {
     type: 'chart',
+    provider: null,
     preset: 'bar',
     data: {
       labels: ['Alpha', 'Beta', 'Gamma', 'Delta'],
@@ -255,6 +259,8 @@ export type NewLayerKind =
   | 'ellipse'
   | 'chart'
   | 'text'
+  | 'ticker'
+  | 'clock'
   | 'image'
   | 'path'
   | 'pattern'
@@ -265,7 +271,8 @@ export type NewLayerKind =
 
 /** The starting pose for a freshly created layer of this kind — a fresh object every call. */
 export function defaultTransformFor(kind: NewLayerKind): LayerTransform {
-  if (kind === 'text') return createDefaultTransform({ height: 64 });
+  if (kind === 'ticker') return createDefaultTransform({ width: 1600, height: 72 });
+  if (kind === 'text' || kind === 'clock') return createDefaultTransform({ height: 64 });
   if (kind === 'chart') return createDefaultTransform({ width: 640, height: 360 });
   if (kind === 'rectangle' || kind === 'ellipse') {
     return createDefaultTransform({ width: 200, height: 200 });
@@ -292,6 +299,42 @@ export function createChartLayer(): Layer {
 
 export function createTextLayer(): Layer {
   return createLayer('Text', createTextElement());
+}
+
+export function createTickerElement(overrides: Partial<TickerElement> = {}): TickerElement {
+  return normalizeTicker({
+    items: [
+      {
+        id: createId('ticker-item'),
+        width: 800,
+        element: createTextElement({
+          content: 'Latest headlines • Native ticker',
+          fontSize: 36,
+          autoFit: 'fixed',
+          verticalAlign: 'middle',
+          overflowPolicy: 'clip',
+        }),
+      },
+    ],
+    ...overrides,
+  });
+}
+
+export function createTickerLayer(): Layer {
+  return createLayer('Ticker', createTickerElement());
+}
+
+export function createClockLayer(): Layer {
+  const clock = normalizeClockTimerSettings({ referenceTimeMs: Date.now() });
+  return createLayer(
+    'Clock / Timer',
+    createTextElement({
+      clock,
+      content: formatClockTimerValue(clock, clock.referenceTimeMs),
+      autoFit: 'fixed',
+      overflowPolicy: 'clip',
+    }),
+  );
 }
 
 export function createImageLayer(): Layer {
@@ -341,6 +384,10 @@ export function createLayerOfKind(kind: NewLayerKind): Layer {
       return createChartLayer();
     case 'text':
       return createTextLayer();
+    case 'ticker':
+      return createTickerLayer();
+    case 'clock':
+      return createClockLayer();
     case 'image':
       return createImageLayer();
     case 'path':
@@ -519,6 +566,8 @@ export function createFieldDefinitionFromInput(input: FieldSchemaInput): FieldDe
     label: input.label ?? input.key,
     description: input.description ?? '',
     required: input.required ?? false,
+    ...(input.exposeToOgraf !== undefined ? { exposeToOgraf: input.exposeToOgraf } : {}),
+    ...(input.nodosType !== undefined ? { nodosType: input.nodosType } : {}),
     options,
     constraints: input.constraints ?? defaultConstraintsForFieldType(input.fieldType),
     fileExtensions: input.fileExtensions ?? [],
@@ -631,6 +680,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
     dataConnections: [],
     mediaCues: [],
     patterns: [],
+    rendererPlugins: [],
     customActions: [],
     assets: [],
     designSystem: { name: 'Brand Kit', tokens: [] },

@@ -35,6 +35,21 @@ describe('paired template files', () => {
     expect(await readFile(files[1]!.path, 'utf8')).toBe('updated');
     expect((await readdir(folder)).sort()).toEqual(['News.ogs', 'News_ thumb.png']);
   });
+  it('restores the previous destination when post-write verification fails', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'ograf-save-test-'));
+    folders.push(folder);
+    const path = join(folder, 'News.ograf.zip');
+    await writeFile(path, 'original');
+    await expect(
+      writeTemplateFiles([{ path, data: 'new bytes' }], true, async () => {
+        expect(await readFile(path, 'utf8')).toBe('new bytes');
+        throw new Error('checksum mismatch');
+      }),
+    ).rejects.toThrow('checksum mismatch');
+    expect(await readFile(path, 'utf8')).toBe('original');
+    expect(await readdir(folder)).toEqual(['News.ograf.zip']);
+  });
+
   it('does not create the source when an existing sidecar blocks the save', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'ograf-save-test-'));
     folders.push(folder);

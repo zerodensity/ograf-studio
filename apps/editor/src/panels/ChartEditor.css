@@ -3,6 +3,36 @@
   gap: 6px;
   padding: 4px 8px 10px;
 }
+
+.chart-data-mode,
+.chart-presentation-options {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.chart-presentation-options {
+  border: 0;
+  margin: 0;
+  padding: 5px 0;
+}
+.chart-editor-option > input:not([type='checkbox']),
+.chart-editor-option > .color-input {
+  max-width: 66%;
+  min-width: 0;
+}
+.chart-data-actions {
+  display: flex;
+  gap: 5px;
+}
+.chart-row > .color-input {
+  min-width: 0;
+}
+.chart-canonical-row {
+  grid-template-columns: minmax(70px, 1fr) 65px minmax(90px, 0.7fr) 22px;
+}
+.chart-canonical-row .color-input-hex {
+  flex-basis: 48px;
+}
 .chart-editor-label {
   color: var(--text-muted);
   font-size: 11px;
@@ -143,4 +173,10 @@
 }
 .chart-editor-advanced textarea {
   margin-top: 5px;
+}
+.chart-fill-editor {
+  border: 0;
+  margin: 6px 0;
+  padding: 0;
+  min-width: 0;
 }

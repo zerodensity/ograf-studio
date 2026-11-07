@@ -1,0 +1,47 @@
+.text-property-animators {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.text-property-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.text-property-header button {
+  margin-left: auto;
+}
+.text-property-animators details {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px;
+}
+.text-property-animators summary {
+  cursor: pointer;
+  color: var(--text);
+}
+.text-property-body {
+  display: grid;
+  gap: 5px;
+  padding-top: 7px;
+}
+.text-property-body label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.text-property-body label > span {
+  flex: 1;
+  text-transform: capitalize;
+}
+.text-property-body label > input,
+.text-property-body label > select {
+  width: 100px;
+  min-width: 0;
+}
+.text-property-values {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}

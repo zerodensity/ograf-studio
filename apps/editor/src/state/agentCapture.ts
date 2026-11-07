@@ -1,12 +1,19 @@
 import { getFontEmbedCSS, toCanvas } from 'html-to-image';
 import { hasLoadedProjectFont, projectFontFaceCss, withProjectFonts } from './projectFonts';
 import { captureMaskedCanvas } from './maskedCapture';
+import {
+  assertStudioRendererPluginsAllowed,
+  useRendererPluginSettingsStore,
+} from './pluginSettingsStore';
 import { compileDescriptor, type CompiledLayer } from '@ograf-editor/codegen';
 import {
-  applyLayerEffectsFilter,
   applyAnimatedPaint,
   applyCompiledClipPaths,
   applyCompiledMasks,
+  applyCompiledLayerVisualState,
+  applyCompiledAutoLayout,
+  applyCompiledMotionPaths,
+  applyCompiledModifiers,
   disposeElementContent,
   expandRuntimeCollections,
   isRuntimeCollectionLayerActive,
@@ -20,9 +27,13 @@ import {
   waitForElementContentReady,
   compiledLoopElapsedFrames,
   renderPatternAtElapsed,
+  compositionHasBackdropBlur,
+  setCompositionBackdropRoot,
+  visualRuleLayerVisible,
 } from '@ograf-editor/ograf-runtime';
 import {
   getLayerTransformAtFrame,
+  getCompositionOutputRect,
   getLayerPropertyValueAtFrame,
   getTotalFrames,
   isTransformClippedBy,
@@ -258,11 +269,43 @@ async function waitForRenderableDom(root: HTMLElement): Promise<void> {
   );
 }
 
+const captureFrameRenders = new WeakMap<HTMLElement, () => void>();
+
 /** Layout/font settling may enqueue another shader frame; the PNG must use that completed draw. */
 export async function settleCaptureContent(root: HTMLElement): Promise<void> {
   await waitForElementContentReady(root);
   await waitForRenderableDom(root);
+  // Font/image readiness can change intrinsic layout. Re-evaluate from authored samples so
+  // repeated captures never accumulate a previous frame's modifier/path transforms.
+  captureFrameRenders.get(root)?.();
   await waitForElementContentReady(root);
+}
+
+/** The same frame geometry pipeline used by Studio and exported playback, including hidden sources. */
+export function resolveCaptureFrameLayout(
+  descriptor: ReturnType<typeof compileDescriptor>,
+  frame: number,
+  data: Record<string, unknown>,
+  elements?: Map<string, HTMLElement>,
+): Map<string, ReturnType<typeof sampleCompiledLayerVisualState>> {
+  const states = new Map(
+    descriptor.layers.map((layer) => {
+      const state = sampleCompiledLayerVisualState(
+        layer,
+        frame,
+        compiledLoopElapsedFrames(descriptor, layer, frame),
+        data,
+      );
+      state.isVisible =
+        visualRuleLayerVisible(layer, data) && isRuntimeCollectionLayerActive(layer, data);
+      return [layer.id, state] as const;
+    }),
+  );
+  const context = { timestampMs: (frame / descriptor.frameRate) * 1000 };
+  applyCompiledAutoLayout(descriptor, states, data, elements, context);
+  applyCompiledMotionPaths(descriptor, states);
+  applyCompiledModifiers(descriptor, states, data, elements, context);
+  return states;
 }
 
 /** Apply the shared property/loop sample before requesting the exact shader/Lottie timestamp. */
@@ -276,6 +319,9 @@ export function renderCaptureElementFrame(
   if (state.patternFrame !== undefined) renderPatternAtElapsed(host, state.patternFrame);
   applyAnimatedPaint(host, state.paintTracks, state.paintFrame);
   renderAnimatedElementAtTime(host, element, timestampMs);
+  // Capture must use the same complete presentation sample as exported lifecycle playback.
+  // Paint-only ticking does not apply native scale/wipe channels to ordinary solid objects.
+  applyCompiledLayerVisualState(host, state, timestampMs);
 }
 
 function fitPrefixIndex(
@@ -378,14 +424,16 @@ function buildCompositionDom(
     ...Object.fromEntries(composition.dataFields.map((field) => [field.key, field.defaultValue])),
     ...dataOverrides,
   };
+  const descriptor = expandRuntimeCollections(compileDescriptor(composition));
   const root = document.createElement('div');
+  const output = getCompositionOutputRect(composition);
   Object.assign(root.style, {
     position: 'fixed',
     left: '0',
     top: '0',
     zIndex: '-2147483647',
-    width: `${composition.width}px`,
-    height: `${composition.height}px`,
+    width: `${output.width}px`,
+    height: `${output.height}px`,
     overflow: 'hidden',
     pointerEvents: 'none',
     ...matteStyle(matte),
@@ -394,21 +442,21 @@ function buildCompositionDom(
   const compositionRoot = document.createElement('div');
   Object.assign(compositionRoot.style, {
     position: 'absolute',
-    inset: '0',
+    left: `${-output.x}px`,
+    top: `${-output.y}px`,
+    width: `${composition.width}px`,
+    height: `${composition.height}px`,
     overflow: 'hidden',
-    backgroundColor: composition.backgroundColor,
+    backgroundColor: descriptor.backgroundColor,
     isolation: 'isolate',
   });
   root.appendChild(compositionRoot);
+  setCompositionBackdropRoot(compositionRoot, compositionHasBackdropBlur(composition.layers));
 
-  const descriptor = expandRuntimeCollections(compileDescriptor(composition));
   const rendered = new Map<string, HTMLElement>();
-  const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
+  const resolvedElements = new Map<string, Element>();
   try {
     for (const layer of descriptor.layers) {
-      if (!layer.isVisible || !isRuntimeCollectionLayerActive(layer, data)) {
-        continue;
-      }
       const state = sampleCompiledLayerVisualState(
         layer,
         frame,
@@ -418,6 +466,7 @@ function buildCompositionDom(
       const transform = state.transform;
       const layerRoot = document.createElement('div');
       layerRoot.dataset.agentCaptureLayer = 'true';
+      layerRoot.dataset.agentCaptureLayerId = layer.id;
       Object.assign(layerRoot.style, {
         position: 'absolute',
         left: '0',
@@ -437,17 +486,30 @@ function buildCompositionDom(
         element,
         sequenceFrame(element, frame, composition.frameRate),
         {
+          frameRate: composition.frameRate,
+          rendererPlugins: composition.rendererPlugins,
+          chartMarkAnimations: layer.chartMarkAnimations,
           shaderBackingSize: shaderBackingSizeForLayer(layer),
           shaderStrokePadding: shaderStrokePaddingForLayer(layer),
         },
       );
-      renderCaptureElementFrame(layerRoot, element, state, (frame / composition.frameRate) * 1000);
-      applyLayerEffectsFilter(layerRoot, state.effects, (frame / composition.frameRate) * 1000);
       rendered.set(layer.id, layerRoot);
-      states.set(layer.id, state);
+      resolvedElements.set(layer.id, element);
     }
-    applyCompiledClipPaths(descriptor, rendered, states);
-    applyCompiledMasks(descriptor, rendered, states, data);
+    const renderFrame = () => {
+      const states = resolveCaptureFrameLayout(descriptor, frame, data, rendered);
+      for (const layer of descriptor.layers) {
+        const host = rendered.get(layer.id),
+          state = states.get(layer.id);
+        const element = resolvedElements.get(layer.id);
+        if (host && state && element)
+          renderCaptureElementFrame(host, element, state, (frame / descriptor.frameRate) * 1000);
+      }
+      applyCompiledClipPaths(descriptor, rendered, states);
+      applyCompiledMasks(descriptor, rendered, states, data);
+    };
+    captureFrameRenders.set(root, renderFrame);
+    renderFrame();
     return root;
   } catch (error) {
     // Shader compilation/drawing can fail before the detached capture tree is returned.
@@ -475,13 +537,14 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
     request.dataOverrides,
   );
   document.body.appendChild(wrapper);
+  const output = getCompositionOutputRect(composition);
 
   try {
     await settleCaptureContent(wrapper);
     let raster = await rasterize(
       wrapper,
-      composition.width,
-      composition.height,
+      output.width,
+      output.height,
       request.maxDimension,
       { zIndex: 'auto' },
       composition.assets,
@@ -504,8 +567,8 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
       await settleCaptureContent(wrapper);
       raster = await rasterize(
         wrapper,
-        composition.width,
-        composition.height,
+        output.width,
+        output.height,
         request.maxDimension,
         { zIndex: 'auto' },
         composition.assets,
@@ -514,8 +577,8 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
     return {
       mimeType: 'image/png',
       ...raster,
-      originalWidth: composition.width,
-      originalHeight: composition.height,
+      originalWidth: output.width,
+      originalHeight: output.height,
       resolvedFonts: await resolvedFonts(composition),
       runtimeCollections: composition.runtimeCollections.map((collection) => {
         const field = composition.dataFields.find(
@@ -660,6 +723,20 @@ export async function renderAgentStripPng(request: AgentStripRequest): Promise<A
   };
 }
 
+/** Text diagnostics accept authored IDs, including collection prototypes and editor-only guides. */
+export function compileTextMeasurement(composition: Composition, sourceLayerId: string) {
+  const descriptor = expandRuntimeCollections(
+    compileDescriptor(composition, { includeGuides: true }),
+  );
+  const layer =
+    descriptor.layers.find((candidate) => candidate.id === sourceLayerId) ??
+    descriptor.layers.find(
+      (candidate) => candidate.collectionItem?.prototypeLayerId === sourceLayerId,
+    );
+  if (!layer) throw new Error(`Text layer could not be compiled for measurement: ${sourceLayerId}`);
+  return { descriptor, layer };
+}
+
 /** Measures text with the real browser font and runtime text renderer without touching project state. */
 async function measureTextWithRegisteredFonts(
   request: AgentMeasureTextRequest,
@@ -670,7 +747,6 @@ async function measureTextWithRegisteredFonts(
   if (layer.element.type !== 'text')
     throw new Error(`Layer ${request.layerId} is not a text layer.`);
   const frame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(request.frame)));
-  const transform = getLayerTransformAtFrame(layer, frame);
   const contentBinding = layer.bindings.find((binding) => binding.targetProperty === 'content');
   const boundField = contentBinding
     ? composition.dataFields.find((field) => field.id === contentBinding.fieldId)
@@ -686,6 +762,29 @@ async function measureTextWithRegisteredFonts(
     content: text,
     strokeWidth: getLayerPropertyValueAtFrame(layer, 'strokeWidth', frame),
   };
+  const measuredComposition = {
+    ...composition,
+    layers: composition.layers.map((candidate) =>
+      candidate.id === layer.id
+        ? {
+            ...candidate,
+            element,
+            bindings: candidate.bindings.filter((binding) => binding.targetProperty !== 'content'),
+          }
+        : candidate,
+    ),
+  };
+  const { descriptor, layer: compiled } = compileTextMeasurement(measuredComposition, layer.id);
+  const data = Object.fromEntries(
+    composition.dataFields.map((field) => [field.key, field.defaultValue]),
+  );
+  const transform = sampleCompiledLayerVisualState(
+    compiled,
+    frame,
+    compiledLoopElapsedFrames(descriptor, compiled, frame),
+    data,
+  ).transform;
+  const renderedElement = resolveCaptureElement(compiled, data, measuredComposition);
   const host = document.createElement('div');
   Object.assign(host.style, {
     position: 'fixed',
@@ -696,10 +795,26 @@ async function measureTextWithRegisteredFonts(
     boxSizing: 'border-box',
     pointerEvents: 'none',
   });
-  renderElementContent(host, element);
+  renderElementContent(host, renderedElement);
   document.body.appendChild(host);
   try {
     await waitForElementContentReady(host);
+    await waitForRenderableDom(host);
+    const states = resolveCaptureFrameLayout(
+      descriptor,
+      frame,
+      data,
+      new Map([[compiled.id, host]]),
+    );
+    const resolvedState = states.get(compiled.id)!;
+    renderCaptureElementFrame(
+      host,
+      renderedElement,
+      resolvedState,
+      (frame / descriptor.frameRate) * 1000,
+    );
+    await waitForElementContentReady(host);
+    // Data/layout can resize the box; let native text fitting settle at its final dimensions.
     await waitForRenderableDom(host);
     const nativeHost = host.querySelector<HTMLElement>('[data-ograf-shader-base]') ?? host;
     const content = nativeHost.firstElementChild as HTMLElement | null;
@@ -711,10 +826,14 @@ async function measureTextWithRegisteredFonts(
         ? false
         : layout.width + strokeExpansion > host.clientWidth + 0.5 ||
           layout.height + strokeExpansion > host.clientHeight + 0.5;
-    const appliedFontSize = Number(content.dataset.ografAppliedFontSize ?? element.fontSize);
-    const appliedFitRatio = Number(content.dataset.ografFitRatio ?? 1);
+    const appliedFontSize =
+      resolvedState.textFit?.fontSize ??
+      Number(content.dataset.ografAppliedFontSize ?? element.fontSize);
+    const appliedFitRatio =
+      Number(content.dataset.ografFitRatio ?? 1) * (resolvedState.textFit?.scaleX ?? 1);
     const appliedShrinkRatio =
-      element.autoFit === 'shrink-to-fit' ? Number(content.dataset.ografShrinkRatio ?? 1) : 1;
+      (element.autoFit === 'shrink-to-fit' ? Number(content.dataset.ografShrinkRatio ?? 1) : 1) *
+      (resolvedState.textFit?.scaleY ?? 1);
     const degenerate =
       element.autoFit === 'fit-to-width' || element.autoFit === 'squeeze'
         ? content.dataset.ografFitDegenerate === 'true'
@@ -725,7 +844,11 @@ async function measureTextWithRegisteredFonts(
         )
       : undefined;
     const clippedByParent = clippingParent
-      ? isTransformClippedBy(transform, getLayerTransformAtFrame(clippingParent, frame))
+      ? isTransformClippedBy(
+          resolvedState.transform,
+          states.get(compiled.clipParentId ?? clippingParent.id)?.transform ??
+            getLayerTransformAtFrame(clippingParent, frame),
+        )
       : false;
     return {
       layerId: layer.id,
@@ -771,6 +894,11 @@ export async function measureAgentText(
 export async function captureAgentPng(request: AgentCaptureRequest): Promise<AgentCaptureResult> {
   try {
     const composition = compositionFor(request.project, request.compositionId);
+    const plugins = compileDescriptor(composition).rendererPlugins ?? [];
+    if (plugins.length) {
+      await useRendererPluginSettingsStore.getState().initialize();
+      assertStudioRendererPluginsAllowed(plugins);
+    }
     return await withProjectFonts(document, composition.assets, () =>
       request.target === 'viewport' ? captureViewport(request) : captureComposition(request),
     );

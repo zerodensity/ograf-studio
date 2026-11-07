@@ -1,12 +1,13 @@
 {
   "name": "zd-ograf-editor",
   "private": true,
-  "version": "0.23.0-rc.1",
+  "version": "0.30.0",
   "license": "AGPL-3.0-only",
   "type": "module",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "plugins/*"
   ],
   "scripts": {
     "dev": "npm run build --workspace @ograf-editor/ograf-runtime && npm run dev --workspace apps/editor",
@@ -14,6 +15,16 @@
     "server:start": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build:standalone --workspace editor && bun run apps/mcp-server/src/standalone.ts",
     "server:package": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build:standalone --workspace editor && bun run scripts/buildStandalone.mjs",
     "server:package:all": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build:standalone --workspace editor && bun run scripts/buildStandaloneMatrix.mjs && bun run scripts/verifyStandaloneArtifacts.mjs",
+    "plugin:package:chartjs": "bun run scripts/buildChartRendererPlugin.mjs",
+    "plugin:package:animations": "bun run scripts/buildAnimationPresetPlugin.mjs",
+    "plugin:package:shaders": "bun run scripts/buildShaderPackPlugin.mjs",
+    "plugin:package:shaders:2": "bun run scripts/buildShaderPackPlugin.mjs plugins/zd-news-shaders-2",
+    "plugins:bundle": "bun run scripts/buildBundledStudioPlugins.mjs",
+    "plugins:check": "bun run scripts/buildBundledStudioPlugins.mjs --check",
+    "fonts:generate": "node scripts/generateRecipeFonts.mjs",
+    "fonts:check": "node scripts/generateRecipeFonts.mjs --check",
+    "font-library:check": "node scripts/updateFontLibrary.mjs --check",
+    "font-library:refresh": "node scripts/updateFontLibrary.mjs --refresh",
     "build": "npm run build --workspace @ograf-editor/ograf-runtime && npm run build --workspaces --if-present",
     "lint": "oxlint",
     "pretest": "npm run build --workspace @ograf-editor/ograf-runtime",
@@ -26,11 +37,28 @@
     "prompt:check": "tsx scripts/generateInAppPrompt.ts --check",
     "agent:credential": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/configureAgentCredential.ps1",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "verify": "npm run contracts:check && npm run prompt:check && npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "verify": "npm run license:check && npm run skill:check && npm run hooks:test && npm run font-library:check && npm run contracts:check && npm run prompt:check && npm run offline-preview:check && npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "preserver:package": "node scripts/packageAuthoringSkill.mjs",
+    "preserver:package:all": "node scripts/packageAuthoringSkill.mjs",
+    "preplugin:package:chartjs": "node scripts/packageAuthoringSkill.mjs",
+    "preplugin:package:animations": "node scripts/packageAuthoringSkill.mjs",
+    "preplugin:package:shaders": "node scripts/packageAuthoringSkill.mjs",
+    "preplugin:package:shaders:2": "node scripts/packageAuthoringSkill.mjs",
+    "preplugins:bundle": "node scripts/packageAuthoringSkill.mjs",
+    "prebuild": "node scripts/packageAuthoringSkill.mjs && node scripts/generateStudioRuntimeLicense.mjs",
+    "skill:package": "node scripts/packageAuthoringSkill.mjs",
+    "skill:check": "node scripts/packageAuthoringSkill.mjs --check",
+    "offline-preview:check": "node scripts/generateOfflinePreviewAssets.mjs --check",
+    "license:generate": "node scripts/generateStudioRuntimeLicense.mjs",
+    "license:check": "node scripts/generateStudioRuntimeLicense.mjs --check",
+    "hooks:install": "node scripts/installGitHooks.mjs",
+    "hooks:test": "node --test scripts/installGitHooks.test.mjs"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
+    "jszip": "^3.10.1",
     "prettier": "^3.4.2",
     "typescript": "~6.0.2",
     "vitest": "^4.1.10"

@@ -1,6 +1,20 @@
 import type { FieldDefinition, FieldValue } from './types';
 import { createId } from './id';
 
+export const MAX_NODOS_TYPE_NAME_LENGTH = 256;
+export function isNodosTypeName(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= MAX_NODOS_TYPE_NAME_LENGTH &&
+    /^[A-Za-z_][A-Za-z0-9_.]*$/.test(value)
+  );
+}
+
+/** Existing documents expose fields unless the author explicitly opts them out. */
+export function isFieldExposedToOgraf(field: Pick<FieldDefinition, 'exposeToOgraf'>): boolean {
+  return field.exposeToOgraf !== false;
+}
+
 export function valueAtSourcePath(value: unknown, sourcePath: readonly string[] = []): unknown {
   let current = value;
   for (const segment of sourcePath) {

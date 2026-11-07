@@ -147,7 +147,7 @@
   font-size: 11px;
 }
 
-.test-data-row span {
+.test-data-row > span:first-child {
   flex: none;
   width: 90px;
   color: var(--text-dim);
@@ -280,6 +280,11 @@
 .test-data-row > :is(input, select, textarea) {
   width: calc(100% - 8px);
   margin: 1px 4px;
+}
+
+.test-data-row > .color-input {
+  width: calc(100% - 8px);
+  margin: 2px 4px;
 }
 
 .data-field-schema-node > .data-field-details {

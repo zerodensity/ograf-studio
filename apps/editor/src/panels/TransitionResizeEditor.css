@@ -1,0 +1,83 @@
+.tr-resize-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.tr-resize-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.tr-resize-heading h4 {
+  flex: 1;
+  margin: 0;
+}
+
+.tr-resize-target {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tr-resize-target > span,
+.tr-resize-fields label > span:first-child {
+  color: var(--text-dim);
+}
+
+.tr-resize-target select,
+.tr-resize-fields select,
+.tr-resize-fields input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.tr-resize-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.tr-resize-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tr-resize-fields .tr-resize-anchor {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.tr-resize-number {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tr-resize-number > span {
+  flex: none;
+  color: var(--text-dim);
+  font-size: var(--ui-font-size-compact);
+}
+
+.tr-resize-fields small {
+  color: var(--text-dim);
+  font-size: var(--ui-font-size-compact);
+}

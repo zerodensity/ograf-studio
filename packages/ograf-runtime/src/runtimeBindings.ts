@@ -5,9 +5,33 @@ import {
   withEffectParameter,
   type Element,
   type LayerEffects,
+  type LayerTransform,
+  applyLayerTransformBindings,
 } from '@ograf-editor/scene-model';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
 import { runtimeCollectionItemSelection } from './runtimeCollections';
+
+export function resolveLayerBindingTransform(
+  layer: CompiledLayer,
+  data: Record<string, unknown>,
+  pose: LayerTransform,
+): LayerTransform {
+  const index = layer.collectionItem
+    ? runtimeCollectionItemSelection(layer, data)?.index
+    : undefined;
+  return applyLayerTransformBindings(
+    pose,
+    layer.bindings ?? (layer.binding ? [layer.binding] : []),
+    (binding) => {
+      const root = data[binding.dataKey];
+      const itemIndex = layer.collectionItem ? index : binding.itemIndex;
+      if (layer.collectionItem && itemIndex === undefined) return undefined;
+      const item =
+        itemIndex === undefined ? root : Array.isArray(root) ? root[itemIndex] : undefined;
+      return valueAtSourcePath(item, binding.sourcePath);
+    },
+  );
+}
 
 /**
  * The element a compiled layer renders with from its data bindings alone — mirrors the editor's

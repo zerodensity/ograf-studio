@@ -1,15 +1,11 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createOGrafToolRecords } from '@ograf-editor/agent-tools';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createOGrafToolRecords, ToolResultPager } from '@ograf-editor/agent-tools';
 import { createOGrafAuthoringHost } from '../index';
-import {
-  ChatAgentController,
-  buildTurnMessages,
-  compactChatHistory,
-  toolResultContent,
-} from './chatAgent';
-import type { AgentMessage, ChatServerEvent } from './types';
+import { ChatAgentController, buildTurnMessages, toolResultContent } from './chatAgent';
+import type { ChatServerEvent } from './types';
+import { resolveModelContext } from './modelContext';
 import { loadAgentProviderConfig } from './config';
 
 // These tests exercise the HTTP agent loop, not the host's OS credential store.
@@ -18,7 +14,17 @@ vi.mock('./config', async (importOriginal) => ({
   loadAgentProviderConfig: vi.fn(),
 }));
 
+vi.mock('./modelContext', () => ({ resolveModelContext: vi.fn() }));
+
 const originalEnvironment = { ...process.env };
+
+beforeEach(() => {
+  vi.mocked(resolveModelContext).mockImplementation(async (_config, model, preferences) => ({
+    model,
+    contextWindowTokens: preferences.contextWindowTokens ?? 128_000,
+    source: preferences.contextWindowTokens === null ? 'provider' : 'override',
+  }));
+});
 
 afterEach(() => {
   process.env = { ...originalEnvironment };
@@ -36,30 +42,26 @@ describe('server-side in-app agent loop', () => {
     expect(JSON.stringify(messages)).toContain('text');
   });
 
-  it('bounds tool payloads and removes complete old history units without orphaning tool results', () => {
-    const result = toolResultContent({ structuredContent: { payload: 'x'.repeat(40_000) } });
-    expect(result.length).toBeLessThan(17_000);
-    expect(result).toContain('Tool result truncated');
-
-    const messages: AgentMessage[] = [
-      { role: 'user', content: 'Old request' },
-      { role: 'assistant', content: 'y'.repeat(2_000) },
-      { role: 'user', content: 'Current request' },
-      {
-        role: 'assistant',
-        content: '',
-        toolCalls: [{ id: 'call-1', name: 'ograf_get_project', arguments: {} }],
-      },
-      { role: 'tool', callId: 'call-1', name: 'ograf_get_project', content: 'z'.repeat(2_000) },
-      { role: 'assistant', content: 'Current answer' },
-    ];
-    const compacted = compactChatHistory(messages, 300);
-    expect(compacted).toContainEqual({ role: 'user', content: 'Current request' });
-    expect(compacted).toContainEqual({ role: 'assistant', content: 'Current answer' });
-    expect(compacted.some((message) => message.role === 'tool')).toBe(false);
-    expect(
-      compacted.some((message) => message.role === 'assistant' && message.toolCalls?.length),
-    ).toBe(false);
+  it('retains complete JSON and pages large tool payloads without clipping data', () => {
+    const value = { revision: 42, payload: '界'.repeat(40_000) };
+    const raw = toolResultContent({ structuredContent: value });
+    expect(JSON.parse(raw)).toEqual(value);
+    const pager = new ToolResultPager();
+    const page = JSON.parse(
+      toolResultContent(
+        { structuredContent: value },
+        {
+          pager,
+          maxTokens: 1024,
+          sessionId: 'editor:p',
+          toolName: 'ograf_get_project',
+        },
+      ),
+    );
+    expect(page.kind).toBe('tool-result-page');
+    expect(page.readTool).toBe('ograf_read_result_page');
+    expect(page.source.sessionId).toBe('editor:p');
+    expect(raw).not.toContain('Tool result truncated');
   });
 
   it('reports external MCP activity and enforces the optional exclusive lock', async () => {

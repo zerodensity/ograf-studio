@@ -15,6 +15,11 @@ interface MountedCue {
   transitionStartMs: number | null;
   playbackBlocked: boolean;
   playPending: boolean;
+  playRevision: number;
+  pausedAtMs: number | null;
+  stopped: boolean;
+  gain: number;
+  muted: boolean;
 }
 
 export type MediaCueVisualSwitch = (
@@ -41,11 +46,23 @@ function isOneShotAudio(cue: MediaCue, source: MediaCueSource | undefined): bool
   return source?.kind === 'clip' && source.mediaType === 'audio' && !cue.loop;
 }
 
+function isWholeClipAudioLoop(cue: MediaCue, source: MediaCueSource): boolean {
+  return (
+    source.kind === 'clip' &&
+    source.mediaType === 'audio' &&
+    cue.loop &&
+    cue.trimStartMs === 0 &&
+    cue.trimEndMs === null &&
+    cue.durationFrames === null
+  );
+}
+
 export class MediaCueRuntime {
   readonly #host: HTMLElement;
   readonly #descriptor: CompiledGraphicDescriptor;
   readonly #visualSwitch: MediaCueVisualSwitch | undefined;
   readonly #mounted = new Map<string, MountedCue>();
+  readonly #clipMedia = new WeakSet<HTMLElement>();
   #timestampMs = 0;
 
   constructor(
@@ -66,12 +83,19 @@ export class MediaCueRuntime {
         transitionStartMs: null,
         playbackBlocked: false,
         playPending: false,
+        playRevision: 0,
+        pausedAtMs: null,
+        stopped: false,
+        gain: 1,
+        muted: false,
       });
     }
   }
 
-  reset(): void {
+  /** Rearm authored triggers without playing. An optional ID resets only that cue. */
+  reset(cueId?: string): void {
     for (const mounted of this.#mounted.values()) {
+      if (cueId !== undefined && mounted.cue.id !== cueId) continue;
       this.#disposeMedia(mounted.media);
       this.#disposeMedia(mounted.outgoing);
       mounted.activeSourceId = null;
@@ -81,13 +105,129 @@ export class MediaCueRuntime {
       mounted.transitionStartMs = null;
       mounted.playbackBlocked = false;
       mounted.playPending = false;
+      mounted.playRevision++;
+      mounted.pausedAtMs = null;
+      mounted.stopped = false;
     }
+  }
+
+  /** Preserve the current playhead; later render ticks and autoplay retries stay paused. */
+  pause(cueId: string): boolean {
+    const mounted = this.#mounted.get(cueId);
+    if (!mounted || mounted.stopped || !mounted.media) return false;
+    if (mounted.pausedAtMs !== null) return true;
+    mounted.pausedAtMs = this.#timestampMs;
+    mounted.playRevision++;
+    mounted.playPending = false;
+    if (this.#isClipMedia(mounted.media)) mounted.media.pause();
+    mounted.outgoing?.pause();
+    return true;
+  }
+
+  /** Explicitly resume an existing cue, without creating or automatically starting another one. */
+  resume(cueId: string): boolean {
+    const mounted = this.#mounted.get(cueId);
+    if (!mounted || mounted.stopped || !mounted.media) return false;
+    if (mounted.pausedAtMs !== null) {
+      const heldMs = Math.max(0, this.#timestampMs - mounted.pausedAtMs);
+      if (mounted.activationMs !== null) mounted.activationMs += heldMs;
+      if (mounted.transitionStartMs !== null) mounted.transitionStartMs += heldMs;
+      mounted.pausedAtMs = null;
+    }
+    mounted.playbackBlocked = false;
+    if (this.#isClipMedia(mounted.media)) this.#attemptPlay(mounted, mounted.media);
+    if (mounted.outgoing) {
+      const outgoing = mounted.outgoing;
+      void outgoing
+        .play()
+        .then(() => {
+          if (mounted.outgoing !== outgoing || mounted.stopped || mounted.pausedAtMs !== null)
+            outgoing.pause();
+        })
+        .catch(() => undefined);
+    }
+    return true;
+  }
+
+  /** Stop and release one cue. Automatic timeline triggers cannot restart it until reset/take. */
+  stop(cueId: string): boolean {
+    const mounted = this.#mounted.get(cueId);
+    if (!mounted) return false;
+    this.reset(cueId);
+    mounted.stopped = true;
+    return true;
+  }
+
+  /** Play the authored active source with the cue's normal retrigger policy. */
+  async play(cueId: string, timestampMs = this.#timestampMs): Promise<boolean> {
+    const mounted = this.#mounted.get(cueId);
+    if (!mounted?.cue.activeSourceId) return false;
+    await this.take(cueId, mounted.cue.activeSourceId, timestampMs);
+    return true;
+  }
+
+  /** An explicit restart always starts from the authored source/trim, regardless of retrigger mode. */
+  async restart(cueId: string, timestampMs = this.#timestampMs): Promise<boolean> {
+    const mounted = this.#mounted.get(cueId);
+    if (
+      !mounted ||
+      !mounted.cue.activeSourceId ||
+      !mounted.cue.sources.some((source) => source.id === mounted.cue.activeSourceId)
+    )
+      return false;
+    this.reset(cueId);
+    await this.take(cueId, mounted.cue.activeSourceId, timestampMs);
+    return true;
+  }
+
+  /** Local transport gain is a multiplier of the authored volume; it never edits the descriptor. */
+  setAudio(cueId: string, controls: { gain?: number; muted?: boolean }): boolean {
+    const mounted = this.#mounted.get(cueId);
+    if (
+      !mounted ||
+      (controls.gain !== undefined &&
+        (!Number.isFinite(controls.gain) || controls.gain < 0 || controls.gain > 1)) ||
+      (controls.muted !== undefined && typeof controls.muted !== 'boolean')
+    )
+      return false;
+    if (controls.gain !== undefined) mounted.gain = controls.gain;
+    if (controls.muted !== undefined) mounted.muted = controls.muted;
+    const transitionMs = mounted.pausedAtMs ?? this.#timestampMs;
+    const incomingGain =
+      mounted.transitionStartMs !== null && mounted.outgoing
+        ? Math.min(
+            1,
+            Math.max(
+              0,
+              (transitionMs - mounted.transitionStartMs) /
+                ((Math.max(1, mounted.cue.transition.durationFrames) / this.#descriptor.frameRate) *
+                  1000),
+            ),
+          )
+        : 1;
+    for (const media of [mounted.media, mounted.outgoing]) {
+      if (!this.#isClipMedia(media)) continue;
+      media.muted = mounted.cue.muted || mounted.muted;
+      media.volume =
+        this.#volume(mounted) * (media === mounted.outgoing ? 1 - incomingGain : incomingGain);
+    }
+    return true;
+  }
+
+  #volume(mounted: MountedCue): number {
+    return mounted.cue.muted || mounted.muted ? 0 : mounted.cue.volume * mounted.gain;
   }
 
   /** Retry audio that the browser blocked before the operator's first playback gesture. */
   resumeBlocked(): void {
     for (const mounted of this.#mounted.values()) {
-      if (!mounted.playbackBlocked || !(mounted.media instanceof HTMLMediaElement)) continue;
+      if (
+        !mounted.playbackBlocked ||
+        mounted.stopped ||
+        mounted.pausedAtMs !== null ||
+        !this.#isClipMedia(mounted.media)
+      )
+        continue;
       mounted.playbackBlocked = false;
       this.#attemptPlay(mounted, mounted.media);
     }
@@ -128,15 +268,13 @@ export class MediaCueRuntime {
     if (mounted.activeSourceId === source.id) {
       if (mounted.cue.retrigger === 'ignore') return;
       if (mounted.cue.retrigger === 'resume') {
-        if (mounted.media instanceof HTMLMediaElement) {
-          await mounted.media.play().catch(() => undefined);
-        }
+        this.resume(cueId);
         return;
       }
     }
 
     const incoming = this.#createMedia(mounted.cue, source);
-    const previous = mounted.media instanceof HTMLMediaElement ? mounted.media : null;
+    const previous = this.#isClipMedia(mounted.media) ? mounted.media : null;
     mounted.activeSourceId = source.id;
     mounted.media = incoming;
     mounted.activationMs = timestampMs;
@@ -144,10 +282,15 @@ export class MediaCueRuntime {
       mounted.cue.transition.type === 'crossfade' && previous ? timestampMs : null;
     mounted.playbackBlocked = false;
     mounted.playPending = false;
+    mounted.playRevision++;
+    mounted.pausedAtMs = null;
+    mounted.stopped = false;
+    this.#disposeMedia(mounted.outgoing);
     mounted.outgoing = mounted.transitionStartMs === null ? null : previous;
     if (!mounted.outgoing) this.#disposeMedia(previous);
-    if (incoming instanceof HTMLMediaElement) {
-      incoming.volume = mounted.cue.muted ? 0 : mounted.cue.volume;
+    if (this.#isClipMedia(incoming)) {
+      incoming.muted = mounted.cue.muted || mounted.muted;
+      incoming.volume = this.#volume(mounted);
       incoming.playbackRate = mounted.cue.speed;
       if (incoming.readyState >= 1 && mounted.cue.trimStartMs > 0) {
         incoming.currentTime = mounted.cue.trimStartMs / 1000;
@@ -160,8 +303,9 @@ export class MediaCueRuntime {
   renderAtTime(timestampMs: number, options: { includeAudio?: boolean } = {}): void {
     this.#timestampMs = timestampMs;
     for (const mounted of this.#mounted.values()) {
+      if (mounted.stopped || mounted.pausedAtMs !== null) continue;
       const authoredSource = mounted.cue.sources.find(
-        (candidate) => candidate.id === mounted.cue.activeSourceId,
+        (candidate) => candidate.id === (mounted.activeSourceId ?? mounted.cue.activeSourceId),
       );
       if (
         options.includeAudio === false &&
@@ -178,7 +322,7 @@ export class MediaCueRuntime {
         continue;
       }
       const media = mounted.media;
-      const baseVolume = mounted.cue.muted ? 0 : mounted.cue.volume;
+      const baseVolume = this.#volume(mounted);
       let incomingGain = 1;
       if (mounted.transitionStartMs !== null && mounted.outgoing) {
         const durationMs =
@@ -195,7 +339,7 @@ export class MediaCueRuntime {
           mounted.transitionStartMs = null;
         }
       }
-      if (!(media instanceof HTMLMediaElement)) continue;
+      if (!this.#isClipMedia(media)) continue;
       if (isOneShotAudio(mounted.cue, authoredSource)) {
         media.volume = Math.min(1, Math.max(0, baseVolume));
         media.playbackRate = mounted.cue.speed;
@@ -236,16 +380,36 @@ export class MediaCueRuntime {
   }
 
   #attemptPlay(mounted: MountedCue, media: HTMLMediaElement): void {
-    if (mounted.playPending) return;
+    if (mounted.playPending || mounted.stopped || mounted.pausedAtMs !== null) return;
     mounted.playPending = true;
+    const revision = ++mounted.playRevision;
+    const stillCurrent = () => {
+      if (
+        revision === mounted.playRevision &&
+        mounted.media === media &&
+        !mounted.stopped &&
+        mounted.pausedAtMs === null
+      )
+        return true;
+      // A delayed browser play promise cannot resurrect a stopped or replaced player.
+      if (
+        (mounted.media !== media && mounted.outgoing !== media) ||
+        mounted.stopped ||
+        mounted.pausedAtMs !== null
+      )
+        media.pause();
+      return false;
+    };
     void media
       .play()
       .then(() => {
+        if (!stillCurrent()) return;
         mounted.playPending = false;
         mounted.playbackBlocked = false;
         delete this.#host.dataset.ografMediaCueError;
       })
       .catch((cause: unknown) => {
+        if (!stillCurrent()) return;
         mounted.playPending = false;
         mounted.playbackBlocked = true;
         this.#host.dataset.ografMediaCueError =
@@ -263,13 +427,16 @@ export class MediaCueRuntime {
       return live;
     }
     const media = this.#host.ownerDocument.createElement(source.mediaType);
+    this.#clipMedia.add(media);
     media.src = source.src;
     media.preload = 'auto';
-    media.loop = false;
+    // The media clock keeps whole-clip music looping while the graphic holds on a Step.
+    // Trimmed/block-limited cues still use the existing explicit timeline sampler.
+    media.loop = isWholeClipAudioLoop(cue, source);
     media.muted = cue.muted;
     media.volume = cue.muted ? 0 : cue.volume;
     media.playbackRate = cue.speed;
-    if (media instanceof HTMLVideoElement) media.playsInline = true;
+    if (source.mediaType === 'video') (media as HTMLVideoElement).playsInline = true;
     media.dataset.ografMediaCueId = cue.id;
     media.dataset.ografMediaSourceId = source.id;
     media.style.display = 'none';
@@ -277,9 +444,14 @@ export class MediaCueRuntime {
     return media;
   }
 
+  /** Created clip identity survives cross-window adoption; realm constructors do not. */
+  #isClipMedia(media: HTMLElement | null): media is HTMLMediaElement {
+    return media !== null && this.#clipMedia.has(media);
+  }
+
   #disposeMedia(media: HTMLMediaElement | HTMLElement | null): void {
     if (!media) return;
-    if (media instanceof HTMLMediaElement) {
+    if (this.#isClipMedia(media)) {
       media.pause();
       media.removeAttribute('src');
       media.load();

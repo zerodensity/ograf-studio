@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createAsset,
   createComposition,
+  createRectangleLayer,
   getLayerTransformAtFrame,
 } from '@ograf-editor/scene-model';
 import { placeImages, type PreparedImage } from './imageImport';
@@ -21,6 +22,21 @@ function image(width = 800, height = 400): PreparedImage {
 }
 
 describe('image placement', () => {
+  it('places new images inside the selected group or clipping container', () => {
+    const composition = createComposition();
+    const parent = createRectangleLayer();
+    parent.groupId = 'selected-group';
+    parent.clipChildren = true;
+    composition.layers.push(parent);
+    const [id] = placeImages(composition, [image()], {
+      groupId: parent.groupId,
+      parentId: parent.id,
+    });
+    expect(composition.layers.find((layer) => layer.id === id)).toMatchObject({
+      groupId: 'selected-group',
+      parentId: parent.id,
+    });
+  });
   it('names a centered, proportional layer and keeps it visible throughout the lifecycle', () => {
     const c = createComposition();
     c.layers = [];

@@ -1,0 +1,62 @@
+.assistant-context-preferences {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  max-width: 760px;
+}
+.assistant-context-preferences h3,
+.assistant-context-preferences p {
+  margin: 0;
+}
+.assistant-context-preferences p {
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.assistant-context-setting {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto;
+  align-items: center;
+  gap: 6px 16px;
+}
+.assistant-context-toggle,
+.assistant-context-token-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.template-settings-content
+  .assistant-context-preferences
+  .assistant-context-setting
+  label.assistant-context-toggle,
+.template-settings-content
+  .assistant-context-preferences
+  .assistant-context-setting
+  label.assistant-context-token-input {
+  flex-direction: row;
+  margin: 0;
+  gap: 8px;
+}
+.assistant-context-toggle input {
+  margin: 0;
+}
+.assistant-context-auto {
+  color: var(--text-dim);
+}
+.assistant-context-token-input input {
+  width: 128px;
+  min-width: 80px;
+}
+.assistant-context-setting p {
+  grid-column: 1 / -1;
+}
+.assistant-context-setting [role='alert'] {
+  color: #ff8b8b;
+}
+.assistant-context-footnote {
+  font-size: 11px;
+}
+@media (max-width: 600px) {
+  .assistant-context-setting {
+    grid-template-columns: 1fr;
+  }
+}

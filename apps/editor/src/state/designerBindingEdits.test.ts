@@ -8,6 +8,9 @@ import {
   createImageLayer,
   createProject,
   createRectangleLayer,
+  createLayerKeyframe,
+  createDefaultTransform,
+  getLayerTransformAtFrame,
   createShaderPaint,
   createTextLayer,
   effectParameterValue,
@@ -16,7 +19,11 @@ import {
   type FieldDefinition,
   type Layer,
 } from '@ograf-editor/scene-model';
-import { resolveDesignerElement, resolveDesignerEffects } from './dataBinding';
+import {
+  resolveDesignerElement,
+  resolveDesignerEffects,
+  resolveDesignerTransform,
+} from './dataBinding';
 import { getActiveComposition, useProjectStore } from './projectStore';
 import { resolvePreviewFieldValue } from './previewFieldValue';
 import { useTestDataStore } from './testDataStore';
@@ -55,6 +62,40 @@ describe('designer data-binding edits through projectStore', () => {
     useProjectStore.getState().newProject();
     useTestDataStore.getState().resetAll();
     useTimelineStore.getState().setAutoKeyframe(false);
+  });
+
+  it('commits a drag/property edit to bound geometry instead of invisible animation keys', () => {
+    const layer = createRectangleLayer();
+    layer.keyframes = [createLayerKeyframe(0, createDefaultTransform({ x: 10, y: 20 }))];
+    const field = createFieldDefinition('object', {
+      key: 'actor',
+      properties: [
+        createFieldDefinition('number', { key: 'x', defaultValue: 100 }),
+        createFieldDefinition('number', { key: 'y', defaultValue: 200 }),
+      ],
+      defaultValue: { x: 100, y: 200 },
+    });
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'layer.x', sourcePath: ['x'] }];
+    seed([layer], [field]);
+    useTestDataStore.getState().setValue(field.id, { x: 150, y: 250 });
+    const beforeKeys = structuredClone(currentLayer(layer.id).keyframes);
+    useTimelineStore.getState().setAutoKeyframe(true);
+    useProjectStore.getState().updateLayerTransform(layer.id, 5, { x: 180 });
+    expect(currentLayer(layer.id).keyframes).toEqual(beforeKeys);
+    expect(currentField(field.id).defaultValue).toEqual({ x: 180, y: 200 });
+    const displayed = resolveDesignerTransform(
+      currentLayer(layer.id),
+      getLayerTransformAtFrame(currentLayer(layer.id), 5),
+      useTestDataStore.getState().values,
+      composition().dataFields,
+    );
+    expect(displayed.x).toBe(180);
+    expect(
+      resolvePreviewFieldValue(
+        currentField(field.id),
+        useTestDataStore.getState().values[field.id],
+      ),
+    ).toEqual({ x: 180, y: 250 });
   });
 
   it('keeps mixed-style controls editable while text content remains bound', () => {

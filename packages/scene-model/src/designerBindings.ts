@@ -1,9 +1,12 @@
 import { applyElementDataValue, readElementDataValue } from './boundPaint';
 import { effectParameterValue, parseEffectProperty, withEffectParameter } from './effectStack';
+import { modifierParameterValue, parseModifierProperty, withModifierParameter } from './modifiers';
 import { fieldDefinitionAtPath, valueAtSourcePath } from './fieldSchema';
+import { layerTransformBindingChannel, layerTransformBindingValueError } from './transformBindings';
 import { isGradientPaint, validatePaint } from './paint';
 import { getElementShaderPaint, inspectShaderSource } from './shader';
 import { shaderParameterFieldValue } from './shaderFields';
+import { SHADER_PARAMETER_TARGET } from './shaderParameters';
 import type {
   Composition,
   Element,
@@ -13,6 +16,7 @@ import type {
   LayerBinding,
   LayerEffects,
   ShaderParameterValue,
+  LayerTransform,
 } from './types';
 
 export interface DesignerBindingPreviewReset {
@@ -33,7 +37,14 @@ function copy<T>(value: T): T {
 const equal = (left: unknown, right: unknown): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
 
-function targetValue(element: Element, effects: LayerEffects, property: string): unknown {
+function targetValue(
+  element: Element,
+  effects: LayerEffects,
+  property: string,
+  modifiers?: Layer['modifiers'],
+): unknown {
+  if (parseModifierProperty(property))
+    return modifierParameterValue({ modifiers: modifiers ?? [] }, property);
   if (parseEffectProperty(property)) return effectParameterValue(effects, property);
   if (Object.hasOwn(effects, property))
     return (effects as unknown as Record<string, unknown>)[property];
@@ -43,7 +54,7 @@ function targetValue(element: Element, effects: LayerEffects, property: string):
 
 function exposedValue(element: Element, property: string, value: unknown): unknown {
   if (element.type === 'image' && property === 'src' && value === null) return '';
-  const target = /^(?:(fill|strokePaint)\.)?parameters\.(.+)$/.exec(property);
+  const target = SHADER_PARAMETER_TARGET.exec(property);
   if (!target) return value;
   const paint = getElementShaderPaint(element, target[1] === 'strokePaint' ? 'stroke' : 'fill');
   const parameter = paint
@@ -195,6 +206,11 @@ function writeMapping(
 
 function preservesTarget(layer: Layer, property: string, value: FieldValue, expected: unknown) {
   try {
+    if (parseModifierProperty(property))
+      return equal(
+        modifierParameterValue(withModifierParameter(layer, property, value), property),
+        expected,
+      );
     const element = applyElementDataValue(layer.element, property, value);
     const effects = parseEffectProperty(property)
       ? withEffectParameter(layer.effects, property, value)
@@ -219,7 +235,7 @@ function preservesTarget(layer: Layer, property: string, value: FieldValue, expe
 export function syncDesignerBindingDefaults(
   composition: Composition,
   layer: Layer,
-  before: { element: Element; effects: LayerEffects },
+  before: { element: Element; effects: LayerEffects; modifiers?: Layer['modifiers'] },
   editedProperties: readonly string[],
   previewValues: Record<string, FieldValue> = {},
 ): DesignerBindingPreviewReset[] {
@@ -235,9 +251,13 @@ export function syncDesignerBindingDefaults(
     );
     const nestedEdit = editedProperties.some((edited) => property.startsWith(`${edited}.`));
     if (!exactEdit && !nestedEdit) continue;
-    const next = targetValue(layer.element, layer.effects, property);
+    const next = targetValue(layer.element, layer.effects, property, layer.modifiers);
     if (next === undefined) continue;
-    if (!exactEdit && equal(next, targetValue(before.element, before.effects, property))) continue;
+    if (
+      !exactEdit &&
+      equal(next, targetValue(before.element, before.effects, property, before.modifiers))
+    )
+      continue;
     const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
     if (!field) continue;
     const path = binding.sourcePath ?? [];
@@ -266,10 +286,64 @@ export function syncDesignerBindingDefaults(
     }
     field.defaultValue = rootDefault(field);
     writeDefault(field, absolutePath, converted);
+    if (!absolutePath.length && composition.designSystem.stylePackColors) {
+      composition.designSystem.stylePackColors = composition.designSystem.stylePackColors
+        .map((link) => {
+          if (link.targetFieldId !== field.id) return link;
+          const detached = { ...link };
+          delete detached.targetFieldId;
+          return detached;
+        })
+        .filter((link) => link.targetTokenId || link.targetFieldId || link.targets.length > 0);
+    }
     if (
       !resets.some((reset) => reset.fieldId === field.id && equal(reset.sourcePath, absolutePath))
     )
       resets.push({ fieldId: field.id, sourcePath: absolutePath });
   }
   return resets;
+}
+
+/** Absolute data-owned geometry edits change their field/mapping, never invisible animation keys. */
+export function syncDesignerTransformBindingDefaults(
+  composition: Composition,
+  layer: Layer,
+  patch: Partial<LayerTransform>,
+  previewValues: Record<string, FieldValue> = {},
+): { patch: Partial<LayerTransform>; resets: DesignerBindingPreviewReset[] } {
+  const authoredPatch = { ...patch };
+  const resets: DesignerBindingPreviewReset[] = [];
+  for (const binding of layer.bindings) {
+    const channel = layerTransformBindingChannel(binding.targetProperty);
+    // Alpha is multiplicative: its authored animation remains independently editable.
+    if (!channel || channel === 'opacity' || patch[channel] === undefined) continue;
+    const next = patch[channel]!;
+    const error = layerTransformBindingValueError(binding.targetProperty, next);
+    if (error) throw new Error(error);
+    const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
+    const path = binding.sourcePath ?? [];
+    const leaf =
+      field && fieldDefinitionAtPath(field, path, { fromArrayItem: field.type === 'array' });
+    if (!field || !leaf)
+      throw new Error(`Repair the data binding for ${binding.targetProperty} before editing it.`);
+    const root = Object.hasOwn(previewValues, field.id)
+      ? previewValues[field.id]
+      : field.defaultValue;
+    const item = field.type === 'array' && Array.isArray(root) ? root[0] : root;
+    const key = String(valueAtSourcePath(item, path));
+    const converted = convertValue(leaf, next);
+    const absolutePath = field.type === 'array' ? ['0', ...path] : path;
+    const canWrite =
+      converted !== undefined &&
+      !layerTransformBindingValueError(binding.targetProperty, converted) &&
+      validValue(field, replaceAtPath(rootDefault(field), absolutePath, converted));
+    if (binding.valueMap || !canWrite) writeMapping(binding, key, next);
+    else {
+      field.defaultValue = rootDefault(field);
+      writeDefault(field, absolutePath, converted!);
+      resets.push({ fieldId: field.id, sourcePath: [...absolutePath] });
+    }
+    delete authoredPatch[channel];
+  }
+  return { patch: authoredPatch, resets };
 }

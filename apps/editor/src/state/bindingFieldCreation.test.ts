@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  createClockLayer,
   createDefaultGradient,
   createMediaPaint,
   createRectangleLayer,
+  createLayerKeyframe,
+  createDefaultTransform,
 } from '@ograf-editor/scene-model';
 import { validateProject } from '@ograf-editor/validation';
 import { createNextBinding, nextBindingProperty } from './bindingFieldCreation';
 import { resolveEffectiveElement } from './dataBinding';
+import { bindableProperties } from './dataBinding';
 import { getActiveComposition, useProjectStore } from './projectStore';
 
 function activeComposition() {
@@ -16,6 +20,26 @@ function activeComposition() {
 
 describe('Add Binding field creation', () => {
   beforeEach(() => useProjectStore.getState().newProject());
+  it('seeds geometry from the displayed frame and opacity as a neutral bounded factor', () => {
+    const layer = createRectangleLayer();
+    layer.keyframes = [
+      createLayerKeyframe(0, createDefaultTransform({ x: -100 })),
+      createLayerKeyframe(10, createDefaultTransform({ x: 300 })),
+    ];
+    const targets = bindableProperties(layer.element);
+    layer.bindings = targets
+      .filter((target) => target.value !== 'layer.x')
+      .map((target) => ({ fieldId: 'existing', targetProperty: target.value }));
+    const geometry = createNextBinding(layer, [], 10);
+    expect(geometry?.binding.targetProperty).toBe('layer.x');
+    expect(geometry?.field.defaultValue).toBe(300);
+    layer.bindings = targets
+      .filter((target) => target.value !== 'layer.opacity')
+      .map((target) => ({ fieldId: 'existing', targetProperty: target.value }));
+    const alpha = createNextBinding(layer, [], 0);
+    expect(alpha?.field.defaultValue).toBe(1);
+    expect(alpha?.field.constraints).toEqual({ minimum: 0, maximum: 1 });
+  });
 
   it('creates and binds a text field in one action when the project has no fields', () => {
     const layerId = useProjectStore.getState().addLayer('text');
@@ -96,5 +120,43 @@ describe('Add Binding field creation', () => {
 
     layer.element.fill = createMediaPaint({ source: { kind: 'live', tag: 'camera' } });
     expect(nextBindingProperty(layer)?.value).toBe('dropShadowColor');
+  });
+
+  function projectWithClock(mode: 'clock' | 'count-down') {
+    const project = structuredClone(useProjectStore.getState().project);
+    const composition = project.compositions.find(
+      (candidate) => candidate.id === project.mainCompositionId,
+    )!;
+    const layer = createClockLayer();
+    if (layer.element.type !== 'text' || !layer.element.clock) throw new Error('Not a clock.');
+    layer.element.clock = { ...layer.element.clock, mode };
+    layer.keyframes = [createLayerKeyframe(0, createDefaultTransform())];
+    composition.layers.push(layer);
+    return { project, composition, layer };
+  }
+
+  it.each([
+    ['clock', ['clock.format', 'clock.timeZone', 'clock.hourCycle', 'clock.showAmPm']],
+    ['count-down', ['clock.format', 'clock.initialValueMs', 'clock.endBehavior']],
+  ] as const)('offers valid data-driven settings on a %s', (mode, expected) => {
+    const { project, composition, layer } = projectWithClock(mode);
+    for (let next = createNextBinding(layer, composition.dataFields); next;) {
+      composition.dataFields.push(next.field);
+      layer.bindings.push(next.binding);
+      next = createNextBinding(layer, composition.dataFields);
+    }
+    expect(layer.bindings.map((binding) => binding.targetProperty)).toEqual(
+      expect.arrayContaining([...expected]),
+    );
+    expect(validateProject(project).errors).toEqual([]);
+  });
+
+  it('rejects a clock setting whose field default the setting cannot take', () => {
+    const { project, composition, layer } = projectWithClock('clock');
+    const seeded = createNextBinding(layer, composition.dataFields)!;
+    const field = { ...seeded.field, type: 'text' as const, defaultValue: 'Mars/Olympus' };
+    composition.dataFields.push(field);
+    layer.bindings = [{ fieldId: field.id, targetProperty: 'clock.timeZone' }];
+    expect(JSON.stringify(validateProject(project).errors)).toContain('clock.timeZone');
   });
 });

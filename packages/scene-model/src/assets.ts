@@ -1,5 +1,7 @@
 import type { Asset, Composition, Element, FieldDefinition, FieldValue, Paint } from './types';
 import { isMediaPaint, mediaPaintAssetReferences, normalizeMediaPaint } from './mediaPaint';
+import { walkElementContents } from './ticker';
+import { isShaderPaint } from './shader';
 
 const ASSET_PREFIX = 'asset:';
 
@@ -17,6 +19,14 @@ export function resolveAssetValue(value: string, assets: Asset[]): string {
 
 export function resolveElementAssetReferences(element: Element, assets: Asset[]): Element {
   const resolvePaint = (paint: Paint | undefined): Paint | undefined => {
+    if (isShaderPaint(paint) && paint.inputImage)
+      return {
+        ...paint,
+        inputImage: {
+          ...paint.inputImage,
+          source: resolveAssetValue(paint.inputImage.source, assets),
+        },
+      };
     if (!isMediaPaint(paint)) return paint;
     const source =
       paint.source.kind === 'clip'
@@ -29,6 +39,15 @@ export function resolveElementAssetReferences(element: Element, assets: Asset[])
           };
     return normalizeMediaPaint({ ...paint, source });
   };
+  if (element.type === 'ticker')
+    return {
+      ...element,
+      items: element.items.map((item) => ({
+        ...item,
+        element: resolveElementAssetReferences(item.element, assets) as typeof item.element,
+      })),
+      ...(element.background ? { background: resolvePaint(element.background)! } : {}),
+    };
   if (element.type === 'image') {
     return {
       ...element,
@@ -56,6 +75,10 @@ export interface AssetConsumers {
   fieldIds: string[];
   fontLayerIds: string[];
   mediaCueIds: string[];
+  backgroundStyleIds?: string[];
+  typographyStyleIds?: string[];
+  compositionBackground?: boolean;
+  componentIds?: string[];
 }
 
 /** Finds every direct source-model use before an asset is renamed or removed. */
@@ -67,7 +90,7 @@ export function findAssetConsumers(composition: Composition, asset: Asset): Asse
         (layer.element.type === 'image' && layer.element.src === reference) ||
         (layer.element.type === 'audio' && layer.element.src === reference) ||
         (layer.element.type === 'image-sequence' && layer.element.frames.includes(reference)) ||
-        mediaPaintAssetReferencesFromElement(layer.element).includes(reference),
+        elementAssetReferences(layer.element).includes(reference),
     )
     .map((layer) => layer.id);
   const usesReference = (field: FieldDefinition, value: FieldValue): boolean => {
@@ -94,13 +117,15 @@ export function findAssetConsumers(composition: Composition, asset: Asset): Asse
   const fontLayerIds =
     asset.kind === 'font' && asset.fontFamily
       ? composition.layers
-          .filter(
-            (layer) =>
-              layer.element.type === 'text' &&
-              layer.element.fontFamily
-                .split(',')
-                .map((family) => family.trim().replace(/^(['"])(.*)\1$/, '$2'))
-                .includes(asset.fontFamily!),
+          .filter((layer) =>
+            walkElementContents(layer.element).some(
+              (element) =>
+                element.type === 'text' &&
+                element.fontFamily
+                  .split(',')
+                  .map((family) => family.trim().replace(/^(['"])(.*)\1$/, '$2'))
+                  .includes(asset.fontFamily!),
+            ),
           )
           .map((layer) => layer.id)
       : [];
@@ -111,7 +136,60 @@ export function findAssetConsumers(composition: Composition, asset: Asset): Asse
       ),
     )
     .map((cue) => cue.id);
-  return { layerIds, fieldIds, fontLayerIds, mediaCueIds };
+  const backgroundStyleIds = (composition.designSystem.backgrounds ?? [])
+    .filter(
+      (style) =>
+        isMediaPaint(style.paint) && mediaPaintAssetReferences(style.paint).includes(reference),
+    )
+    .map((style) => style.id);
+  const typographyStyleIds =
+    asset.kind === 'font' && asset.fontFamily
+      ? (composition.designSystem.typography ?? [])
+          .filter((style) =>
+            style.properties.fontFamily
+              .split(',')
+              .some((family) => family.trim().replace(/^['"]|['"]$/g, '') === asset.fontFamily),
+          )
+          .map((style) => style.id)
+      : [];
+  const compositionBackground =
+    isMediaPaint(composition.backgroundPaint) &&
+    mediaPaintAssetReferences(composition.backgroundPaint).includes(reference);
+  const componentIds = (composition.components ?? [])
+    .filter(
+      (definition) =>
+        definition.resources?.some((resource) => resource.id === asset.id) ||
+        definition.layers.some(
+          (layer) =>
+            (layer.element.type === 'image' && layer.element.src === reference) ||
+            (layer.element.type === 'audio' && layer.element.src === reference) ||
+            (layer.element.type === 'image-sequence' && layer.element.frames.includes(reference)) ||
+            elementAssetReferences(layer.element).includes(reference) ||
+            (asset.kind === 'font' &&
+              !!asset.fontFamily &&
+              walkElementContents(layer.element).some(
+                (element) =>
+                  element.type === 'text' &&
+                  element.fontFamily
+                    .split(',')
+                    .some(
+                      (family) => family.trim().replace(/^['"]|['"]$/g, '') === asset.fontFamily,
+                    ),
+              )),
+        ) ||
+        definition.dataFields.some((field) => usesReference(field, field.defaultValue)),
+    )
+    .map((definition) => definition.id);
+  return {
+    layerIds,
+    fieldIds,
+    fontLayerIds,
+    mediaCueIds,
+    ...(backgroundStyleIds.length ? { backgroundStyleIds } : {}),
+    ...(typographyStyleIds.length ? { typographyStyleIds } : {}),
+    ...(compositionBackground ? { compositionBackground: true } : {}),
+    ...(componentIds.length ? { componentIds } : {}),
+  };
 }
 
 export function isSafePackagePath(path: string): boolean {
@@ -152,7 +230,7 @@ export function findMissingAssetReferences(composition: Composition): string[] {
     if (layer.element.type === 'image') check(layer.element.src);
     else if (layer.element.type === 'audio') check(layer.element.src);
     else if (layer.element.type === 'image-sequence') layer.element.frames.forEach(check);
-    mediaPaintAssetReferencesFromElement(layer.element).forEach(check);
+    elementAssetReferences(layer.element).forEach(check);
   }
   for (const cue of composition.mediaCues ?? []) {
     for (const source of cue.sources) {
@@ -185,4 +263,40 @@ export function findMissingAssetReferences(composition: Composition): string[] {
 function mediaPaintAssetReferencesFromElement(element: Element): string[] {
   const fill = 'fill' in element ? element.fill : undefined;
   return isMediaPaint(fill) ? mediaPaintAssetReferences(fill) : [];
+}
+
+export function elementAssetReferences(element: Element): string[] {
+  return walkElementContents(element).flatMap((entry) => {
+    const direct =
+      entry.type === 'image' || entry.type === 'audio'
+        ? entry.src
+          ? [entry.src]
+          : []
+        : entry.type === 'image-sequence'
+          ? entry.frames
+          : [];
+    const paint =
+      entry.type === 'ticker'
+        ? entry.background
+        : 'fill' in entry
+          ? entry.fill
+          : entry.type === 'shader'
+            ? entry
+            : undefined;
+    const stroke = entry.type === 'text' ? entry.strokePaint : undefined;
+    return [
+      ...direct,
+      ...mediaPaintAssetReferencesFromElement(entry),
+      ...(isMediaPaint(paint) ? mediaPaintAssetReferences(paint) : []),
+      ...(isShaderPaint(paint) && paint.inputImage ? [paint.inputImage.source] : []),
+      ...(stroke?.inputImage ? [stroke.inputImage.source] : []),
+      ...(entry.type === 'ticker'
+        ? entry.items.flatMap((item) =>
+            (Array.isArray(item.effects?.stack) ? item.effects.stack : []).flatMap((effect) =>
+              effect?.shader?.inputImage ? [effect.shader.inputImage.source] : [],
+            ),
+          )
+        : []),
+    ];
+  });
 }

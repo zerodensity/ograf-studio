@@ -7,6 +7,8 @@ import {
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useSoundEventSelectionStore } from '../state/soundEventSelectionStore';
 import { soundEventSource } from '../state/soundEvents';
+import { FrameDurationControl } from './FrameDurationControl';
+import { MillisecondDurationInput } from './MillisecondDurationControl';
 import './SoundEventEditor.css';
 
 export function SoundEventEditor({ cue }: { cue: MediaCue }) {
@@ -55,23 +57,14 @@ export function SoundEventEditor({ cue }: { cue: MediaCue }) {
           ))}
         </select>
       </label>
-      <label>
-        Frame
-        <input
-          type="number"
-          min={0}
-          max={maxFrame}
-          value={frame}
-          onChange={(event) =>
-            update({
-              trigger: {
-                type: 'timeline',
-                startFrame: Math.max(0, Math.min(maxFrame, Math.round(Number(event.target.value)))),
-              },
-            })
-          }
-        />
-      </label>
+      <FrameDurationControl
+        label="Timeline start"
+        frames={frame}
+        frameRate={composition.frameRate}
+        minFrames={0}
+        maxFrames={maxFrame}
+        onChange={(startFrame) => update({ trigger: { type: 'timeline', startFrame } })}
+      />
       <label>
         Volume
         <input
@@ -86,12 +79,12 @@ export function SoundEventEditor({ cue }: { cue: MediaCue }) {
         />
       </label>
       <label>
-        Start offset (ms)
-        <input
-          type="number"
-          min={0}
+        Start offset
+        <MillisecondDurationInput
+          label="Sound start offset"
           value={cue.trimStartMs}
-          onChange={(event) => update({ trimStartMs: Math.max(0, Number(event.target.value)) })}
+          frameRate={composition.frameRate}
+          onChange={(trimStartMs) => update({ trimStartMs: trimStartMs ?? cue.trimStartMs })}
         />
       </label>
       <label>

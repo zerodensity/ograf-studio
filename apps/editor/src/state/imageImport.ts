@@ -22,7 +22,10 @@ export interface PreparedImage extends ImageSize {
 export interface ImagePlacement {
   position?: { x: number; y: number };
   replaceLayerId?: string;
+  groupId?: string;
+  parentId?: string;
   signal?: AbortSignal;
+  commit?: (mutation: () => void) => void;
 }
 
 /** SVGs without explicit dimensions otherwise inherit the browser's 300 × 150 image box. */
@@ -167,6 +170,18 @@ export function placeImages(
     throw new Error('Select an unlocked image layer to replace.');
   }
   if (target && images.length !== 1) throw new Error('Choose one image to replace this layer.');
+  if (
+    !target &&
+    options.groupId &&
+    !composition.layers.some((layer) => layer.groupId === options.groupId)
+  )
+    throw new Error('The selected group no longer exists.');
+  if (
+    !target &&
+    options.parentId &&
+    !composition.layers.some((layer) => layer.id === options.parentId && layer.clipChildren)
+  )
+    throw new Error('The selected container no longer exists.');
   for (const image of images) {
     if (![image.width, image.height].every((n) => Number.isFinite(n) && n > 0))
       throw new Error('Invalid image dimensions.');
@@ -196,6 +211,8 @@ export function placeImages(
       height = image.height * scale;
     const center = options.position ?? { x: composition.width / 2, y: composition.height / 2 };
     const layer = createLayerOfKind('image');
+    if (options.groupId) layer.groupId = options.groupId;
+    if (options.parentId) layer.parentId = options.parentId;
     layer.name = asset.name.replace(/\.[^.]+$/, '') || 'Image';
     layer.element = { type: 'image', src: `asset:${asset.id}` };
     const frames = computeKeyframeFrames(composition);

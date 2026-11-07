@@ -3,7 +3,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import JSZip from 'jszip';
 import {
   computeKeyframeFrames,
   getEffectStack,
@@ -15,6 +17,8 @@ import {
   createLayerPropertyKeyframe,
   createProject,
   createShaderResource,
+  createDefaultGradient,
+  createShaderPaint,
 } from '@ograf-editor/scene-model';
 import { createOGrafAuthoringHost } from './index';
 import {
@@ -27,6 +31,482 @@ describe('OGraf MCP authoring host', () => {
   const host = createOGrafAuthoringHost();
   const client = new Client({ name: 'ograf-mcp-test', version: '1.0.0' });
   let testEditorSocket: WebSocket | null = null;
+  it('authors seeded text animators and experimental motion blur through existing operations', async () => {
+    const sessionId = 'mcp-text-animators';
+    const session = host.workspace.create(sessionId);
+    const animator = {
+      id: 'rise',
+      unit: 'character',
+      shape: 'ramp',
+      order: 'random',
+      seed: 42,
+      durationFrames: 25,
+      offsetKeyframes: [
+        { frame: 0, value: -1 },
+        { frame: 25, value: 1 },
+      ],
+      properties: { y: 30, opacity: 0 },
+    };
+    const applied = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'add_layer', kind: 'text', name: 'Headline' },
+          {
+            type: 'update_element',
+            layerName: 'Headline',
+            patch: { textAnimation: { animators: [animator] } },
+          },
+          {
+            type: 'set_layer_layout',
+            layerName: 'Headline',
+            motionBlur: { enabled: true, shutterAngle: 180 },
+          },
+        ],
+      },
+    });
+    expect(applied.isError, JSON.stringify(applied.content)).not.toBe(true);
+    const layer = session.snapshot().project.compositions[0]!.layers[0]!;
+    expect(layer.element).toMatchObject({
+      type: 'text',
+      textAnimation: { animators: [{ ...animator, enabled: true }] },
+    });
+    expect(layer.motionBlur).toEqual({ enabled: true, shutterAngle: 180 });
+    const before = session.snapshot();
+    for (const bad of [
+      {
+        type: 'set_layer_layout',
+        layerName: 'Headline',
+        motionBlur: { enabled: true, shutterAngle: 361 },
+      },
+      {
+        type: 'update_element',
+        layerName: 'Headline',
+        patch: { textAnimation: { animators: [{ ...animator, order: 'nonsense' }] } },
+      },
+    ]) {
+      const rejected = await client.callTool({
+        name: 'ograf_apply_operations',
+        arguments: { sessionId, expectedRevision: 1, operations: [bad] },
+      });
+      expect(rejected.isError, `${JSON.stringify(bad)}: ${JSON.stringify(rejected.content)}`).toBe(
+        true,
+      );
+      expect(session.snapshot()).toEqual(before);
+    }
+    const count = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        operations: [
+          {
+            type: 'update_element',
+            layerName: 'Headline',
+            patch: { textAnimation: { type: 'count-up', countRoll: 'up' } },
+          },
+        ],
+      },
+    });
+    expect(count.isError, JSON.stringify(count.content)).not.toBe(true);
+    expect(session.snapshot().project.compositions[0]!.layers[0]!.element).toMatchObject({
+      textAnimation: { type: 'count-up', countRoll: 'up', animators: [{ id: 'rise' }] },
+    });
+    const gradient = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 2,
+        operations: [
+          {
+            type: 'update_element',
+            layerName: 'Headline',
+            patch: {
+              fill: createDefaultGradient(),
+              textAnimation: {
+                animators: [
+                  { ...animator, properties: { ...animator.properties, color: '#ff0000' } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    });
+    expect(gradient.isError, JSON.stringify(gradient.content)).not.toBe(true);
+    const gradientBefore = session.snapshot();
+    const invalidGradient = createDefaultGradient();
+    invalidGradient.stops[0]!.color = 'not-a-color';
+    const invalidPaint = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 3,
+        operations: [
+          { type: 'update_element', layerName: 'Headline', patch: { fill: invalidGradient } },
+        ],
+      },
+    });
+    expect(invalidPaint.isError).toBe(true);
+    expect(session.snapshot()).toEqual(gradientBefore);
+    const shader = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 3,
+        operations: [
+          { type: 'update_element', layerName: 'Headline', patch: { fill: createShaderPaint() } },
+        ],
+      },
+    });
+    expect(shader.isError).toBe(true);
+    expect(session.snapshot()).toEqual(gradientBefore);
+    const cleared = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 3,
+        operations: [
+          { type: 'set_layer_layout', layerName: 'Headline', motionBlur: null },
+          {
+            type: 'update_element',
+            layerName: 'Headline',
+            patch: { textAnimation: { animators: [] } },
+          },
+        ],
+      },
+    });
+    expect(cleared.isError, JSON.stringify(cleared.content)).not.toBe(true);
+    expect(session.snapshot().project.compositions[0]!.layers[0]!.motionBlur).toBeUndefined();
+  });
+  it('authors local review comments, versions and approval atomically through MCP', async () => {
+    const sessionId = 'mcp-review';
+    const session = host.workspace.create(sessionId);
+    const compositionId = session.snapshot().project.mainCompositionId;
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          {
+            type: 'add_review_comment',
+            id: 'comment-1',
+            compositionId,
+            text: 'Check spacing',
+            author: 'Designer',
+            frame: 0,
+            x: 100,
+            y: 50,
+          },
+          { type: 'set_review_comment_resolved', commentId: 'comment-1', resolved: true },
+          { type: 'save_review_version', id: 'version-1', name: 'First review' },
+          { type: 'set_review_approval', author: 'Designer' },
+        ],
+      },
+    });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    const review = session.snapshot().project.review!;
+    expect(review.comments[0]).toMatchObject({
+      id: 'comment-1',
+      text: 'Check spacing',
+      resolved: true,
+      compositionId,
+      x: 100,
+      y: 50,
+    });
+    expect(review.versions[0]).toMatchObject({ id: 'version-1', name: 'First review' });
+    expect(review.versions[0]!.snapshot).not.toHaveProperty('review');
+    expect(review.approval).toMatchObject({ author: 'Designer', fingerprint: expect.any(String) });
+    const read = await client.callTool({
+      name: 'ograf_get_project',
+      arguments: { sessionId, include: ['review'], tracks: 'none' },
+    });
+    const projected = (
+      read.structuredContent as {
+        project: { review: { versions: Array<Record<string, unknown>> } };
+      }
+    ).project.review;
+    expect(projected.versions[0]).not.toHaveProperty('snapshot');
+    const reopen = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        operations: [
+          { type: 'set_review_comment_resolved', commentId: 'comment-1', resolved: false },
+          { type: 'set_review_approval', author: null },
+        ],
+      },
+    });
+    expect(reopen.isError, JSON.stringify(reopen.content)).not.toBe(true);
+    expect(session.snapshot().project.review!.comments[0]!.resolved).toBe(false);
+    expect(session.snapshot().project.review!.approval).toBeUndefined();
+    const before = session.snapshot();
+    const invalid = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 2,
+        operations: [{ type: 'set_review_comment_resolved', commentId: 'missing', resolved: true }],
+      },
+    });
+    expect(invalid.isError).toBe(true);
+    expect(session.snapshot()).toEqual(before);
+  });
+  it('executes the documented broadcast examples without validation or design-QA issues', async () => {
+    const guide = await readFile(
+      new URL('../../../skills/ograf-authoring/references/broadcast-recipes.md', import.meta.url),
+      'utf8',
+    );
+    const examples = guide.split('<!-- Tested authoring examples -->')[1]!;
+    const recipes = examples
+      .split(/^### /m)
+      .slice(1)
+      .map((section) => ({
+        name: section.split('\n')[0]!.trim(),
+        batches: [...section.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/g)].map((match) => match[1]!),
+      }));
+    expect(recipes.map((recipe) => recipe.name)).toEqual([
+      'Premium lower third',
+      'Breaking strap',
+      'Live scoreboard',
+    ]);
+    for (const [index, recipe] of recipes.entries()) {
+      const sessionId = `skill-broadcast-recipe-${index}`;
+      host.workspace.create(sessionId);
+      let revision = 0;
+      for (const batch of recipe.batches) {
+        const composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
+        const operations = JSON.parse(
+          batch.replace(/<field id: ([^>]+)>/g, (_, key: string) => {
+            const field = composition.dataFields.find((candidate) => candidate.key === key);
+            if (!field) throw new Error(`${recipe.name}: missing field ${key}`);
+            return field.id;
+          }),
+        );
+        const applied = await client.callTool({
+          name: 'ograf_apply_operations',
+          arguments: { sessionId, expectedRevision: revision, operations },
+        });
+        expect(applied.isError, `${recipe.name}: ${JSON.stringify(applied.content)}`).not.toBe(
+          true,
+        );
+        revision++;
+      }
+      const validation = await client.callTool({
+        name: 'ograf_validate_project',
+        arguments: { sessionId, broadcastLint: true, detail: 'summary' },
+      });
+      expect(
+        (validation.structuredContent as { validation: unknown }).validation,
+        recipe.name,
+      ).toEqual({ valid: true, errors: [], warnings: [] });
+      const review = await client.callTool({
+        name: 'ograf_review_design',
+        arguments: { sessionId },
+      });
+      expect((review.structuredContent as { findings: unknown[] }).findings, recipe.name).toEqual(
+        [],
+      );
+    }
+  });
+  it('stores and validates authoring-only test rundowns through MCP', async () => {
+    const sessionId = 'mcp-test-rundown';
+    const session = host.workspace.create(sessionId);
+    session.apply({
+      expectedRevision: 0,
+      operations: [
+        {
+          type: 'add_data_field',
+          id: 'headline-id',
+          key: 'headline',
+          fieldType: 'text',
+          defaultValue: 'Headline',
+        },
+      ],
+    });
+    const rows = [{ id: 'row-1', values: { 'headline-id': 'Alice' } }];
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        operations: [{ type: 'set_test_rundowns', rundowns: [{ id: 'r1', name: 'Guests', rows }] }],
+      },
+    });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    expect(session.snapshot().project.compositions[0]!.testRundowns).toEqual([
+      { id: 'r1', name: 'Guests', rows },
+    ]);
+    const before = session.snapshot();
+    const invalid = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 2,
+        operations: [
+          {
+            type: 'set_test_rundowns',
+            rundowns: [{ id: 'r1', name: 'Guests', rows: [...rows, ...rows] }],
+          },
+        ],
+      },
+    });
+    expect(invalid.isError).toBe(true);
+    expect(session.snapshot()).toEqual(before);
+  });
+  it('resolves recipe-created layer and field selectors in the same atomic batch', async () => {
+    const sessionId = 'mcp-recipe-same-batch';
+    const session = host.workspace.create(sessionId);
+    const operations = [
+      { type: 'create_lower_third', name: 'Election', fieldKeys: { headline: 'electionTitle' } },
+      {
+        type: 'update_element',
+        layerName: 'Election · Headline',
+        patch: { content: 'LIVE RESULT' },
+      },
+      { type: 'update_data_field', fieldKey: 'electionTitle', defaultValue: 'LIVE RESULT' },
+      {
+        type: 'set_layer_bindings',
+        layerName: 'Election · Headline',
+        bindings: [{ fieldKey: 'electionTitle', targetProperty: 'content' }],
+      },
+      {
+        type: 'set_layer_semantics',
+        layerName: 'Election · Panel',
+        patch: { description: 'Election background' },
+      },
+    ];
+    const applied = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: { sessionId, expectedRevision: 0, operations },
+    });
+    expect(applied.isError, JSON.stringify(applied.content)).not.toBe(true);
+    const composition = session.snapshot().project.compositions[0]!;
+    const headline = composition.layers.find((layer) => layer.name === 'Election · Headline')!;
+    const field = composition.dataFields.find((item) => item.key === 'electionTitle')!;
+    expect(headline.element).toMatchObject({ type: 'text', content: 'LIVE RESULT' });
+    expect(field.defaultValue).toBe('LIVE RESULT');
+    expect(headline.bindings).toContainEqual(
+      expect.objectContaining({ fieldId: field.id, targetProperty: 'content' }),
+    );
+    expect(
+      composition.layers.find((layer) => layer.name === 'Election · Panel')!.semantics.description,
+    ).toBe('Election background');
+    expect(session.revision).toBe(1);
+    const before = session.snapshot();
+    const rejected = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        operations: [
+          { type: 'create_bug', name: 'Breaking' },
+          { type: 'update_element', layerName: 'not a layer', patch: { content: 'bad' } },
+        ],
+      },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(session.snapshot()).toEqual(before);
+  });
+  it.each([
+    ['create_bug', 'Panel'],
+    ['create_ticker', 'Native ticker'],
+    ['create_scoreboard', 'Home Score'],
+    ['create_clock', 'Time'],
+    ['create_countdown', 'Timer'],
+  ])('resolves an object created by %s during the same batch', async (type, part) => {
+    const sessionId = `mcp-batch-${type}`;
+    const session = host.workspace.create(sessionId);
+    const operations = [
+      { type, name: 'Demo' },
+      {
+        type: 'set_layer_semantics',
+        layerName: `Demo · ${part}`,
+        patch: { description: 'Selected inside recipe' },
+      },
+    ];
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: { sessionId, expectedRevision: 0, operations },
+    });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    expect(
+      session
+        .snapshot()
+        .project.compositions[0]!.layers.find((layer) => layer.name === `Demo · ${part}`)?.semantics
+        .description,
+    ).toBe('Selected inside recipe');
+  });
+  it('keeps separate recipe identities stable when a batch contains component recipes and later selectors', async () => {
+    const sessionId = 'mcp-batch-components';
+    const session = host.workspace.create(sessionId);
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'create_lower_third', name: 'One', asComponent: true, stylePack: 'news' },
+          { type: 'create_lower_third', name: 'Two', asComponent: true },
+          {
+            type: 'set_layer_semantics',
+            layerName: 'One · Panel',
+            patch: { description: 'First' },
+          },
+          {
+            type: 'set_layer_semantics',
+            layerName: 'Two · Panel',
+            patch: { description: 'Second' },
+          },
+        ],
+      },
+    });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    const composition = session.snapshot().project.compositions[0]!;
+    expect(
+      composition.layers.find((layer) => layer.name === 'One · Panel')?.semantics.description,
+    ).toBe('First');
+    expect(
+      composition.layers.find((layer) => layer.name === 'Two · Panel')?.semantics.description,
+    ).toBe('Second');
+    expect(new Set(composition.layers.map((layer) => layer.id)).size).toBe(
+      composition.layers.length,
+    );
+  });
+  it('resolves repeater-created layer names in the same batch', async () => {
+    const sessionId = 'mcp-batch-repeater';
+    const session = host.workspace.create(sessionId);
+    session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Seed', id: 'seed' }],
+    });
+    const result = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 1,
+        operations: [
+          { type: 'create_repeater', layerIds: ['seed'], items: [{}, {}] },
+          {
+            type: 'set_layer_semantics',
+            layerName: 'Item 2 — Seed',
+            patch: { description: 'Second copy' },
+          },
+        ],
+      },
+    });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    expect(
+      session
+        .snapshot()
+        .project.compositions[0]!.layers.find((layer) => layer.name === 'Item 2 — Seed')?.semantics
+        .description,
+    ).toBe('Second copy');
+  });
   it('bakes and clears Animate In motion through MCP without a runtime-only preset', async () => {
     const sessionId = 'mcp-layer-motion';
     host.workspace.create(sessionId);
@@ -84,6 +564,42 @@ describe('OGraf MCP authoring host', () => {
     });
     expect(tooLong.isError).toBe(true);
     expect(host.workspace.get(sessionId).revision).toBe(2);
+
+    const wiped = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 2,
+        operations: [
+          {
+            type: 'set_layer_motion',
+            layerName: 'Moving panel',
+            side: 'in',
+            spec: { style: 'wipe', direction: 'center', durationFrames: 6, offsetFrames: 2 },
+          },
+        ],
+      },
+    });
+    expect(wiped.isError, JSON.stringify(wiped.content)).not.toBe(true);
+    const revealed = host.workspace.get(sessionId).snapshot().project.compositions[0]!.layers[0]!;
+    expect(revealed.motion?.in).toMatchObject({ style: 'wipe', offsetFrames: 2 });
+    expect(getLayerPropertyValueAtFrame(revealed, 'clipLeft', 0)).toBe(0.5);
+
+    for (const spec of [
+      { style: 'swirl', durationFrames: 6 },
+      { style: 'spin', direction: 'up', durationFrames: 6 },
+    ]) {
+      const rejected = await client.callTool({
+        name: 'ograf_apply_operations',
+        arguments: {
+          sessionId,
+          expectedRevision: 3,
+          operations: [{ type: 'set_layer_motion', layerName: 'Moving panel', side: 'in', spec }],
+        },
+      });
+      expect(rejected.isError).toBe(true);
+    }
+    expect(host.workspace.get(sessionId).revision).toBe(3);
   });
   it('authors a pointer rule without a Data field through the advertised MCP contract', async () => {
     const sessionId = 'pointer-visual-rule';
@@ -855,6 +1371,7 @@ describe('OGraf MCP authoring host', () => {
         'ograf_delete_session',
         'ograf_certify_project',
         'ograf_save_project',
+        'ograf_save_template_set',
         'ograf_export_package',
       ]),
     );
@@ -867,10 +1384,10 @@ describe('OGraf MCP authoring host', () => {
     ).toContain('iChannel0=input');
   });
 
-  it('renders a bounded fourteen-tool in-app surface from the same canonical records', () => {
+  it('renders a bounded nineteen-tool in-app surface from the same canonical records', () => {
     const records = createOGrafToolRecords(host.workspace, host.bridge);
     const inApp = filterInAppToolRecords(records);
-    expect(inApp).toHaveLength(14);
+    expect(inApp).toHaveLength(19);
     expect(inApp.map((tool) => tool.name)).not.toEqual(
       expect.arrayContaining([
         'ograf_certify_project',
@@ -1282,7 +1799,12 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
       .get(sessionId)
       .snapshot()
       .project.compositions[0]!.layers.find((layer) => layer.semantics.role === 'ticker');
-    expect(ticker?.loop?.tracks.x).toHaveLength(2);
+    expect(ticker?.element).toMatchObject({
+      type: 'ticker',
+      direction: 'left',
+      gap: 48,
+      updatePolicy: 'next-appearance',
+    });
   });
 
   it('projects only requested capability sections while retaining compact protocol metadata', async () => {
@@ -1302,7 +1824,10 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
       protocolVersion: 1,
       defaultSessionId: 'editor',
       easingPresets: expect.arrayContaining(['linear', 'cubic-in', 'cubic-out']),
-      layerMotion: { operation: 'set_layer_motion', styles: ['fade', 'slide', 'fly', 'focus'] },
+      layerMotion: {
+        operation: 'set_layer_motion',
+        styles: ['fade', 'slide', 'fly', 'focus', 'wipe', 'scale', 'pop', 'grow', 'spin', 'drop'],
+      },
       bindings: { fieldTypes: expect.arrayContaining(['text', 'object', 'array']) },
     });
     expect(result.structuredContent).not.toHaveProperty('elementSchemas');
@@ -1466,6 +1991,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
     ).compositions[0]!.layers;
     expect(layers.map((layer) => layer.semantics.role)).toEqual([
       'container',
+      'decorative',
       'accent',
       'headline',
       'subheadline',
@@ -1768,7 +2294,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
         path: 'fixtures/mcp-import/note.txt',
       },
     });
-    expect(asset.isError).not.toBe(true);
+    expect(asset.isError, JSON.stringify(asset.content)).not.toBe(true);
     expect(asset.structuredContent).toMatchObject({
       revision: 1,
       assets: [{ mimeType: 'text/plain' }],
@@ -1782,7 +2308,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
         paths: ['fixtures/mcp-import/lower.svg', 'fixtures/mcp-import/lower.css'],
       },
     });
-    expect(bundle.isError).not.toBe(true);
+    expect(bundle.isError, JSON.stringify(bundle.content)).not.toBe(true);
     expect(bundle.structuredContent).toMatchObject({
       revision: 2,
       svgAsset: { mimeType: 'image/svg+xml' },
@@ -2391,6 +2917,55 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
       expect.arrayContaining([expect.stringContaining('title-safe')]),
     );
     expect(host.workspace.get('editor').revision).toBe(before);
+  });
+
+  it('audits exposed data field usage without browser access or changing validity or revision', async () => {
+    const sessionId = 'data-field-usage-test';
+    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId,
+        expectedRevision: 0,
+        operations: [
+          { type: 'add_data_field', fieldType: 'color', key: 'orphan_color' },
+          { type: 'add_data_field', fieldType: 'text', key: 'headline' },
+          { type: 'add_layer', kind: 'text', name: 'Headline' },
+          {
+            type: 'set_layer_bindings',
+            layerName: 'Headline',
+            bindings: [{ fieldKey: 'headline', targetProperty: 'content' }],
+          },
+        ],
+      },
+    });
+    const before = host.workspace.get(sessionId).snapshot();
+    const defaultResult = await client.callTool({
+      name: 'ograf_validate_project',
+      arguments: { sessionId },
+    });
+    expect(defaultResult.structuredContent).not.toHaveProperty('dataFieldUsage');
+    const result = await client.callTool({
+      name: 'ograf_validate_project',
+      arguments: { sessionId, dataFieldUsage: true },
+    });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      revision: before.revision,
+      validation: { valid: true },
+      dataFieldUsage: {
+        enabled: true,
+        checked: 2,
+        reported: 1,
+        fields: [{ fieldKey: 'orphan_color', status: 'unreferenced', references: [] }],
+      },
+    });
+    const full = await client.callTool({
+      name: 'ograf_validate_project',
+      arguments: { sessionId, dataFieldUsage: true, detail: 'full' },
+    });
+    expect(full.structuredContent).toMatchObject({ dataFieldUsage: { reported: 2 } });
+    expect(host.workspace.get(sessionId).snapshot()).toEqual(before);
   });
 
   it('exempts bleed layers independently on each safe-area axis', async () => {
@@ -3072,6 +3647,124 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
     expect(JSON.stringify(result.content)).toContain('Project path must end in .ogs');
   });
 
+  it('exposes revision-checked compact and compatible set saves over MCP', async () => {
+    const listed = await client.listTools();
+    const tool = listed.tools.find((item) => item.name === 'ograf_save_template_set');
+    expect(tool).toBeDefined();
+    expect(tool?.inputSchema).toMatchObject({
+      required: expect.arrayContaining(['expectedRevision', 'path', 'confirm']),
+      properties: { archiveMode: { default: 'compact', enum: ['compact', 'compatible'] } },
+    });
+    const capabilities = await client.callTool({
+      name: 'ograf_get_capabilities',
+      arguments: { sections: ['templateSets'] },
+    });
+    expect(capabilities.structuredContent).toMatchObject({
+      templateSets: {
+        save: 'ograf_save_template_set',
+        storage: { archiveSchemaVersion: 6, compatibleArchiveSchemaVersion: 5 },
+        transitionLogic: {
+          definitionVersion: 6,
+          readableDefinitionVersions: [1, 2, 3, 4, 5, 6],
+          slotUpdateMode: {
+            minimumDefinitionVersion: 6,
+            field: 'slot.updateMode',
+            values: ['transition', 'in-place'],
+          },
+          contentAnimations: {
+            minimumDefinitionVersion: 5,
+            fields: ['recipe.incomingAnimation', 'recipe.outgoingAnimation'],
+            choices: ['template', 'builtin', 'plugin'],
+            scope: 'whole-nonshared-template-content',
+          },
+          slotAdmission: {
+            minimumDefinitionVersion: 4,
+            field: 'slot.admission',
+            fields: ['requireOnSlotIds', 'blockWhileActiveSlotIds'],
+            requireOn: 'settled-on',
+            blockingPhases: ['preparing', 'entering', 'on', 'leaving'],
+            rejectedTakeQueued: false,
+          },
+          exportStartup: {
+            defaults: 'compatible-baseline-in-stable-lane-order',
+            dependentLanes: 'off',
+            conflictingStates: 'excluded',
+            takeSuggestions: 'independent-first-valid-state',
+            playPlanning: 'whole-selection-preflight-and-resource-preparation-before-output',
+            rejectedSelection: 'status-550-with-on-air-selections-unchanged',
+          },
+          preparationCache: {
+            scope: 'realtime-pristine-dormant-template-instances-and-shared-probes',
+            maximumInstances: 4,
+            maximumEstimatedBytes: 67_108_864,
+            admission: 'unchanged-take-conditions-and-transition-timing',
+            nonRealtime: 'fresh-deterministic-replay-without-instance-cache',
+          },
+          statePresets: {
+            minimumDefinitionVersion: 4,
+            field: 'state.dataDefaults',
+            precedenceLowToHigh: [
+              'template-defaults',
+              'state-defaults',
+              'retained-state-data',
+              'explicit-data',
+            ],
+          },
+        },
+      },
+    });
+    const result = await client.callTool({
+      name: 'ograf_save_template_set',
+      arguments: {
+        expectedRevision: 'unopened-set:0',
+        path: 'fixtures/disconnected-set.ogs',
+        confirm: true,
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain('live editor to be connected');
+  });
+
+  it('advertises asynchronous shader draws and explicit deterministic GPU completion', async () => {
+    const capabilities = await client.callTool({
+      name: 'ograf_get_capabilities',
+      arguments: { sections: ['shaders'] },
+    });
+    expect(capabilities.structuredContent).toMatchObject({
+      paintSchemas: {
+        shader: {
+          runtimeProfile: {
+            frameCompletion: {
+              realtime: 'asynchronous-gpu-submission-without-finish-or-per-draw-error-read',
+              deterministic:
+                'asynchronous-gpu-fence-at-content-readiness-seek-and-capture-boundaries',
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('advertises chart mark Paint support with its explicit provider feature requirement', async () => {
+    const capabilities = await client.callTool({
+      name: 'ograf_get_capabilities',
+      arguments: { sections: ['elements'] },
+    });
+    expect(capabilities.structuredContent).toMatchObject({
+      elementSchemas: {
+        chart: {
+          fill: {
+            optional: true,
+            type: 'Paint',
+            requiredFeature: 'mark-paint-v1',
+            supported: ['solid', 'linear', 'radial', 'conic', 'shader', 'media'],
+          },
+        },
+      },
+      paintSchemas: { shader: { supportedElements: expect.arrayContaining(['chart']) } },
+    });
+  });
+
   it('keeps certified save and export closed when the editor is disconnected', async () => {
     for (const [name, path] of [
       ['ograf_save_project', 'fixtures/disconnected-gate.ogs'],
@@ -3133,6 +3826,85 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
     expect(certificationCount).toBe(2);
   });
 
+  it('includes the offline preview in an MCP-certified single-template export', async () => {
+    const port = (host.httpServer.address() as AddressInfo).port;
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/editor`);
+    testEditorSocket = socket;
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve);
+      socket.once('error', reject);
+    });
+    const transparentPixel =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XcJR8QAAAABJRU5ErkJggg==';
+    socket.on('message', (raw) => {
+      const message = JSON.parse(raw.toString()) as { type: string; requestId?: string };
+      if (!message.requestId) return;
+      if (message.type === 'heartbeat.request') {
+        socket.send(JSON.stringify({ type: 'heartbeat.result', requestId: message.requestId }));
+      } else if (message.type === 'capture.request') {
+        socket.send(
+          JSON.stringify({
+            type: 'capture.result',
+            requestId: message.requestId,
+            result: {
+              mimeType: 'image/png',
+              data: transparentPixel,
+              width: 1,
+              height: 1,
+              originalWidth: 1,
+              originalHeight: 1,
+              resolvedFonts: [],
+            },
+          }),
+        );
+      } else if (message.type === 'certification.request') {
+        socket.send(
+          JSON.stringify({
+            type: 'certification.result',
+            requestId: message.requestId,
+            result: { valid: true, checks: [], errors: [] },
+          }),
+        );
+      }
+    });
+    socket.send(
+      JSON.stringify({
+        type: 'editor.hello',
+        project: host.workspace.get('editor').snapshot().project,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const name = `offline-preview-test-${randomUUID()}.ograf.zip`;
+    const target = host.workspace.resolveAllowedPath(name);
+    try {
+      const exported = await client.callTool({
+        name: 'ograf_export_package',
+        arguments: { sessionId: 'editor', path: name, profile: 'dual', confirm: true },
+      });
+      expect(exported.isError, JSON.stringify(exported.content)).not.toBe(true);
+      const zip = await JSZip.loadAsync(await readFile(target));
+      const manifestFile = Object.keys(zip.files).find((path) => path.endsWith('.ograf.json'))!;
+      const manifest = JSON.parse(await zip.file(manifestFile)!.async('string'));
+      expect(manifest.main).toBe('main.js');
+      expect(zip.file('main.js')).not.toBeNull();
+      const previewFileName = (exported.structuredContent as { previewFileName: string })
+        .previewFileName;
+      expect(previewFileName).toBe(`${manifest.name}.html`);
+      expect(zip.file('index.html')).toBeNull();
+      const index = await zip.file(previewFileName)!.async('string');
+      const licensePath = 'licenses/OGRAF-STUDIO-AGPL-3.0.txt';
+      expect(index).toContain('<!doctype html>');
+      expect(index).toContain(licensePath);
+      expect(await zip.file('main.js')!.async('string')).toContain(licensePath);
+      expect(await zip.file(licensePath)!.async('nodebuffer')).toEqual(
+        await readFile(new URL('../../../LICENSE', import.meta.url)),
+      );
+      expect(await zip.file(manifest.thumbnails[0].file)!.async('base64')).toBe(transparentPixel);
+    } finally {
+      await unlink(target).catch(() => undefined);
+    }
+  });
+
   it('returns a short-lived PNG URL and optional inline image without mutating revision', async () => {
     const port = (host.httpServer.address() as AddressInfo).port;
     const socket = new WebSocket(`ws://127.0.0.1:${port}/editor`);
@@ -3141,13 +3913,6 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
       socket.once('open', resolve);
       socket.once('error', reject);
     });
-    socket.send(
-      JSON.stringify({
-        type: 'editor.hello',
-        project: host.workspace.get('editor').snapshot().project,
-      }),
-    );
-    await new Promise<void>((resolve) => socket.once('message', () => resolve()));
     const before = host.workspace.get('editor').revision;
 
     const transparentPixel =
@@ -3269,6 +4034,17 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
       }
     });
 
+    // Install the heartbeat responder before hello: ack and the first heartbeat may share one
+    // WebSocket read, so awaiting ack before installing this listener can lose the heartbeat.
+    const acknowledged = new Promise<void>((resolve) => socket.once('message', () => resolve()));
+    socket.send(
+      JSON.stringify({
+        type: 'editor.hello',
+        project: host.workspace.get('editor').snapshot().project,
+      }),
+    );
+    await acknowledged;
+
     const result = await client.callTool({
       name: 'ograf_capture',
       arguments: {
@@ -3331,7 +4107,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
       name: 'ograf_measure_text',
       arguments: { sessionId: 'editor', layerId: textLayer!.id, text: 'A long title' },
     });
-    expect(measurement.isError).not.toBe(true);
+    expect(measurement.isError, JSON.stringify(measurement.content)).not.toBe(true);
     expect(measurement.structuredContent).toMatchObject({
       frame: expect.any(Number),
       overflowsParent: true,

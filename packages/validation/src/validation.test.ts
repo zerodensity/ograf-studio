@@ -21,6 +21,25 @@ import { validateManifest } from './validateManifest';
 import { validateProject } from './validateProject';
 
 describe('canonical OGraf validation', () => {
+  it('accepts interactive keyboard rules and rejects missing or malformed keys', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('rectangle');
+    layer.visualRules = [
+      createLayerVisualRule({
+        trigger: 'key-down',
+        keyboard: { key: 'Enter', ctrl: true },
+        delayFrames: 6,
+      }),
+    ];
+    project.compositions[0]!.layers.push(layer);
+    expect(
+      validateProject(project).errors.filter((error) => error.includes('visual rule')),
+    ).toEqual([]);
+    delete layer.visualRules[0]!.keyboard;
+    expect(validateProject(project).errors.join('\n')).toContain('Keyboard rules require');
+    layer.visualRules[0]!.keyboard = { key: '\t' };
+    expect(validateProject(project).errors.join('\n')).toContain('Keyboard key must be');
+  });
   it('allows pointer-triggered rules without a data field', () => {
     const project = createProject();
     const layer = createLayerOfKind('rectangle');
@@ -68,6 +87,87 @@ describe('canonical OGraf validation', () => {
     expect(errors).toContain('"Action" must name an existing custom action');
     expect(errors).toContain('"Toggle" delay applies only to event triggers');
     expect(errors).toContain('"Toggle" can toggle visibility only on an event trigger');
+  });
+
+  it('validates group targets and exports one action per group member', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const host = createLayerOfKind('rectangle');
+    const first = createLayerOfKind('rectangle');
+    const second = createLayerOfKind('rectangle');
+    first.groupId = 'buttons';
+    second.groupId = 'buttons';
+    host.visualRules = [
+      createLayerVisualRule({
+        name: 'Missing group',
+        trigger: 'click',
+        actions: [{ type: 'visibility', visible: false, targetGroupId: 'nope' }],
+      }),
+    ];
+    composition.layers.push(host, first, second);
+    expect(validateProject(project).errors.join('\n')).toContain(
+      '"Missing group" targets a missing group',
+    );
+
+    host.visualRules = [
+      createLayerVisualRule({
+        name: 'Hide buttons',
+        trigger: 'click',
+        actions: [{ type: 'visibility', visible: false, targetGroupId: 'buttons' }],
+      }),
+    ];
+    expect(validateProject(project).errors.join('\n')).not.toContain('"Hide buttons"');
+    const compiled = compileDescriptor(composition);
+    expect(compiled.layers.find((entry) => entry.id === host.id)!.visualRules![0]!.actions).toEqual(
+      [
+        { type: 'visibility', visible: false, targetLayerId: first.id },
+        { type: 'visibility', visible: false, targetLayerId: second.id },
+      ],
+    );
+  });
+
+  it('checks data changes and layer property values in rules, and compiles them for runtime', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const field = createFieldDefinition('integer', { key: 'score' });
+    composition.dataFields.push(field);
+    const layer = createLayerOfKind('rectangle');
+    layer.visualRules = [
+      createLayerVisualRule({
+        name: 'Missing field',
+        trigger: 'click',
+        actions: [{ type: 'set-data', fieldId: 'gone', mode: 'set', value: 1 }],
+      }),
+      createLayerVisualRule({
+        name: 'Step',
+        trigger: 'click',
+        actions: [{ type: 'set-data', fieldId: field.id, mode: 'increase', value: 'lots' }],
+      }),
+      createLayerVisualRule({
+        name: 'Fade',
+        trigger: 'hover',
+        actions: [{ type: 'property', targetProperty: 'layer.opacity', value: 2 }],
+      }),
+    ];
+    composition.layers.push(layer);
+    const errors = validateProject(project).errors.join('\n');
+    expect(errors).toContain('"Missing field" changes a missing data field');
+    expect(errors).toContain('"Step" needs a number to increase by');
+    expect(errors).toContain('"Fade" "layer.opacity" must be between 0 and 1');
+
+    layer.visualRules = [
+      createLayerVisualRule({
+        name: 'Score',
+        trigger: 'click',
+        actions: [{ type: 'set-data', fieldId: field.id, mode: 'set', value: '7.4' }],
+      }),
+    ];
+    expect(validateProject(project).errors.join('\n')).not.toContain('"Score"');
+    const compiled = compileDescriptor(composition);
+    const rule = compiled.layers.find((entry) => entry.id === layer.id)!.visualRules![0]!;
+    expect(rule.actions).toEqual([
+      { type: 'set-data', fieldId: field.id, mode: 'set', value: 7, dataKey: 'score' },
+    ]);
   });
 
   it('validates media clip assets and keeps live sources realtime-only', () => {

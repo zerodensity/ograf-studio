@@ -7,11 +7,59 @@ import {
   getElementMediaPaint,
   getElementShaderPaint,
   getEffectStack,
+  createLayerOfKind,
+  createDefaultGradient,
 } from '@ograf-editor/scene-model';
 import { getActiveComposition, useProjectStore } from './projectStore';
 
 describe('project store authoring', () => {
   beforeEach(() => useProjectStore.getState().newProject());
+  it('uses standard chart paints and resets to dataset colors without stale shader fields', () => {
+    const store = useProjectStore.getState();
+    const project = structuredClone(store.project);
+    const chart = createLayerOfKind('chart');
+    project.compositions[0]!.layers.push(chart);
+    store.loadProject(project);
+    const current = () => useProjectStore.getState().project.compositions[0]!;
+    const element = () => current().layers.find((layer) => layer.id === chart.id)!.element;
+    store.updateLayerPaint(chart.id, 0, createShaderPaint());
+    expect(getElementShaderPaint(element())).toBeDefined();
+    expect(current().dataFields).toHaveLength(3);
+    store.updateLayerPaint(chart.id, 0, undefined);
+    expect(element()).not.toHaveProperty('fill');
+    expect(current().dataFields).toHaveLength(0);
+    store.updateLayerPaint(chart.id, 0, createDefaultGradient());
+    expect(element()).toMatchObject({ type: 'chart', fill: { type: 'linear' } });
+    store.updateLayerPaint(
+      chart.id,
+      0,
+      createMediaPaint({ source: { kind: 'clip', src: 'https://media.example/chart.mp4' } }),
+    );
+    expect(getElementMediaPaint(element())?.source).toMatchObject({
+      src: 'https://media.example/chart.mp4',
+    });
+    expect(useProjectStore.getState().project.supportsNonRealTime).toBe(false);
+  });
+  it('removes a chart shader through Resources without replacing the chart or its data', () => {
+    const store = useProjectStore.getState();
+    const project = structuredClone(store.project);
+    const chart = createLayerOfKind('chart');
+    project.compositions[0]!.layers.push(chart);
+    store.loadProject(project);
+    store.updateLayerPaint(chart.id, 0, createShaderPaint());
+    store.removeShaderResource({
+      compositionId: project.compositions[0]!.id,
+      layerId: chart.id,
+      slot: 'fill',
+    });
+    const result = useProjectStore
+      .getState()
+      .project.compositions[0]!.layers.find((layer) => layer.id === chart.id)!;
+    expect(result.element.type).toBe('chart');
+    expect(result.element).not.toHaveProperty('fill');
+    expect(result.element).toHaveProperty('data');
+    expect(result.bindings).toEqual([]);
+  });
   it('keeps editable text and independent fill/outline fields when either paint changes', () => {
     const store = useProjectStore.getState();
     const id = store.addLayer('text');
@@ -357,8 +405,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     expect(applied.packId).toBe('documentary');
     expect(composition.designSystem.name).toBe('Documentary Brand Kit');
     expect(ticker.recipe).toBe('ticker');
-    expect(
-      composition.layers.find((layer) => layer.id === ticker.layers.crawl)?.loop,
-    ).not.toBeNull();
+    const crawl = composition.layers.find((layer) => layer.id === ticker.layers.crawl)!;
+    expect(crawl.loop).toBeNull();
+    expect(crawl.element).toMatchObject({
+      type: 'ticker',
+      speedPixelsPerSecond: 150 * (composition.height / 1080),
+      gap: 48 * (composition.height / 1080),
+      direction: 'left',
+      updatePolicy: 'next-appearance',
+    });
   });
 });

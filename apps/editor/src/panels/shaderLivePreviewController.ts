@@ -98,8 +98,11 @@ export class ShaderLivePreviewController {
   }
 
   #visibilityChanged = (): void => {
-    if (this.owner.document.hidden) this.#pause();
-    else if (this.#paint) this.update(this.#paint);
+    if (this.owner.document.hidden) {
+      this.#pause();
+      // The live source preview is recreated from the latest draft when the window returns.
+      this.#release();
+    } else if (this.#paint) this.update(this.#paint);
   };
 
   update(paint: ShaderPaint): void {

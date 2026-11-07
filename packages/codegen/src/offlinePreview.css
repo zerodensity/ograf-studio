@@ -1,0 +1,516 @@
+:root {
+  color-scheme: dark;
+  --ograf-preview-background: #090d13;
+  --ograf-controls-background: rgba(20, 24, 31, 0.85);
+  --ograf-controls-text: #f4f6fa;
+  --ograf-controls-border: rgba(255, 255, 255, 0.22);
+  --ograf-controls-input: #191919;
+  --ograf-controls-accent: #399ed4;
+  --ograf-controls-font:
+    'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+    'Helvetica Neue', sans-serif;
+  --ograf-controls-width: min(330px, 48vw);
+  --ograf-controls-dim: #c2c8d3;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+body {
+  background: var(--ograf-preview-background);
+  color: var(--ograf-controls-text);
+  font: 12px var(--ograf-controls-font);
+  line-height: 1.3;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+* {
+  scrollbar-color: #555 #292929;
+  scrollbar-width: thin;
+}
+#output {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  right: var(--ograf-controls-width);
+}
+body[data-dock='left'] #output {
+  left: var(--ograf-controls-width);
+  right: 0;
+}
+body.controls-hidden #output {
+  inset: 0;
+}
+body[data-nodos] {
+  background: transparent;
+}
+body[data-nodos] #output {
+  inset: 0;
+}
+body[data-nodos] #controls,
+body[data-nodos] #show-controls,
+body[data-nodos] #background,
+body[data-nodos] #safe-guides,
+body[data-nodos] #fps-overlay {
+  display: none !important;
+}
+#frame {
+  position: absolute;
+  overflow: hidden;
+}
+#background,
+#background-image,
+#background-video,
+#safe-guides {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+#background {
+  background: var(--ograf-preview-background);
+  pointer-events: none;
+}
+#background[data-kind='checker'] {
+  background-color: #323943;
+  background-image: conic-gradient(#626a76 25%, transparent 0 50%, #626a76 0 75%, transparent 0);
+  background-size: 24px 24px;
+}
+#background-image,
+#background-video {
+  object-fit: cover;
+}
+#safe-guides {
+  z-index: 5;
+  pointer-events: none;
+}
+#safe-guides rect {
+  fill: none;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+#action-guide {
+  stroke: #67d8ff;
+}
+#title-guide {
+  stroke: #ffcf6a;
+}
+[hidden] {
+  display: none !important;
+}
+#stage {
+  position: absolute;
+  transform-origin: top left;
+}
+#controls {
+  position: fixed;
+  z-index: 20;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--ograf-controls-width);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  border: 1px solid var(--ograf-controls-border);
+  border-radius: 0;
+  background: var(--ograf-controls-background);
+  padding: 9px;
+  color: var(--ograf-controls-text);
+  box-shadow: none;
+  backdrop-filter: blur(2px);
+}
+body[data-dock='left'] #controls {
+  left: 0;
+  right: auto;
+}
+#show-controls {
+  position: fixed;
+  z-index: 20;
+  top: 8px;
+  right: 8px;
+}
+body[data-dock='left'] #show-controls {
+  left: 8px;
+  right: auto;
+}
+#controls[hidden] {
+  display: none;
+}
+/* The dock uses an ID for geometry; retain Studio's active-row transparency above that ID. */
+#controls[data-preview-adjusting]:not([hidden]) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  scrollbar-color: transparent transparent;
+}
+#controls header {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 7px;
+  min-height: 26px;
+  margin-bottom: 8px;
+  user-select: none;
+  flex-wrap: wrap;
+}
+#controls header strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+#panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+#panel > * {
+  flex-shrink: 0;
+}
+#background-file {
+  max-width: 100%;
+}
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  background: var(--ograf-controls-input);
+  border: 1px solid #4a4a4a;
+  border-radius: 2px;
+  font: inherit;
+  line-height: inherit;
+  min-height: 22px;
+  padding: 2px 5px;
+  min-width: 0;
+}
+button {
+  min-height: 26px;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+  background: rgba(25, 29, 36, 0.4);
+  cursor: pointer;
+}
+button:hover {
+  background: rgba(56, 65, 79, 0.65);
+  border-color: var(--ograf-controls-accent);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+input[type='checkbox'] {
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  accent-color: #60d0ff;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--ograf-controls-accent);
+  outline-offset: 2px;
+}
+select option {
+  color: #f4f6fa;
+  background: #20252f;
+}
+input[type='color'] {
+  flex: 0 0 34px;
+  width: 34px;
+  min-width: 34px;
+  height: 24px;
+  padding: 1px;
+}
+.row input.color-alpha {
+  flex: 0 0 58px;
+  width: 58px;
+}
+textarea {
+  resize: vertical;
+  min-height: 72px;
+  padding: 4px 5px;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(64px, 42%) minmax(0, 1fr);
+  gap: 0;
+  align-items: center;
+  min-height: 26px;
+  margin: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  opacity: 1;
+}
+.row:focus-within {
+  background: rgba(255, 255, 255, 0.03);
+}
+.field-label {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 2px 5px 2px 0;
+  border-right: 1px solid #4a4a4a;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row input:not([type='checkbox']),
+.row textarea,
+.row select {
+  width: calc(100% - 6px);
+  margin: 2px 3px;
+}
+.row input[type='checkbox'] {
+  margin: 2px 3px;
+}
+.row input[type='color'] {
+  width: 34px;
+  min-width: 34px;
+  height: 24px;
+  justify-self: start;
+}
+.row [aria-invalid='true'] {
+  border-color: #ffb4ab;
+}
+.color-value-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 2px 3px;
+}
+.row .color-value-input input {
+  margin: 0;
+}
+.row .color-value-input .color-input-hex {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  font:
+    11px ui-monospace,
+    Consolas,
+    monospace;
+}
+.row .color-value-input input[type='color'] {
+  flex: 0 0 28px;
+  width: 28px;
+  min-width: 28px;
+  height: 22px;
+}
+.row .color-value-input input.color-alpha {
+  flex: 0 0 46px;
+  width: 46px;
+}
+.color-value-input small {
+  flex: none;
+  color: var(--ograf-controls-dim);
+}
+.section {
+  min-width: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  margin: 0;
+  padding: 6px 0;
+}
+.section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.preview-template-navigation,
+.preview-controls-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+.preview-template-navigation > span {
+  flex: 1 1 80px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-template-navigation > small {
+  color: var(--ograf-controls-dim);
+  font:
+    12px ui-monospace,
+    Consolas,
+    monospace;
+}
+.preview-background-controls {
+  min-width: 0;
+}
+.preview-background-controls > summary,
+.preview-slot-data > summary,
+.preview-custom-action > summary {
+  cursor: pointer;
+  padding: 3px 0;
+  color: var(--ograf-controls-text);
+}
+.preview-background-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  min-width: 0;
+}
+.preview-background-controls-row > span:first-child {
+  flex: 0 0 84px;
+}
+.preview-background-controls-row > :is(select, input:not([type='checkbox'])) {
+  flex: 1;
+  min-width: 0;
+}
+.preview-background-controls-row > input[type='checkbox'] {
+  margin: 0;
+}
+.preview-background-controls-actions,
+.preview-guide-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.preview-background-controls-actions {
+  margin-top: 6px;
+}
+.preview-guide-choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.preview-background-controls > p {
+  margin-top: 6px;
+}
+.preview-transition-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+.preview-transition-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.preview-transition-slot-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.preview-transition-slot-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.preview-transition-slot-heading small {
+  color: var(--ograf-controls-dim);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.preview-transition-slot-heading [data-state='on'] {
+  color: #8ee7bd;
+}
+.preview-transition-slot-heading [data-state='transition'] {
+  color: #9bdaff;
+}
+.preview-transition-slot-heading [data-state='error'] {
+  color: #ffb4ab;
+}
+.preview-transition-slot-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+}
+.lane-select {
+  min-height: 30px;
+  width: 100%;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+.preview-slot-data,
+.preview-custom-action {
+  min-width: 0;
+}
+.preview-slot-data small {
+  color: var(--ograf-controls-dim);
+  margin-left: 4px;
+}
+.preview-slot-data-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.preview-custom-action .preview-controls-row {
+  margin-top: 5px;
+}
+.preview-fps-overlay {
+  position: absolute;
+  z-index: 10;
+  top: 8px;
+  right: 8px;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  background: rgba(20, 24, 31, 0.78);
+  color: #f4f6fa;
+  font:
+    11px ui-monospace,
+    Consolas,
+    monospace;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+.hint {
+  margin: 0;
+  color: var(--ograf-controls-dim);
+  line-height: 1.45;
+  font-size: 11px;
+}
+.hint a {
+  color: var(--ograf-controls-accent);
+}
+#status {
+  color: var(--ograf-controls-dim);
+  margin: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+#status.error {
+  color: #ff9d9d;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

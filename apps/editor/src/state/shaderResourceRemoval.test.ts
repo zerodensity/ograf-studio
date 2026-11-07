@@ -37,7 +37,8 @@ function fixture(kind: NewLayerKind = 'text') {
   if (
     layer.element.type === 'shader' ||
     layer.element.type === 'audio' ||
-    layer.element.type === 'chart'
+    layer.element.type === 'chart' ||
+    layer.element.type === 'ticker'
   )
     throw new Error('Expected canonical paintable object.');
   layer.element.fill = createShaderPaint({ name: 'Shared name' });

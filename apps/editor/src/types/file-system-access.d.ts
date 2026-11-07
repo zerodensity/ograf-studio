@@ -4,6 +4,7 @@ export {};
 
 declare global {
   interface FileSystemFileHandle {
+    readonly name: string;
     getFile(): Promise<File>;
     createWritable(): Promise<FileSystemWritableFileStream>;
   }

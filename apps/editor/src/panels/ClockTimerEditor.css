@@ -1,0 +1,152 @@
+.clock-timer-editor {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.clock-timer-editor:disabled {
+  opacity: 0.65;
+}
+
+.clock-timer-editor > .inspector-hint,
+.clock-timer-editor > .inspector-error,
+.clock-timer-reference > .inspector-hint {
+  margin: 0;
+  padding: 6px 8px;
+}
+
+.clock-timer-padding {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  padding: 3px 6px;
+}
+
+.clock-timer-padding label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+}
+
+.clock-timer-padding input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
+.clock-timer-committed-input {
+  min-width: 0;
+}
+
+.clock-timer-committed-input small {
+  display: block;
+  padding: 4px 6px;
+  color: #ff9f96;
+  font-size: 10px;
+}
+
+.clock-timer-format-preview {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-canvas);
+}
+
+.clock-timer-format-preview span {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.clock-timer-format-preview output {
+  color: var(--text);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.clock-timer-controls,
+.clock-timer-reference > .inspector-button-row {
+  padding: 7px 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.clock-timer-controls > span {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.clock-timer-reference > summary {
+  padding: 7px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.clock-timer-alarms {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.clock-timer-alarms-heading,
+.clock-timer-alarm-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.clock-timer-alarms-heading {
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.clock-timer-alarm-row {
+  margin: 4px 0;
+}
+.clock-timer-alarm-row > input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+.clock-timer-alarm-row > fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  width: 66px;
+  flex: 0 1 66px;
+}
+.clock-timer-alarm-row .timer-alarm-threshold {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-variant-numeric: tabular-nums;
+}
+.clock-timer-alarm-at {
+  color: var(--text-dim);
+}
+.clock-timer-alarm-name {
+  min-width: 32px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.clock-timer-alarm-row > button {
+  flex: none;
+  padding: 2px 5px;
+  font-size: 10px;
+}
+.clock-timer-alarm-row > .clock-timer-alarm-remove {
+  width: 20px;
+  padding: 2px;
+}
+.clock-timer-alarms > .inspector-hint {
+  margin: 4px 0 0;
+}

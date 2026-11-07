@@ -14,7 +14,14 @@ describe('Inspector section hierarchy', () => {
     expect(elementEnd).toBeGreaterThan(elementStart);
     expect(animationStart).toBeGreaterThan(elementEnd);
     expect(inspector.slice(elementStart, elementEnd)).not.toContain('properties.text-animation');
-    expect(animation).toContain('sectionId="properties.text-animation"');
+    expect(inspector.slice(elementStart, elementEnd)).not.toContain('<TextAnimationEditor');
+    expect(inspector.slice(animationStart, animationStart + 250)).toContain(
+      'clock={!!layer.element.clock}',
+    );
+    expect(animation).toContain(
+      "sectionId={clock ? 'properties.clock-text-animation' : 'properties.text-animation'}",
+    );
+    expect(animation).toContain("'Update text FX' : 'Text animation'");
     expect(animation).toContain('TEXT_ANIMATION_LABELS[animation.type]');
   });
 });

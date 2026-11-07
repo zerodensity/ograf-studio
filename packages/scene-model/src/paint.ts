@@ -11,7 +11,7 @@ export function isGradientPaint(value: unknown): value is GradientPaint {
   );
 }
 
-function stopColor(stop: GradientStop): string {
+export function gradientStopColor(stop: GradientStop): string {
   const opacity = Math.max(0, Math.min(1, stop.opacity));
   const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(stop.color);
   if (match) {
@@ -28,7 +28,7 @@ export function paintToCss(paint: Paint): string {
   if (isMediaPaint(paint)) return 'transparent';
   const stops = [...paint.stops]
     .sort((a, b) => a.offset - b.offset)
-    .map((stop) => `${stopColor(stop)} ${Math.max(0, Math.min(1, stop.offset)) * 100}%`)
+    .map((stop) => `${gradientStopColor(stop)} ${Math.max(0, Math.min(1, stop.offset)) * 100}%`)
     .join(', ');
   if (paint.type === 'radial') return `radial-gradient(circle, ${stops})`;
   if (paint.type === 'conic') return `conic-gradient(from ${paint.angle}deg, ${stops})`;

@@ -7,7 +7,9 @@ import {
   type Composition,
   type MediaCue,
 } from '@ograf-editor/scene-model';
-import { useActiveComposition, useProjectStore } from '../state/projectStore';
+import { getActiveComposition, useActiveComposition, useProjectStore } from '../state/projectStore';
+import { useProjectSetStore } from '../state/projectSetStore';
+import { createSharedAssetScope } from '../state/sharedResourceUsage';
 import { useSelectionStore } from '../state/selectionStore';
 import { useSoundEventSelectionStore } from '../state/soundEventSelectionStore';
 import { isSoundEventCue, soundEventSource } from '../state/soundEvents';
@@ -15,11 +17,17 @@ import { ResourceTreeBranch, ResourceTreeItem } from './ResourceTreeComponents';
 import { Panel } from './Panel';
 import { PatternResources } from './PatternResources';
 import { MediaCueEditor } from './MediaCueEditor';
+import { SelectedLiveInputControls } from './SelectedLiveInputControls';
 import { SoundEventEditor } from './SoundEventEditor';
 import { ShaderResources } from './ShaderResources';
+import { SharedResourcesPanel } from './SharedResourcesPanel';
+import { openComponentEditor } from './ComponentEditorDialog';
 import { partitionResourceAssets } from './resourceTree';
 import './ResourcesPanel.css';
 import { useImagePlacement } from '../state/useImagePlacement';
+import { prepareEditableSvg } from '../state/svgRasterFallback';
+import { buildFigmaPluginPackage } from '../state/figmaPluginPackage';
+import { runDiscreteHistoryStep } from '../state/historyStore';
 import {
   AUDIO_FILE_ACCEPT,
   MEDIA_FILE_ACCEPT,
@@ -48,6 +56,9 @@ function mediaCueTriggerLabel(cue: MediaCue, composition: Composition) {
 export function ResourcesPanel() {
   const imagePlacement = useImagePlacement();
   const composition = useActiveComposition();
+  const projectSet = useProjectSetStore((state) => state.projectSet);
+  const activeTemplateId = useProjectSetStore((state) => state.activeTemplateId);
+  const [scope, setScope] = useState<'template' | 'set'>('template');
   const importAsset = useProjectStore((s) => s.importAsset);
   const importSvgBundle = useProjectStore((s) => s.importSvgBundle);
   const updateAsset = useProjectStore((s) => s.updateAsset);
@@ -58,19 +69,22 @@ export function ResourcesPanel() {
   const createComponent = useProjectStore((s) => s.createComponent);
   const instantiateComponent = useProjectStore((s) => s.instantiateComponent);
   const updateComponentFromLayers = useProjectStore((s) => s.updateComponentFromLayers);
-  const refreshLinkedComponentInstances = useProjectStore((s) => s.refreshLinkedComponentInstances);
   const renameComponent = useProjectStore((s) => s.renameComponent);
   const removeComponent = useProjectStore((s) => s.removeComponent);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const selectMany = useSelectionStore((s) => s.selectMany);
   const selectSoundEvent = useSoundEventSelectionStore((s) => s.selectSoundEvent);
   const [svgImportStatus, setSvgImportStatus] = useState<string | null>(null);
+  const [componentError, setComponentError] = useState('');
   const [mediaImportStatus, setMediaImportStatus] = useState<MediaImportStatus | null>(null);
   const [audioImportStatus, setAudioImportStatus] = useState<MediaImportStatus | null>(null);
   const [previewingAudioAssetId, setPreviewingAudioAssetId] = useState<string | null>(null);
   const [audioPreviewError, setAudioPreviewError] = useState<string | null>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editableSvgInputRef = useRef<HTMLInputElement>(null);
+  const psdInputRef = useRef<HTMLInputElement>(null);
+  const figmaInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -170,6 +184,136 @@ export function ResourcesPanel() {
     }
   };
 
+  const handleEditableSvg = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const start = useProjectStore.getState();
+    try {
+      const source = await file.text();
+      const current = useProjectStore.getState();
+      if (
+        current.project !== start.project ||
+        current.activeCompositionId !== start.activeCompositionId
+      )
+        throw new Error('The active template changed during import. Please try again.');
+      const { layers, warnings } = await prepareEditableSvg(
+        source,
+        getActiveComposition(current.project, current.activeCompositionId),
+      );
+      const afterPreparation = useProjectStore.getState();
+      if (
+        afterPreparation.project !== start.project ||
+        afterPreparation.activeCompositionId !== start.activeCompositionId
+      )
+        throw new Error('The active template changed during import. Please try again.');
+      const ids = runDiscreteHistoryStep(() => {
+        const pasted = useProjectStore.getState().pasteLayers(layers, 0);
+        pasted.forEach((id, index) =>
+          useProjectStore.getState().renameLayer(id, layers[index]!.name),
+        );
+        return pasted;
+      }, 'Import editable SVG');
+      useSelectionStore.getState().selectMany(ids);
+      setSvgImportStatus(
+        warnings.length
+          ? `Imported ${ids.length} layers. ${warnings.join(' ')}`
+          : `Imported ${ids.length} editable SVG layers.`,
+      );
+    } catch (error) {
+      setSvgImportStatus(
+        `${error instanceof Error ? error.message : String(error)} You can use Import as image instead.`,
+      );
+    }
+  };
+
+  const handlePsd = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const start = useProjectStore.getState();
+    try {
+      const { preparePsd } = await import('../state/psdImport');
+      const result = await preparePsd(
+        file,
+        getActiveComposition(start.project, start.activeCompositionId),
+      );
+      const current = useProjectStore.getState();
+      if (
+        current.project !== start.project ||
+        current.activeCompositionId !== start.activeCompositionId
+      )
+        throw new Error('The active template changed during import. Please try again.');
+      const ids = runDiscreteHistoryStep(() => {
+        const pasted = useProjectStore.getState().pasteLayers(result.layers, 0);
+        pasted.forEach((id, index) =>
+          useProjectStore.getState().renameLayer(id, result.layers[index]!.name),
+        );
+        return pasted;
+      }, 'Import PSD');
+      useSelectionStore.getState().selectMany(ids);
+      setSvgImportStatus(
+        result.warnings.length
+          ? `Imported ${ids.length} PSD layers. ${result.warnings.join(' ')}`
+          : `Imported ${ids.length} PSD layers.`,
+      );
+    } catch (error) {
+      setSvgImportStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleFigma = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const start = useProjectStore.getState();
+    try {
+      const { prepareFigma } = await import('../state/figmaImport');
+      const result = await prepareFigma(
+        file,
+        getActiveComposition(start.project, start.activeCompositionId),
+      );
+      const current = useProjectStore.getState();
+      if (
+        current.project !== start.project ||
+        current.activeCompositionId !== start.activeCompositionId
+      )
+        throw new Error('The active template changed during import. Please try again.');
+      const ids = runDiscreteHistoryStep(() => {
+        const pasted = useProjectStore.getState().pasteLayers(result.layers, 0);
+        pasted.forEach((id, index) =>
+          useProjectStore.getState().renameLayer(id, result.layers[index]!.name),
+        );
+        return pasted;
+      }, 'Import Figma');
+      useSelectionStore.getState().selectMany(ids);
+      setSvgImportStatus(
+        result.warnings.length
+          ? `Imported ${ids.length} Figma layers. ${result.warnings.join(' ')}`
+          : `Imported ${ids.length} Figma layers.`,
+      );
+    } catch (error) {
+      setSvgImportStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const downloadFigmaPlugin = async () => {
+    try {
+      const archive = await buildFigmaPluginPackage();
+      const url = URL.createObjectURL(archive);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'ograf-studio-figma-plugin.zip';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      setSvgImportStatus(
+        'Unzip the plugin, import its manifest in Figma Development, then export your selected layers.',
+      );
+    } catch (error) {
+      setSvgImportStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const handleMediaFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = [...(event.target.files ?? [])];
     event.target.value = '';
@@ -228,32 +372,87 @@ export function ResourcesPanel() {
       consumers.layerIds.length +
       consumers.fieldIds.length +
       consumers.fontLayerIds.length +
-      consumers.mediaCueIds.length
+      consumers.mediaCueIds.length +
+      (consumers.componentIds?.length ?? 0) +
+      (consumers.backgroundStyleIds?.length ?? 0) +
+      (consumers.typographyStyleIds?.length ?? 0) +
+      Number(consumers.compositionBackground === true)
     );
   };
+  const assetScope = useMemo(
+    () => createSharedAssetScope(projectSet, activeTemplateId, composition.id),
+    [projectSet, activeTemplateId, composition.id],
+  );
   const linkedInstanceCount = (componentId: string) =>
     new Set(
       composition.layers
         .filter((layer) => layer.componentLink?.componentId === componentId)
         .map((layer) => layer.componentLink!.instanceId),
     ).size;
+  const runComponent = (action: () => void) => {
+    try {
+      action();
+      setComponentError('');
+    } catch (cause) {
+      setComponentError(
+        cause instanceof Error ? cause.message : 'The component action could not be completed.',
+      );
+    }
+  };
 
+  const scopeControls = projectSet && (
+    <div className="resources-scope" role="group" aria-label="Resource scope">
+      <button
+        type="button"
+        aria-pressed={scope === 'template'}
+        onClick={() => setScope('template')}
+      >
+        Template
+      </button>
+      <button type="button" aria-pressed={scope === 'set'} onClick={() => setScope('set')}>
+        Template Set
+      </button>
+    </div>
+  );
+  if (scope === 'set' && projectSet) {
+    return (
+      <Panel title="Resources">
+        <div className="resources-panel">
+          {scopeControls}
+          <SharedResourcesPanel />
+        </div>
+      </Panel>
+    );
+  }
   return (
     <Panel title="Resources">
       <div className="resources-panel">
+        {scopeControls}
         <div className="resources-tree" role="tree" aria-label="Project resources">
           <ShaderResources />
           <PatternResources />
 
           <ResourceTreeBranch label="Components" count={composition.components.length}>
             <div className="resources-tree-toolbar">
-              <span>Reusable layer snapshots</span>
+              <span>Reusable components · instances inherit source edits</span>
               <button
                 type="button"
                 disabled={selectedLayerIds.length === 0}
-                onClick={() => createComponent(selectedLayerIds)}
+                onClick={(event) =>
+                  runComponent(() => {
+                    const id = createComponent(selectedLayerIds);
+                    if (!id)
+                      throw new Error(
+                        'The selection could not be saved as a component. Include its mask and motion-path sources.',
+                      );
+                    openComponentEditor(
+                      { compositionId: composition.id, componentId: id },
+                      event.currentTarget.ownerDocument,
+                    );
+                  })
+                }
               >
-                + Save Selection
+                + Create Component
               </button>
             </div>
             {composition.components.length === 0 ? (
@@ -266,47 +465,89 @@ export function ResourcesPanel() {
                     <ResourceTreeItem
                       key={component.id}
                       label={component.name}
-                      meta={`${component.layers.length} layers · ${linked} linked`}
+                      meta={`${component.layers.length} source layers · ${linked} instances`}
+                      badge={component.scope === 'set' ? 'Set' : undefined}
                       preview={<span className="resources-tree-item-icon">C</span>}
                     >
                       <input
                         aria-label="Component name"
                         value={component.name}
-                        onChange={(event) => renameComponent(component.id, event.target.value)}
+                        onChange={(event) =>
+                          runComponent(() => renameComponent(component.id, event.target.value))
+                        }
                       />
                       <div className="resources-tree-actions wrap">
                         <button
                           type="button"
-                          onClick={() => selectMany(instantiateComponent(component.id))}
-                        >
-                          Insert
-                        </button>
-                        <button
-                          type="button"
                           onClick={() =>
-                            selectMany(instantiateComponent(component.id, undefined, true))
+                            runComponent(() =>
+                              selectMany(instantiateComponent(component.id, undefined, true)),
+                            )
                           }
                         >
-                          Link
+                          Insert Instance
                         </button>
                         <button
                           type="button"
-                          disabled={selectedLayerIds.length === 0}
-                          onClick={() => updateComponentFromLayers(component.id, selectedLayerIds)}
+                          onClick={(event) =>
+                            openComponentEditor(
+                              { compositionId: composition.id, componentId: component.id },
+                              event.currentTarget.ownerDocument,
+                            )
+                          }
                         >
-                          Update
+                          Edit Component
                         </button>
                         <button
                           type="button"
                           disabled={linked === 0}
-                          onClick={() => selectMany(refreshLinkedComponentInstances(component.id))}
+                          onClick={() =>
+                            selectMany(
+                              composition.layers
+                                .filter(
+                                  (layer) => layer.componentLink?.componentId === component.id,
+                                )
+                                .map((layer) => layer.id),
+                            )
+                          }
                         >
-                          Refresh {linked || ''}
+                          Select Instances
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            runComponent(() =>
+                              selectMany(instantiateComponent(component.id, undefined, false)),
+                            )
+                          }
+                        >
+                          Insert Copy
+                        </button>
+                        <button
+                          type="button"
+                          disabled={selectedLayerIds.length === 0}
+                          title="Update the source from the current selection. Linked instances inherit the changes."
+                          onClick={() =>
+                            runComponent(() => {
+                              if (!updateComponentFromLayers(component.id, selectedLayerIds))
+                                throw new Error(
+                                  'The component could not be updated from this selection.',
+                                );
+                            })
+                          }
+                        >
+                          Update from Selection
                         </button>
                         <button
                           type="button"
                           className="data-table-delete"
-                          onClick={() => removeComponent(component.id)}
+                          disabled={linked > 0}
+                          title={
+                            linked > 0
+                              ? 'This source is used by instances. Make them independent before removing it.'
+                              : 'Remove this component source'
+                          }
+                          onClick={() => runComponent(() => removeComponent(component.id))}
                         >
                           Delete
                         </button>
@@ -317,13 +558,48 @@ export function ResourcesPanel() {
               </div>
             )}
           </ResourceTreeBranch>
+          {componentError && (
+            <p className="resources-component-error" role="alert">
+              {componentError}
+            </p>
+          )}
 
           <ResourceTreeBranch label="Images" count={imageAssets.length}>
             <div className="resources-tree-toolbar">
               <span>Images and SVG bundles</span>
               <button type="button" onClick={() => fileInputRef.current?.click()}>
-                + Import
+                Import as image
               </button>
+              <button type="button" onClick={() => editableSvgInputRef.current?.click()}>
+                Import editable SVG
+              </button>
+              <button type="button" onClick={() => psdInputRef.current?.click()}>
+                Import PSD
+              </button>
+              <button type="button" onClick={() => figmaInputRef.current?.click()}>
+                Import Figma JSON
+              </button>
+              <input
+                ref={figmaInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="resources-file-input"
+                onChange={(event) => void handleFigma(event)}
+              />
+              <input
+                ref={psdInputRef}
+                type="file"
+                accept=".psd,image/vnd.adobe.photoshop"
+                className="resources-file-input"
+                onChange={(event) => void handlePsd(event)}
+              />
+              <input
+                ref={editableSvgInputRef}
+                type="file"
+                accept=".svg,image/svg+xml"
+                className="resources-file-input"
+                onChange={(event) => void handleEditableSvg(event)}
+              />
               <input
                 ref={fileInputRef}
                 type="file"
@@ -344,6 +620,7 @@ export function ResourcesPanel() {
                       key={asset.id}
                       label={asset.name}
                       meta={`${formatBytes(asset.byteSize)} · ${uses} uses`}
+                      badge={assetScope(asset)}
                       preview={<img src={asset.dataUri} alt="" className="resources-asset-thumb" />}
                     >
                       <div className="resources-asset-fields">
@@ -365,7 +642,9 @@ export function ResourcesPanel() {
                           placeholder={`assets/${asset.id}`}
                           value={asset.packagePath ?? ''}
                           onChange={(event) =>
-                            updateAsset(asset.id, { packagePath: event.target.value || undefined })
+                            updateAsset(asset.id, {
+                              packagePath: event.target.value || undefined,
+                            })
                           }
                         />
                         <div className="resources-tree-actions">
@@ -393,6 +672,17 @@ export function ResourcesPanel() {
               </div>
             )}
             <p className="inspector-hint">Select SVG companion files together when importing.</p>
+            <p className="inspector-hint">
+              Editable SVG import preserves unsupported parts as images. Text positioning is
+              approximate.
+            </p>
+            <p className="inspector-hint">
+              For Figma artwork,{' '}
+              <button type="button" onClick={() => void downloadFigmaPlugin()}>
+                download the Figma export plugin
+              </button>
+              .
+            </p>
             {imagePlacement.error && (
               <p className="image-placement-error" role="alert">
                 {imagePlacement.error}
@@ -409,15 +699,6 @@ export function ResourcesPanel() {
               </span>
               <button type="button" onClick={() => mediaInputRef.current?.click()}>
                 + Video
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  addLiveMediaCue();
-                  useSelectionStore.getState().select(null);
-                }}
-              >
-                + Live Cue
               </button>
               <input
                 ref={mediaInputRef}
@@ -438,32 +719,48 @@ export function ResourcesPanel() {
                 {mediaImportStatus.message}
               </p>
             ) : null}
-            {mediaCues.length > 0 ? (
-              <div className="resources-media-cues" role="group" aria-label="Playback cues">
-                <span className="resources-media-cues-heading">Playback cues</span>
-                {mediaCues.map((cue) => {
-                  const activeSource = cue.sources.find(
-                    (source) => source.id === cue.activeSourceId,
-                  );
-                  return (
-                    <ResourceTreeItem
-                      key={cue.id}
-                      label={cue.name}
-                      meta={`${activeSource?.name ?? 'No source'} · ${mediaCueTriggerLabel(cue, composition)}`}
-                      preview={
-                        <span className="resources-tree-item-icon">
-                          {activeSource?.kind === 'clip' && activeSource.mediaType === 'audio'
-                            ? '♪'
-                            : '▶'}
-                        </span>
-                      }
-                    >
-                      <MediaCueEditor cue={cue} />
-                    </ResourceTreeItem>
-                  );
-                })}
-              </div>
-            ) : null}
+            <SelectedLiveInputControls />
+            <details className="resources-advanced-media">
+              <summary>Playback cues (advanced)</summary>
+              <p className="inspector-hint">
+                Use cues for scheduled playback and source switching.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  addLiveMediaCue();
+                  useSelectionStore.getState().select(null);
+                }}
+              >
+                + Live playback cue
+              </button>
+              {mediaCues.length > 0 ? (
+                <div className="resources-media-cues" role="group" aria-label="Playback cues">
+                  <span className="resources-media-cues-heading">Playback cues</span>
+                  {mediaCues.map((cue) => {
+                    const activeSource = cue.sources.find(
+                      (source) => source.id === cue.activeSourceId,
+                    );
+                    return (
+                      <ResourceTreeItem
+                        key={cue.id}
+                        label={cue.name}
+                        meta={`${activeSource?.name ?? 'No source'} · ${mediaCueTriggerLabel(cue, composition)}`}
+                        preview={
+                          <span className="resources-tree-item-icon">
+                            {activeSource?.kind === 'clip' && activeSource.mediaType === 'audio'
+                              ? '♪'
+                              : '▶'}
+                          </span>
+                        }
+                      >
+                        <MediaCueEditor cue={cue} />
+                      </ResourceTreeItem>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </details>
             {mediaAssets.length === 0 ? (
               <p className="panel-placeholder">No video media imported.</p>
             ) : (
@@ -475,6 +772,7 @@ export function ResourcesPanel() {
                       key={asset.id}
                       label={asset.name}
                       meta={`${formatBytes(asset.byteSize)} · ${uses} uses`}
+                      badge={assetScope(asset)}
                       preview={
                         <video
                           src={asset.dataUri}
@@ -504,7 +802,9 @@ export function ResourcesPanel() {
                           placeholder={`assets/${asset.id}`}
                           value={asset.packagePath ?? ''}
                           onChange={(event) =>
-                            updateAsset(asset.id, { packagePath: event.target.value || undefined })
+                            updateAsset(asset.id, {
+                              packagePath: event.target.value || undefined,
+                            })
                           }
                         />
                         <div className="resources-tree-actions">
@@ -608,6 +908,7 @@ export function ResourcesPanel() {
                       <ResourceTreeItem
                         label={asset.name}
                         meta={`${formatBytes(asset.byteSize)} · ${uses} uses`}
+                        badge={assetScope(asset)}
                         preview={<span className="resources-tree-item-icon">♪</span>}
                       >
                         <div className="resources-asset-fields">
@@ -693,6 +994,7 @@ export function ResourcesPanel() {
                       key={asset.id}
                       label={asset.name}
                       meta={`${asset.fontFamily || 'Unassigned family'} · ${uses} uses`}
+                      badge={assetScope(asset)}
                       preview={
                         <span
                           className="resources-tree-font-preview"
@@ -752,7 +1054,9 @@ export function ResourcesPanel() {
                           placeholder={`assets/${asset.id}`}
                           value={asset.packagePath ?? ''}
                           onChange={(event) =>
-                            updateAsset(asset.id, { packagePath: event.target.value || undefined })
+                            updateAsset(asset.id, {
+                              packagePath: event.target.value || undefined,
+                            })
                           }
                         />
                         <input
@@ -823,6 +1127,7 @@ export function ResourcesPanel() {
                     key={asset.id}
                     label={asset.name}
                     meta={`${asset.mimeType} · ${formatBytes(asset.byteSize)}`}
+                    badge={assetScope(asset)}
                     preview={<span className="resources-tree-item-icon">S</span>}
                   >
                     <div className="resources-asset-fields">
@@ -844,7 +1149,9 @@ export function ResourcesPanel() {
                         placeholder={`assets/${asset.id}`}
                         value={asset.packagePath ?? ''}
                         onChange={(event) =>
-                          updateAsset(asset.id, { packagePath: event.target.value || undefined })
+                          updateAsset(asset.id, {
+                            packagePath: event.target.value || undefined,
+                          })
                         }
                       />
                       <div className="resources-tree-actions">

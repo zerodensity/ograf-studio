@@ -18,13 +18,20 @@ export function colorPickerValue(backgroundColor: string): string {
 }
 
 /** Keeps checker squares a readable screen size even though the composition itself is zoomed. */
-export function transparencyCheckerboardStyle(zoom: number): CSSProperties {
+export function transparencyCheckerboardStyle(
+  zoom: number,
+  mode: 'dark' | 'light' | 'solid' = 'light',
+  solidColor = '#30343b',
+): CSSProperties {
+  if (mode === 'solid') return { backgroundColor: solidColor, backgroundImage: 'none' };
   const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const tileSize = CHECKER_TILE_PX / safeZoom;
+  const light = mode === 'dark' ? '#4d535c' : CHECKER_LIGHT;
+  const dark = mode === 'dark' ? '#343a43' : CHECKER_DARK;
 
   return {
-    backgroundColor: CHECKER_LIGHT,
-    backgroundImage: `conic-gradient(${CHECKER_DARK} 25%, ${CHECKER_LIGHT} 0 50%, ${CHECKER_DARK} 0 75%, ${CHECKER_LIGHT} 0)`,
+    backgroundColor: light,
+    backgroundImage: `conic-gradient(${dark} 25%, ${light} 0 50%, ${dark} 0 75%, ${light} 0)`,
     backgroundSize: `${tileSize}px ${tileSize}px`,
   };
 }

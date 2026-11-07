@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   collectVisualRuleStates,
+  firedVisualRuleEventRules,
+  isVisualRuleKeyboardTrigger,
+  normalizeVisualRuleKeyboardKey,
+  visualRuleKeyboardMatches,
+  visualRuleKeyboardErrors,
   createLayerVisualRule,
   interpolateVisualRuleValue,
   isVisualRuleState,
@@ -16,6 +21,112 @@ import {
 } from './visualRules';
 import { createComposition, createFieldDefinition, createLayerOfKind } from './factory';
 import type { LayerVisualRule, VisualRuleCondition } from './types';
+
+describe('keyboard visual rule contracts', () => {
+  it.each([
+    ['a', 'A'],
+    ['Z', 'z'],
+    ['Space', ' '],
+    ['Spacebar', 'Space'],
+    [' ', 'Spacebar'],
+    ['Esc', 'Escape'],
+    ['Escape', 'Esc'],
+    ['ArrowLeft', 'ArrowLeft'],
+  ])('matches semantic key aliases %s and %s', (key, input) => {
+    expect(visualRuleKeyboardMatches({ key }, { key: input })).toBe(true);
+  });
+  it('normalizes authoring aliases and keeps named DOM keys readable', () => {
+    expect(normalizeVisualRuleKeyboardKey('A')).toBe('a');
+    expect(normalizeVisualRuleKeyboardKey('Spacebar')).toBe(' ');
+    expect(normalizeVisualRuleKeyboardKey('esc')).toBe('Escape');
+    expect(normalizeVisualRuleKeyboardKey('ArrowLeft')).toBe('ArrowLeft');
+    expect(isVisualRuleKeyboardTrigger('key-down')).toBe(true);
+    expect(isVisualRuleKeyboardTrigger('key-up')).toBe(true);
+    expect(isVisualRuleKeyboardTrigger('click')).toBe(false);
+  });
+  it('handles malformed raw document keys without claiming any keyboard input', () => {
+    for (const key of [undefined, null, 7, {}, []]) {
+      expect(normalizeVisualRuleKeyboardKey(key as string)).toBe('');
+      const keyboard = { key: key as string };
+      expect(visualRuleKeyboardErrors(keyboard)).not.toEqual([]);
+      expect(visualRuleKeyboardMatches(keyboard, { key: 'Enter' })).toBe(false);
+      expect(visualRuleKeyboardMatches({ key: 'Enter' }, { key: key as string })).toBe(false);
+    }
+    expect(visualRuleKeyboardErrors(null)).not.toEqual([]);
+  });
+  it('matches modifiers exactly, defaults repeat off, and ignores composition input', () => {
+    expect(visualRuleKeyboardMatches({ key: 'a' }, { key: 'a', ctrlKey: true })).toBe(false);
+    expect(visualRuleKeyboardMatches({ key: 'A', ctrl: true }, { key: 'a' })).toBe(false);
+    expect(visualRuleKeyboardMatches({ key: 'A', ctrl: true }, { key: 'a', ctrlKey: true })).toBe(
+      true,
+    );
+    for (const modifier of ['altKey', 'shiftKey', 'metaKey'] as const)
+      expect(visualRuleKeyboardMatches({ key: 'a' }, { key: 'a', [modifier]: true })).toBe(false);
+    expect(visualRuleKeyboardMatches({ key: 'a' }, { key: 'a', repeat: true })).toBe(false);
+    expect(visualRuleKeyboardMatches({ key: 'a', repeat: true }, { key: 'a', repeat: true })).toBe(
+      true,
+    );
+    expect(
+      visualRuleKeyboardMatches({ key: 'a', repeat: true }, { key: 'a', isComposing: true }),
+    ).toBe(false);
+    expect(visualRuleKeyboardErrors({ key: '' })).not.toEqual([]);
+    expect(visualRuleKeyboardErrors({ key: '\t' })).not.toEqual([]);
+    expect(visualRuleKeyboardErrors({ key: ' ', ctrl: 'yes' })).not.toEqual([]);
+    expect(visualRuleKeyboardErrors({ key: ' ' })).toEqual([]);
+  });
+  it('filters the key before reading guards and retains ordinary targets, actions and delay', () => {
+    const rule = createLayerVisualRule({
+      trigger: 'key-down',
+      keyboard: { key: 'Enter', shift: true },
+      delayFrames: 9,
+      conditions: [{ fieldId: 'enabled', sourcePath: [], operator: 'equals', value: true }],
+      actions: [{ type: 'toggle-visibility', targetLayerId: 'panel', transitionFrames: 12 }],
+    });
+    const read = vi.fn(
+      (condition: VisualRuleCondition, _host: string, data: Record<string, unknown>) =>
+        data[condition.fieldId],
+    );
+    const engine = {
+      hosts: [{ layerId: 'host', rules: [rule] }],
+      reader: { read, readCompare: () => null },
+    };
+    expect(
+      firedVisualRuleEventRules(
+        engine,
+        'key-down',
+        { enabled: true },
+        { keyboard: { key: 'Escape' } },
+      ),
+    ).toEqual([]);
+    expect(read).not.toHaveBeenCalled();
+    expect(
+      firedVisualRuleEventRules(
+        engine,
+        'key-down',
+        { enabled: false },
+        { keyboard: { key: 'Enter', shiftKey: true } },
+      ),
+    ).toEqual([]);
+    expect(
+      firedVisualRuleEventRules(
+        engine,
+        'key-down',
+        { enabled: true },
+        { keyboard: { key: 'Enter', shiftKey: true } },
+      ),
+    ).toEqual([{ hostLayerId: 'host', rule }]);
+    expect(firedVisualRuleEventRules(engine, 'key-down', { enabled: true })).toEqual([]);
+    rule.trigger = 'key-up';
+    expect(
+      firedVisualRuleEventRules(
+        engine,
+        'key-up',
+        { enabled: true },
+        { keyboard: { key: 'Enter', shiftKey: true, repeat: true } },
+      ),
+    ).toEqual([{ hostLayerId: 'host', rule }]);
+  });
+});
 
 describe('visual rules', () => {
   it('evaluates equality, emptiness, and numeric comparisons', () => {

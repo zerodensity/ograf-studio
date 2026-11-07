@@ -1,0 +1,22 @@
+[data-movable-dialog][data-movable-dialog-positioned] {
+  translate: var(--movable-dialog-x, 0px) var(--movable-dialog-y, 0px);
+}
+
+[data-movable-dialog] [data-movable-dialog-handle] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+[data-movable-dialog] [data-movable-dialog-handle]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+
+[data-movable-dialog][data-movable-dialog-dragging] [data-movable-dialog-handle] {
+  cursor: grabbing;
+}
+
+[data-movable-dialog] [data-movable-dialog-handle] :is(input, textarea, [contenteditable='true']) {
+  user-select: text;
+}

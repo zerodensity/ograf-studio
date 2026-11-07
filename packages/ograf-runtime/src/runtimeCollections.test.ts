@@ -65,10 +65,26 @@ describe('runtime collection expansion', () => {
     ];
 
     const compiled = compileDescriptor(composition);
+    compiled.collections![0]!.prototypeLayers[1]!.visualRules = [
+      {
+        id: 'alarm',
+        name: 'Alarm',
+        enabled: true,
+        trigger: 'timer-alarm',
+        timerAlarm: { sourceLayerId: label.id, thresholdMs: 0, direction: 'down' },
+        dataKey: '',
+        sourcePath: [],
+        operator: 'equals',
+        actions: [],
+      },
+    ];
     const masked = expandRuntimeCollections(compiled);
     for (let index = 0; index < 3; index++) {
       expect(masked.layers[index * 2 + 1]!.mask!.sourceLayerId).toBe(masked.layers[index * 2]!.id);
       expect(masked.layers[index * 2]!.isMaskOnly).toBe(true);
+      expect(masked.layers[index * 2 + 1]!.visualRules![0]!.timerAlarm!.sourceLayerId).toBe(
+        masked.layers[index * 2 + 1]!.id,
+      );
     }
     expect(compiled.layers).toEqual([]);
     expect(compiled.collections?.[0]?.prototypeLayers).toHaveLength(2);

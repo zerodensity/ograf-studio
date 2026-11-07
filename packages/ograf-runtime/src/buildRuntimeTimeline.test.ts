@@ -1,4 +1,3 @@
-import gsap from 'gsap';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
 import { createCornerRadii, createTextElement, createShaderPaint } from '@ograf-editor/scene-model';
@@ -88,7 +87,7 @@ function descriptor(): CompiledGraphicDescriptor {
 }
 
 describe('runtime timeline boundary seeking', () => {
-  it('samples shader tracks through the uniform path instead of GSAP numeric targets', () => {
+  it('samples shader tracks through the uniform path', () => {
     const compiled = descriptor();
     compiled.layers[0]!.element = createTextElement({
       fill: createShaderPaint({
@@ -112,30 +111,25 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(gain); }`,
     const element = { style: {} } as unknown as HTMLElement;
     const timeline = buildRuntimeTimeline(compiled, new Map([['layer', element]]));
     for (const frame of [5, 2, 5]) {
-      timeline.seek(frame / 25, true);
+      timeline.seek(frame, true);
       expect(spy.mock.calls.at(-1)?.[1][property]?.[0]?.value).toBe(frame / 5);
       expect(spy.mock.calls.at(-1)?.[1]['fill.parameters.count']?.[0]?.value).toBe(2);
     }
-    timeline.seek(10 / 25, true);
+    timeline.seek(10, true);
     expect(spy.mock.calls.at(-1)?.[1]['fill.parameters.count']?.[0]?.value).toBe(8);
-    expect(timeline.getChildren().some((tween) => property in tween.vars)).toBe(false);
-    timeline.kill();
+    timeline.dispose();
     spy.mockRestore();
   });
   it('restores a transparent first-frame pose after seeking backwards from a visible frame', () => {
-    const setSpy = vi.spyOn(gsap, 'set');
     const element = { style: {} } as unknown as HTMLElement;
     const timeline = buildRuntimeTimeline(descriptor(), new Map([['layer', element]]));
-    const initialSetCalls = setSpy.mock.calls.length;
 
-    timeline.seek(10 / 25, true);
-    expect(gsapOpacity(element)).toBe(1);
+    timeline.seek(10, true);
+    expect(Number(element.style.opacity)).toBe(1);
     timeline.seek(0, true);
 
-    expect(gsapOpacity(element)).toBe(0);
-    expect(setSpy.mock.calls.length).toBeGreaterThan(initialSetCalls);
-    timeline.kill();
-    setSpy.mockRestore();
+    expect(Number(element.style.opacity)).toBe(0);
+    timeline.dispose();
   });
 
   it('renders animated gradient stop offsets on deterministic seeks', () => {
@@ -167,10 +161,10 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(gain); }`,
     } as unknown as HTMLElement;
 
     const timeline = buildRuntimeTimeline(compiled, new Map([['layer', element]]));
-    timeline.seek(5 / 25, true);
+    timeline.seek(5, true);
 
     expect(content.style).toMatchObject({ backgroundImage: expect.stringContaining('50%') });
-    timeline.kill();
+    timeline.dispose();
   });
 
   it('renders animated text stroke width on deterministic forward and reverse seeks', () => {
@@ -196,14 +190,38 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(gain); }`,
     } as unknown as HTMLElement;
 
     const timeline = buildRuntimeTimeline(compiled, new Map([['layer', element]]));
-    timeline.seek(5 / 25, true);
+    timeline.seek(5, true);
     expect(content.style).toMatchObject({ webkitTextStrokeWidth: '4px' });
     timeline.seek(0, true);
     expect(content.style).toMatchObject({ webkitTextStrokeWidth: '0px' });
-    timeline.kill();
+    timeline.dispose();
+  });
+
+  it('scales the layer and wipes its content on deterministic seeks', () => {
+    const compiled = descriptor();
+    compiled.layers[0]!.animationTracks.scale = [
+      { id: 'scale-0', frame: 0, value: 0, easing: 'linear' },
+      { id: 'scale-10', frame: 10, value: 1, easing: 'linear' },
+    ];
+    compiled.layers[0]!.animationTracks.clipRight = [
+      { id: 'wipe-0', frame: 0, value: 1, easing: 'linear' },
+      { id: 'wipe-10', frame: 10, value: 0, easing: 'linear' },
+    ];
+    const content = { style: {} as Record<string, string>, dataset: {} };
+    const element = {
+      style: {},
+      dataset: {},
+      firstElementChild: content,
+    } as unknown as HTMLElement;
+
+    const timeline = buildRuntimeTimeline(compiled, new Map([['layer', element]]));
+    expect(content.style.clipPath).toBe('inset(0% 100% 0% 0%)');
+    timeline.seek(5, true);
+    expect(element.style.transform).toContain('scale(0.5)');
+    expect(content.style.clipPath).toBe('inset(0% 50% 0% 0%)');
+    timeline.seek(10, true);
+    expect(element.style.transform).toContain('scale(1)');
+    expect(content.style.clipPath).toBe('');
+    timeline.dispose();
   });
 });
-
-function gsapOpacity(element: HTMLElement): number {
-  return Number((element as unknown as { opacity: number }).opacity ?? element.style.opacity);
-}

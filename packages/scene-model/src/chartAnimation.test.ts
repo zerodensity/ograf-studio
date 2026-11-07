@@ -5,10 +5,41 @@ import {
   CHART_ANIMATION_EASINGS,
   DEFAULT_CHART_ANIMATION,
   chartAnimationProgress,
+  chartAnimationErrors,
+  chartAnimationWithPreset,
   normalizeChartAnimation,
 } from './chartAnimation';
 
 describe('chart animation model', () => {
+  it('preserves and deterministically samples custom chart easing across migration and seeks', () => {
+    const curve = { x1: 0.8, y1: 0, x2: 1, y2: 0.2 };
+    const project = createProject(),
+      layer = createChartLayer();
+    if (layer.element.type !== 'chart') throw new Error('Expected chart');
+    layer.element.animation = { ...DEFAULT_CHART_ANIMATION, easing: 'linear', curve };
+    project.compositions[0]!.layers.push(layer);
+    const saved = migrateProject(JSON.parse(JSON.stringify(project)));
+    const restored = saved.compositions[0]!.layers[0]!.element;
+    if (restored.type !== 'chart') throw new Error('Expected chart');
+    expect(restored.animation?.curve).toEqual(curve);
+    const midpoint = chartAnimationProgress(restored.animation, 12.5);
+    expect(midpoint).toBeLessThan(0.5);
+    expect(chartAnimationProgress(restored.animation, 20)).toBeGreaterThan(midpoint);
+    expect(chartAnimationProgress(restored.animation, 12.5)).toBe(midpoint);
+    expect(chartAnimationProgress(restored.animation, 0)).toBe(0);
+    expect(chartAnimationProgress(restored.animation, 25)).toBe(1);
+    expect(
+      chartAnimationErrors({ ...DEFAULT_CHART_ANIMATION, curve: { ...curve, x1: 2 } }),
+    ).toContain('Chart animation curve must contain x1, y1, x2 and y2 from 0 to 1.');
+    expect(
+      chartAnimationErrors({ ...DEFAULT_CHART_ANIMATION, curve: { x1: 0, y1: 0, x2: 1 } }),
+    ).not.toEqual([]);
+    expect(normalizeChartAnimation(DEFAULT_CHART_ANIMATION)).not.toHaveProperty('curve');
+    expect(chartAnimationWithPreset(restored.animation!, 'bounce-out')).toMatchObject({
+      easing: 'bounce-out',
+    });
+    expect(chartAnimationWithPreset(restored.animation!, 'bounce-out')).not.toHaveProperty('curve');
+  });
   it('enables grow for newly authored charts while keeping pre-animation charts static', () => {
     expect(createChartElement().animation).toEqual(DEFAULT_CHART_ANIMATION);
     const project = createProject();

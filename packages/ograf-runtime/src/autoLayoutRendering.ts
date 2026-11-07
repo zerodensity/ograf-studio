@@ -3,6 +3,14 @@ import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
 import type { CompiledLayerVisualState } from './loopRendering';
 import { isRuntimeCollectionLayerActive } from './runtimeCollections';
 import { visualRuleLayerVisible } from './runtimeVisualRules';
+import {
+  measureModifierText,
+  prepareCompiledModifierVisibility,
+  prepareCompiledModifierTextFits,
+  primeModifierTextMeasurements,
+  resolveModifierElement,
+  type CompiledModifierContext,
+} from './modifierRendering';
 
 function naturalTextSize(content: HTMLElement): { width: number; height: number } | null {
   const document = content.ownerDocument;
@@ -35,14 +43,41 @@ export function applyCompiledAutoLayout(
   states: Map<string, CompiledLayerVisualState>,
   data: Record<string, unknown> = {},
   elements?: Map<string, HTMLElement>,
+  context: CompiledModifierContext = {},
 ): void {
-  if (!descriptor.layers.some((layer) => layer.autoLayout?.direction !== 'none')) return;
+  prepareCompiledModifierVisibility(descriptor, states, data, context);
+  prepareCompiledModifierTextFits(descriptor, states, data, elements, context);
+  if (!descriptor.layers.some((layer) => layer.autoLayout && layer.autoLayout.direction !== 'none'))
+    return;
   const measured = new Map<string, { width: number; height: number }>();
+  for (const [id, state] of states) {
+    if (state.textFit)
+      measured.set(id, { width: state.transform.width, height: state.transform.height });
+  }
   if (elements) {
+    const resolvedElements = new Map(
+      descriptor.layers.map((layer) => [layer.id, resolveModifierElement(layer, data, context)]),
+    );
+    primeModifierTextMeasurements(
+      elements.values().next().value?.ownerDocument,
+      [...resolvedElements.values()].filter(
+        (element) => element.type === 'text' && element.autoFit === 'auto-size',
+      ),
+    );
     for (const layer of descriptor.layers) {
-      if (layer.element.type !== 'text' || layer.element.autoFit !== 'auto-size') continue;
+      if (measured.has(layer.id)) continue;
+      const resolvedElement = resolvedElements.get(layer.id)!;
+      if (resolvedElement.type !== 'text' || resolvedElement.autoFit !== 'auto-size') continue;
       const outer = elements.get(layer.id);
       if (!outer || typeof outer.querySelector !== 'function') continue;
+      const state = states.get(layer.id);
+      const naturalCached = state
+        ? measureModifierText(outer.ownerDocument, resolvedElement, state.transform)
+        : null;
+      if (naturalCached) {
+        measured.set(layer.id, naturalCached);
+        continue;
+      }
       const host = outer?.querySelector<HTMLElement>('.layer-content-host') ?? outer ?? undefined;
       const content = host
         ? ([...host.children].find(
@@ -52,7 +87,7 @@ export function applyCompiledAutoLayout(
       if (!content) continue;
       const natural = naturalTextSize(content);
       if (!natural) continue;
-      const stroke = Math.max(0, layer.element.strokeWidth) * 2;
+      const stroke = Math.max(0, resolvedElement.strokeWidth) * 2;
       const width = Math.ceil(natural.width + stroke);
       const height = Math.ceil(natural.height + stroke);
       if (width > 0 && height > 0) measured.set(layer.id, { width, height });
@@ -62,7 +97,9 @@ export function applyCompiledAutoLayout(
     descriptor.layers.map((layer) => ({
       id: layer.id,
       parentId: layer.layoutParentId ?? null,
-      isVisible: visualRuleLayerVisible(layer, data) && isRuntimeCollectionLayerActive(layer, data),
+      isVisible:
+        states.get(layer.id)?.isVisible ??
+        (visualRuleLayerVisible(layer, data) && isRuntimeCollectionLayerActive(layer, data)),
       autoLayout: layer.autoLayout ?? DEFAULT_LAYER_AUTO_LAYOUT,
     })),
     new Map([...states.entries()].map(([id, state]) => [id, state.transform])),

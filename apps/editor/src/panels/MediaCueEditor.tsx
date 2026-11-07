@@ -7,6 +7,10 @@ import {
 } from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { WebcamPreviewControls } from '../components/WebcamPreviewControls';
+import { SourceCropEditor } from './SourceCropEditor';
+import { lifecycleLabel } from './lifecycleLabels';
+import { FrameDurationControl } from './FrameDurationControl';
+import { MillisecondDurationInput } from './MillisecondDurationControl';
 import './MediaCueEditor.css';
 
 export function MediaCueEditor({ cue }: { cue: MediaCue }) {
@@ -21,6 +25,10 @@ export function MediaCueEditor({ cue }: { cue: MediaCue }) {
   const trimmedDurationMs = mediaCueTrimmedDurationMs(cue, composition.assets);
   const effectiveDurationFrames = mediaCueEffectiveDurationFrames(cue, composition);
   const update = (patch: Partial<MediaCue>) => updateMediaCue(cue.id, patch);
+  const cropSource = activeSource?.kind === 'clip' ? activeSource.src : activeSource?.fallback;
+  const cropPreview = cropSource?.startsWith('asset:')
+    ? composition.assets.find((asset) => asset.id === cropSource.slice('asset:'.length))?.dataUri
+    : cropSource;
 
   const addSource = (value: string) => {
     if (!value) return;
@@ -150,6 +158,17 @@ export function MediaCueEditor({ cue }: { cue: MediaCue }) {
             <option value="fill">Stretch</option>
           </select>
         </label>
+        <SourceCropEditor
+          layerId={cue.visual.targetLayerId ?? undefined}
+          value={cue.visual.crop}
+          src={cropPreview}
+          video={activeSource?.kind === 'clip' && activeSource.mediaType === 'video'}
+          disabled={
+            !cue.visual.targetLayerId ||
+            (activeSource?.kind === 'clip' && activeSource.mediaType === 'audio')
+          }
+          onChange={(crop) => update({ visual: { ...cue.visual, crop } })}
+        />
         <div className="media-cue-inline-fields">
           <label>
             Position X
@@ -211,17 +230,13 @@ export function MediaCueEditor({ cue }: { cue: MediaCue }) {
           </select>
         </label>
         {cue.trigger.type === 'timeline' ? (
-          <label>
-            Start frame
-            <input
-              type="number"
-              min={0}
-              value={cue.trigger.startFrame}
-              onChange={(event) =>
-                update({ trigger: { type: 'timeline', startFrame: Number(event.target.value) } })
-              }
-            />
-          </label>
+          <FrameDurationControl
+            label="Start"
+            frames={cue.trigger.startFrame}
+            frameRate={composition.frameRate}
+            minFrames={0}
+            onChange={(startFrame) => update({ trigger: { type: 'timeline', startFrame } })}
+          />
         ) : cue.trigger.type === 'lifecycle' ? (
           <label>
             Lifecycle state
@@ -233,7 +248,7 @@ export function MediaCueEditor({ cue }: { cue: MediaCue }) {
             >
               {composition.keyframes.map((keyframe) => (
                 <option key={keyframe.id} value={keyframe.id}>
-                  {keyframe.name}
+                  {lifecycleLabel(keyframe, composition.keyframes)}
                 </option>
               ))}
             </select>
@@ -276,42 +291,39 @@ export function MediaCueEditor({ cue }: { cue: MediaCue }) {
           <span>Trimmed {formatMediaDuration(trimmedDurationMs)}</span>
           <span>Playback {effectiveDurationFrames} f</span>
         </div>
-        <label>
-          Playback duration frames
+        <div>
           <div className="media-cue-duration-control">
-            <input
-              type="number"
-              min={1}
-              value={effectiveDurationFrames}
-              onChange={(event) =>
-                update({ durationFrames: Math.max(1, Math.round(Number(event.target.value))) })
-              }
+            <FrameDurationControl
+              label="Playback duration"
+              frames={effectiveDurationFrames}
+              frameRate={composition.frameRate}
+              minFrames={1}
+              onChange={(durationFrames) => update({ durationFrames })}
             />
             <button type="button" onClick={() => update({ durationFrames: null })}>
               Auto
             </button>
           </div>
-        </label>
+        </div>
         <label>
-          Trim in ms
-          <input
-            type="number"
-            min={0}
+          Trim in
+          <MillisecondDurationInput
+            label="Trim in"
             value={cue.trimStartMs}
+            frameRate={composition.frameRate}
             disabled={activeSource?.kind === 'live'}
-            onChange={(event) => update({ trimStartMs: Number(event.target.value) })}
+            onChange={(trimStartMs) => update({ trimStartMs: trimStartMs ?? cue.trimStartMs })}
           />
         </label>
         <label>
-          Trim out ms
-          <input
-            type="number"
-            min={0}
-            value={cue.trimEndMs ?? ''}
+          Trim out
+          <MillisecondDurationInput
+            label="Trim out"
+            value={cue.trimEndMs}
+            frameRate={composition.frameRate}
+            allowNull
             disabled={activeSource?.kind === 'live'}
-            onChange={(event) =>
-              update({ trimEndMs: event.target.value ? Number(event.target.value) : null })
-            }
+            onChange={(trimEndMs) => update({ trimEndMs })}
           />
         </label>
         <label>
@@ -376,22 +388,20 @@ export function MediaCueEditor({ cue }: { cue: MediaCue }) {
           </select>
         </label>
         {cue.transition.type === 'crossfade' ? (
-          <label>
-            Duration frames
-            <input
-              type="number"
-              min={1}
-              value={cue.transition.durationFrames}
-              onChange={(event) =>
-                update({
-                  transition: {
-                    ...cue.transition,
-                    durationFrames: Number(event.target.value),
-                  },
-                })
-              }
-            />
-          </label>
+          <FrameDurationControl
+            label="Crossfade duration"
+            minFrames={1}
+            frameRate={composition.frameRate}
+            frames={cue.transition.durationFrames}
+            onChange={(durationFrames) =>
+              update({
+                transition: {
+                  ...cue.transition,
+                  durationFrames,
+                },
+              })
+            }
+          />
         ) : null}
         <label>
           Audio transition

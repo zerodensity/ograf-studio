@@ -4,15 +4,55 @@ import {
   createRectangleLayer,
   createTextLayer,
   createLayerVisualRule,
+  createDefaultTransform,
 } from '@ograf-editor/scene-model';
 import {
   resolveDesignerElement,
   resolveDesignerEffects,
   resolveEffectiveElement,
   resolveEffectiveEffects,
+  resolveDesignerTransform,
+  bindableProperties,
+  ruleProperties,
 } from './dataBinding';
 
 describe('designer binding values', () => {
+  it('previews native geometry from nested field defaults and test values, preserving alpha fades', () => {
+    const layer = createRectangleLayer();
+    const field = createFieldDefinition('object', {
+      key: 'actor',
+      defaultValue: { x: 120, alpha: 0.5 },
+    });
+    layer.bindings = [
+      { fieldId: field.id, targetProperty: 'layer.x', sourcePath: ['x'] },
+      { fieldId: field.id, targetProperty: 'layer.opacity', sourcePath: ['alpha'] },
+    ];
+    const pose = createDefaultTransform({ x: 10, opacity: 0.4 });
+    expect(resolveDesignerTransform(layer, pose, {}, [field])).toMatchObject({
+      x: 120,
+      opacity: 0.2,
+    });
+    expect(
+      resolveDesignerTransform(layer, pose, { [field.id]: { x: 300, alpha: 0 } }, [field]),
+    ).toMatchObject({ x: 300, opacity: 0 });
+    expect(pose.x).toBe(10);
+    const targets = bindableProperties(layer.element).map((property) => property.value);
+    expect(targets).toEqual(
+      expect.arrayContaining([
+        'layer.x',
+        'layer.y',
+        'layer.width',
+        'layer.height',
+        'layer.rotation',
+        'layer.opacity',
+      ]),
+    );
+    expect(
+      ruleProperties(layer.element)
+        .find((group) => group.label === 'Content')!
+        .options.some((property) => property.value.startsWith('layer.')),
+    ).toBe(false);
+  });
   it('shows editable bound values while runtime visual rules keep their own output', () => {
     const layer = createRectangleLayer();
     const fill = createFieldDefinition('color', { defaultValue: '#00ff00' });

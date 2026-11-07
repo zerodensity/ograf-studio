@@ -3,14 +3,21 @@ import {
   createChartElement,
   createFieldDefinition,
   createProject,
+  createRendererPluginSnapshot,
   type FieldDefinition,
+  type RendererPluginSnapshot,
 } from '@ograf-editor/scene-model';
 import { AuthoringSession } from './session';
 import type { AuthoringOperation } from './types';
 
-function sessionWith(fields: FieldDefinition[], operations: AuthoringOperation[]) {
+function sessionWith(
+  fields: FieldDefinition[],
+  operations: AuthoringOperation[],
+  plugins: RendererPluginSnapshot[] = [],
+) {
   const project = createProject();
   project.compositions[0]!.dataFields = fields;
+  project.compositions[0]!.rendererPlugins = plugins;
   const session = new AuthoringSession(project);
   const initial = session.apply({ expectedRevision: 0, operations });
   expect(initial.validation.errors).toEqual([]);
@@ -203,6 +210,21 @@ describe('designer binding edits through authoring operations', () => {
   });
 
   it('updates bound chart JSON in a dry run without changing the current session', () => {
+    const plugin = createRendererPluginSnapshot({
+      manifest: {
+        schemaVersion: 1,
+        apiVersion: 1,
+        kind: 'chart',
+        id: 'test.chart',
+        version: '1.0.0',
+        name: 'Chart provider',
+        presets: ['bar'],
+        license: 'MIT',
+      },
+      source:
+        'export default {apiVersion:1,create(){return {renderAtFrame(){},update(){},dispose(){}}}};',
+      licenseText: 'Test license',
+    });
     const data = createChartElement().data;
     const field = createFieldDefinition('textarea', {
       id: 'chart-data',
@@ -212,13 +234,25 @@ describe('designer binding edits through authoring operations', () => {
     const { session, initial } = sessionWith(
       [field],
       [
-        { type: 'add_layer', id: 'chart', kind: 'chart' },
+        {
+          type: 'add_layer',
+          id: 'chart',
+          kind: 'chart',
+          element: {
+            provider: {
+              id: plugin.manifest.id,
+              version: plugin.manifest.version,
+              sha256: plugin.sha256,
+            },
+          },
+        },
         {
           type: 'set_layer_binding',
           layerId: 'chart',
           binding: { fieldId: field.id, targetProperty: 'data' },
         },
       ],
+      [plugin],
     );
     data.datasets[0]!.data[0] = 75;
     const proposed = session.apply({

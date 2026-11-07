@@ -88,6 +88,10 @@ const EFFECT_HELP: Record<EffectType, Record<string, string>> = {
     radius:
       'Blur radius in pixels. Zero is sharp; larger values soften the layer and effects earlier in the stack.',
   },
+  'backdrop-blur': {
+    radius:
+      'Blur radius for lower layers inside this composition. Rectangles and ellipses clip the result to their shape; None or a translucent fill reveals the frosted background.',
+  },
   'drop-shadow': {
     offsetX:
       'Horizontal shadow offset in pixels. Positive values move the shadow right; negative values move it left.',
@@ -124,5 +128,6 @@ const EFFECT_HELP: Record<EffectType, Record<string, string>> = {
 };
 
 export function effectParameterHelp(type: EffectType, key: string): string {
+  if (type === 'backdrop-blur') return EFFECT_HELP[type][key] ?? 'Adjust backdrop blur.';
   return `${EFFECT_HELP[type][key] ?? 'Adjust this effect parameter.'} Effects run from top to bottom; numeric parameters can be animated.`;
 }

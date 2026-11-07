@@ -6,7 +6,9 @@ import {
 } from './layerAnimation';
 import { intersectConvexPolygons, polygonBounds, transformBoundsPolygon } from './clipping';
 import { fieldDefinitionAtPath } from './fieldSchema';
-import type { Composition, Layer, LayerTransform } from './types';
+import { getElementShaderPaints } from './shader';
+import { effectEnabled, getEffectStack } from './effectStack';
+import type { Composition, Layer, LayerRevealProperty, LayerTransform } from './types';
 
 export type DesignQaSeverity = 'error' | 'warning' | 'info';
 export type DesignQaCategory =
@@ -45,9 +47,20 @@ function onCanvas(pose: LayerTransform, composition: Composition): boolean {
   );
 }
 
+/** Closed wipes and zero-scale poses do not reveal content, even at full opacity. */
+function revealedAtFrame(layer: Layer, frame: number): boolean {
+  const value = (property: LayerRevealProperty) =>
+    getLayerPropertyValueAtFrame(layer, property, frame);
+  return (
+    value('scale') > 0.01 &&
+    value('clipLeft') + value('clipRight') < 0.99 &&
+    value('clipTop') + value('clipBottom') < 0.99
+  );
+}
+
 function visiblyOnCanvas(layer: Layer, frame: number, composition: Composition): boolean {
   const pose = getLayerTransformAtFrame(layer, frame);
-  if (!onCanvas(pose, composition)) return false;
+  if (!onCanvas(pose, composition) || !revealedAtFrame(layer, frame)) return false;
   let polygon = transformBoundsPolygon(pose);
   let clipped = layer.clipChildren;
   let parentId = layer.parentId;
@@ -185,6 +198,22 @@ function relatedGroups(layers: Layer[]): Map<string, Layer[]> {
   return groups;
 }
 
+/** Baked parent translations describe one moving assembly, not independent lockstep objects. */
+function independentMotionRoots(cluster: Layer[], composition: Composition): Layer[] {
+  const members = new Set(cluster.map((layer) => layer.id));
+  const byId = new Map(composition.layers.map((layer) => [layer.id, layer]));
+  return cluster.filter((layer) => {
+    let parentId = layer.parentId;
+    const visited = new Set<string>([layer.id]);
+    while (parentId && !visited.has(parentId)) {
+      if (members.has(parentId)) return false;
+      visited.add(parentId);
+      parentId = byId.get(parentId)?.parentId ?? null;
+    }
+    return true;
+  });
+}
+
 export function reviewCompositionDesign(composition: Composition): DesignQaReport {
   const lifecycle = computeKeyframeFrames(composition);
   const frameById = new Map(lifecycle.map((item) => [item.keyframeId, item.frame]));
@@ -216,6 +245,27 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
       !layer.isMaskOnly &&
       onCanvas(getLayerTransformAtFrame(layer, onAirFrame), composition),
   );
+  // The editor may also need contexts for previews and thumbnails. Count authored
+  // shader views conservatively, including temporarily hidden layers that can be shown later.
+  const shaderLayers = composition.layers
+    .map((layer) => ({
+      layer,
+      count:
+        getElementShaderPaints(layer.element).length +
+        getEffectStack(layer.effects).filter(
+          (effect) => effect.type === 'shader' && effectEnabled(effect, layer.effects),
+        ).length,
+    }))
+    .filter(({ count }) => count > 0);
+  const shaderViews = shaderLayers.reduce((total, entry) => total + entry.count, 0);
+  if (shaderViews > 8)
+    add(
+      'performance.shader-context-budget',
+      'warning',
+      'layout',
+      `${shaderViews} shader views may strain GPU resources, especially when several previews are open. Review playback performance and shader quality.`,
+      shaderLayers.map(({ layer }) => layer.id),
+    );
   const visibleText = visibleLayers.filter((layer) => layer.element.type === 'text');
   for (const layer of visibleLayers) {
     const pose = getLayerTransformAtFrame(layer, onAirFrame);
@@ -257,7 +307,11 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
           [onAirFrame],
         );
       }
-      if (layer.bindings.length === 0 && !layer.semantics.tags.includes('qa:static-text')) {
+      if (
+        layer.bindings.length === 0 &&
+        layer.element.clock?.source !== 'automatic' &&
+        !layer.semantics.tags.includes('qa:static-text')
+      ) {
         add(
           `data.unbound-text.${layer.id}`,
           'info',
@@ -399,13 +453,14 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
         clusters.set(key, [...(clusters.get(key) ?? []), layer]);
       }
       for (const cluster of clusters.values()) {
-        if (cluster.length < 3) continue;
+        const independent = independentMotionRoots(cluster, composition);
+        if (independent.length < 3) continue;
         add(
           `motion.lockstep.${transition.id}.${groupId}`,
           'warning',
           'motion',
-          `${cluster.length} related layers share the same translation and key timing; review whether the motion needs hierarchy or stagger.`,
-          cluster.map((layer) => layer.id),
+          `${independent.length} related objects share the same translation and key timing; review whether the motion needs hierarchy or stagger.`,
+          independent.map((layer) => layer.id),
           [from, to],
         );
       }
@@ -471,17 +526,24 @@ export function reviewCompositionDesign(composition: Composition): DesignQaRepor
     for (let index = 0; index < layers.length; index++) {
       const left = layers[index]!;
       if (left.semantics.tags.includes('optical-offset')) continue;
-      const leftX = getLayerTransformAtFrame(left, onAirFrame).x;
+      if (left.element.type !== 'text') continue;
+      const align = left.element.textAlign;
+      const anchor = (layer: Layer) => {
+        const pose = getLayerTransformAtFrame(layer, onAirFrame);
+        return pose.x + (align === 'center' ? pose.width / 2 : align === 'right' ? pose.width : 0);
+      };
+      const leftX = anchor(left);
       for (const right of layers.slice(index + 1)) {
         if (right.semantics.tags.includes('optical-offset')) continue;
-        const rightX = getLayerTransformAtFrame(right, onAirFrame).x;
+        if (right.element.type !== 'text' || right.element.textAlign !== align) continue;
+        const rightX = anchor(right);
         const difference = Math.abs(leftX - rightX);
         if (difference < 1 || difference > 8) continue;
         add(
           `layout.edge-alignment.${left.id}.${right.id}`,
           'warning',
           'layout',
-          `“${left.name}” and “${right.name}” left edges differ by ${difference.toFixed(1)} px; align them or tag an intentional optical-offset.`,
+          `“${left.name}” and “${right.name}” ${align === 'center' ? 'centres' : align === 'right' ? 'right edges' : 'left edges'} differ by ${difference.toFixed(1)} px; align them or tag an intentional optical-offset.`,
           [left.id, right.id],
           [onAirFrame],
         );

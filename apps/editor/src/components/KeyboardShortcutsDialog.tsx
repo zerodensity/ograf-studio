@@ -1,4 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useEditorWindow } from '../layout/EditorWindow';
+import { useMovableDialog } from './useMovableDialog';
 import './KeyboardShortcutsDialog.css';
 
 const MOD = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -26,6 +28,9 @@ export const KEYBOARD_SHORTCUT_GROUPS: Array<{ title: string; items: Array<[stri
       [`${MOD}+= · ${MOD}+-`, 'Zoom in · out'],
       ['Middle-drag', 'Pan'],
       ['Shift+drag', 'Move along one axis'],
+      ['C', 'Crop selected layers, or canvas when nothing is selected'],
+      ['Enter · Escape', 'Apply · cancel the active crop'],
+      ['Arrow keys · Shift+arrow', 'Move the crop by 1 · 10 pixels'],
       ['Escape', 'Finish path editing'],
     ],
   },
@@ -41,30 +46,37 @@ export const KEYBOARD_SHORTCUT_GROUPS: Array<{ title: string; items: Array<[stri
   {
     title: 'Preview',
     items: [
-      ['Space · →', 'Take in, then next step'],
-      ['←', 'Previous step'],
+      ['D', 'Show · hide fullscreen preview controls'],
+      ['Space', 'Take in, then next lifecycle step or out'],
+      ['→', 'Next step, or next template after the last step'],
+      ['←', 'Previous step, or previous template before the first step'],
       ['Escape', 'Leave fullscreen'],
     ],
   },
 ];
 
 export function KeyboardShortcutsDialog({ onClose }: { onClose: () => void }) {
+  const { document } = useEditorWindow();
+  const dialog = useRef<HTMLElement>(null);
+  const movable = useMovableDialog(dialog);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', close);
     return () => document.removeEventListener('keydown', close);
-  }, [onClose]);
+  }, [onClose, document]);
 
   return (
     <section
+      ref={dialog}
+      {...movable.dialogProps}
       className="shortcuts-dialog"
       role="dialog"
       aria-modal="true"
       aria-labelledby="keyboard-shortcuts-title"
     >
-      <header className="shortcuts-dialog-header">
+      <header className="shortcuts-dialog-header" {...movable.handleProps}>
         <div>
           <strong id="keyboard-shortcuts-title">Keyboard shortcuts</strong>
           <span>Text fields keep their own copy, paste and undo.</span>

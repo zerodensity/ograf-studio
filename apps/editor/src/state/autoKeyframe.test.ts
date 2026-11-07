@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   effectProperty,
+  createProject,
   getEffectStack,
   getLayerPropertyValueAtFrame,
   getLayerTransformAtFrame,
@@ -29,7 +30,7 @@ const keySignature = (layer: Layer) => ({
 });
 
 describe('Auto-keyframe authoring', () => {
-  beforeEach(() => useProjectStore.getState().newProject());
+  beforeEach(() => useProjectStore.getState().loadProject(createProject()));
 
   it('keeps a static object static when transformed between keys with Auto-keyframe off', () => {
     expect(useTimelineStore.getState().autoKeyframe).toBe(false);
@@ -58,6 +59,7 @@ describe('Auto-keyframe authoring', () => {
     ]);
     const before = [parent, child].map((id) => structuredClone(layerById(id)));
     useTimelineStore.getState().setAutoKeyframe(false);
+    useTimelineStore.getState().setEditScope('whole-animation');
     const delta = 500 - getLayerTransformAtFrame(before[0]!, 6).x;
     store.updateLayerTransform(parent, 6, { x: 500 });
     for (const [index, id] of [parent, child].entries()) {
@@ -75,19 +77,27 @@ describe('Auto-keyframe authoring', () => {
     ]);
   });
 
-  it.each([0, 7])('authors only the current frame %i while Auto-keyframe is enabled', (frame) => {
-    const id = useProjectStore.getState().addLayer('rectangle');
-    useTimelineStore.getState().setAutoKeyframe(true);
-    useProjectStore.getState().updateLayerTransform(id, frame, { x: 500 });
-    expect(
-      layerById(id).animationTracks.x!.some((key) => key.frame === frame && key.value === 500),
-    ).toBe(true);
-    expect(getLayerTransformAtFrame(layerById(id), 12).x).toBe(100);
-    const before = keySignature(layerById(id));
-    useTimelineStore.getState().setAutoKeyframe(false);
-    useProjectStore.getState().updateLayerTransform(id, 9, { x: 700 });
-    expect(keySignature(layerById(id))).toEqual(before);
-  });
+  it.each([0, 7])(
+    'authors the current frame %i and holds the final value without lifecycle return keys',
+    (frame) => {
+      const id = useProjectStore.getState().addLayer('rectangle');
+      useTimelineStore.getState().setAutoKeyframe(true);
+      useProjectStore.getState().updateLayerTransform(id, frame, { x: 500 });
+      expect(
+        layerById(id).animationTracks.x!.some((key) => key.frame === frame && key.value === 500),
+      ).toBe(true);
+      expect(layerById(id).animationTracks.x?.map((key) => key.frame)).toEqual(
+        frame === 0 ? [0] : [0, frame],
+      );
+      expect(getLayerTransformAtFrame(layerById(id), 12).x).toBe(500);
+      const firstValue = layerById(id).animationTracks.x![0]!.value;
+      useTimelineStore.getState().setAutoKeyframe(false);
+      useProjectStore.getState().updateLayerTransform(id, 9, { x: 700 });
+      expect(layerById(id).animationTracks.x?.map((key) => key.frame)).toContain(9);
+      expect(layerById(id).animationTracks.x![0]!.value).toBe(firstValue);
+      expect(getLayerTransformAtFrame(layerById(id), 24).x).toBe(700);
+    },
+  );
 
   it('edits gradient stops, stroke width and effect parameters statically while disabled', () => {
     const store = useProjectStore.getState();

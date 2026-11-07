@@ -26,9 +26,9 @@
 
 .layer-content-host :is([data-inline-text-editor='true']) {
   cursor: text;
-  outline: 2px solid #ff3b7a;
-  caret-color: #ff3b7a;
-  caret-shape: block;
+  outline: 1px solid var(--accent);
+  caret-color: auto;
+  caret-shape: bar;
   pointer-events: auto;
   user-select: text;
 }
@@ -57,11 +57,13 @@
   pointer-events: none;
 }
 
-/* Studio chrome fixes all #root descendants to the compact UI font. Typewriter text introduces
- * nested spans, so explicitly restore authored typography at that renderer-owned boundary. Inline
- * mixed-run font overrides still win over these inherited values. */
+/* Studio chrome fixes all #root descendants to the compact UI font. Animated and rich text
+ * introduce nested spans, so restore authored typography inside those renderer-owned flows.
+ * Inline mixed-run font overrides still win over these inherited values. */
 #root .layer-content-host [data-ograf-text-flow],
-#root .layer-content-host [data-ograf-text-flow] * {
+#root .layer-content-host [data-ograf-text-flow] *,
+#root .layer-content-host [data-ograf-rich-text-flow],
+#root .layer-content-host [data-ograf-rich-text-flow] * {
   font-family: inherit;
   font-size: inherit;
 }
@@ -78,4 +80,25 @@
   font-size: 12px;
   pointer-events: none;
   user-select: none;
+}
+.layer-node.cropped.selected {
+  outline: none;
+}
+.layer-shader-paused {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  padding: 4px 6px;
+  background: #4a2c18;
+  color: #ffe6c7;
+  font: 12px sans-serif;
+  pointer-events: auto;
+}
+.layer-shader-paused button {
+  margin-left: 6px;
+}
+.layer-node.test-data-overflow {
+  outline: 3px solid #fa4855;
+  outline-offset: 2px;
 }

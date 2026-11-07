@@ -10,6 +10,7 @@ import {
   DEFAULT_TEXT_ANIMATION,
   normalizeTextAnimation,
   segmentTextAnimationUnits,
+  textAnimationErrors,
   textAnimationSegmentProgress,
   textAnimationSegmentVisual,
   textAnimationSplit,
@@ -41,6 +42,8 @@ describe('text animation model', () => {
       cursorBlinkFrames: DEFAULT_TEXT_ANIMATION.cursorBlinkFrames,
       replayOnUpdate: true,
       customActionId: 'replay',
+      countFrom: null,
+      countRoll: 'none',
     });
   });
 
@@ -90,10 +93,55 @@ describe('text animation model', () => {
   });
 
   it('keeps every entrance preset available through normalization', () => {
-    for (const type of ['fade', 'rise', 'pop', 'word-reveal'] as const) {
+    for (const type of [
+      'fade',
+      'rise',
+      'pop',
+      'word-reveal',
+      'flip',
+      'blur',
+      'rotate',
+      'stretch',
+      'roll-up',
+      'roll-down',
+    ] as const) {
       expect(normalizeTextAnimation({ type }).type).toBe(type);
+      expect(textAnimationErrors({ type })).toEqual([]);
     }
     expect(textAnimationSplit(normalizeTextAnimation({ type: 'word-reveal' }))).toBe('word');
+  });
+
+  it.each([
+    ['flip', 'rotateXDeg', 90, 11.25, 0],
+    ['blur', 'blurPx', 8, 1, 0],
+    ['rotate', 'rotateDeg', -90, -11.25, 0],
+    ['stretch', 'scaleX', 0.15, 0.89375, 1],
+  ] as const)(
+    'samples %s entrance at start, midpoint, completion and backward seeks',
+    (type, property, start, midpoint, complete) => {
+      const sample = (frame: number) =>
+        textAnimationSegmentVisual(type, textAnimationSegmentProgress(0, 1, frame, 20));
+      expect(sample(-10).opacity).toBe(0);
+      expect(sample(0)[property]).toBeCloseTo(start);
+      const halfway = sample(10);
+      expect(halfway[property]).toBeCloseTo(midpoint);
+      expect(halfway.opacity).toBe(0.875);
+      expect(sample(20)[property]).toBeCloseTo(complete);
+      expect(sample(200).opacity).toBe(1);
+      expect(sample(10)).toEqual(halfway);
+      expect(sample(0)[property]).toBeCloseTo(start);
+    },
+  );
+
+  it('rejects unknown effects and invalid timing without rejecting partial older options', () => {
+    expect(textAnimationErrors(undefined)).toEqual([]);
+    expect(textAnimationErrors({ type: 'flip', replayOnUpdate: true })).toEqual([]);
+    expect(textAnimationErrors({ type: 'missing' })).toContain(
+      'Text animation type is unsupported.',
+    );
+    expect(textAnimationErrors({ type: 'blur', durationFrames: 0 })).toContain(
+      'Text animation durationFrames must be a positive frame count.',
+    );
   });
 
   it('stagger samples identically after forward and backward seeks', () => {

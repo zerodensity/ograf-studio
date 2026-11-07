@@ -40,7 +40,7 @@ describe('Media Cue authoring', () => {
     });
     const videoCue = current.mediaCues.find((cue) => cue.id === videoCueId)!;
     expect(videoCue).toMatchObject({
-      trigger: { type: 'lifecycle', keyframeId: current.keyframes[0]!.id },
+      trigger: { type: 'lifecycle', keyframeId: current.keyframes[1]!.id },
       durationFrames: null,
     });
     expect(mediaCueEffectiveDurationFrames(videoCue, current)).toBe(200);
@@ -104,7 +104,14 @@ describe('Media Cue authoring', () => {
     const current = useProjectStore.getState().project.compositions[0]!;
     expect(current.mediaCues.find((cue) => cue.id === cueId)?.trigger).toEqual({
       type: 'lifecycle',
-      keyframeId: current.keyframes[0]!.id,
+      keyframeId: current.keyframes[1]!.id,
+    });
+    useProjectStore.getState().setActiveKeyframe(current.keyframes[0]!.id);
+    const beforeId = useProjectStore.getState().addLiveMediaCue();
+    const before = useProjectStore.getState().project.compositions[0]!;
+    expect(before.mediaCues.find((cue) => cue.id === beforeId)?.trigger).toEqual({
+      type: 'lifecycle',
+      keyframeId: before.keyframes[0]!.id,
     });
   });
 

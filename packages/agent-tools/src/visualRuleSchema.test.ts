@@ -9,6 +9,27 @@ const parse = (rule: Record<string, unknown>) =>
   });
 
 describe('set_layer_visual_rules schema', () => {
+  it('requires a valid keyboard configuration and preserves exact modifier and repeat options', () => {
+    const action = [{ type: 'toggle-visibility', targetLayerId: 'panel' }];
+    for (const trigger of ['key-down', 'key-up']) {
+      expect(
+        parse({
+          trigger,
+          keyboard: { key: ' ', ctrl: false, shift: true, alt: false, meta: false, repeat: true },
+          delayFrames: 8,
+          actions: action,
+        }).success,
+      ).toBe(true);
+      for (const keyboard of [
+        undefined,
+        { key: '' },
+        { key: '\t' },
+        { key: 'a', ctrl: 'true' },
+        { key: 'a', code: 'KeyA' },
+      ])
+        expect(parse({ trigger, keyboard, actions: action }).success).toBe(false);
+    }
+  });
   it('accepts conditions, field comparisons, playout triggers and targeted actions', () => {
     expect(
       parse({

@@ -1,10 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { createProject, createShaderResource } from './factory';
-import { createShaderPaint } from './shader';
+import { createShaderPaint, inspectShaderElement, inspectShaderResourcePaint } from './shader';
 import { migrateProject } from './migrations';
 import { validateProject } from '@ograf-editor/validation';
 
 describe('project shader library', () => {
+  it('stores effect-only iChannel0 shaders without inventing an image or weakening paint validation', () => {
+    const paint = createShaderPaint({
+      fragmentSource:
+        'void mainImage(out vec4 c,in vec2 p){c=texture(iChannel0,p/iResolution.xy);}',
+    });
+    expect(inspectShaderElement(paint).valid).toBe(false);
+    expect(inspectShaderResourcePaint(paint).valid).toBe(true);
+    const project = createProject();
+    project.shaders.push(createShaderResource({ paint }));
+    expect(validateProject(project).errors).toEqual([]);
+    expect(project.shaders[0]!.paint.inputImage).toBeUndefined();
+    paint.speed = 50;
+    expect(inspectShaderResourcePaint(paint).valid).toBe(false);
+    expect(
+      validateProject({ ...project, shaders: [{ id: 'invalid', paint }] }).errors.join(' '),
+    ).toContain('speed');
+  });
   it('creates unused shader resources without generating objects or data fields', () => {
     const project = createProject();
     expect(project.shaders).toEqual([]);

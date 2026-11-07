@@ -1,6 +1,30 @@
 import type { Composition, Layer, Project } from '@ograf-editor/scene-model';
 
-const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+/** Preserve cheap shared subtrees on local edits while still comparing cloned remote documents. */
+function same(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object')
+    return JSON.stringify(left) === JSON.stringify(right);
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index++)
+      if (!same(left[index] ?? null, right[index] ?? null)) return false;
+    return true;
+  }
+  if ('toJSON' in left || 'toJSON' in right) return JSON.stringify(left) === JSON.stringify(right);
+  const a = left as Record<string, unknown>,
+    b = right as Record<string, unknown>;
+  const jsonKeys = (value: Record<string, unknown>) =>
+    Object.keys(value).filter(
+      (key) => !['undefined', 'function', 'symbol'].includes(typeof value[key]),
+    );
+  const aKeys = jsonKeys(a),
+    bKeys = jsonKeys(b);
+  return (
+    aKeys.length === bKeys.length &&
+    aKeys.every((key, index) => key === bKeys[index] && same(a[key], b[key]))
+  );
+}
 const quoted = (value: string) => `“${value}”`;
 
 function describeLayerChange(before: Layer, after: Layer): string {
@@ -8,6 +32,26 @@ function describeLayerChange(before: Layer, after: Layer): string {
   if (before.name !== after.name) return `Rename ${quoted(before.name)} to ${name}`;
   if (!same(before.element, after.element)) return `Edit ${name} properties`;
   if (!same(before.effects, after.effects)) return `Edit ${name} effects`;
+  const withoutPosition = (layer: Layer) => ({
+    keyframes: layer.keyframes.map((keyframe) => {
+      const { x: _x, y: _y, ...transform } = keyframe.transform;
+      return { ...keyframe, transform };
+    }),
+    tracks: Object.fromEntries(
+      Object.entries(layer.animationTracks).filter(([key]) => key !== 'x' && key !== 'y'),
+    ),
+    loop: layer.loop,
+  });
+  if (
+    (!same(before.animationTracks.x, after.animationTracks.x) ||
+      !same(before.animationTracks.y, after.animationTracks.y) ||
+      !same(
+        before.keyframes.map((key) => [key.transform.x, key.transform.y]),
+        after.keyframes.map((key) => [key.transform.x, key.transform.y]),
+      )) &&
+    same(withoutPosition(before), withoutPosition(after))
+  )
+    return `Move ${name}`;
   if (
     !same(before.keyframes, after.keyframes) ||
     !same(before.animationTracks, after.animationTracks) ||

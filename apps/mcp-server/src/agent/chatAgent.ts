@@ -4,12 +4,26 @@ import {
   filterInAppToolRecords,
   providerToolDefinitions,
   withInAppToolDefaults,
+  ToolResultPager,
+  toolResultPagerForRecords,
   type AgentToolRecord,
   type AgentAreaReference,
+  type ProviderToolDefinition,
 } from '@ograf-editor/agent-tools';
+import {
+  normalizeAssistantContextPreferences,
+  type AssistantContextPreferences,
+} from '@ograf-editor/ui-kit/workspace-model';
 import { parseAreaReferences } from './areaReference';
 import { loadAgentProviderConfig, redactProviderError } from './config';
 import { createProviderAdapter, supportsAmbientSystemMessage } from './providerAdapters';
+import {
+  planContextBudget,
+  selectActiveContext,
+  toolReplyBudget,
+  type ContextBudget,
+} from './contextManager';
+import { resolveModelContext } from './modelContext';
 import type {
   AgentMessage,
   AgentUsage,
@@ -28,6 +42,7 @@ export interface ChatSendMessage {
   ambient?: ChatAmbientContext;
   areaReference?: AgentAreaReference;
   areaReferences?: AgentAreaReference[];
+  contextPreferences?: AssistantContextPreferences;
 }
 
 export type ChatClientMessage =
@@ -80,110 +95,14 @@ export function buildTurnMessages(
   return [{ role: 'user', content: `[Current OGraf Studio state: ${context}]\n\n${text}` }];
 }
 
-const MAX_TOOL_RESULT_CHARS = 16_000;
-const MAX_HISTORY_CHARS = 96_000;
-
-export function toolResultContent(result: unknown): string {
-  let content: string;
-  if (result && typeof result === 'object') {
-    const record = result as Record<string, unknown>;
-    if (record.structuredContent !== undefined) content = JSON.stringify(record.structuredContent);
-    else content = JSON.stringify(result);
-  } else {
-    content = JSON.stringify(result ?? null);
-  }
-  return content.length <= MAX_TOOL_RESULT_CHARS
-    ? content
-    : `${content.slice(0, MAX_TOOL_RESULT_CHARS)}\n[Tool result truncated for chat context safety]`;
-}
-
-function messageChars(message: AgentMessage): number {
-  if (message.role === 'user' && message.images?.length)
-    return message.content.length + message.images.length * 8_000;
-  return JSON.stringify(message).length;
-}
-
-function atomicHistoryUnits(messages: AgentMessage[]): AgentMessage[][] {
-  const units: AgentMessage[][] = [];
-  for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index]!;
-    const unit = [message];
-    if (message.role === 'assistant' && message.toolCalls?.length) {
-      while (messages[index + 1]?.role === 'tool') unit.push(messages[++index]!);
-    }
-    units.push(unit);
-  }
-  return units;
-}
-
-function historyTurns(messages: AgentMessage[]): AgentMessage[][][] {
-  const turns: AgentMessage[][][] = [];
-  let current: AgentMessage[][] = [];
-  for (const unit of atomicHistoryUnits(messages)) {
-    const role = unit[0]!.role;
-    if (
-      (role === 'system' || role === 'user') &&
-      current.some((entry) => entry[0]!.role === 'user')
-    ) {
-      turns.push(current);
-      current = [];
-    }
-    current.push(unit);
-  }
-  if (current.length) turns.push(current);
-  return turns;
-}
-
-function unitChars(unit: AgentMessage[]): number {
-  return unit.reduce((total, message) => total + messageChars(message), 0);
-}
-
-function trimLatestTurn(units: AgentMessage[][], budget: number): AgentMessage[][] {
-  const required = new Set<number>();
-  const userIndex = units.findIndex((unit) => unit[0]!.role === 'user');
-  if (userIndex >= 0) {
-    required.add(userIndex);
-    if (userIndex > 0 && units[userIndex - 1]![0]!.role === 'system') required.add(userIndex - 1);
-  }
-  const selected = new Set(required);
-  let used = [...required].reduce((total, index) => total + unitChars(units[index]!), 0);
-  for (let index = units.length - 1; index >= 0; index -= 1) {
-    if (selected.has(index)) continue;
-    const size = unitChars(units[index]!);
-    if (used + size > budget) continue;
-    selected.add(index);
-    used += size;
-  }
-  return units.filter((_unit, index) => selected.has(index));
-}
-
-export function compactChatHistory(
-  messages: AgentMessage[],
-  budget = MAX_HISTORY_CHARS,
-): AgentMessage[] {
-  let lastImageIndex = -1;
-  messages.forEach((message, index) => {
-    if (message.role === 'user' && message.images?.length) lastImageIndex = index;
-  });
-  const turns = historyTurns(
-    messages.map((message, index) =>
-      message.role === 'user' && message.images?.length && index !== lastImageIndex
-        ? { role: 'user', content: `${message.content}\n[Earlier reference image omitted.]` }
-        : message,
-    ),
-  );
-  if (!turns.length) return [];
-  const latest = trimLatestTurn(turns.at(-1)!, budget);
-  const selected: AgentMessage[][][] = [latest];
-  let used = latest.reduce((total, unit) => total + unitChars(unit), 0);
-  for (let index = turns.length - 2; index >= 0; index -= 1) {
-    const turn = turns[index]!;
-    const size = turn.reduce((total, unit) => total + unitChars(unit), 0);
-    if (used + size > budget) continue;
-    selected.unshift(turn);
-    used += size;
-  }
-  return selected.flat(2);
+/** Serialize complete structured data, or a model-budgeted page with an explicit reader. */
+export function toolResultContent(
+  result: unknown,
+  options?: { pager: ToolResultPager; maxTokens: number; sessionId?: string; toolName?: string },
+): string {
+  const record = result && typeof result === 'object' ? (result as Record<string, unknown>) : null;
+  const value = record?.structuredContent ?? result ?? null;
+  return JSON.stringify(options ? options.pager.format(value, options) : value);
 }
 
 function isPromptTooLongError(error: unknown): boolean {
@@ -261,6 +180,8 @@ async function completeWithTimeout(
 
 export class ChatAgentController {
   readonly #tools: AgentToolRecord[];
+  readonly #pager: ToolResultPager;
+  #definitions: ProviderToolDefinition[] | null = null;
   readonly #histories = new Map<string, AgentMessage[]>();
   readonly #turns = new Map<string, AbortController>();
   readonly #config = loadAgentProviderConfig();
@@ -271,6 +192,7 @@ export class ChatAgentController {
     records: AgentToolRecord[],
     private readonly emit: (event: ChatServerEvent) => void,
   ) {
+    this.#pager = toolResultPagerForRecords(records) ?? new ToolResultPager();
     this.#tools = filterInAppToolRecords(records);
   }
 
@@ -327,6 +249,35 @@ export class ChatAgentController {
       this.#externalRequests = Math.max(0, this.#externalRequests - 1);
       if (this.#externalRequests === 0) this.emit({ type: 'chat.external', active: false });
     };
+  }
+
+  #archiveHistoricalImages(history: AgentMessage[], sessionId: string): void {
+    let lastImage = -1;
+    history.forEach((message, index) => {
+      if (message.role === 'user' && message.images?.length) lastImage = index;
+    });
+    for (let index = 0; index < lastImage; index++) {
+      const message = history[index]!;
+      if (message.role !== 'user' || !message.images?.length) continue;
+      const metadata = message.images.map(({ data: _data, ...image }) => image);
+      let reference: string;
+      try {
+        const resultId = this.#pager.store(message.images, {
+          toolName: 'conversation-images',
+          sessionId,
+        });
+        reference = `Earlier canvas pixels are retained temporarily through ograf_read_result_page resultId=${resultId}; these snapshots can expire. Recapture if unavailable.`;
+      } catch {
+        reference =
+          'Earlier canvas pixels could not be retained within the attachment cache. Their metadata and all user text remain; recapture if the pixels are needed.';
+      }
+      // Keep full user text/geometry, but never copy every old multi-megabyte image into each
+      // conversation snapshot. Only the latest image-bearing message stays a native vision input.
+      history[index] = {
+        role: 'user',
+        content: `${message.content}\n\n[Studio archived canvas references: ${JSON.stringify(metadata)}. ${reference}]`,
+      };
+    }
   }
 
   async #run(message: ChatSendMessage): Promise<void> {
@@ -387,12 +338,41 @@ export class ChatAgentController {
       message.areaReferences ?? message.areaReference,
     );
     history.push(...turnMessages);
+    this.#archiveHistoricalImages(history, message.sessionId);
     const usage: AgentUsage = { input: 0, output: 0, cacheRead: 0 };
     const requestTimeoutMs = providerTimeoutMs();
     let stopReason = 'stop';
-    const adapter = createProviderAdapter(config);
+    const preferences = normalizeAssistantContextPreferences(message.contextPreferences);
+    // MCP-only hosts never need the provider projection. Build it on first configured chat,
+    // then reuse it throughout long conversations instead of rebuilding every turn.
+    const definitions = (this.#definitions ??= providerToolDefinitions(this.#tools));
+    let adapter = createProviderAdapter(config);
+    let retryScale = 1;
+    let archiveLength = -1;
+    let archiveId = '';
+    const archive = () => {
+      if (archiveLength !== history.length) {
+        archiveId = this.#pager.store(history, {
+          toolName: 'conversation-history',
+          sessionId: message.sessionId,
+        });
+        archiveLength = history.length;
+      }
+      return archiveId;
+    };
+    let budget!: ContextBudget;
     try {
-      for (let round = 0; round < 12; round += 1) {
+      const modelContext = await resolveModelContext(
+        config,
+        selectedModel,
+        preferences,
+        controller.signal,
+      );
+      for (
+        let round = 0, authoringRounds = 0, pagingRounds = 0;
+        authoringRounds < 12 && pagingRounds < 64;
+        round += 1
+      ) {
         if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
         this.emit({
           type: 'chat.progress',
@@ -404,36 +384,61 @@ export class ChatAgentController {
               : `Waiting for ${selectedModel} to review tool results`,
           round: round + 1,
         });
-        const complete = () =>
-          completeWithTimeout(
+        const complete = () => {
+          budget = planContextBudget(
+            modelContext,
+            preferences,
+            IN_APP_SYSTEM_PROMPT,
+            definitions,
+            retryScale,
+          );
+          const active = selectActiveContext(history, budget, archive);
+          this.emit({
+            type: 'chat.context',
+            turnId: message.turnId,
+            model: selectedModel,
+            contextWindowTokens: modelContext.contextWindowTokens,
+            historyBudgetTokens: budget.historyTokens,
+            toolPageTokens: budget.toolPageTokens,
+            estimatedInputTokens: active.estimatedTokens,
+            source: modelContext.source,
+            omittedMessages: active.omittedMessages,
+            historyResultId: active.historyResultId,
+            estimated: true,
+            message: `${modelContext.source === 'fallback' ? 'Estimated model capacity (metadata unavailable)' : modelContext.source === 'provider' ? 'Provider model capacity' : 'Custom context capacity'}: ${modelContext.contextWindowTokens.toLocaleString()} tokens. Estimated input: ${active.estimatedTokens.toLocaleString()}.${active.historyResultId ? ` Earlier context is retained and pageable (${active.omittedMessages} messages outside this request).` : ''}`,
+          });
+          return completeWithTimeout(
             adapter,
             {
               system: IN_APP_SYSTEM_PROMPT,
               model: selectedModel,
-              messages: compactChatHistory(history),
-              tools: providerToolDefinitions(this.#tools),
+              messages: active.messages,
+              tools: definitions,
+              maxOutputTokens: budget.outputReserveTokens,
               signal: controller.signal,
             },
             requestTimeoutMs,
           );
+        };
         let completion: ProviderCompletion;
         try {
           completion = await complete();
         } catch (error) {
-          if (
-            round !== 0 ||
-            !isPromptTooLongError(error) ||
-            history.length <= turnMessages.length
-          ) {
+          if (!isPromptTooLongError(error) || retryScale < 1) {
             throw error;
           }
-          history.splice(0, history.length, ...turnMessages);
+          retryScale = 0.5;
+          // The Codex adapter retains an ephemeral provider turn. Reopen it with the repacked
+          // transcript too; an adapter continuation alone cannot remove its earlier context.
+          await adapter.dispose?.();
+          adapter = createProviderAdapter(config);
           this.emit({
             type: 'chat.progress',
             turnId: message.turnId,
             phase: 'waiting',
-            message: 'Conversation context was full; retrying with a fresh project conversation',
-            round: 1,
+            message:
+              'The provider rejected the context size; retrying a smaller active window. Earlier conversation remains pageable.',
+            round: round + 1,
           });
           completion = await complete();
         }
@@ -441,15 +446,25 @@ export class ChatAgentController {
         usage.output += completion.usage.output;
         usage.cacheRead += completion.usage.cacheRead;
         stopReason = completion.stopReason;
-        history.push({
+        const assistantMessage: AgentMessage = {
           role: 'assistant',
           content: completion.text,
           ...(completion.toolCalls.length ? { toolCalls: completion.toolCalls } : {}),
-        });
+        };
+        history.push(assistantMessage);
         if (completion.text) {
           this.emit({ type: 'chat.text', turnId: message.turnId, text: completion.text });
         }
         if (completion.toolCalls.length === 0) break;
+        const replyTokens = toolReplyBudget(
+          budget,
+          turnMessages,
+          assistantMessage,
+          completion.toolCalls.length,
+        );
+        if (completion.toolCalls.every((call) => call.name === 'ograf_read_result_page'))
+          pagingRounds++;
+        else authoringRounds++;
         for (const call of completion.toolCalls) {
           if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
           const tool = this.#tools.find((candidate) => candidate.name === call.name);
@@ -464,15 +479,38 @@ export class ChatAgentController {
             status: 'running',
           });
           try {
+            const argumentsForTool =
+              call.name === 'ograf_read_result_page'
+                ? {
+                    ...call.arguments,
+                    sessionId: message.sessionId,
+                    maxTokens: Math.min(
+                      replyTokens,
+                      typeof call.arguments.maxTokens === 'number'
+                        ? call.arguments.maxTokens
+                        : replyTokens,
+                    ),
+                  }
+                : call.arguments;
             const input = z
               .object(tool.config.inputSchema)
-              .parse(withInAppToolDefaults(tool.name, call.arguments));
+              .parse(withInAppToolDefaults(tool.name, argumentsForTool));
             const result = await tool.handler(input);
             history.push({
               role: 'tool',
               callId: call.id,
               name: tool.name,
-              content: toolResultContent(result),
+              content: toolResultContent(
+                result,
+                tool.name === 'ograf_read_result_page'
+                  ? undefined
+                  : {
+                      pager: this.#pager,
+                      maxTokens: replyTokens,
+                      sessionId: message.sessionId,
+                      toolName: tool.name,
+                    },
+              ),
             });
             this.emit({
               type: 'chat.tool',
@@ -505,13 +543,7 @@ export class ChatAgentController {
           }
         }
       }
-      this.#histories.delete(message.sessionId);
-      this.#histories.set(message.sessionId, compactChatHistory(history));
-      while (this.#histories.size > 20) {
-        const oldest = this.#histories.keys().next().value;
-        if (oldest === undefined) break;
-        this.#histories.delete(oldest);
-      }
+      if (stopReason === 'tool_calls' || stopReason === 'tool_use') stopReason = 'tool_round_limit';
       this.emit({ type: 'chat.turn.end', turnId: message.turnId, stopReason, usage });
     } catch (error) {
       const cancelled =
@@ -531,6 +563,15 @@ export class ChatAgentController {
         });
       }
     } finally {
+      // Context planning is a view. Keep the full transcript, including failed/cancelled turns,
+      // rather than replacing it with whichever messages fitted this provider request.
+      this.#histories.delete(message.sessionId);
+      this.#histories.set(message.sessionId, history);
+      while (this.#histories.size > 20) {
+        const oldest = this.#histories.keys().next().value;
+        if (oldest === undefined) break;
+        this.#histories.delete(oldest);
+      }
       await adapter.dispose?.();
       this.#turns.delete(message.turnId);
     }

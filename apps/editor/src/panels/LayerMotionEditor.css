@@ -39,6 +39,12 @@
   flex: none;
   padding: 0;
 }
+.layer-motion-plugins {
+  flex: none;
+  padding-inline: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 .layer-motion-directions > button.active {
   background: var(--accent);
@@ -65,6 +71,21 @@
 
 .layer-motion-details small {
   font-size: 10px;
+}
+
+.layer-motion-stagger {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.layer-motion-stagger input {
+  width: 40px;
+}
+
+.layer-motion-stagger select {
+  min-width: 0;
 }
 
 .layer-motion-hint {

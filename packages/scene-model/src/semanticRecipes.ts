@@ -2,6 +2,11 @@ import { createAnimationTracksFromLegacyLayer } from './layerAnimation';
 import { createFieldDefinition, createLayerOfKind, createLayerSemantics } from './factory';
 import { createId } from './id';
 import { createCornerRadii } from './cornerRadii';
+import { createLayerModifier } from './modifiers';
+import { getPatternPresetPatch } from './patternPresets';
+import { finishRecipeComponent, finishRecipeMaterials } from './recipeFinishing';
+import { normalizeTextAnimation } from './textAnimation';
+import { setTilingPattern } from './tiling';
 import {
   assertStaggerFits,
   buildLayerMotionKeyframes,
@@ -12,6 +17,7 @@ import {
   applyStylePack,
   resolveStylePackMotion,
   STYLE_TOKEN_KEYS,
+  stylePackIdForComposition,
   styleTokenValue,
   type StylePackId,
 } from './stylePacks';
@@ -19,6 +25,8 @@ import type { Composition, EasingPreset, Layer, LayerTransform, Paint } from './
 
 export interface LowerThirdRecipeOptions {
   name?: string;
+  /** Keep the finished graphic linked to its editable reusable component source. */
+  asComponent?: boolean;
   stylePack?: StylePackId;
   placement?: Partial<Pick<LayerTransform, 'x' | 'y' | 'width' | 'height'>>;
   content?: { headline?: string; subheadline?: string };
@@ -49,8 +57,11 @@ export interface MaterializedLowerThird {
   stylePack?: StylePackId;
   groupId: string;
   timelineGroupId: string;
+  componentId?: string;
+  instanceId?: string;
   layers: {
     panel: string;
+    texture: string;
     accent: string;
     headline: string;
     subheadline: string;
@@ -68,7 +79,7 @@ function uniqueFieldKey(composition: Composition, requested: string, fallback: s
 
 function recipeLayer(
   composition: Composition,
-  kind: 'rectangle' | 'text',
+  kind: 'rectangle' | 'text' | 'pattern',
   name: string,
   groupId: string,
   role: Layer['semantics']['role'],
@@ -119,17 +130,21 @@ export function materializeLowerThird(
   }
 
   const name = options.name?.trim() || 'Lower Third';
-  const stylePack = options.stylePack;
-  if (stylePack) {
-    applyStylePack(composition, stylePack, { refreshTokens: true });
-  }
-  const packMotion = stylePack ? resolveStylePackMotion(composition, stylePack) : null;
+  const currentPack = stylePackIdForComposition(composition);
+  const stylePack = options.stylePack ?? currentPack ?? 'news';
+  const refreshTokens = options.stylePack !== undefined || currentPack === null;
+  applyStylePack(composition, stylePack, {
+    ...(refreshTokens ? {} : { bindLayerIds: [] }),
+    refreshTokens,
+  });
+  const packMotion = resolveStylePackMotion(composition, stylePack);
   const packValue = (key: Parameters<typeof styleTokenValue>[1], fallback: string | number) =>
-    stylePack ? styleTokenValue(composition, key, fallback) : fallback;
-  const x = Math.round(options.placement?.x ?? composition.width * 0.08);
-  const y = Math.round(options.placement?.y ?? composition.height * 0.74);
+    styleTokenValue(composition, key, fallback);
+  const x = Math.round(options.placement?.x ?? composition.width * 0.05);
+  // Keep a visible gap above the native ticker's default bottom strip.
+  const y = Math.round(options.placement?.y ?? composition.height * 0.68);
   const width = Math.max(320, Math.round(options.placement?.width ?? composition.width * 0.62));
-  const height = Math.max(96, Math.round(options.placement?.height ?? composition.height * 0.16));
+  const height = Math.max(96, Math.round(options.placement?.height ?? composition.height * 0.18));
   const accentWidth = Math.max(8, Math.round(height * 0.08));
   const horizontalPadding = Math.max(24, Math.round(height * 0.22));
   const groupId = createId('group');
@@ -137,7 +152,7 @@ export function materializeLowerThird(
   const motion = {
     style: options.motion?.style ?? 'wipe',
     entrance: options.motion?.entrance ?? 'left',
-    exit: options.motion?.exit ?? 'down',
+    exit: options.motion?.exit ?? 'left',
     staggerFrames: Math.round(options.motion?.staggerFrames ?? packMotion?.staggerFrames ?? 3),
     entranceDurationFrames: Math.round(
       options.motion?.entranceDurationFrames ?? packMotion?.entranceFrames ?? 12,
@@ -173,11 +188,51 @@ export function materializeLowerThird(
     0,
     motion.style === 'wipe',
   );
-  panel.clipChildren = motion.style === 'wipe';
+  // The texture is a direct child in every motion style, so it always stays inside the panel.
+  panel.clipChildren = true;
   if (panel.element.type === 'rectangle') {
     panel.element.fill =
       options.theme?.background ?? String(packValue(STYLE_TOKEN_KEYS.surface, '#152235'));
     panel.element.borderRadius = createCornerRadii(Math.round(height * 0.08));
+  }
+
+  const textureWidth = Math.max(1, Math.round(width * 0.36));
+  const textureHeight = Math.max(1, height - 4);
+  const textureDefinition = setTilingPattern(composition, {
+    ...getPatternPresetPatch('dots', textureWidth, textureHeight, composition.frameRate),
+    name: `${name} · Microdot texture`,
+    rows: 4,
+    rowGap: 0,
+    gap: Math.max(8, Math.round(height * 0.18)),
+    offsetY: 0,
+    cycleFrames: Math.max(1, Math.round(composition.frameRate * 24)),
+    cyclesPerLoop: 1,
+  });
+  const texture = recipeLayer(
+    composition,
+    'pattern',
+    `${name} · Texture`,
+    groupId,
+    'decorative',
+    ['texture', 'procedural-pattern', 'qa:allow-loop-seam'],
+    {
+      x: x + width - textureWidth - 2,
+      y: y + 2,
+      width: textureWidth,
+      height: textureHeight,
+      rotation: 0,
+      opacity: 0.055,
+      transformOriginX: 0.5,
+      transformOriginY: 0.5,
+    },
+    motion,
+    0,
+  );
+  texture.parentId = panel.id;
+  if (texture.element.type === 'pattern') {
+    texture.element.patternId = textureDefinition.id;
+    texture.element.fill = '#ffffff';
+    texture.element.strokeWidth = 0;
   }
 
   const accent = recipeLayer(
@@ -238,6 +293,8 @@ export function materializeLowerThird(
     headline.element.autoFit = 'shrink-to-fit';
     headline.element.minFontSize = Math.max(18, Math.round(headline.element.fontSize * 0.55));
     headline.element.overflowPolicy = 'clip';
+    headline.element.textAlign = 'left';
+    headline.element.verticalAlign = 'middle';
   }
 
   const subheadline = recipeLayer(
@@ -269,6 +326,8 @@ export function materializeLowerThird(
     subheadline.element.autoFit = 'shrink-to-fit';
     subheadline.element.minFontSize = Math.max(14, Math.round(subheadline.element.fontSize * 0.6));
     subheadline.element.overflowPolicy = 'clip';
+    subheadline.element.textAlign = 'left';
+    subheadline.element.verticalAlign = 'middle';
   }
 
   if (motion.style === 'wipe') {
@@ -310,7 +369,9 @@ export function materializeLowerThird(
   headline.bindings = [{ fieldId: headlineField.id, targetProperty: 'content' }];
   subheadline.bindings = [{ fieldId: subheadlineField.id, targetProperty: 'content' }];
 
-  composition.layers.push(panel, accent, headline, subheadline);
+  const layers = { panel, texture, accent, headline, subheadline };
+  const layerIds = Object.values(layers).map((layer) => layer.id);
+  composition.layers.push(...Object.values(layers));
   composition.dataFields.push(headlineField, subheadlineField);
   composition.layout.timelineFolders.push({
     id: timelineGroupId,
@@ -319,11 +380,11 @@ export function materializeLowerThird(
       typeof (options.theme?.accent ?? '#31b7d4') === 'string'
         ? String(options.theme?.accent ?? '#31b7d4')
         : '#31b7d4',
-    layerIds: [panel.id, accent.id, headline.id, subheadline.id],
+    layerIds,
   });
   if (stylePack) {
     applyStylePack(composition, stylePack, {
-      bindLayerIds: [panel.id, accent.id, headline.id, subheadline.id],
+      bindLayerIds: layerIds,
       refreshTokens: false,
     });
     const clearBinding = (layer: Layer, property: string) => {
@@ -349,14 +410,99 @@ export function materializeLowerThird(
     }
   }
 
+  finishRecipeMaterials(
+    composition,
+    layers,
+    motion,
+    motion.style !== 'none' && motion.entrance !== 'none',
+  );
+  // Specular dots stay neutral white over every palette, with their strength set by layer alpha.
+  if (texture.element.type === 'pattern') texture.element.fill = '#ffffff';
+  texture.designTokenBindings = texture.designTokenBindings.filter(
+    (binding) => binding.targetProperty !== 'fill',
+  );
+  if (composition.designSystem.stylePackColors) {
+    const links = composition.designSystem.stylePackColors
+      .map((link) => ({
+        ...link,
+        targets: link.targets.filter(
+          (target) => target.layerId !== texture.id || target.property !== 'fill',
+        ),
+      }))
+      .filter((link) => link.targets.length > 0);
+    if (links.length) composition.designSystem.stylePackColors = links;
+    else delete composition.designSystem.stylePackColors;
+  }
+  // Explicit recipe themes stay authoritative over the default finishing materials.
+  const removePaintTokenBindings = (layer: Layer, property: 'fill' | 'color') => {
+    layer.designTokenBindings = layer.designTokenBindings.filter(
+      (binding) =>
+        binding.targetProperty !== property && !binding.targetProperty.startsWith('fill.'),
+    );
+    if (composition.designSystem.stylePackColors)
+      composition.designSystem.stylePackColors = composition.designSystem.stylePackColors
+        .map((link) => ({
+          ...link,
+          targets: link.targets.filter(
+            (target) =>
+              target.layerId !== layer.id ||
+              (target.property !== property && !target.property.startsWith('fill.')),
+          ),
+        }))
+        .filter((link) => link.targets.length > 0);
+  };
+  if (options.theme?.background !== undefined && panel.element.type === 'rectangle') {
+    panel.element.fill = options.theme.background;
+    removePaintTokenBindings(panel, 'fill');
+  }
+  if (options.theme?.accent !== undefined && accent.element.type === 'rectangle') {
+    accent.element.fill = options.theme.accent;
+    removePaintTokenBindings(accent, 'fill');
+  }
+  if (options.theme?.primaryText !== undefined && headline.element.type === 'text') {
+    headline.element.color = options.theme.primaryText;
+    delete headline.element.fill;
+    removePaintTokenBindings(headline, 'color');
+  }
+  if (options.theme?.secondaryText !== undefined && subheadline.element.type === 'text') {
+    subheadline.element.color = options.theme.secondaryText;
+    delete subheadline.element.fill;
+    removePaintTokenBindings(subheadline, 'color');
+  }
+  for (const text of [headline, subheadline]) {
+    if (text.element.type !== 'text') continue;
+    // Native fitting retains the full aligned box and its ascender/descender clearance.
+    text.element.textAnimation = normalizeTextAnimation({
+      type: text === headline ? 'word-reveal' : 'fade',
+      split: 'word',
+      durationFrames: Math.max(
+        2,
+        Math.min(motion.entranceDurationFrames, Math.round(composition.frameRate * 0.24)),
+      ),
+      cursor: 'none',
+      replayOnUpdate: true,
+    });
+  }
+  subheadline.modifiers = [
+    ...(subheadline.modifiers ?? []),
+    createLayerModifier('hide-empty', {
+      source: { kind: 'field', fieldId: subheadlineField.id, sourcePath: [] },
+      trimWhitespace: true,
+      invert: false,
+    }),
+  ];
+  const component = finishRecipeComponent(composition, layerIds, name, options.asComponent);
+
   return {
     recipe: 'lower-third',
     name,
     ...(stylePack ? { stylePack } : {}),
     groupId,
     timelineGroupId,
+    ...component,
     layers: {
       panel: panel.id,
+      texture: texture.id,
       accent: accent.id,
       headline: headline.id,
       subheadline: subheadline.id,

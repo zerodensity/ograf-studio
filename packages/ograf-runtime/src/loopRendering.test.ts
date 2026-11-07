@@ -18,8 +18,119 @@ import {
   compiledLoopElapsedFrames,
   interpolateCompiledLayerVisualState,
   sampleCompiledLayerVisualState,
+  applyCompiledClipPaths,
 } from './loopRendering';
 import { resolveBoundElement, resolveBoundEffects } from './renderElement';
+import { publishRuntimeVisualRuleEffect } from './runtimeVisualRules';
+
+describe('data-bound native pose sampling', () => {
+  it('uses bound parent dimensions for real clipping geometry', () => {
+    const parent = layer(),
+      child = layer();
+    parent.id = 'clip';
+    child.id = 'content';
+    parent.loop = null;
+    child.loop = null;
+    Object.assign(parent.keyframes[0]!.transform, { x: 0, y: 0, width: 400, height: 120 });
+    Object.assign(child.keyframes[0]!.transform, { x: 200, y: 0, width: 100, height: 120 });
+    parent.bindings = [{ dataKey: 'width', targetProperty: 'layer.width' }];
+    child.clipParentId = parent.id;
+    const states = new Map(
+      [parent, child].map((value) => [
+        value.id,
+        sampleCompiledLayerVisualState(value, 0, undefined, { width: 250 }),
+      ]),
+    );
+    const element = { style: { clipPath: '' } } as HTMLElement;
+    applyCompiledClipPaths(
+      { layers: [parent, child] } as CompiledGraphicDescriptor,
+      new Map([[child.id, element]]),
+      states,
+    );
+    expect(element.style.clipPath).toContain('L 50 0');
+    expect(element.style.clipPath).not.toContain('L 200 0');
+  });
+  it('applies nested data after animation/loops and before Rules', () => {
+    const compiled = layer();
+    compiled.bindings = ['x', 'y', 'width', 'height', 'rotation', 'opacity'].map((property) => ({
+      dataKey: 'actor',
+      sourcePath: [property],
+      targetProperty: `layer.${property}`,
+    }));
+    const data = { actor: { x: 300, y: 400, width: 120, height: 60, rotation: 10, opacity: 0.5 } };
+    expect(sampleCompiledLayerVisualState(compiled, 0, 10, data).transform).toMatchObject({
+      ...data.actor,
+      opacity: 0.5,
+    });
+    publishRuntimeVisualRuleEffect(compiled, {
+      transitionFrames: {},
+      properties: {
+        'layer.width': 250,
+        'layer.offsetX': 3,
+        'layer.rotation': 20,
+        'layer.opacity': 0.4,
+      },
+    });
+    expect(sampleCompiledLayerVisualState(compiled, 0, 10, data).transform).toMatchObject({
+      x: 303,
+      y: 400,
+      width: 250,
+      height: 60,
+      rotation: 30,
+      opacity: 0.2,
+    });
+  });
+  it('retains direct Out timing with live bound values and never squares the alpha factor', () => {
+    const compiled = layer();
+    compiled.loop = null;
+    compiled.animationTracks.opacity = [
+      { id: 'on', frame: 10, value: 1, easing: 'linear' },
+      { id: 'off', frame: 20, value: 0, easing: 'linear' },
+    ];
+    compiled.bindings = [
+      { dataKey: 'x', targetProperty: 'layer.x' },
+      { dataKey: 'alpha', targetProperty: 'layer.opacity' },
+    ];
+    const source = sampleCompiledLayerVisualState(compiled, 10, undefined, { x: 300, alpha: 0.5 });
+    const target = sampleCompiledLayerVisualState(compiled, 20, undefined, { x: 300, alpha: 0.5 });
+    expect(
+      interpolateCompiledLayerVisualState(compiled, source, target, 0.5, 20, { x: 400, alpha: 0.8 })
+        .transform,
+    ).toMatchObject({ x: 400, opacity: 0.4 });
+    expect(
+      interpolateCompiledLayerVisualState(compiled, source, target, 1, 20, { x: 400, alpha: 0.8 })
+        .transform.opacity,
+    ).toBe(0);
+  });
+  it('uses the selected collection row after sorting when binding geometry', () => {
+    const compiled = layer();
+    compiled.loop = null;
+    compiled.bindings = [
+      { dataKey: 'actors', sourcePath: ['x'], itemIndex: 0, targetProperty: 'layer.x' },
+    ];
+    compiled.collectionItem = {
+      collectionId: 'actors',
+      dataKey: 'actors',
+      slot: 0,
+      capacity: 2,
+      itemKeyPath: ['id'],
+      sortPath: ['rank'],
+      sortDirection: 'ascending',
+      pageSize: 0,
+      page: 0,
+      offsetPerItem: { x: 0, y: 0 },
+      prototypeLayerId: 'prototype',
+    };
+    expect(
+      sampleCompiledLayerVisualState(compiled, 0, undefined, {
+        actors: [
+          { id: 'b', rank: 2, x: 200 },
+          { id: 'a', rank: 1, x: 100 },
+        ],
+      }).transform.x,
+    ).toBe(100);
+  });
+});
 
 function layer(): CompiledLayer {
   return {

@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <body style="font: 13px sans-serif; padding: 12px">
+    <p>Select layers in Figma, then export an editable OGraf Studio interchange file.</p>
+    <button id="export">Export selected layers</button>
+    <p id="status"></p>
+    <script>
+      document.querySelector('#export').onclick = () =>
+        parent.postMessage({ pluginMessage: { type: 'export' } }, '*');
+      window.onmessage = (event) => {
+        const message = event.data.pluginMessage;
+        if (!message) return;
+        if (message.type === 'error')
+          document.querySelector('#status').textContent = message.message;
+        if (message.type === 'download') {
+          const blob = new Blob([message.json], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'ograf-figma.json';
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 30000);
+          document.querySelector('#status').textContent =
+            'Exported. In Studio, use Resources → Import Figma JSON.';
+        }
+      };
+    </script>
+  </body>
+</html>

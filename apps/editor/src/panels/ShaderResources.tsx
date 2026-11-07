@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useMovableDialog } from '../components/useMovableDialog';
 import { createShaderRenderer } from '@ograf-editor/ograf-runtime';
 import {
   MAX_SHADER_SOURCE_BYTES,
@@ -7,20 +8,26 @@ import {
   createShaderPaint,
   type ShaderPaint,
 } from '@ograf-editor/scene-model';
-import { isDomElement, useEditorWindow } from '../layout/EditorWindow';
+import { EditorWindowContext, isDomElement, useEditorWindow } from '../layout/EditorWindow';
 import { useProjectStore } from '../state/projectStore';
 import { runDiscreteHistoryStep } from '../state/historyStore';
 import { SHADER_RESOURCE_MIME, encodeShaderResourceDrag } from '../state/shaderDrag';
+import { SHADER_PLUGIN_PRESET_MIME, shaderCanvasDragData } from '../state/shaderCanvasDrag';
+import { importShaderCanvasDragToResources } from '../state/shaderCanvasDrop';
 import {
-  collectStoredShaderResources,
+  collectShaderResources,
   shaderPaintWithPatch,
   shaderResourcePatchBetween,
   shaderResourceTarget,
+  shaderResourceKey,
+  shaderResourceIsEffectOnly,
+  shaderResourcePreviewPaint,
   defaultShaderResourceName,
   isStoredShaderResourceTarget,
   type ShaderResourceTarget,
   type ShaderResourceUsage,
 } from '../state/shaderResources';
+import { useShaderEditorRequestStore } from '../state/shaderEditorRequest';
 import { ShaderSourceEditor } from './ShaderSourceEditor';
 import { ShaderThumbnail } from './ShaderThumbnail';
 import { ShaderLivePreview } from './ShaderLivePreview';
@@ -55,15 +62,26 @@ function ShaderResourceDialog({
 }) {
   const { document } = useEditorWindow();
   const dialog = useRef<HTMLDialogElement>(null);
+  const move = useMovableDialog(dialog);
   const updateShader = useProjectStore((state) => state.updateShaderResource);
   const createShader = useProjectStore((state) => state.createShaderResource);
   const isNew = request.target === undefined;
+  const isEffect =
+    request.target &&
+    !isStoredShaderResourceTarget(request.target) &&
+    request.target.slot === 'effect';
+  const validationOptions =
+    isNew || (request.target && isStoredShaderResourceTarget(request.target))
+      ? { libraryResource: true }
+      : { channel0Provided: !!isEffect };
   const [baseline] = useState(() => request.initialPaint);
   const [draft, setDraft] = useState(() => {
     try {
-      return shaderPaintWithPatch(baseline, {
-        fragmentSource: request.draftSource ?? baseline.fragmentSource,
-      });
+      return shaderPaintWithPatch(
+        baseline,
+        { fragmentSource: request.draftSource ?? baseline.fragmentSource },
+        validationOptions,
+      );
     } catch {
       return structuredClone(baseline);
     }
@@ -77,11 +95,23 @@ function ShaderResourceDialog({
       isNew ||
       (request.draftSource !== undefined && request.draftSource !== baseline.fragmentSource),
   );
+  const effectOnly = shaderResourceIsEffectOnly(draft);
+  const previewPaint = useMemo(() => shaderResourcePreviewPaint(draft), [draft]);
   const save = async () => {
     try {
-      const next = shaderPaintWithPatch(draftRef.current, { fragmentSource: sourceRef.current });
+      const next = shaderPaintWithPatch(
+        draftRef.current,
+        { fragmentSource: sourceRef.current },
+        validationOptions,
+      );
       const canvas = document.createElement('canvas');
-      const renderer = createShaderRenderer(canvas, next, { width: 4, height: 4 });
+      const renderer =
+        isEffect || shaderResourceIsEffectOnly(next)
+          ? createShaderRenderer(canvas, next, { width: 4, height: 4 }, undefined, false, {
+              blendMode: 'normal',
+              blendOpacity: 1,
+            })
+          : createShaderRenderer(canvas, next, { width: 4, height: 4 });
       try {
         await renderer.ready();
       } finally {
@@ -114,6 +144,7 @@ function ShaderResourceDialog({
     <dialog
       ref={dialog}
       className="shader-resource-dialog"
+      {...move.dialogProps}
       aria-labelledby="shader-resource-dialog-title"
       onCancel={(event) => {
         event.preventDefault();
@@ -121,10 +152,10 @@ function ShaderResourceDialog({
       }}
       onKeyDown={(event) => event.stopPropagation()}
     >
-      <header className="shader-resource-dialog-header">
+      <header className="shader-resource-dialog-header" {...move.handleProps}>
         {(isNew || resource) && (
           <ShaderLivePreview
-            paint={draft}
+            paint={previewPaint}
             label={draft.name || resource?.usageLabel || request.label}
           />
         )}
@@ -132,9 +163,10 @@ function ShaderResourceDialog({
           <h2 id="shader-resource-dialog-title">{isNew ? 'New Shader' : 'Edit shader'}</h2>
           <p>
             {isNew
-              ? 'Save it, then drag it onto Fill or Outline.'
+              ? 'Save it, then drag it onto the canvas to choose Fill, Outline or Effect.'
               : (resource?.usageLabel ?? request.label)}
           </p>
+          {effectOnly && <p>Effect shader · preview uses a temporary checkerboard input.</p>}
           <label className="shader-resource-name">
             Shader name
             <input
@@ -147,6 +179,7 @@ function ShaderResourceDialog({
                 const next = { ...draftRef.current, name: event.target.value };
                 draftRef.current = next;
                 setDraft(next);
+                setDirty(true);
                 setError(null);
               }}
             />
@@ -171,6 +204,7 @@ function ShaderResourceDialog({
             )}
             <fieldset disabled={resource?.locked}>
               <ShaderSourceEditor
+                allowImageInput={!isEffect}
                 element={draft}
                 draftSource={source}
                 onDraftSourceChange={(next) => {
@@ -181,7 +215,7 @@ function ShaderResourceDialog({
                 }}
                 applyLabel="Preview shader"
                 onChange={(patch) => {
-                  const next = shaderPaintWithPatch(draftRef.current, patch);
+                  const next = shaderPaintWithPatch(draftRef.current, patch, validationOptions);
                   draftRef.current = next;
                   setDraft(next);
                   setDirty(true);
@@ -216,10 +250,36 @@ function ShaderResourceDialog({
   );
 }
 
+export function ShaderResourceEditorHost() {
+  const request = useShaderEditorRequestStore((state) => state.request);
+  const close = useShaderEditorRequestStore((state) => state.close);
+  const project = useProjectStore((state) => state.project);
+  const resources = useMemo(() => collectShaderResources(project), [project]);
+  const resource = request
+    ? resources.find((item) => item.key === shaderResourceKey(request.target))
+    : undefined;
+  useEffect(() => {
+    if (request && (request.projectId !== project.id || request.owner.closed || !resource)) close();
+  }, [request, project.id, resource, close]);
+  if (!request || request.projectId !== project.id || request.owner.closed) return null;
+  if (!resource) return null;
+  return (
+    <EditorWindowContext.Provider value={request.owner}>
+      <ShaderResourceDialog
+        key={request.id}
+        request={editorRequest(resource)}
+        resource={resource}
+        onClose={close}
+      />
+    </EditorWindowContext.Provider>
+  );
+}
+
 export function ShaderResources() {
   const project = useProjectStore((state) => state.project);
   const removeShader = useProjectStore((state) => state.removeShaderResource);
-  const resources = useMemo(() => collectStoredShaderResources(project), [project]);
+  const resources = useMemo(() => collectShaderResources(project), [project]);
+  const savedCount = resources.filter(isStoredShaderResourceTarget).length;
   const [open, setOpen] = useState(false);
   const [editor, setEditor] = useState<ShaderEditorRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -246,8 +306,33 @@ export function ShaderResources() {
         role="treeitem"
         open={open}
         onToggle={(event) => setOpen(event.currentTarget.open)}
+        onDragEnterCapture={(event) => {
+          if (!event.dataTransfer.types.includes(SHADER_PLUGIN_PRESET_MIME)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDragOverCapture={(event) => {
+          if (!event.dataTransfer.types.includes(SHADER_PLUGIN_PRESET_MIME)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDropCapture={(event) => {
+          if (!event.dataTransfer.types.includes(SHADER_PLUGIN_PRESET_MIME)) return;
+          const source = shaderCanvasDragData(event.dataTransfer);
+          if (!source) return;
+          event.preventDefault();
+          event.stopPropagation();
+          try {
+            importShaderCanvasDragToResources(source);
+            setOpen(true);
+            setError(null);
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+            setOpen(true);
+          }
+        }}
       >
-        <summary>
+        <summary title="Drop a shader template here to add an editable copy to Resources.">
           <span className="resources-tree-label">Shaders</span>
           <span className="resources-tree-count">{resources.length}</span>
         </summary>
@@ -271,118 +356,135 @@ export function ShaderResources() {
           {open &&
             (resources.length === 0 ? (
               <p className="panel-placeholder">
-                Create a saved shader, then drag it onto Fill or Outline.
+                Create a shader or apply one to an object. Fill, Outline and Effect shaders appear
+                here.
               </p>
             ) : (
-              resources.map((resource) => (
-                <div
-                  className="resources-shader-item"
-                  role="treeitem"
-                  aria-label={resource.label}
-                  key={resource.key}
-                  draggable
-                  title="Drag this shader onto Fill or Outline."
-                  onDragStart={(event) => {
-                    event.stopPropagation();
-                    event.dataTransfer.effectAllowed = 'copy';
-                    event.dataTransfer.setData(
-                      SHADER_RESOURCE_MIME,
-                      encodeShaderResourceDrag(project.id, resource),
-                    );
-                  }}
-                >
-                  <span className="resources-shader-grip" aria-hidden="true">
-                    ⠿
-                  </span>
-                  <ShaderThumbnail paint={resource.paint} label={resource.label} />
-                  <div className="resources-shader-copy">
-                    <strong title={resource.label}>{resource.label}</strong>
-                    {(project.compositions.length > 1 ||
-                      resource.paint.name ||
-                      resource.componentName ||
-                      resource.locked) && (
-                      <span title={`${resource.compositionName} · ${resource.usageLabel}`}>
-                        {[
-                          project.compositions.length > 1 ? resource.compositionName : '',
-                          resource.paint.name ? resource.usageLabel : '',
-                          resource.componentName ?? '',
-                          resource.locked ? 'Locked' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </span>
-                    )}
-                    <div className="resources-tree-actions">
-                      <button
-                        type="button"
-                        aria-label={`Edit shader: ${resource.label}${resource.paint.name ? ` — ${resource.usageLabel}` : ''}`}
-                        disabled={resource.locked}
-                        onClick={() => {
-                          requestVersion.current += 1;
-                          setError(null);
-                          setEditor(editorRequest(resource));
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Load GLSL: ${resource.label}${resource.paint.name ? ` — ${resource.usageLabel}` : ''}`}
-                        disabled={resource.locked}
-                        onClick={() => {
-                          requestVersion.current += 1;
-                          setError(null);
-                          pendingFile.current = editorRequest(resource);
-                          input.current?.click();
-                        }}
-                      >
-                        Load
-                      </button>
-                      <button
-                        type="button"
-                        className="resources-shader-remove"
-                        aria-label={`Remove shader: ${resource.label}${resource.paint.name ? ` — ${resource.usageLabel}` : ''}`}
-                        title={
-                          isStoredShaderResourceTarget(resource)
-                            ? 'Remove this project shader. Objects using copies keep their shaders. Undo restores it.'
-                            : `Remove the shader from ${resource.usageLabel}. Keep the object and return to its solid paint or original pixels. Undo restores the shader.`
-                        }
-                        disabled={resource.locked}
-                        onClick={() => {
-                          try {
-                            runDiscreteHistoryStep(
-                              () => removeShader(resource),
-                              isStoredShaderResourceTarget(resource)
-                                ? `Remove shader “${resource.label}”`
-                                : `Remove shader “${resource.label}” from ${resource.usageLabel}`,
-                            );
+              resources.map((resource, index) => (
+                <Fragment key={resource.key}>
+                  {(index === 0 || index === savedCount) && (
+                    <div className="resources-shader-heading">
+                      {isStoredShaderResourceTarget(resource)
+                        ? `Saved shaders · ${savedCount}`
+                        : `Applied shaders · ${resources.length - savedCount}`}
+                    </div>
+                  )}
+                  <div
+                    className="resources-shader-item"
+                    role="treeitem"
+                    aria-label={resource.label}
+                    key={resource.key}
+                    draggable
+                    title="Drag this shader onto the canvas to choose Fill, Outline or Effect. Fill and Outline also accept direct drops in Properties."
+                    onDragStart={(event) => {
+                      event.stopPropagation();
+                      event.dataTransfer.effectAllowed = 'copy';
+                      event.dataTransfer.setData(
+                        SHADER_RESOURCE_MIME,
+                        encodeShaderResourceDrag(project.id, resource),
+                      );
+                    }}
+                  >
+                    <span className="resources-shader-grip" aria-hidden="true">
+                      ⠿
+                    </span>
+                    <ShaderThumbnail paint={resource.paint} label={resource.label} />
+                    <div className="resources-shader-copy">
+                      <strong draggable title={resource.label}>
+                        {resource.label}
+                      </strong>
+                      {(project.compositions.length > 1 ||
+                        resource.paint.name ||
+                        shaderResourceIsEffectOnly(resource.paint) ||
+                        resource.componentName ||
+                        resource.locked) && (
+                        <span title={`${resource.compositionName} · ${resource.usageLabel}`}>
+                          {[
+                            project.compositions.length > 1 ? resource.compositionName : '',
+                            resource.paint.name || shaderResourceIsEffectOnly(resource.paint)
+                              ? resource.usageLabel
+                              : '',
+                            resource.componentName ?? '',
+                            resource.locked ? 'Locked' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      )}
+                      <div className="resources-tree-actions">
+                        <button
+                          type="button"
+                          aria-label={`Edit shader: ${resource.label}${resource.paint.name ? ` — ${resource.usageLabel}` : ''}`}
+                          disabled={resource.locked}
+                          onClick={() => {
                             requestVersion.current += 1;
-                            pendingFile.current = null;
-                            if (editor?.key === resource.key) setEditor(null);
                             setError(null);
-                          } catch (cause) {
-                            setError(cause instanceof Error ? cause.message : String(cause));
-                          }
-                        }}
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.7"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                          focusable="false"
+                            setEditor(editorRequest(resource));
+                          }}
                         >
-                          <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" />
-                        </svg>
-                      </button>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Load GLSL: ${resource.label}${resource.paint.name ? ` — ${resource.usageLabel}` : ''}`}
+                          disabled={resource.locked}
+                          onClick={() => {
+                            requestVersion.current += 1;
+                            setError(null);
+                            pendingFile.current = editorRequest(resource);
+                            input.current?.click();
+                          }}
+                        >
+                          Load
+                        </button>
+                        <button
+                          type="button"
+                          className="resources-shader-remove"
+                          aria-label={`Remove shader: ${resource.label}${resource.paint.name ? ` — ${resource.usageLabel}` : ''}`}
+                          title={
+                            isStoredShaderResourceTarget(resource)
+                              ? 'Remove this project shader. Objects using copies keep their shaders. Undo restores it.'
+                              : resource.slot === 'effect'
+                                ? `Remove this shader effect from ${resource.usageLabel}. Other effects remain. Undo restores it.`
+                                : `Remove the shader from ${resource.usageLabel}. Keep the object and return to its solid paint or original pixels. Undo restores the shader.`
+                          }
+                          disabled={resource.locked}
+                          onClick={() => {
+                            try {
+                              runDiscreteHistoryStep(
+                                () => removeShader(resource),
+                                isStoredShaderResourceTarget(resource)
+                                  ? `Remove shader “${resource.label}”`
+                                  : `Remove shader “${resource.label}” from ${resource.usageLabel}`,
+                              );
+                              requestVersion.current += 1;
+                              pendingFile.current = null;
+                              if (editor?.key === resource.key) setEditor(null);
+                              setError(null);
+                            } catch (cause) {
+                              setError(cause instanceof Error ? cause.message : String(cause));
+                            }
+                          }}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </Fragment>
               ))
             ))}
           {error && (

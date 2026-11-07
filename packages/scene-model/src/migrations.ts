@@ -30,7 +30,17 @@ import { isMediaPaint, normalizeMediaPaint } from './mediaPaint';
 import { normalizeLayerAutoLayout } from './autoLayout';
 import { parseShaderAnimationProperty } from './shaderAnimation';
 import { normalizeTextAnimation } from './textAnimation';
+import { normalizeTextCrawl } from './textCrawl';
+import { normalizeTicker } from './ticker';
+import { normalizeClockTimerSettings } from './clockTimer';
+import { testRundownErrors } from './testRundowns';
 import { normalizeChartAnimation } from './chartAnimation';
+import { parseChartData } from './chartData';
+import { validatePresenterDefinition } from './presenter';
+import {
+  initializeComponentInheritance,
+  reconcileComponentInstances,
+} from './componentInheritance';
 import type {
   Composition,
   Element,
@@ -179,9 +189,22 @@ function normalizeMediaPaintElement(element: Element): Element {
 }
 
 function normalizeElement(element: Element): Element {
+  if (element.type === 'ticker')
+    return normalizeTicker({
+      ...element,
+      items: element.items.map((item) => ({
+        ...item,
+        element: normalizeElement(item.element) as typeof item.element,
+      })),
+    });
   if (element.type === 'chart')
     return {
       ...element,
+      data:
+        element.data?.mode !== undefined || element.data?.rows !== undefined
+          ? parseChartData(element.data)
+          : element.data,
+      provider: element.provider ?? null,
       textColor: element.textColor ?? '#e5e7eb',
       fontSize: element.fontSize ?? 28,
       showLegend: element.showLegend ?? false,
@@ -229,6 +252,8 @@ function normalizeElement(element: Element): Element {
     direction: element.direction ?? 'auto',
     language: element.language ?? '',
     textAnimation: normalizeTextAnimation(element.textAnimation),
+    ...(element.crawl ? { crawl: normalizeTextCrawl(element.crawl) } : {}),
+    ...(element.clock ? { clock: normalizeClockTimerSettings(element.clock) } : {}),
   };
 }
 
@@ -251,6 +276,13 @@ function normalizeRoles(keyframes: LegacyKeyframe[]): Keyframe[] {
 }
 
 function normalizeComposition(composition: LegacyComposition): Composition {
+  if (composition.testRundowns !== undefined) {
+    const errors = testRundownErrors(
+      { dataFields: composition.dataFields ?? [] },
+      composition.testRundowns,
+    );
+    if (errors.length) throw new Error(errors.join('\n'));
+  }
   const keyframes = normalizeRoles(composition.keyframes);
   const existingStart = keyframes.find((keyframe) => keyframe.role === 'start');
   const existingEnd = keyframes.find((keyframe) => keyframe.role === 'end');
@@ -323,7 +355,12 @@ function normalizeComposition(composition: LegacyComposition): Composition {
         componentLink: legacyLayer.componentLink ?? null,
         keyframes: sortLayerKeyframes(legacyLayer.keyframes).map((keyframe) => ({
           ...keyframe,
-          transform: normalizeAuthoredTransform(keyframe.transform),
+          // Independent poses are sampled summaries and static channel authority. Their
+          // fractional values must survive reload; explicit editing APIs still snap pixels.
+          transform:
+            legacyLayer.animationTrackMode === 'independent'
+              ? { ...keyframe.transform }
+              : normalizeAuthoredTransform(keyframe.transform),
         })),
         animationTracks: {},
         loop: legacyLayer.loop
@@ -369,26 +406,34 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       const hasAnimationTracks = trackProperties.some(
         (property) => (legacyLayer.animationTracks?.[property]?.length ?? 0) > 0,
       );
+      const independentTracks = legacyLayer.animationTrackMode === 'independent';
       const fallbackTracks = createAnimationTracksFromLegacyLayer(normalizedLayer);
-      normalizedLayer.animationTracks = hasAnimationTracks
-        ? Object.fromEntries(
-            trackProperties.map((property) => {
-              const keys = sortLayerPropertyKeyframes(
-                legacyLayer.animationTracks?.[property] ?? [],
-              ).map((keyframe) => ({
-                ...keyframe,
-                frame: Math.round(keyframe.frame),
-                value: Number(keyframe.value),
-              }));
-              return [
-                property,
-                keys.length === 0 && property === 'strokeWidth'
-                  ? (fallbackTracks.strokeWidth ?? [])
-                  : keys,
-              ];
-            }),
-          )
-        : fallbackTracks;
+      normalizedLayer.animationTracks =
+        hasAnimationTracks || independentTracks
+          ? Object.fromEntries(
+              trackProperties
+                .filter(
+                  (property) =>
+                    !independentTracks ||
+                    (legacyLayer.animationTracks?.[property]?.length ?? 0) > 0,
+                )
+                .map((property) => {
+                  const keys = sortLayerPropertyKeyframes(
+                    legacyLayer.animationTracks?.[property] ?? [],
+                  ).map((keyframe) => ({
+                    ...keyframe,
+                    frame: Math.round(keyframe.frame),
+                    value: Number(keyframe.value),
+                  }));
+                  return [
+                    property,
+                    !independentTracks && keys.length === 0 && property === 'strokeWidth'
+                      ? (fallbackTracks.strokeWidth ?? [])
+                      : keys,
+                  ];
+                }),
+            )
+          : fallbackTracks;
       return normalizedLayer;
     }
 
@@ -485,6 +530,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
       durationFrames: cue.durationFrames ?? null,
     })),
     patterns: composition.patterns ?? [],
+    rendererPlugins: composition.rendererPlugins ?? [],
     components: (composition.components ?? []).map((component) => ({
       ...component,
       dataFields: component.dataFields.map((field) =>
@@ -494,6 +540,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
         const normalizedLayer: Layer = {
           ...layer,
           element: normalizeElement(layer.element),
+          effects: normalizeLayerEffects(layer.effects ?? createLayerEffects()),
           animationTracks: Object.fromEntries(
             Object.entries(layer.animationTracks ?? {}).filter(
               ([property, keys]) =>
@@ -564,6 +611,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
 /** Upgrade an editor project without mutating the parsed/autosaved source object. */
 export function migrateProject(project: Project | LegacyProject): Project {
   const cloned = cloneProject(project as LegacyProject);
+  if (cloned.presenter !== undefined) validatePresenterDefinition(cloned.presenter);
   if (cloned.shaders !== undefined && !Array.isArray(cloned.shaders))
     throw new Error('Project shader library must be an array.');
   if (
@@ -583,13 +631,18 @@ export function migrateProject(project: Project | LegacyProject): Project {
     ),
     compositions: cloned.compositions.map((composition) => {
       const normalized = normalizeComposition(composition);
-      return compositionWithShaderParameterFields({
+      const result = compositionWithShaderParameterFields({
         ...normalized,
         layers: normalized.layers.map((layer) => ({
           ...layer,
           element: normalizeMediaPaintElement(layer.element),
         })),
       });
+      // Old linked instances had no inherited snapshot. Infer it from their canonical asset and
+      // record current differences as overrides, preserving edits rather than replacing them.
+      initializeComponentInheritance(result);
+      reconcileComponentInstances(result);
+      return result;
     }),
   };
 }

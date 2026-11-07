@@ -1,9 +1,10 @@
 .animation-graph-editor {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
-  margin: 3px 6px;
+  margin: 0;
+  overflow: hidden;
   border: 1px solid var(--border-strong);
   background: var(--bg-canvas);
 }
@@ -23,6 +24,25 @@
   height: 100%;
   min-height: 0;
   touch-action: none;
+}
+
+.animation-graph-viewport {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.animation-graph-editor .animation-graph-frame-grid {
+  stroke: var(--border);
+}
+
+.animation-graph-editor .animation-graph-boundary {
+  stroke: var(--text-muted);
+  stroke-dasharray: 4 3;
+}
+
+.animation-graph-editor .animation-graph-playhead {
+  stroke: var(--accent-focus);
+  pointer-events: none;
 }
 
 .animation-graph-editor rect {
@@ -52,9 +72,11 @@
   fill: var(--accent);
 }
 
-.animation-graph-editor p {
-  margin: 0;
-  padding: 3px 6px 5px;
-  color: var(--text-muted);
-  font-size: var(--ui-font-size-compact);
+/* Keep keys reachable when the responsive viewBox makes their visible circles small. */
+.animation-graph-editor circle.animation-graph-key-hit {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 12;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
 }

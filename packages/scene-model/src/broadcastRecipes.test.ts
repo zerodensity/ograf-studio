@@ -26,7 +26,7 @@ describe('materialized broadcast recipes', () => {
     expect(composition.layout.timelineFolders[0]!.id).toBe(result.timelineGroupId);
   });
 
-  it('creates a clipped ticker whose crawl uses only a deterministic local loop', () => {
+  it('creates a clipped native ticker with frame-clock scrolling and safe item updates', () => {
     const composition = createComposition();
     const result = materializeTicker(composition, { speedPixelsPerSecond: 240 });
     const window = composition.layers.find((layer) => layer.id === result.layers.window)!;
@@ -34,16 +34,21 @@ describe('materialized broadcast recipes', () => {
 
     expect(window.clipChildren).toBe(true);
     expect(crawl.parentId).toBe(window.id);
-    expect(crawl.loop).toMatchObject({
-      activation: { type: 'lifecycle' },
-      repeatCount: null,
+    expect(crawl.loop).toBeNull();
+    expect(crawl.element).toMatchObject({
+      type: 'ticker',
+      speedPixelsPerSecond: 240,
+      gap: 48,
+      direction: 'left',
+      updatePolicy: 'next-appearance',
+      entryFade: 40,
+      exitFade: 40,
     });
-    expect(crawl.loop?.tracks.x).toHaveLength(2);
     expect(new Set(getResolvedLayerAnimationTracks(crawl).x?.map((key) => key.value))).toHaveLength(
       1,
     );
     expect(crawl.semantics.tags).toEqual(
-      expect.arrayContaining(['qa:allow-loop-seam', 'qa:allow-offcanvas']),
+      expect.arrayContaining(['qa:allow-loop-seam', 'native-ticker']),
     );
     expect(Object.keys(result.fields)).toEqual(['label', 'text']);
   });
@@ -51,10 +56,30 @@ describe('materialized broadcast recipes', () => {
   it('keeps field keys unique when one recipe receives repeated requested keys', () => {
     const composition = createComposition();
     materializeTicker(composition, { fieldKeys: { label: 'ticker', text: 'ticker' } });
-    expect(composition.dataFields.map((field) => field.key)).toEqual(['ticker', 'ticker_2']);
+    expect(
+      composition.dataFields
+        .filter((field) => !field.generatedShaderParameter)
+        .map((field) => field.key),
+    ).toEqual(['ticker', 'ticker_2']);
+    const controls = composition.dataFields.filter((field) => field.generatedShaderParameter);
+    expect(controls.map((field) => field.generatedShaderParameter!.name)).toEqual([
+      'ink',
+      'accent',
+      'strength',
+      'speed',
+    ]);
+    for (const field of controls) {
+      const parameter = field.generatedShaderParameter!;
+      expect(
+        composition.layers.find((layer) => layer.id === parameter.layerId)?.bindings,
+      ).toContainEqual({ fieldId: field.id, targetProperty: `fill.parameters.${parameter.name}` });
+    }
+    expect(new Set(composition.dataFields.map((field) => field.key)).size).toBe(
+      composition.dataFields.length,
+    );
   });
 
-  it('creates an outlined four-field scoreboard using the sports pack', () => {
+  it('creates a clean four-field scoreboard using the sports pack', () => {
     const composition = createComposition();
     const result = materializeScoreboard(composition, {
       content: { homeName: 'ANK', homeScore: 2, awayScore: 1, awayName: 'IZM' },
@@ -64,9 +89,16 @@ describe('materialized broadcast recipes', () => {
     expect(result.stylePack).toBe('sports');
     expect(Object.keys(result.fields)).toEqual(['homeName', 'homeScore', 'awayScore', 'awayName']);
     expect(scores).toHaveLength(2);
-    expect(
-      scores.every((layer) => layer.element.type === 'text' && layer.element.strokeWidth === 4),
-    ).toBe(true);
+    expect(scores.map((layer) => layer.element)).toEqual(
+      Array.from({ length: 2 }, () =>
+        expect.objectContaining({
+          type: 'text',
+          strokeWidth: 0,
+          fill: expect.objectContaining({ type: 'linear' }),
+          textAnimation: expect.objectContaining({ type: 'roll-up', replayOnUpdate: true }),
+        }),
+      ),
+    );
     expect(composition.dataFields.filter((field) => field.type === 'integer')).toHaveLength(2);
   });
 
@@ -74,25 +106,45 @@ describe('materialized broadcast recipes', () => {
     const composition = createComposition();
     const bug = materializeBug(composition, { stylePack: 'news' });
     const bugPanel = composition.layers.find((layer) => layer.id === bug.layers.panel)!;
-    expect(bugPanel.element).toMatchObject({ type: 'rectangle', fill: '#123A63' });
+    expect(bugPanel.element).toMatchObject({
+      type: 'rectangle',
+      fill: {
+        type: 'shader',
+        name: 'News / Signal grid',
+        parameters: { ink: [18 / 255, 58 / 255, 99 / 255, 1] },
+      },
+    });
 
     materializeScoreboard(composition, { stylePack: 'sports' });
 
-    expect(bugPanel.element).toMatchObject({ type: 'rectangle', fill: '#13232A' });
+    expect(bugPanel.element).toMatchObject({
+      type: 'rectangle',
+      fill: {
+        type: 'shader',
+        name: 'Sports / Velocity diagonals',
+        parameters: { ink: [19 / 255, 35 / 255, 42 / 255, 1] },
+      },
+    });
   });
 
-  it('creates a clock with two constrained fields and static punctuation', () => {
+  it('creates an automatic native clock with rolling digits in its own clipping window', () => {
     const composition = createComposition();
     const result = materializeClock(composition, { stylePack: 'documentary' });
-    const separator = composition.layers.find((layer) => layer.id === result.layers.separator)!;
+    const value = composition.layers.find((layer) => layer.id === result.layers.value)!;
+    const valueWindow = composition.layers.find((layer) => layer.id === result.layers.valueWindow)!;
 
-    expect(Object.keys(result.fields)).toEqual(['hours', 'minutes']);
-    expect(composition.dataFields.map((field) => field.constraints.pattern)).toEqual([
-      '^([01][0-9]|2[0-3])$',
-      '^[0-5][0-9]$',
-    ]);
-    expect(separator.bindings).toEqual([]);
-    expect(separator.semantics.tags).toContain('qa:static-text');
+    expect(Object.keys(result.fields)).toEqual([]);
+    expect(value.element).toMatchObject({
+      type: 'text',
+      clock: { mode: 'clock', source: 'automatic', format: 'hh:mm:ss', hourCycle: '24' },
+      textAnimation: { type: 'roll-up', replayOnUpdate: true },
+    });
+    expect(value).toMatchObject({ parentId: valueWindow.id, bindings: [] });
+    expect(valueWindow).toMatchObject({
+      parentId: result.layers.panel,
+      clipChildren: true,
+      element: { type: 'rectangle', fill: 'transparent', strokeWidth: 0 },
+    });
   });
 
   it('keeps every default recipe above the deterministic quality threshold', () => {

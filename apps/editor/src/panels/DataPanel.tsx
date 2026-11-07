@@ -1,6 +1,9 @@
 import { PropertyRow } from '../components/PropertyRow';
 import { CollapsibleSection } from '../components/CollapsibleSection';
+import { ColorInput } from '../components/ColorInput';
 import { DataConnectionsSection } from './DataConnectionsSection';
+import { TestDataRundownPanel } from './TestDataRundownPanel';
+import { DataExposureSection } from './DataExposureSection';
 import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import {
   createFieldDefinition,
@@ -17,10 +20,14 @@ import {
 import { compileCustomActions, compileDataSchema } from '@ograf-editor/codegen';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useTestDataStore, type TestValue } from '../state/testDataStore';
+import { fieldStructureForNodosType, useNodosTypes } from '../state/nodosTypes';
 import { resolvePreviewFieldValue } from '../state/previewFieldValue';
 import { Panel } from './Panel';
 import { PaintEditor } from './PaintEditor';
 import './DataPanel.css';
+
+/** Marks a type choice as a Nodos type in the field type list. */
+const NODOS_TYPE_PREFIX = 'nodos:';
 
 const FIELD_TYPE_OPTIONS: { value: FieldType; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -73,13 +80,20 @@ function optionalNumber(value: string): number | undefined {
   return Number.isFinite(number) ? number : undefined;
 }
 
-type DataTab = 'fields' | 'lists' | 'actions' | 'connections' | 'schema';
+type DataTab = 'fields' | 'expose' | 'lists' | 'actions' | 'connections' | 'test-data' | 'schema';
 
 const DATA_TABS: Array<{ id: DataTab; label: string; intro: string }> = [
   {
     id: 'fields',
     label: 'Fields',
-    intro: 'Values playout fills in, such as names and scores. Test values preview them here.',
+    intro:
+      'Define values used by bindings and Rules. Choose what playout can edit in Operator controls.',
+  },
+  {
+    id: 'expose',
+    label: 'Operator controls',
+    intro:
+      'Choose which controls playout can edit. Internal controls still work in bindings and Rules.',
   },
   {
     id: 'lists',
@@ -95,6 +109,12 @@ const DATA_TABS: Array<{ id: DataTab; label: string; intro: string }> = [
     id: 'connections',
     label: 'Connections',
     intro: 'Preview with JSON or CSV data. Exports still receive ordinary playout data.',
+  },
+  {
+    id: 'test-data',
+    label: 'Test data',
+    intro:
+      'Preview saved rows, check text fit and play a rundown without changing operator defaults.',
   },
   {
     id: 'schema',
@@ -120,6 +140,8 @@ export function DataPanel() {
   const addDataField = useProjectStore((s) => s.addDataField);
   const removeDataField = useProjectStore((s) => s.removeDataField);
   const updateDataField = useProjectStore((s) => s.updateDataField);
+  const nodosTypeChoices = useNodosTypes((state) => state.choices);
+  const nodosTypesMessage = useNodosTypes((state) => state.message);
   const addCustomAction = useProjectStore((s) => s.addCustomAction);
   const removeCustomAction = useProjectStore((s) => s.removeCustomAction);
   const updateCustomAction = useProjectStore((s) => s.updateCustomAction);
@@ -129,6 +151,7 @@ export function DataPanel() {
   const resetTestData = useTestDataStore((s) => s.resetAll);
 
   const [addFieldType, setAddFieldType] = useState<FieldType>('text');
+  const [fieldTypeError, setFieldTypeError] = useState('');
   const [tab, setTab] = useState<DataTab>(initialDataTab);
   const chooseTab = (next: DataTab) => {
     setTab(next);
@@ -178,6 +201,8 @@ export function DataPanel() {
 
         {tab === 'fields' ? (
           <>
+            {fieldTypeError ? <p role="alert">{fieldTypeError}</p> : null}
+            {nodosTypesMessage ? <p className="inspector-hint">{nodosTypesMessage}</p> : null}
             <CollapsibleSection
               sectionId="data.fields"
               title="Fields"
@@ -236,9 +261,31 @@ export function DataPanel() {
                           </td>
                           <td>
                             <select
-                              value={field.type}
+                              value={
+                                field.nodosType
+                                  ? `${NODOS_TYPE_PREFIX}${field.nodosType}`
+                                  : field.type
+                              }
                               disabled={!!field.generatedShaderParameter}
                               onChange={(e) => {
+                                setFieldTypeError('');
+                                if (e.target.value.startsWith(NODOS_TYPE_PREFIX)) {
+                                  try {
+                                    updateDataField(
+                                      field.id,
+                                      fieldStructureForNodosType(
+                                        e.target.value.slice(NODOS_TYPE_PREFIX.length),
+                                        field.key,
+                                        field,
+                                      ),
+                                    );
+                                  } catch (error) {
+                                    setFieldTypeError(
+                                      error instanceof Error ? error.message : String(error),
+                                    );
+                                  }
+                                  return;
+                                }
                                 const type = e.target.value as FieldType;
                                 const options = defaultOptionsForFieldType(type);
                                 const defaults = createFieldDefinition(type);
@@ -250,6 +297,7 @@ export function DataPanel() {
                                   defaultValue: defaultValueForFieldType(type, options),
                                   properties: defaults.properties,
                                   items: defaults.items,
+                                  nodosType: undefined,
                                 });
                               }}
                             >
@@ -258,6 +306,27 @@ export function DataPanel() {
                                   {opt.label}
                                 </option>
                               ))}
+                              {(nodosTypeChoices.length > 0 || field.nodosType) && (
+                                <optgroup label="Nodos types">
+                                  {[
+                                    ...new Set([
+                                      ...nodosTypeChoices,
+                                      ...(field.nodosType ? [field.nodosType] : []),
+                                    ]),
+                                  ].map((name) => (
+                                    <option
+                                      key={name}
+                                      value={`${NODOS_TYPE_PREFIX}${name}`}
+                                      disabled={!nodosTypeChoices.includes(name)}
+                                    >
+                                      {name}
+                                      {nodosTypeChoices.includes(name)
+                                        ? ''
+                                        : ' (saved; engine unavailable)'}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
                             </select>
                           </td>
                           <td>
@@ -324,6 +393,11 @@ export function DataPanel() {
                                 Defined by #pragma ograf {field.generatedShaderParameter.name}. Edit
                                 the shader declaration to change its type or range.
                               </p>
+                            ) : field.nodosType ? (
+                              <p className="inspector-hint">
+                                Its structure is that of the Nodos type {field.nodosType}, the type
+                                of its Nodos pin. Choose another type to edit it.
+                              </p>
                             ) : (
                               <FieldDetails field={field} update={updateDataField} />
                             )}
@@ -368,6 +442,7 @@ export function DataPanel() {
             )}
           </>
         ) : null}
+        {tab === 'expose' ? <DataExposureSection key={composition.id} /> : null}
         {tab === 'lists' ? <RuntimeCollectionsSection /> : null}
         {tab === 'actions' ? (
           <>
@@ -441,6 +516,7 @@ export function DataPanel() {
           </>
         ) : null}
         {tab === 'connections' ? <DataConnectionsSection /> : null}
+        {tab === 'test-data' ? <TestDataRundownPanel /> : null}
         {tab === 'schema' ? (
           <>
             <CollapsibleSection
@@ -657,10 +733,11 @@ function DefaultValueInput({
   }
   if (type === 'color') {
     return (
-      <input
-        type="color"
+      <ColorInput
+        label={field.label || field.key}
         value={String(value)}
-        onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+        alpha={field.generatedShaderParameter?.glslType === 'vec4'}
+        onChange={onChange}
       />
     );
   }
@@ -771,6 +848,7 @@ function resetFieldType(field: FieldDefinition, type: FieldType): FieldDefinitio
     label: field.label,
     description: field.description,
     required: field.required,
+    ...(field.exposeToOgraf !== undefined ? { exposeToOgraf: field.exposeToOgraf } : {}),
   });
 }
 

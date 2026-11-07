@@ -2,7 +2,9 @@ import { create } from 'zustand';
 
 import {
   applyVisualRuleEventActions,
+  coerceVisualRuleSetDataValue,
   collectVisualRuleStates,
+  visualRuleSetDataValue,
   firedVisualRuleDataRules,
   releaseVisualRuleOverrides,
   type FieldDefinition,
@@ -61,6 +63,7 @@ export function updateVisualRuleStateOverrides(
       fired.rule.actions,
       fired.hostLayerId,
       visibleOf(layers, fields, nextValues, overrides),
+      fired.rule,
     );
   }
   const changed =
@@ -73,6 +76,8 @@ interface TestDataState {
   /** fieldId -> live preview value. Design-time only — never persisted, never undo-able. */
   values: Record<string, TestValue>;
   visualRuleStateOverrides: Record<string, VisualRuleStateOverride>;
+  overflowLayerIds: string[];
+  setOverflowLayerIds: (ids: string[]) => void;
   setValue: (
     fieldId: string,
     value: TestValue,
@@ -80,6 +85,11 @@ interface TestDataState {
     fields?: FieldDefinition[],
   ) => void;
   setValues: (
+    values: Record<string, TestValue>,
+    layers?: Layer[],
+    fields?: FieldDefinition[],
+  ) => void;
+  replaceValues: (
     values: Record<string, TestValue>,
     layers?: Layer[],
     fields?: FieldDefinition[],
@@ -101,6 +111,8 @@ interface TestDataState {
 export const useTestDataStore = create<TestDataState>((set) => ({
   values: {},
   visualRuleStateOverrides: {},
+  overflowLayerIds: [],
+  setOverflowLayerIds: (overflowLayerIds) => set({ overflowLayerIds }),
   setValue: (fieldId, value, layers = [], fields = []) =>
     set((state) => {
       const values = { ...state.values, [fieldId]: value };
@@ -129,6 +141,17 @@ export const useTestDataStore = create<TestDataState>((set) => ({
         ),
       };
     }),
+  replaceValues: (values, layers = [], fields = []) =>
+    set((state) => ({
+      values: { ...values },
+      visualRuleStateOverrides: updateVisualRuleStateOverrides(
+        state.visualRuleStateOverrides,
+        layers,
+        fields,
+        state.values,
+        values,
+      ),
+    })),
   clearOverrides: (resets) =>
     set((state) => {
       let values = state.values;
@@ -146,19 +169,44 @@ export const useTestDataStore = create<TestDataState>((set) => ({
   simulateVisualRule: (hostLayerId, rule, layers, fields) =>
     set((state) => {
       const engine = editorVisualRuleEngine(layers, fields);
-      const overrides = toMap(state.visualRuleStateOverrides);
+      const current = toMap(state.visualRuleStateOverrides);
+      const overrides = Object.fromEntries(
+        applyVisualRuleEventActions(
+          engine,
+          current,
+          rule.actions,
+          hostLayerId,
+          visibleOf(layers, fields, state.values, current),
+          rule,
+        ),
+      );
+      // Data changes land in the test values, so bindings and data rules answer them.
+      const patch: Record<string, TestValue> = {};
+      for (const action of rule.actions) {
+        if (action.type !== 'set-data') continue;
+        const field = fields.find((candidate) => candidate.id === action.fieldId);
+        if (!field) continue;
+        const before = Object.hasOwn(patch, field.id)
+          ? patch[field.id]
+          : (state.values[field.id] ?? field.defaultValue);
+        const next = visualRuleSetDataValue(action, before);
+        patch[field.id] = (
+          action.mode === 'set' ? coerceVisualRuleSetDataValue(field.type, next) : next
+        ) as TestValue;
+      }
+      if (!Object.keys(patch).length) return { visualRuleStateOverrides: overrides };
+      const values = { ...state.values, ...patch };
       return {
-        visualRuleStateOverrides: Object.fromEntries(
-          applyVisualRuleEventActions(
-            engine,
-            overrides,
-            rule.actions,
-            hostLayerId,
-            visibleOf(layers, fields, state.values, overrides),
-          ),
+        values,
+        visualRuleStateOverrides: updateVisualRuleStateOverrides(
+          overrides,
+          layers,
+          fields,
+          state.values,
+          values,
         ),
       };
     }),
   resetVisualRuleSimulation: () => set({ visualRuleStateOverrides: {} }),
-  resetAll: () => set({ values: {}, visualRuleStateOverrides: {} }),
+  resetAll: () => set({ values: {}, visualRuleStateOverrides: {}, overflowLayerIds: [] }),
 }));

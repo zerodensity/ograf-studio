@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   createFieldDefinition,
+  createProject,
   createLayerPropertyKeyframe,
   findLayerKeyframeAtFrame,
+  getLayerTransformAtFrame,
   type Layer,
 } from '@ograf-editor/scene-model';
 import { getActiveComposition, useProjectStore } from './projectStore';
@@ -43,7 +45,8 @@ function positionSignature(layer: Layer) {
 
 describe('layer editing commands', () => {
   beforeEach(() => {
-    useProjectStore.getState().newProject();
+    // Explicit 12/24-frame fixture keeps these editing tests independent of new UI defaults.
+    useProjectStore.getState().loadProject(createProject());
     useTimelineStore.getState().setAutoKeyframe(true);
   });
 
@@ -166,14 +169,14 @@ describe('layer editing commands', () => {
 
     const refreshedIds = useProjectStore.getState().refreshLinkedComponentInstances(componentId);
     composition = activeComposition();
-    expect(refreshedIds).toHaveLength(4);
+    expect(refreshedIds).toHaveLength(6);
     expect(
       new Set(
         composition.layers
           .filter((layer) => layer.componentLink?.componentId === componentId)
           .map((layer) => layer.componentLink!.instanceId),
       ).size,
-    ).toBe(2);
+    ).toBe(3);
   });
 
   it('detaches an incomplete linked instance copy', () => {
@@ -267,7 +270,7 @@ describe('layer editing commands', () => {
     expect(composition.layers.map((layer) => layer.groupId)).toEqual([null, null]);
   });
 
-  it('saves selected layers as a reusable component and inserts independent instances', () => {
+  it('saves selected layers as a reusable component and protects its linked instances', () => {
     const parentId = useProjectStore.getState().addLayer('rectangle');
     const childId = useProjectStore.getState().addLayer('text');
     useProjectStore.getState().setLayerParent(childId, parentId);
@@ -289,13 +292,13 @@ describe('layer editing commands', () => {
     expect(instanceLayers).toHaveLength(2);
     expect(new Set(instanceLayers.map((layer) => layer.groupId)).size).toBe(1);
     expect(instanceLayers[1]!.parentId).toBe(instanceLayers[0]!.id);
-    expect(findLayerKeyframeAtFrame(instanceLayers[0]!, 12)?.transform).toMatchObject({
+    expect(getLayerTransformAtFrame(instanceLayers[0]!, 12)).toMatchObject({
       x: 160,
       y: 130,
     });
 
-    useProjectStore.getState().removeComponent(componentId!);
-    expect(activeComposition().components).toHaveLength(0);
+    expect(() => useProjectStore.getState().removeComponent(componentId!)).toThrow();
+    expect(activeComposition().components).toHaveLength(1);
     expect(
       activeComposition().layers.filter((layer) => instanceIds.includes(layer.id)),
     ).toHaveLength(2);
@@ -327,6 +330,8 @@ describe('layer editing commands', () => {
 
   it('bakes constraints into every relevant key when composition dimensions change', () => {
     const layerId = useProjectStore.getState().addLayer('rectangle');
+    // Author the later return pose explicitly; lifecycle markers no longer create layer keys.
+    useProjectStore.getState().addLayerKeyframe(layerId, 12);
     useProjectStore.getState().setLayerConstraints(layerId, {
       horizontal: 'right',
       vertical: 'bottom',

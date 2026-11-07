@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ograf-editor/ograf-types": "*"
+    "@ograf-editor/ograf-types": "*",
+    "@noble/hashes": "2.4.0",
+    "es-module-lexer": "2.3.1"
   },
   "devDependencies": {
     "typescript": "~6.0.2"

@@ -1,0 +1,39 @@
+.live-input-controls {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--ui-font-size);
+}
+.live-input-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.live-input-controls-row select {
+  flex: 1 1 110px;
+  min-width: 0;
+}
+.live-input-controls p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.live-input-controls small {
+  color: var(--text-muted);
+}
+.live-input-controls [role='alert'] {
+  color: #ff8b8b;
+}
+.live-input-controls .webcam-preview-controls {
+  padding: 6px 0 0;
+  border-top: 1px solid var(--border);
+}
+.live-input-name {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.live-input-name input {
+  min-width: 0;
+}

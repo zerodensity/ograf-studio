@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createLayerOfKind, createProject } from '@ograf-editor/scene-model';
-import { isPersistentGroupSelection, selectionIdsForLayer } from './groupSelection';
+import {
+  isPersistentGroupSelection,
+  selectionForPointer,
+  selectionIdsForLayer,
+} from './groupSelection';
 
 describe('persistent group selection', () => {
   it('expands a member to the complete group and distinguishes transient multi-selection', () => {
@@ -17,5 +21,23 @@ describe('persistent group selection', () => {
     expect(isPersistentGroupSelection(composition, [first.id, second.id])).toBe(true);
     expect(isPersistentGroupSelection(composition, [first.id, outside.id])).toBe(false);
     expect(isPersistentGroupSelection(composition, [first.id])).toBe(false);
+  });
+
+  it('selects a group on first hit and an individual member when entered or deep selected', () => {
+    const composition = createProject().compositions[0]!;
+    const panel = createLayerOfKind('rectangle');
+    const headline = createLayerOfKind('text');
+    const other = createLayerOfKind('ellipse');
+    panel.groupId = headline.groupId = 'lower-third';
+    composition.layers.push(panel, headline, other);
+    expect(selectionForPointer(composition, panel.id)).toEqual([panel.id, headline.id]);
+    expect(selectionForPointer(composition, panel.id, { enteredGroupId: 'lower-third' })).toEqual([
+      panel.id,
+    ]);
+    expect(selectionForPointer(composition, headline.id, { deep: true })).toEqual([headline.id]);
+    expect(selectionForPointer(composition, other.id, { enteredGroupId: 'lower-third' })).toEqual([
+      other.id,
+    ]);
+    expect(selectionForPointer(composition, 'missing')).toEqual([]);
   });
 });

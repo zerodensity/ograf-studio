@@ -1,16 +1,27 @@
 import { useAgentReviewStore, type AgentAuthoringProposal } from './agentReviewStore';
 export { useAgentReviewStore, type AgentAuthoringProposal } from './agentReviewStore';
 import { useEffect } from 'react';
+import type { NodosPackageFile } from './nodosPreset';
+import { setNodosTypes, type NodosTypeList, type NodosTypesResult } from './nodosTypes';
 import type { AgentAreaReference } from '@ograf-editor/agent-tools/chat-references';
+import type { LivePlayoutRequest } from '@ograf-editor/agent-tools/playout';
 import { resolveAgentBridgeUrl } from './agentBridgeUrl';
-import { getTotalFrames, type Project } from '@ograf-editor/scene-model';
+import {
+  createComponentGraphContext,
+  getTotalFrames,
+  type Project,
+} from '@ograf-editor/scene-model';
 import type { ExportArtifacts } from '@ograf-editor/codegen';
 import { create } from 'zustand';
 import { certifyExportArtifacts } from './ografCompatibility';
 import { applyRemoteProjectUpdate } from './historyStore';
 import { useProjectStore } from './projectStore';
+import { useProjectSetStore } from './projectSetStore';
+import { componentLibraryFromTemplates } from './componentSetLibrary';
 import { useSelectionStore } from './selectionStore';
 import { useTimelineStore } from './timelineStore';
+import { useWorkspaceStore } from './workspaceStore';
+import { normalizeAssistantContextPreferences } from './workspaceModel';
 import {
   captureAgentPng,
   measureAgentText,
@@ -20,6 +31,17 @@ import {
   type AgentStripRequest,
 } from './agentCapture';
 import type { AgentLayerReference } from './agentLayerReference';
+import {
+  archiveTemplateSetForBridge,
+  exportCoordinatedSetForBridge,
+  handleTemplateSetRequest,
+} from './templateSetBridge';
+import type {
+  TemplateSetArchiveRequest,
+  CoordinatedExportRequest,
+} from '@ograf-editor/agent-tools/template-set-storage';
+import { handleLivePlayoutRequest } from './livePlayoutStore';
+import { handlePreviewPlayoutRequest } from './previewPlayoutBridge';
 
 interface AgentBridgeStatus {
   connected: boolean;
@@ -61,6 +83,21 @@ export interface ChatProgress {
   updatedAt: number;
 }
 
+export interface ChatContextReport {
+  type: 'chat.context';
+  turnId: string;
+  model: string;
+  contextWindowTokens: number;
+  historyBudgetTokens: number;
+  toolPageTokens: number;
+  estimatedInputTokens: number;
+  source: 'provider' | 'override' | 'fallback';
+  omittedMessages: number;
+  historyResultId?: string;
+  estimated: true;
+  message: string;
+}
+
 interface AgentChatState {
   configured: boolean | null;
   exclusive: boolean;
@@ -72,6 +109,7 @@ interface AgentChatState {
   activeTurnId: string | null;
   activeTurnStartedAt: number | null;
   progress: ChatProgress | null;
+  context: ChatContextReport | null;
   pendingAssistantText: string;
   sessionUsage: ChatUsage;
   projectUsage: ChatUsage;
@@ -126,6 +164,7 @@ export const useAgentChatStore = create<AgentChatState>((set) => ({
   activeTurnId: null,
   activeTurnStartedAt: null,
   progress: null,
+  context: null,
   pendingAssistantText: '',
   sessionUsage: EMPTY_USAGE,
   projectUsage: EMPTY_USAGE,
@@ -145,6 +184,55 @@ export const useAgentChatStore = create<AgentChatState>((set) => ({
 
 let sendProposalDecision: ((payload: unknown) => void) | null = null;
 let sendChatPayload: ((payload: unknown) => void) | null = null;
+let sendNodosPayload: ((payload: unknown) => boolean) | null = null;
+const pendingNodosSends = new Map<string, (result: NodosSendResult) => void>();
+const pendingNodosTypes = new Map<string, (result: NodosTypesResult) => void>();
+
+export interface NodosSendResult {
+  ok: boolean;
+  message: string;
+}
+
+/** Asks Studio's server to serve a template's files and set it as a preset in the Nodos engine at `address`. */
+export function sendNodosPreset(request: {
+  address: string;
+  preset: unknown;
+  files: NodosPackageFile[];
+}): Promise<NodosSendResult> {
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve) => {
+    pendingNodosSends.set(requestId, resolve);
+    if (!sendNodosPayload?.({ type: 'nodos.send', requestId, ...request })) {
+      pendingNodosSends.delete(requestId);
+      resolve({
+        ok: false,
+        message: "OGraf Studio's server is not connected; start it to send presets to Nodos.",
+      });
+    }
+  });
+}
+
+/** Asks Studio's server for the structs, tables and enums of the Nodos engine at `address`. */
+export function requestNodosTypes(address: string): Promise<NodosTypesResult> {
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve) => {
+    pendingNodosTypes.set(requestId, resolve);
+    if (!sendNodosPayload?.({ type: 'nodos.types', requestId, address })) {
+      pendingNodosTypes.delete(requestId);
+      resolve({
+        ok: false,
+        message: "OGraf Studio's server is not connected; start it to reach Nodos.",
+      });
+    }
+  });
+}
+
+function settleNodosSends(result: NodosSendResult): void {
+  for (const settle of pendingNodosSends.values()) settle(result);
+  pendingNodosSends.clear();
+  for (const settle of pendingNodosTypes.values()) settle({ ok: false, message: result.message });
+  pendingNodosTypes.clear();
+}
 type ProposalCapture = (
   request: AgentCaptureRequest,
   isCurrent: () => boolean,
@@ -211,6 +299,7 @@ export function sendAgentChat(
     activeTurnId: turnId,
     pendingAssistantText: '',
     activeTurnStartedAt: Date.now(),
+    context: null,
     progress: {
       phase: 'sending',
       message: 'Sending request to the model',
@@ -223,6 +312,9 @@ export function sendAgentChat(
     turnId,
     sessionId: `editor:${projectId}`,
     text: text.trim(),
+    contextPreferences: normalizeAssistantContextPreferences(
+      useWorkspaceStore.getState().editorPreferences.assistantContext,
+    ),
     ...(areaReferences.length ? { areaReferences } : {}),
     ambient: {
       selection: {
@@ -252,6 +344,13 @@ export function sendAgentChat(
 export function cancelAgentChat(): void {
   const turnId = useAgentChatStore.getState().activeTurnId;
   if (turnId) sendChatPayload?.({ type: 'chat.cancel', turnId });
+}
+
+/** Context reports are auxiliary status, never chat instructions or replacement progress. */
+export function updateAgentChatContext(message: ChatContextReport): void {
+  const chat = useAgentChatStore.getState();
+  if (chat.activeTurnId !== message.turnId) return;
+  chat.setState({ context: message });
 }
 
 export function setAgentChatExclusive(enabled: boolean): void {
@@ -325,6 +424,24 @@ export function finishAgentChatTurn(
 }
 
 type BridgeMessage =
+  | { type: 'nodos.result'; requestId: string; ok: boolean; message: string }
+  | ({ type: 'nodos.types.result'; requestId: string } & NodosTypesResult)
+  | ({ type: 'nodos.types.changed'; address: string } & NodosTypeList)
+  | {
+      type: 'playout.request';
+      requestId: string;
+      expiresAt: number;
+      request: LivePlayoutRequest;
+    }
+  | {
+      type: 'template-set.request';
+      requestId: string;
+      expiresAt: number;
+      request:
+        | Parameters<typeof handleTemplateSetRequest>[0]
+        | TemplateSetArchiveRequest
+        | CoordinatedExportRequest;
+    }
   | { type: 'editor.ack'; revision: number }
   | { type: 'editor.error'; message: string }
   | { type: 'heartbeat.request'; requestId: string }
@@ -333,6 +450,7 @@ type BridgeMessage =
       revision: number;
       project: Project;
       source: string;
+      documentContext?: 'standalone';
       reason?: string;
       summary?: { operationCount?: number; operationTypes?: string[] };
     }
@@ -357,6 +475,7 @@ type BridgeMessage =
     }
   | { type: 'chat.external'; active: boolean }
   | { type: 'chat.turn.start'; turnId: string }
+  | ChatContextReport
   | {
       type: 'chat.progress';
       turnId: string;
@@ -411,8 +530,33 @@ export function useAgentBridge(): void {
     const send = (payload: unknown) => {
       if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
     };
+    const componentGraphContext = () => {
+      const { projectSet, activeTemplateId } = useProjectSetStore.getState();
+      const active = projectSet?.templates.find((template) => template.id === activeTemplateId);
+      if (!projectSet || !active) return null;
+      return createComponentGraphContext(
+        active.project.id,
+        projectSet.templates.map((template) => template.id),
+        projectSet.transitionLogic,
+        componentLibraryFromTemplates(projectSet),
+      );
+    };
+    const unsubscribeGraph = useProjectSetStore.subscribe((state, previous) => {
+      if (
+        state.projectSet === previous.projectSet &&
+        state.activeTemplateId === previous.activeTemplateId
+      )
+        return;
+      send({ type: 'editor.component-graph', componentGraphContext: componentGraphContext() });
+    });
+    const sendNodos = (payload: unknown) => {
+      if (socket?.readyState !== WebSocket.OPEN) return false;
+      socket.send(JSON.stringify(payload));
+      return true;
+    };
     sendProposalDecision = send;
     sendChatPayload = send;
+    sendNodosPayload = sendNodos;
 
     const unsubscribe = useProjectStore.subscribe((state, previous) => {
       if (state.project === previous.project || applyingRemote) return;
@@ -428,6 +572,7 @@ export function useAgentBridge(): void {
         send({
           type: 'editor.project',
           project: useProjectStore.getState().project,
+          componentGraphContext: componentGraphContext(),
           reason: 'UI edit',
         });
       }, 150);
@@ -442,13 +587,34 @@ export function useAgentBridge(): void {
           return;
         }
         status({ connected: true, authoritative: true, activity: 'Agent connected' });
-        send({ type: 'editor.hello', project: useProjectStore.getState().project });
+        send({
+          type: 'editor.hello',
+          project: useProjectStore.getState().project,
+          componentGraphContext: componentGraphContext(),
+          capabilities: ['template-sets-v1', 'playout-v1', 'component-graph-v1'],
+        });
       });
       socket.addEventListener('message', async (event) => {
         let message: BridgeMessage;
         try {
           message = JSON.parse(String(event.data)) as BridgeMessage;
         } catch {
+          return;
+        }
+        if (message.type === 'nodos.result') {
+          pendingNodosSends.get(message.requestId)?.({ ok: message.ok, message: message.message });
+          pendingNodosSends.delete(message.requestId);
+          return;
+        }
+        if (message.type === 'nodos.types.changed') {
+          const { type: _type, address, ...types } = message;
+          setNodosTypes(types, address);
+          return;
+        }
+        if (message.type === 'nodos.types.result') {
+          const { type: _type, requestId, ...result } = message;
+          pendingNodosTypes.get(requestId)?.(result as NodosTypesResult);
+          pendingNodosTypes.delete(requestId);
           return;
         }
         if (message.type === 'editor.ack') {
@@ -490,6 +656,10 @@ export function useAgentBridge(): void {
         }
         if (message.type === 'chat.external') {
           useAgentChatStore.getState().setState({ externalAgentActive: message.active });
+          return;
+        }
+        if (message.type === 'chat.context') {
+          updateAgentChatContext(message);
           return;
         }
         if (message.type === 'chat.turn.start') {
@@ -542,10 +712,7 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'heartbeat.request') {
-          window.setTimeout(
-            () => send({ type: 'heartbeat.result', requestId: message.requestId }),
-            0,
-          );
+          send({ type: 'heartbeat.result', requestId: message.requestId });
           return;
         }
         if (message.type === 'project.replace') {
@@ -560,6 +727,18 @@ export function useAgentBridge(): void {
           applyingRemote = true;
           try {
             applyRemoteProjectUpdate(message.project, message);
+          } catch (cause) {
+            const detail = cause instanceof Error ? cause.message : String(cause);
+            status({ activity: `Update rejected: ${detail}` });
+            // A legacy or stale host must not leave Studio blank or with an invalid set.
+            // Echo the last valid source so both peers converge after the rejected update.
+            send({
+              type: 'editor.project',
+              project: useProjectStore.getState().project,
+              componentGraphContext: componentGraphContext(),
+              reason: `Rejected unsafe editor update: ${detail}`,
+            });
+            return;
           } finally {
             applyingRemote = false;
           }
@@ -654,6 +833,84 @@ export function useAgentBridge(): void {
             });
           return;
         }
+        if (message.type === 'playout.request') {
+          // Admission is immediate: Clear must not wait behind captures, preparation or transitions.
+          const requestSocket = event.currentTarget as WebSocket;
+          try {
+            if (stopped || replaced || requestSocket !== socket)
+              throw new Error('This Studio connection is no longer authoritative.');
+            if (!Number.isFinite(message.expiresAt) || Date.now() >= message.expiresAt)
+              throw new Error('Live playout request expired before admission; no change was made.');
+            const result = await (message.request.target === 'preview'
+              ? handlePreviewPlayoutRequest(message.request)
+              : handleLivePlayoutRequest(message.request));
+            if (requestSocket.readyState === WebSocket.OPEN)
+              requestSocket.send(
+                JSON.stringify({ type: 'playout.result', requestId: message.requestId, result }),
+              );
+            if (message.request.action === 'command')
+              status({
+                activity:
+                  message.request.target === 'preview'
+                    ? 'Preview data update admitted'
+                    : 'Live playout command admitted',
+              });
+          } catch (cause) {
+            if (requestSocket.readyState === WebSocket.OPEN)
+              requestSocket.send(
+                JSON.stringify({
+                  type: 'playout.result',
+                  requestId: message.requestId,
+                  error: cause instanceof Error ? cause.message : String(cause),
+                }),
+              );
+          }
+          return;
+        }
+        if (message.type === 'template-set.request') {
+          browserWorkQueue = browserWorkQueue
+            .catch(() => undefined)
+            .then(async () => {
+              try {
+                if (Date.now() >= message.expiresAt)
+                  throw new Error(
+                    'Template-set request expired before execution; no change was made.',
+                  );
+                const result =
+                  message.request.action === 'archive'
+                    ? await archiveTemplateSetForBridge(message.request, {
+                        expiresAt: message.expiresAt,
+                        onProgress: (message) =>
+                          status({ activity: `Saving template set: ${message}` }),
+                      })
+                    : message.request.action === 'export-coordinated'
+                      ? await exportCoordinatedSetForBridge(message.request, {
+                          expiresAt: message.expiresAt,
+                          onProgress: (message) => status({ activity: message }),
+                        })
+                      : handleTemplateSetRequest(message.request);
+                send({
+                  type: 'template-set.result',
+                  requestId: message.requestId,
+                  result,
+                  ...(message.request.action === 'command'
+                    ? {
+                        project: useProjectStore.getState().project,
+                        componentGraphContext: componentGraphContext(),
+                      }
+                    : {}),
+                });
+                status({ activity: 'Template-set request completed' });
+              } catch (cause) {
+                send({
+                  type: 'template-set.result',
+                  requestId: message.requestId,
+                  error: cause instanceof Error ? cause.message : String(cause),
+                });
+              }
+            });
+          return;
+        }
         if (message.type === 'capture.request') {
           browserWorkQueue = browserWorkQueue
             .catch(() => undefined)
@@ -732,6 +989,10 @@ export function useAgentBridge(): void {
             },
           });
         }
+        settleNodosSends({
+          ok: false,
+          message: "OGraf Studio's server disconnected before Nodos answered.",
+        });
         status({ connected: false, revision: null, activity: 'Agent bridge offline' });
         if (!replaced) reconnectTimer = window.setTimeout(connect, 3000);
       });
@@ -744,8 +1005,10 @@ export function useAgentBridge(): void {
       window.clearTimeout(reconnectTimer);
       window.clearTimeout(syncTimer);
       unsubscribe();
+      unsubscribeGraph();
       if (sendProposalDecision === send) sendProposalDecision = null;
       if (sendChatPayload === send) sendChatPayload = null;
+      if (sendNodosPayload === sendNodos) sendNodosPayload = null;
       if (proposalCapture === queuedProposalCapture) proposalCapture = directProposalCapture;
       socket?.close();
     };

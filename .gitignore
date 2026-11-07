@@ -16,6 +16,9 @@ npm-debug.log*
 
 *.tsbuildinfo
 
+# Generated from first-party plugin sources before editor development/builds.
+/apps/editor/public/bundled-plugins/
+
 # Local Studio authoring/export output and imported test media.
 /Exports/
 /Projects/
@@ -38,3 +41,8 @@ npm-debug.log*
 
 # Local browser profiles created by compatibility smoke tests.
 .tmp-*-ograf/
+
+# Temporary local verification scripts, browser caches and fixtures.
+/.task-temp/
+/.tmp/
+/project-*_thumb.png

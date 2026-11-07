@@ -1,0 +1,350 @@
+<!doctype html>
+<html>
+  <meta charset="utf-8" /><title>Rolling text FX review</title
+  ><style>
+    body {
+      max-width: 1180px;
+      margin: 24px;
+      background: #151b25;
+      color: white;
+      font: 16px Arial;
+    }
+    button {
+      padding: 9px;
+      margin-right: 8px;
+    }
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .cell {
+      padding: 14px;
+      background: #090e17;
+      border: 1px solid #344258;
+    }
+    .host {
+      width: 340px;
+      height: 85px;
+      position: relative;
+    }
+    #results {
+      white-space: pre-wrap;
+      max-height: 90px;
+      overflow: auto;
+    }
+  </style>
+  <h1>Rolling text / counters / clocks</h1>
+  <p>
+    <button data-frame="0">Start 0</button><button data-frame="3">Early 3</button
+    ><button data-frame="10">Middle 10</button><button data-frame="20">End 20</button
+    ><button id="checks">Check rolling</button
+    ><button id="integration">Check runtime updates</button>
+  </p>
+  <div role="status" id="status">Loading…</div>
+  <pre id="results"></pre>
+  <div id="grid"></div>
+  <script type="module">
+    import {
+      createTextElement,
+      createShaderElement,
+      normalizeClockTimerSettings,
+      normalizeTextAnimation,
+      createComposition,
+      createTextLayer,
+      createClockLayer,
+      createFieldDefinition,
+      createLayerKeyframe,
+      createDefaultTransform,
+    } from '../../packages/scene-model/src/index.ts';
+    import {
+      renderElementContent,
+      renderAnimatedElementAtTime,
+      waitForElementContentReady,
+    } from '../../packages/ograf-runtime/src/renderElement.ts';
+    import {
+      renderTextAnimationAtFrame,
+      setTextAnimationPrevious,
+    } from '../../packages/ograf-runtime/src/textAnimationRendering.ts';
+    const gradient = {
+      type: 'linear',
+      angle: 90,
+      stops: [
+        { offset: 0, color: '#00d8ff', opacity: 1 },
+        { offset: 1, color: '#ffbd55', opacity: 1 },
+      ],
+    };
+    const shader = {
+      ...createShaderElement(),
+      speed: 0,
+      fragmentSource:
+        'void mainImage(out vec4 fragColor,in vec2 fragCoord){vec2 uv=fragCoord/iResolution.xy;fragColor=vec4(mix(vec3(0.,.85,1.),vec3(1.,.74,.33),uv.x),1.);}',
+    };
+    const items = [];
+    for (const config of [
+      {
+        name: 'Roll up · 12:59:59 → 13:00:00',
+        type: 'roll-up',
+        source: '13:00:00',
+        old: '12:59:59',
+      },
+      {
+        name: 'Roll down · 13:00:00 → 12:59:59',
+        type: 'roll-down',
+        source: '12:59:59',
+        old: '13:00:00',
+      },
+      { name: 'Count up · 9 → 10', type: 'count-up', source: '10', countFrom: 9, countRoll: 'up' },
+      {
+        name: 'Count down · 100 → 99',
+        type: 'count-down',
+        source: '99',
+        countFrom: 100,
+        countRoll: 'down',
+      },
+      { name: 'Clock · 00:00:59 → 00:01:00', type: 'roll-up', clock: true, source: '00:00:59' },
+    ])
+      for (const [label, fill] of [
+        ['Solid', '#fff'],
+        ['Gradient', gradient],
+        ['Shader', shader],
+      ]) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.innerHTML = `<p>${config.name} / ${label}</p><div class="host"></div>`;
+        document.getElementById('grid').append(cell);
+        const host = cell.querySelector('.host');
+        const element = createTextElement({
+          content: config.source,
+          fontFamily: 'Arial',
+          fontSize: 55,
+          fontWeight: 700,
+          fill,
+          autoFit: 'fit-to-width',
+          minFontSize: 20,
+          textAnimation: {
+            type: config.type,
+            countFrom: config.countFrom,
+            countRoll: config.countRoll,
+            split: 'grapheme',
+            durationFrames: 20,
+            replayOnUpdate: true,
+          },
+          ...(config.clock
+            ? {
+                clock: normalizeClockTimerSettings({
+                  mode: 'count-up',
+                  initialValueMs: 59000,
+                  format: 'hh:mm:ss',
+                  autoStart: true,
+                }),
+              }
+            : {}),
+        });
+        const previous = config.old ? { ...element, content: config.old } : null;
+        items.push({ host, element, previous, label, clock: config.clock });
+        renderElementContent(host, element, 0, { frameRate: 25 });
+        setTextAnimationPrevious(host, previous);
+      }
+    async function show(frame) {
+      for (const item of items) {
+        if (!item.clock) {
+          item.host.dataset.ografTextAnimationFrame = String(frame);
+          renderTextAnimationAtFrame(item.host, item.element, frame);
+        }
+        renderAnimatedElementAtTime(
+          item.host,
+          item.element,
+          (item.clock ? 1000 : 0) + (frame / 25) * 1000,
+        );
+      }
+      await Promise.all(items.map((x) => waitForElementContentReady(x.host)));
+      document.getElementById('status').textContent =
+        'Frame ' + frame + ' · ' + items.length + ' renders ready';
+    }
+    document
+      .querySelectorAll('[data-frame]')
+      .forEach((button) => (button.onclick = () => show(Number(button.dataset.frame))));
+    document.getElementById('checks').onclick = async () => {
+      try {
+        const seen = new Map();
+        const report = [];
+        for (const frame of [0, 3, 10, 20, 3, 0, 20]) {
+          await show(frame);
+          const snapshot = items.map(({ host, element, label }) => {
+            let hash = 2166136261,
+              ink = 0;
+            const source = host.querySelector('canvas');
+            if (source) {
+              const copy = document.createElement('canvas');
+              copy.width = source.width;
+              copy.height = source.height;
+              const ctx = copy.getContext('2d');
+              ctx.drawImage(source, 0, 0);
+              const bytes = ctx.getImageData(0, 0, copy.width, copy.height).data;
+              for (let i = 0; i < bytes.length; i++) {
+                hash = Math.imul(hash ^ bytes[i], 16777619);
+                if (i % 4 === 3 && bytes[i]) ink++;
+              }
+              if (!ink) throw new Error('Shader text blank at ' + frame);
+            }
+            const slots = Array.from(host.querySelectorAll('[data-ograf-text-roll-slot]')).map(
+              (slot) => ({
+                old: slot.querySelector('[data-ograf-text-roll-old]')?.textContent,
+                next: slot.querySelector('[data-ograf-text-roll-new]')?.textContent,
+                oldY: slot.querySelector('[data-ograf-text-roll-old]')?.style.transform,
+                newY: slot.querySelector('[data-ograf-text-roll-new]')?.style.transform,
+              }),
+            );
+            return { label, type: element.textAnimation.type, hash: hash >>> 0, ink, slots };
+          });
+          const signature = JSON.stringify(snapshot);
+          if (seen.has(frame) && seen.get(frame) !== signature)
+            throw new Error(
+              'Repeated sample changed at ' +
+                frame +
+                ' ' +
+                JSON.stringify(
+                  snapshot
+                    .map((entry, index) =>
+                      JSON.stringify(entry) === JSON.stringify(JSON.parse(seen.get(frame))[index])
+                        ? null
+                        : { index, previous: JSON.parse(seen.get(frame))[index], current: entry },
+                    )
+                    .filter(Boolean),
+                ),
+            );
+          seen.set(frame, signature);
+          report.push({ frame, snapshot });
+        }
+        document.getElementById('results').textContent =
+          'PASS · repeated/backward rolling snapshots and nonempty shader pixels\n' +
+          JSON.stringify(report, null, 2);
+        await show(3);
+      } catch (error) {
+        document.getElementById('results').textContent = 'FAIL · ' + error;
+      }
+    };
+    try {
+      await show(3);
+    } catch (error) {
+      document.getElementById('status').textContent = String(error);
+    }
+    import { compileDescriptor } from '../../packages/codegen/src/compileDescriptor.ts';
+    import { registerGraphicElement } from '../../packages/ograf-runtime/src/index.ts';
+    document.getElementById('integration').onclick = async () => {
+      let graphic;
+      try {
+        const score = createTextLayer(),
+          clock = createClockLayer();
+        const field = createFieldDefinition('text', { key: 'score', defaultValue: '100' });
+        score.bindings = [{ fieldId: field.id, targetProperty: 'content' }];
+        score.element.content = '100';
+        clock.element.clock = normalizeClockTimerSettings({
+          mode: 'clock',
+          source: 'automatic',
+          format: 'hh:mm:ss',
+          timeZone: 'UTC',
+          referenceTimeMs: Date.parse('2026-10-15T12:34:58Z'),
+        });
+        for (const [i, layer] of [score, clock].entries()) {
+          Object.assign(layer.element, {
+            fontSize: 72,
+            fontFamily: 'Arial',
+            autoFit: 'fixed',
+            overflowPolicy: 'visible',
+            runs: [],
+            textAnimation: normalizeTextAnimation({
+              type: 'roll-up',
+              durationFrames: 10,
+              replayOnUpdate: true,
+            }),
+          });
+          layer.keyframes = [
+            createLayerKeyframe(
+              0,
+              createDefaultTransform({ x: 30, y: 30 + i * 150, width: 580, height: 110 }),
+            ),
+          ];
+        }
+        const descriptor = compileDescriptor(
+          createComposition({
+            width: 640,
+            height: 360,
+            frameRate: 10,
+            layers: [score, clock],
+            dataFields: [field],
+            backgroundColor: '#102030',
+          }),
+        );
+        graphic = document.createElement(registerGraphicElement(descriptor));
+        graphic.style.width = '640px';
+        graphic.style.height = '360px';
+        document.body.append(graphic);
+        const load = (renderType) =>
+          graphic.load({
+            renderType,
+            renderCharacteristics: { resolution: { width: 640, height: 360 }, frameRate: 10 },
+            data: { score: '100' },
+          });
+        const snapshot = () =>
+          Array.from(graphic.shadowRoot.querySelectorAll('[data-ograf-text-flow]')).map((flow) => ({
+            old: Array.from(flow.querySelectorAll('[data-ograf-text-roll-old]'))
+              .map((n) => n.textContent)
+              .join(''),
+            next: Array.from(flow.querySelectorAll('[data-ograf-text-roll-new]'))
+              .map((n) => n.textContent)
+              .join(''),
+            rows: Array.from(flow.querySelectorAll('[data-ograf-text-roll-slot]')).map((n) => ({
+              from: n.querySelector('[data-ograf-text-roll-old]')?.style.transform,
+              to: n.querySelector('[data-ograf-text-roll-new]')?.style.transform,
+            })),
+          }));
+        await load('realtime');
+        await graphic.playAction({ skipAnimation: true });
+        await graphic.updateAction({ data: { score: '200' } });
+        const realtime = snapshot();
+        if (realtime[0].old !== '100' || realtime[0].next !== '200')
+          throw new Error('Realtime predecessor mismatch ' + JSON.stringify(realtime));
+        await load('non-realtime');
+        await graphic.setActionsSchedule({
+          schedule: [
+            { timestamp: 0, action: { type: 'playAction', params: { skipAnimation: true } } },
+            {
+              timestamp: 1000,
+              action: { type: 'updateAction', params: { data: { score: '200' } } },
+            },
+            {
+              timestamp: 2000,
+              action: { type: 'updateAction', params: { data: { score: '300' } } },
+            },
+          ],
+        });
+        const frames = [];
+        for (const timestamp of [1500, 2500, 1500]) {
+          await graphic.goToTime({ timestamp });
+          frames.push({ timestamp, snapshot: snapshot() });
+        }
+        if (JSON.stringify(frames[0]) !== JSON.stringify(frames[2]))
+          throw new Error('Backward runtime seek mismatch ' + JSON.stringify(frames));
+        if (
+          frames[0].snapshot[0].old !== '100' ||
+          frames[0].snapshot[0].next !== '200' ||
+          frames[1].snapshot[0].old !== '200' ||
+          frames[1].snapshot[0].next !== '300'
+        )
+          throw new Error('Scheduled predecessor mismatch ' + JSON.stringify(frames));
+        document.getElementById('results').textContent =
+          'PASS · real GraphicElement realtime update, scheduled update, clock and backward seek\n' +
+          JSON.stringify({ realtime, frames }, null, 2);
+      } catch (error) {
+        document.getElementById('results').textContent = 'FAIL · ' + error;
+      } finally {
+        if (graphic) {
+          await graphic.dispose();
+          graphic.remove();
+        }
+      }
+    };
+  </script>
+</html>

@@ -1,6 +1,7 @@
 import { effectParameterHelp } from './propertyHelp';
 import { PropertyRow } from '../components/PropertyRow';
 import { CollapsibleSection } from '../components/CollapsibleSection';
+import { useEditorWindow } from '../layout/EditorWindow';
 import { useState } from 'react';
 import {
   EFFECT_CATALOG,
@@ -21,6 +22,7 @@ import { resolveDesignerEffects } from '../state/dataBinding';
 import { shaderPaintWithPatch } from '../state/shaderResources';
 import { SHADER_RESOURCE_MIME, shaderEffectPatchFromResourceDrag } from '../state/shaderDrag';
 import { ShaderSourceEditor } from './ShaderSourceEditor';
+import { openShaderResourceEditor } from '../state/shaderEditorRequest';
 import './EffectStackEditor.css';
 
 const blendLabel = (mode: EffectBlendMode) =>
@@ -41,7 +43,9 @@ export function EffectStackEditor({
   frame: number;
   groupLayers?: Layer[];
 }) {
-  const fields = useActiveComposition().dataFields;
+  const { window } = useEditorWindow();
+  const composition = useActiveComposition();
+  const fields = composition.dataFields;
   const previewValues = useTestDataStore((state) => state.values);
   const [type, setType] = useState<EffectType>('glow'),
     [error, setError] = useState(''),
@@ -60,6 +64,9 @@ export function EffectStackEditor({
   const isGroup = groupLayers.length > 1,
     targetIds = groupLayers.map((candidate) => candidate.id),
     groupLocked = groupLayers.some((candidate) => candidate.isLocked);
+  const supportsBackdrop = groupLayers.every(
+    (candidate) => candidate.element.type === 'rectangle' || candidate.element.type === 'ellipse',
+  );
   const effects = resolveDesignerEffects(
       layer,
       getLayerEffectsAtFrame(layer, frame),
@@ -160,7 +167,7 @@ export function EffectStackEditor({
         className="effect-stack-section"
         title={
           <>
-            {isGroup ? 'Group effects stack' : 'Effects stack'}
+            {isGroup ? `Effects stack · ${groupLayers.length} objects` : 'Effects stack'}
             {visible.length > 0 && <span className="effect-stack-count">{visible.length}</span>}
           </>
         }
@@ -172,24 +179,28 @@ export function EffectStackEditor({
             onChange={(e) => setType(e.target.value as EffectType)}
           >
             {EFFECT_TYPES.map((t) => (
-              <option key={t} value={t}>
+              <option key={t} value={t} disabled={t === 'backdrop-blur' && !supportsBackdrop}>
                 {EFFECT_CATALOG[t].label}
               </option>
             ))}
           </select>
           <button
-            disabled={full || groupLocked}
+            disabled={full || groupLocked || (type === 'backdrop-blur' && !supportsBackdrop)}
             title={
               full ? `Limit of ${MAX_EFFECTS} effects reached` : 'Add this effect to the stack'
             }
-            onClick={() => run(() => addTarget(type))}
+            onClick={() =>
+              run(() =>
+                addTarget(type, type === 'backdrop-blur' ? { blendMode: 'normal' } : undefined),
+              )
+            }
           >
             Add
           </button>
         </div>
         <p className="effect-stack-drop-hint">
           {isGroup
-            ? `Shared by all ${groupLayers.length} group layers. Individual layer effects remain independent.`
+            ? `Applies to all ${groupLayers.length} selected objects separately. Individual layer effects remain independent.`
             : 'Drop a shader here to process this layer without replacing its fill.'}
         </p>
         {error && (
@@ -270,9 +281,13 @@ export function EffectStackEditor({
                 </summary>
                 <PropertyRow
                   className="inspector-row effect-stack-blend"
-                  help="Bypass skips this effect. A blend mode activates it and combines its result with the incoming image, at the opacity beside it."
+                  help={
+                    effect.type === 'backdrop-blur'
+                      ? 'Normal enables backdrop blur. Amount scales its radius; Bypass switches it off.'
+                      : 'Bypass skips this effect. A blend mode activates it and combines its result with the incoming image, at the opacity beside it.'
+                  }
                 >
-                  <span>Blend</span>
+                  <span>{effect.type === 'backdrop-blur' ? 'Mode / amount' : 'Blend'}</span>
                   <span className="effect-stack-blend-controls">
                     <select
                       aria-label={`${effect.name} blend mode`}
@@ -289,7 +304,9 @@ export function EffectStackEditor({
                       }
                     >
                       <option value="bypass">Bypass</option>
-                      {EFFECT_BLEND_MODES.map((mode) => (
+                      {EFFECT_BLEND_MODES.filter(
+                        (mode) => effect.type !== 'backdrop-blur' || mode === 'normal',
+                      ).map((mode) => (
                         <option key={mode} value={mode}>
                           {blendLabel(mode)}
                         </option>
@@ -297,8 +314,12 @@ export function EffectStackEditor({
                     </select>
                     <input
                       type="number"
-                      aria-label={`${effect.name} blend opacity`}
-                      title="Effect opacity: mix this effect's blended result with its input; zero contributes nothing."
+                      aria-label={`${effect.name} ${effect.type === 'backdrop-blur' ? 'amount' : 'blend opacity'}`}
+                      title={
+                        effect.type === 'backdrop-blur'
+                          ? 'Blur amount: scales the backdrop radius from zero to full strength.'
+                          : "Effect opacity: mix this effect's blended result with its input; zero contributes nothing."
+                      }
                       min={0}
                       max={100}
                       step={1}
@@ -321,6 +342,19 @@ export function EffectStackEditor({
                     </p>
                     <ShaderSourceEditor
                       element={effect.shader}
+                      showSourceEditor={false}
+                      onEditShader={() =>
+                        openShaderResourceEditor(
+                          {
+                            compositionId: composition.id,
+                            layerId: layer.id,
+                            slot: 'effect',
+                            effectId: effect.id,
+                          },
+                          window,
+                        )
+                      }
+                      editShaderLabel={isGroup ? `Edit shader for ${layer.name}…` : undefined}
                       labelPrefix={`${effect.name} shader`}
                       allowImageInput={false}
                       onChange={(patch) =>

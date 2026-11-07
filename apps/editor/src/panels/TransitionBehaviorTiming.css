@@ -1,0 +1,129 @@
+.tl-behavior-timing {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  margin: 0;
+  padding: 8px;
+  min-width: 0;
+}
+.tl-behavior-timing legend {
+  padding: 0 4px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.tl-behavior-timing-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.tl-behavior-timing-total strong {
+  font-weight: 500;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.tl-behavior-phase-strip {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  gap: 3px;
+}
+.tl-behavior-phase {
+  flex-basis: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 31px;
+  padding: 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, #6cc9fa 18%, var(--bg-panel));
+  border: 1px solid color-mix(in srgb, #6cc9fa 50%, var(--border));
+  font-size: 11px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.tl-behavior-phase span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-behavior-phase small {
+  font-variant-numeric: tabular-nums;
+}
+.tl-behavior-phase-wait {
+  background: color-mix(in srgb, #c1a576 15%, var(--bg-panel));
+  border-color: color-mix(in srgb, #c1a576 50%, var(--border));
+}
+.tl-behavior-phase-content {
+  background: color-mix(in srgb, #82b598 18%, var(--bg-panel));
+  border-color: color-mix(in srgb, #82b598 50%, var(--border));
+}
+.tl-behavior-phase-controls {
+  display: grid;
+  gap: 5px;
+}
+.tl-behavior-phase-control {
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) minmax(40px, 1fr) 65px 44px;
+  gap: 6px;
+  align-items: center;
+}
+.tl-behavior-phase-control > label {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.tl-behavior-phase-control > input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--accent, #6cc9fa);
+}
+.tl-behavior-frame-input {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.tl-behavior-frame-input input {
+  width: 100%;
+  min-width: 0;
+  min-height: 25px;
+  box-sizing: border-box;
+  font-variant-numeric: tabular-nums;
+}
+.tl-behavior-frame-input > span,
+.tl-behavior-phase-control > small {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.tl-behavior-phase-control > small {
+  text-align: right;
+}
+@container (max-width: 335px) {
+  .tl-behavior-phase-control {
+    grid-template-columns: minmax(65px, 1fr) 65px 44px;
+  }
+  .tl-behavior-phase-control > input[type='range'] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-bottom: 4px;
+  }
+  .tl-behavior-phase-control > label {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .tl-behavior-frame-input {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .tl-behavior-phase-control > small {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}

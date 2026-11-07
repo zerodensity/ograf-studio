@@ -1,3 +1,4 @@
+import { ColorInput } from './ColorInput';
 import { useEditorWindow } from '../layout/EditorWindow';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -36,27 +37,43 @@ export function ContextMenu({ x, y, ariaLabel, items, onClose }: ContextMenuProp
       x: Math.max(margin, Math.min(x, window.innerWidth - rect.width - margin)),
       y: Math.max(margin, Math.min(y, window.innerHeight - rect.height - margin)),
     });
-    menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    (menu.querySelector<HTMLButtonElement>('button:not(:disabled)') ?? menu).focus({
+      preventScroll: true,
+    });
   }, [x, y, window]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) onClose();
+      if (
+        !menuRef.current?.contains(event.target as Node) &&
+        !(event.target as Element).closest?.('.color-input-popover')
+      )
+        onClose();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
     };
     window.addEventListener('pointerdown', handlePointerDown, true);
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('blur', onClose);
+    window.addEventListener('keydown', handleKeyDown, true);
+    const handleBlur = () => {
+      if (!document.querySelector('.color-input-popover')) onClose();
+    };
+    const handleScroll = (event: Event) => {
+      if (!(event.target as Element).closest?.('.color-input-popover')) onClose();
+    };
+    window.addEventListener('blur', handleBlur);
     window.addEventListener('resize', onClose);
-    document.addEventListener('scroll', onClose, true);
+    document.addEventListener('scroll', handleScroll, true);
     return () => {
       window.removeEventListener('pointerdown', handlePointerDown, true);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('blur', onClose);
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('blur', handleBlur);
       window.removeEventListener('resize', onClose);
-      document.removeEventListener('scroll', onClose, true);
+      document.removeEventListener('scroll', handleScroll, true);
     };
   }, [onClose, window, document]);
 
@@ -65,6 +82,7 @@ export function ContextMenu({ x, y, ariaLabel, items, onClose }: ContextMenuProp
       ref={menuRef}
       className="context-menu"
       role="menu"
+      tabIndex={-1}
       aria-label={ariaLabel}
       style={{ left: position.x, top: position.y }}
       onContextMenu={(event) => event.preventDefault()}
@@ -78,15 +96,11 @@ export function ContextMenu({ x, y, ariaLabel, items, onClose }: ContextMenuProp
             title={item.title}
           >
             <span>{item.label}</span>
-            <input
-              type="color"
-              aria-label={item.label}
+            <ColorInput
+              label={item.label}
               value={item.colorValue}
               disabled={item.disabled}
-              onChange={(event) => {
-                item.onColorChange?.(event.target.value);
-                onClose();
-              }}
+              onChange={(value) => item.onColorChange?.(value)}
             />
           </label>
         ) : (

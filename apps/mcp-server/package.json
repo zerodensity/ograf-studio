@@ -1,7 +1,7 @@
 {
   "name": "@ograf-editor/mcp-server",
   "private": true,
-  "version": "0.23.0-rc.1",
+  "version": "0.30.0",
   "license": "AGPL-3.0-only",
   "type": "module",
   "main": "src/index.ts",
@@ -11,21 +11,25 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.6",
     "@modelcontextprotocol/sdk": "^1.25.3",
+    "@nodos/editor-sdk": "file:../../vendor/nodos-editor-sdk-5.1.0.tgz",
     "@ograf-editor/agent-tools": "*",
     "@ograf-editor/authoring-core": "*",
     "@ograf-editor/codegen": "*",
     "@ograf-editor/ograf-runtime": "*",
     "@ograf-editor/scene-model": "*",
+    "@ograf-editor/ui-kit": "*",
     "@ograf-editor/validation": "*",
     "express": "^5.2.1",
+    "flatbuffers": "^25.9.23",
     "jszip": "^3.10.1",
     "ws": "^8.18.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^24.13.3",
     "@types/express": "^5.0.6",
+    "@types/node": "^24.13.3",
     "@types/ws": "^8.18.1",
     "tsx": "^4.21.0",
     "typescript": "~6.0.2"

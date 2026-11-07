@@ -57,6 +57,27 @@ function build(composition: Composition, project: Project = createProject()) {
   return assembleManifest(project, composition, compileDescriptor(composition));
 }
 
+it('publishes the proven short Out duration while preserving authored fallback and OGraf steps', () => {
+  const composition = createProject().compositions[0]!;
+  composition.transitions[0]!.durationFrames = 13;
+  composition.transitions[1]!.durationFrames = 112;
+  composition.shortOutFrames = 13;
+  const manifest = build(composition);
+  expect(manifest.stepCount).toBe(1);
+  expect(manifest.actionDurations?.find((entry) => entry.type === 'stopAction')?.duration).toBe(
+    520,
+  );
+  composition.layers.push(createLayerOfKind('ticker'));
+  expect(
+    build(composition).actionDurations?.find((entry) => entry.type === 'stopAction')?.duration,
+  ).toBe(4480);
+  delete composition.shortOutFrames;
+  composition.layers = [];
+  expect(
+    build(composition).actionDurations?.find((entry) => entry.type === 'stopAction')?.duration,
+  ).toBe(4480);
+});
+
 /** A realistic template: bound text, an animated outro, a custom action, non-default format. */
 function realisticComposition(): Composition {
   const start = createKeyframe({ name: 'Start', role: 'start' });
@@ -118,6 +139,39 @@ describe('assembleManifest — conformance to the real EBU schema', () => {
 });
 
 describe('assembleManifest — content', () => {
+  it('declares timed loop controls with group targeting and zero scheduling duration', () => {
+    const field = createFieldDefinition('number', {
+      id: 'hold',
+      key: 'holdSeconds',
+      defaultValue: 4,
+    });
+    const layer = createLayerOfKind('rectangle');
+    layer.loop = createLayerLoopClip({
+      durationFrames: 30,
+      timing: {
+        groupId: 'Headlines',
+        holdFieldId: field.id,
+        holdRanges: [{ startFrame: 0, endFrame: 20 }],
+      },
+    });
+    const manifest = build(createComposition({ layers: [layer], dataFields: [field] }));
+    expect(manifest.customActions?.map((action) => action.id)).toEqual([
+      'loop.pause',
+      'loop.resume',
+      'loop.next',
+    ]);
+    expect(manifest.customActions?.[0]?.schema).toMatchObject({
+      properties: { groupId: { enum: ['Headlines'] } },
+      required: ['groupId'],
+    });
+    for (const action of ['pause', 'resume', 'next'])
+      expect(manifest.actionDurations).toContainEqual({
+        type: 'customAction',
+        customActionId: `loop.${action}`,
+        duration: 0,
+      });
+    expect(validateAgainstRealSchema(manifest)).toEqual({ valid: true, errors: [] });
+  });
   it('emits renderRequirements as constraint objects carrying composition settings', () => {
     const manifest = build(realisticComposition());
     expect(manifest.renderRequirements).toEqual([

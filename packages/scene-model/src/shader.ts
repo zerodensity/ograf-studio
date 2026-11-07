@@ -7,8 +7,14 @@ import type {
   ShaderElement,
   ShaderParameterDefinition,
   ShaderParameterValue,
+  ShaderPackProvenance,
 } from './types';
 import { normalizeShaderParameterValue, parseShaderParameters } from './shaderParameters';
+import {
+  MAX_RENDERER_PLUGIN_LICENSE_BYTES,
+  rendererPluginByteLength,
+  validateRendererPluginReference,
+} from './rendererPlugins';
 
 export const MAX_SHADER_SOURCE_BYTES = 256 * 1024;
 export const MAX_SHADER_NAME_LENGTH = 128;
@@ -34,6 +40,70 @@ export function normalizeShaderImageInput(input: ShaderImageInput): ShaderImageI
     wrap: input.wrap ?? 'repeat',
     filter: input.filter ?? 'linear',
   };
+}
+
+/** Copied attribution is portable and does not require the originating pack to stay installed. */
+export function shaderPackProvenanceErrors(value: unknown): string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    return ['Shader pack provenance must be an object.'];
+  const provenance = value as Record<string, unknown>;
+  const errors = Object.keys(provenance)
+    .filter(
+      (key) =>
+        !['reference', 'presetId', 'packName', 'license', 'licenseText', 'author'].includes(key),
+    )
+    .map((key) => `Shader pack provenance has unknown field ${key}.`);
+  if (
+    provenance.reference &&
+    typeof provenance.reference === 'object' &&
+    !Array.isArray(provenance.reference)
+  ) {
+    for (const key of Object.keys(provenance.reference))
+      if (!['id', 'version', 'sha256'].includes(key))
+        errors.push(`Shader pack provenance reference has unknown field ${key}.`);
+    const reference = provenance.reference as Record<string, unknown>;
+    if (
+      (typeof reference.id === 'string' && reference.id.length > 128) ||
+      (typeof reference.version === 'string' && reference.version.length > 128)
+    )
+      errors.push('Shader pack provenance reference identity is too long.');
+  }
+  errors.push(
+    ...validateRendererPluginReference(provenance.reference).map(
+      (error) => `Shader pack provenance: ${error}`,
+    ),
+  );
+  if (
+    typeof provenance.presetId !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(provenance.presetId) ||
+    ['constructor', 'prototype', '__proto__'].includes(provenance.presetId)
+  )
+    errors.push('Shader pack provenance presetId is invalid.');
+  for (const [key, maximum] of [
+    ['packName', 200],
+    ['license', 128],
+    ['author', 200],
+  ] as const) {
+    const field = provenance[key];
+    if (key === 'author' && field === undefined) continue;
+    if (typeof field !== 'string' || !field.trim() || field.length > maximum)
+      errors.push(
+        `Shader pack provenance ${key} must be non-empty, at most ${maximum} characters.`,
+      );
+  }
+  if (
+    typeof provenance.licenseText !== 'string' ||
+    !provenance.licenseText.trim() ||
+    rendererPluginByteLength(provenance.licenseText) > MAX_RENDERER_PLUGIN_LICENSE_BYTES
+  )
+    errors.push('Shader pack provenance licenseText must be non-empty and at most 128 KiB.');
+  return errors;
+}
+
+function normalizeShaderPackProvenance(value: ShaderPackProvenance): ShaderPackProvenance {
+  const errors = shaderPackProvenanceErrors(value);
+  if (errors.length) throw new Error(errors.join(' '));
+  return { ...value, reference: { ...value.reference } };
 }
 
 export function cloneShaderParameters(
@@ -165,6 +235,9 @@ export function normalizeShaderElement(element: Partial<ShaderElement> = {}): Sh
     resolutionScale: element.resolutionScale ?? 1,
     parameters: cloneShaderParameters(element.parameters),
     ...(element.inputImage ? { inputImage: normalizeShaderImageInput(element.inputImage) } : {}),
+    ...(element.packProvenance !== undefined
+      ? { packProvenance: normalizeShaderPackProvenance(element.packProvenance) }
+      : {}),
   };
 }
 
@@ -278,6 +351,8 @@ export function inspectShaderElement(
   options: { channel0Provided?: boolean } = {},
 ): ShaderInspection {
   const inspection = inspectShaderSource(element.fragmentSource);
+  if (element.packProvenance !== undefined)
+    inspection.errors.push(...shaderPackProvenanceErrors(element.packProvenance));
   if (
     element.name !== undefined &&
     (typeof element.name !== 'string' || element.name.trim().length > MAX_SHADER_NAME_LENGTH)
@@ -342,4 +417,12 @@ export function inspectShaderElement(
   }
   inspection.valid = inspection.errors.length === 0;
   return inspection;
+}
+
+/** Library copies may be standalone paints or post-processes awaiting a stack's iChannel0. */
+export function inspectShaderResourcePaint(paint: ShaderPaint): ShaderInspection {
+  const standalone = inspectShaderElement(paint);
+  if (standalone.valid || paint.inputImage) return standalone;
+  const effect = inspectShaderElement(paint, { channel0Provided: true });
+  return effect.valid ? effect : standalone;
 }

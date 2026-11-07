@@ -98,13 +98,19 @@ export function mapConnectionPayload(
 export async function readDataConnection(
   connection: DataConnectionDefinition,
   fetcher: typeof fetch = fetch,
+  options: { signal?: AbortSignal } = {},
 ): Promise<unknown> {
   let source = connection.embeddedText;
   if (connection.source === 'url') {
     const url = new URL(connection.url);
     if (!['http:', 'https:'].includes(url.protocol))
       throw new Error('Data URL must use HTTP or HTTPS.');
-    const response = await fetcher(url, { mode: 'cors', credentials: 'omit', cache: 'no-store' });
+    const response = await fetcher(url, {
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+      signal: options.signal,
+    });
     if (!response.ok) throw new Error(`Data request failed with HTTP ${response.status}.`);
     source = await response.text();
   }

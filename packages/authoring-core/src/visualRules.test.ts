@@ -34,6 +34,65 @@ const openPanel = (panelId: string) =>
   }) as unknown as LayerVisualRule;
 
 describe('visual rule operations', () => {
+  it('creates a key event with a canonical key and rejects missing keys atomically', () => {
+    const { session, tabId, panelId } = setup();
+    expect(() =>
+      session.apply({
+        expectedRevision: 1,
+        operations: [
+          {
+            type: 'set_layer_visual_rules',
+            layerId: tabId,
+            rules: [{ ...openPanel(panelId), trigger: 'key-down' }],
+          },
+        ],
+      }),
+    ).toThrow(/keyboard key/);
+    expect(session.revision).toBe(1);
+    const result = session.apply({
+      expectedRevision: 1,
+      operations: [
+        {
+          type: 'set_layer_visual_rules',
+          layerId: tabId,
+          rules: [
+            { ...openPanel(panelId), trigger: 'key-up', keyboard: { key: 'Spacebar', alt: true } },
+          ],
+        },
+      ],
+    });
+    expect(
+      result.project.compositions[0]!.layers.find((layer) => layer.id === tabId)!.visualRules[0],
+    ).toMatchObject({
+      trigger: 'key-up',
+      keyboard: { key: ' ', alt: true },
+      actions: [{ targetLayerId: panelId }],
+    });
+    expect(result.validation.errors).toEqual([]);
+  });
+  it('validates real geometry values before mutating rules', () => {
+    const { session, tabId } = setup();
+    for (const value of [-1, null, '', true, Infinity]) {
+      expect(() =>
+        session.apply({
+          expectedRevision: 1,
+          operations: [
+            {
+              type: 'set_layer_visual_rules',
+              layerId: tabId,
+              rules: [
+                {
+                  ...openPanel(tabId),
+                  actions: [{ type: 'property', targetProperty: 'height', value }],
+                },
+              ],
+            },
+          ],
+        }),
+      ).toThrow(/finite number|zero or more/);
+      expect(session.revision).toBe(1);
+    }
+  });
   it('completes omitted condition keys and keeps cross-layer targets', () => {
     const { session, tabId, panelId } = setup();
     const result = session.apply({

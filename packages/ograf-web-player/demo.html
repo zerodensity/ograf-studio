@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OGraf web player example</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        background: #10151d;
+        color: #edf3fa;
+      }
+      body {
+        max-width: 1080px;
+        padding: 24px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      p {
+        color: #b8c6d7;
+        line-height: 1.5;
+      }
+      .stage {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #202b38;
+        overflow: hidden;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 8px;
+        margin: 14px 0;
+      }
+      label {
+        display: grid;
+        gap: 5px;
+        flex: 1 1 240px;
+      }
+      input,
+      select,
+      textarea,
+      button {
+        box-sizing: border-box;
+        padding: 8px;
+        border: 1px solid #53657b;
+        border-radius: 4px;
+        background: #1b2634;
+        color: inherit;
+        font: inherit;
+      }
+      textarea {
+        width: 100%;
+        min-height: 72px;
+        resize: vertical;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      #status {
+        min-height: 1.5em;
+        color: #b8d9f5;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>OGraf web player</h1>
+    <p>
+      Serve an extracted, trusted OGraf package from this website, then enter its manifest URL. This
+      page runs the actual graphic in your browser.
+    </p>
+    <form id="load-form" class="row">
+      <label
+        >Manifest URL
+        <input
+          id="manifest-url"
+          type="text"
+          required
+          placeholder="/graphics/example/example.ograf.json"
+      /></label>
+      <button type="submit">Load graphic</button>
+    </form>
+    <div id="stage" class="stage" aria-label="Graphic output"></div>
+    <div class="row">
+      <button type="button" data-command="take">Take in</button>
+      <button type="button" data-command="next">Next step</button>
+      <button type="button" data-command="out">Take out</button>
+    </div>
+    <label>Data update (JSON object) <textarea id="data">{}</textarea></label>
+    <div class="row"><button type="button" data-command="update">Update data</button></div>
+    <div class="row">
+      <label
+        >Custom action
+        <select id="action">
+          <option value="">No custom actions</option>
+        </select></label
+      >
+      <button type="button" data-command="action">Run action</button>
+    </div>
+    <label>Action payload (JSON) <textarea id="payload">{}</textarea></label>
+    <p id="status" role="status">Enter a manifest URL to begin.</p>
+    <script type="module">
+      import { mountOGrafGraphic } from './ograf-player.js';
+
+      const stage = document.querySelector('#stage');
+      const status = document.querySelector('#status');
+      const action = document.querySelector('#action');
+      const buttons = [...document.querySelectorAll('[data-command]')];
+      const loadButton = document.querySelector('#load-form button');
+      let player = null;
+      let loading = false;
+
+      function controls() {
+        buttons.forEach((button) => {
+          button.disabled =
+            loading || !player || (button.dataset.command === 'action' && !action.value);
+        });
+        loadButton.disabled = loading;
+      }
+      async function run(operation) {
+        try {
+          await operation();
+        } catch (error) {
+          status.textContent = error instanceof Error ? error.message : String(error);
+        }
+      }
+      action.addEventListener('change', controls);
+      document.querySelector('#load-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (loading) return;
+        loading = true;
+        controls();
+        void run(async () => {
+          try {
+            const previous = player;
+            player = null;
+            action.replaceChildren(new Option('No custom actions', ''));
+            if (previous) await previous.dispose();
+            player = await mountOGrafGraphic({
+              container: stage,
+              manifestUrl: document.querySelector('#manifest-url').value,
+            });
+            const { width, height } = player.renderCharacteristics.resolution;
+            stage.style.aspectRatio = `${width} / ${height}`;
+            for (const item of player.manifest.customActions ?? [])
+              action.add(new Option(item.name || item.id, item.id));
+            status.textContent = `${player.manifest.name || 'Graphic'} loaded.`;
+          } finally {
+            loading = false;
+            controls();
+          }
+        });
+      });
+      document.querySelector('[data-command="take"]').addEventListener(
+        'click',
+        () =>
+          void run(async () => {
+            await player.play({ goto: 0 });
+            status.textContent = 'Take in complete.';
+          }),
+      );
+      document.querySelector('[data-command="next"]').addEventListener(
+        'click',
+        () =>
+          void run(async () => {
+            await player.next();
+            status.textContent = 'Advanced.';
+          }),
+      );
+      document.querySelector('[data-command="out"]').addEventListener(
+        'click',
+        () =>
+          void run(async () => {
+            await player.stop();
+            status.textContent = 'Take out complete.';
+          }),
+      );
+      document.querySelector('[data-command="update"]').addEventListener(
+        'click',
+        () =>
+          void run(async () => {
+            await player.update(JSON.parse(document.querySelector('#data').value));
+            status.textContent = 'Data updated.';
+          }),
+      );
+      document.querySelector('[data-command="action"]').addEventListener(
+        'click',
+        () =>
+          void run(async () => {
+            await player.action(action.value, JSON.parse(document.querySelector('#payload').value));
+            status.textContent = 'Action complete.';
+          }),
+      );
+      controls();
+    </script>
+  </body>
+</html>

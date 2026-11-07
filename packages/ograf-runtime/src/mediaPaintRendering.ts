@@ -1,11 +1,13 @@
 import {
   getElementMediaPaint,
+  sourceCropPixels,
   LIVE_MEDIA_ELEMENT_TAG,
   type Element,
   type MediaPaint,
 } from '@ograf-editor/scene-model';
 import { createShaderPaintMask } from './shaderPaintMask';
 import { renderTextAnimationAtFrame } from './textAnimationRendering';
+import { renderChartAnimationAtFrame } from './chartRendering';
 import { resolveMediaTimelinePosition } from './mediaTimeline';
 
 interface RenderOptions {
@@ -46,6 +48,8 @@ interface MountedMediaPaint {
   options: RenderOptions;
   ready: Promise<void>;
   time: number;
+  playing: boolean;
+  playPending: boolean;
   requested: number;
   completed: number;
   busy: boolean;
@@ -188,6 +192,72 @@ async function mediaSource(mounted: MountedMediaPaint): Promise<CanvasImageSourc
   return fallback?.complete && fallback.naturalWidth > 0 ? fallback : null;
 }
 
+function waitForMediaSeek(video: HTMLVideoElement, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new Error('Media paint was disposed during a seek.'));
+  if (!video.seeking && video.readyState >= 2) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const clear = () => {
+      video.removeEventListener('seeked', loaded);
+      video.removeEventListener('loadeddata', loaded);
+      video.removeEventListener('error', failed);
+      signal.removeEventListener('abort', aborted);
+      clearTimeout(timeout);
+    };
+    const loaded = () => {
+      if (video.seeking || video.readyState < 2) return;
+      clear();
+      resolve();
+    };
+    const failed = () => {
+      clear();
+      reject(new Error('Media clip could not decode the requested frame.'));
+    };
+    const aborted = () => {
+      clear();
+      reject(new Error('Media paint was disposed during a seek.'));
+    };
+    const timeout = setTimeout(() => {
+      clear();
+      reject(new Error('Media clip seek did not finish within 10 seconds.'));
+    }, 10_000);
+    video.addEventListener('seeked', loaded);
+    video.addEventListener('loadeddata', loaded);
+    video.addEventListener('error', failed);
+    signal.addEventListener('abort', aborted, { once: true });
+  });
+}
+
+async function syncClip(mounted: MountedMediaPaint, elapsedMs: number, playing: boolean) {
+  if (mounted.paint.source.kind !== 'clip') return;
+  const video = mounted.source as HTMLVideoElement;
+  if (!video.src) return;
+  const position = resolveMediaTimelinePosition(elapsedMs, {
+    timelineStartMs: mounted.paint.timelineStartMs,
+    trimStartMs: mounted.paint.offsetMs,
+    trimEndMs: mounted.paint.trimEndMs,
+    loop: mounted.paint.loop,
+    speed: mounted.paint.speed,
+    durationMs: Number.isFinite(video.duration) ? video.duration * 1000 : null,
+  });
+  if (!playing || !position.active) video.pause();
+  if (!position.active) return;
+  const seconds = position.positionMs / 1000;
+  // Held frames must not drift forward and repeatedly seek back. Realtime playback allows a
+  // small clock difference so normal decoder progress does not trigger a seek every frame.
+  if (Math.abs(video.currentTime - seconds) > (playing ? 0.08 : 0.001)) video.currentTime = seconds;
+  await waitForMediaSeek(video, mounted.abort.signal);
+  if (mounted.disposed || !playing || !mounted.playing || mounted.playPending || !video.paused)
+    return;
+  mounted.playPending = true;
+  void video
+    .play()
+    .catch(() => undefined)
+    .finally(() => {
+      mounted.playPending = false;
+      if (mounted.disposed || !mounted.playing) video.pause();
+    });
+}
+
 function sourceSize(source: CanvasImageSource): { width: number; height: number } {
   if (source instanceof HTMLVideoElement)
     return { width: source.videoWidth, height: source.videoHeight };
@@ -218,9 +288,22 @@ function drawRequestedFrame(mounted: MountedMediaPaint): void {
   if (mounted.busy || mounted.disposed || mounted.error) return;
   const revision = mounted.requested;
   const elapsedMs = mounted.time;
+  const playing = mounted.playing;
   mounted.busy = true;
   void (async () => {
     mounted.native.renderAtTime(mounted.baseHost, mounted.baseElement, elapsedMs);
+    if (
+      mounted.baseElement.type === 'chart' &&
+      mounted.container.dataset.ografChartAnimationFrame !== undefined
+    ) {
+      mounted.baseHost.dataset.ografChartAnimationFrame =
+        mounted.container.dataset.ografChartAnimationFrame;
+      renderChartAnimationAtFrame(
+        mounted.baseHost,
+        mounted.baseElement,
+        Number(mounted.container.dataset.ografChartAnimationFrame),
+      );
+    }
     const textFrame = Number(mounted.container.dataset.ografTextAnimationFrame);
     if (
       mounted.baseElement.type === 'text' &&
@@ -230,30 +313,51 @@ function drawRequestedFrame(mounted: MountedMediaPaint): void {
       renderTextAnimationAtFrame(mounted.baseHost, mounted.baseElement, textFrame);
     }
     await Promise.all([mounted.ready, mounted.native.ready(mounted.baseHost), mounted.mask.ready]);
+    if (mounted.disposed) return;
+    await syncClip(mounted, elapsedMs, playing);
     const nextCoverage = await mounted.mask.update(elapsedMs);
     const source = await mediaSource(mounted);
     if (mounted.disposed) return;
     // null means the mask is unchanged, not that the moving media should become unmasked.
     if (nextCoverage) mounted.coverage = nextCoverage;
+    // A decoder or live source can temporarily have no frame. Keep the last complete output
+    // instead of exposing a transparent canvas between decoded frames.
+    if (!source) return;
     const { canvas, context, paint } = mounted;
     context.resetTransform();
     context.globalCompositeOperation = 'source-over';
     context.clearRect(0, 0, canvas.width, canvas.height);
     if (source && mounted.coverage) {
-      const rect = mediaFitRect(
-        sourceSize(source),
-        canvas,
-        paint.fit,
-        paint.positionX,
-        paint.positionY,
-      );
-      context.drawImage(source, rect.x, rect.y, rect.width, rect.height);
+      const crop = sourceCropPixels(sourceSize(source), paint.crop);
+      const rect = mediaFitRect(crop, canvas, paint.fit, paint.positionX, paint.positionY);
+      if (paint.crop)
+        context.drawImage(
+          source,
+          crop.x,
+          crop.y,
+          crop.width,
+          crop.height,
+          rect.x,
+          rect.y,
+          rect.width,
+          rect.height,
+        );
+      else context.drawImage(source, rect.x, rect.y, rect.width, rect.height);
       context.globalCompositeOperation = 'destination-in';
       try {
         context.drawImage(mounted.coverage, 0, 0, canvas.width, canvas.height);
       } finally {
         context.globalCompositeOperation = 'source-over';
       }
+      // A held clock leaves an effect stack's capture signature unchanged, so record which picture
+      // this canvas now holds: a clip's decoded position, or each new frame of a live source.
+      const frame =
+        source instanceof HTMLVideoElement
+          ? source.currentTime
+          : source === mounted.fallback
+            ? 'fallback'
+            : revision;
+      canvas.dataset.ografMediaFrame = String(frame);
     }
   })()
     .catch((error: unknown) => {
@@ -267,29 +371,14 @@ function drawRequestedFrame(mounted: MountedMediaPaint): void {
     });
 }
 
-function requestFrame(mounted: MountedMediaPaint, elapsedMs: number): void {
+function requestFrame(mounted: MountedMediaPaint, elapsedMs: number, playing = false): void {
   // Readiness reports the error to the caller/editor. Do not throw it through an animation frame,
   // which would unmount the surrounding React canvas instead of keeping the fault layer-local.
   if (mounted.error) return;
   mounted.time = elapsedMs;
-  if (mounted.paint.source.kind === 'clip') {
-    const video = mounted.source as HTMLVideoElement;
-    const position = resolveMediaTimelinePosition(elapsedMs, {
-      timelineStartMs: mounted.paint.timelineStartMs,
-      trimStartMs: mounted.paint.offsetMs,
-      trimEndMs: mounted.paint.trimEndMs,
-      loop: mounted.paint.loop,
-      speed: mounted.paint.speed,
-      durationMs: Number.isFinite(video.duration) ? video.duration * 1000 : null,
-    });
-    if (!position.active) {
-      video.pause();
-    } else if (video.readyState >= 2) {
-      const seconds = position.positionMs / 1000;
-      if (Math.abs(video.currentTime - seconds) > 0.08) video.currentTime = seconds;
-      void video.play().catch(() => undefined);
-    }
-  }
+  mounted.playing = playing;
+  if (!playing && mounted.paint.source.kind === 'clip')
+    (mounted.source as HTMLVideoElement).pause();
   mounted.requested += 1;
   drawRequestedFrame(mounted);
 }
@@ -314,7 +403,11 @@ export function mountMediaPaintContent(
   container.appendChild(visualHost);
   const baseHost = container.ownerDocument.createElement('div');
   baseHost.dataset.ografMediaBase = 'true';
-  Object.assign(baseHost.style, { position: 'absolute', inset: '0', zIndex: '1' });
+  Object.assign(baseHost.style, {
+    position: 'absolute',
+    inset: '0',
+    zIndex: element.type === 'chart' ? 'auto' : '1',
+  });
   visualHost.appendChild(baseHost);
   const baseElement = mediaPaintBaseElement(element);
   if (['image', 'image-sequence', 'lottie'].includes(element.type)) baseHost.style.opacity = '0';
@@ -324,15 +417,12 @@ export function mountMediaPaintContent(
   canvas.width = size.width;
   canvas.height = size.height;
   canvas.dataset.ografMediaCanvas = 'true';
-  canvas.dataset.ografMediaFit = paint.fit;
-  canvas.dataset.ografMediaPositionX = String(paint.positionX);
-  canvas.dataset.ografMediaPositionY = String(paint.positionY);
   Object.assign(canvas.style, {
     position: 'absolute',
     inset: '0',
     width: '100%',
     height: '100%',
-    zIndex: '0',
+    zIndex: element.type === 'chart' ? '1' : '0',
   });
   visualHost.appendChild(canvas);
   const context = canvas.getContext('2d');
@@ -362,11 +452,7 @@ export function mountMediaPaintContent(
     if (clipSource) {
       video.src = clipSource;
       video.load();
-      ready = waitForMediaClip(video, abort.signal).then(() => {
-        if (paint.offsetMs > 0 && Number.isFinite(video.duration))
-          video.currentTime = Math.min(video.duration, paint.offsetMs / 1000);
-        void video.play().catch(() => undefined);
-      });
+      ready = waitForMediaClip(video, abort.signal);
     } else {
       visualHost.dataset.ografMediaPending = 'true';
       ready = Promise.resolve();
@@ -421,6 +507,8 @@ export function mountMediaPaintContent(
     options,
     ready,
     time: 0,
+    playing: false,
+    playPending: false,
     requested: 0,
     completed: -1,
     busy: false,
@@ -440,19 +528,37 @@ export function updateMediaPaintContent(
   const mounted = mountedMediaPaints.get(container);
   const paint = getElementMediaPaint(element);
   if (!mounted || !paint) return false;
-  if (
-    mounted.paintIdentity !== JSON.stringify(paint) ||
-    mounted.baseIdentity !== JSON.stringify(mediaPaintBaseElement(element))
-  )
-    return false;
-  requestFrame(mounted, mounted.time);
+  if (mounted.paintIdentity !== JSON.stringify(paint)) return false;
+  const baseElement = mediaPaintBaseElement(element);
+  const identity = JSON.stringify(baseElement);
+  if (mounted.baseIdentity !== identity) {
+    if (element.type !== 'chart') return false;
+    // Chart data edits must not restart their retained video/live decoder.
+    mounted.native.render(mounted.baseHost, baseElement, {
+      ...mounted.options,
+      requiresImageAlpha: true,
+    });
+    mounted.baseElement = baseElement;
+    mounted.baseIdentity = identity;
+    mounted.mask.dispose();
+    mounted.mask = createShaderPaintMask(mounted.baseHost, element, {
+      width: mounted.canvas.width,
+      height: mounted.canvas.height,
+    });
+    mounted.coverage = null;
+  }
+  requestFrame(mounted, mounted.time, mounted.playing);
   return true;
 }
 
-export function renderMediaPaintAtTime(container: HTMLElement, elapsedMs: number): boolean {
+export function renderMediaPaintAtTime(
+  container: HTMLElement,
+  elapsedMs: number,
+  playing = false,
+): boolean {
   const mounted = mountedMediaPaints.get(container);
   if (!mounted) return false;
-  requestFrame(mounted, elapsedMs);
+  requestFrame(mounted, elapsedMs, playing);
   return true;
 }
 

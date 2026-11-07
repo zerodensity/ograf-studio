@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useMovableDialog } from '../components/useMovableDialog';
 import {
   createTilingPattern,
   getPatternPresetPatch,
@@ -10,6 +11,8 @@ import { EditorWindowContext, isDomElement, useEditorWindow } from '../layout/Ed
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { useTimelineStore } from '../state/timelineStore';
+import { canvasFrame } from '../state/canvasViewStore';
+import { canvasInsertion } from '../canvas/canvasInsertion';
 import { usePatternDialogStore } from '../state/patternDialogStore';
 import { patternSymbolFromLayer } from '../state/patternSymbols';
 import { runDiscreteHistoryStep } from '../state/historyStore';
@@ -77,13 +80,21 @@ export function PatternResources() {
                   type="button"
                   aria-label={`Add ${pattern.name} to canvas`}
                   onClick={() =>
-                    run(
-                      () =>
-                        useSelectionStore
-                          .getState()
-                          .select(useProjectStore.getState().addPatternInstance(pattern.id)),
-                      `Add ${pattern.name} to canvas`,
-                    )
+                    run(() => {
+                      const placement = canvasInsertion(
+                        globalThis.document.querySelector('.canvas-stage'),
+                        composition,
+                        'pattern',
+                        useSelectionStore.getState().selectedLayerIds,
+                        canvasFrame(composition),
+                        { width: pattern.width, height: pattern.height },
+                      );
+                      useSelectionStore
+                        .getState()
+                        .select(
+                          useProjectStore.getState().addPatternInstance(pattern.id, placement),
+                        );
+                    }, `Add ${pattern.name} to canvas`)
                   }
                 >
                   Add to canvas
@@ -225,6 +236,7 @@ function PatternDialog({ patternId, onClose }: { patternId?: string; onClose: ()
   const selectedIds = useSelectionStore((state) => state.selectedLayerIds);
   const frame = useTimelineStore((state) => state.currentFrame);
   const dialog = useRef<HTMLDialogElement>(null);
+  const move = useMovableDialog(dialog);
   const [preset, setPreset] = useState<PatternPresetId | 'selection'>('dots');
   const [addToCanvas, setAddToCanvas] = useState(true);
   const [error, setError] = useState('');
@@ -271,7 +283,23 @@ function PatternDialog({ patternId, onClose }: { patternId?: string; onClose: ()
     try {
       const { id: _id, ...patch } = draft;
       const result = runDiscreteHistoryStep(
-        () => useProjectStore.getState().createPatternResource(patch, addToCanvas),
+        () =>
+          useProjectStore
+            .getState()
+            .createPatternResource(
+              patch,
+              addToCanvas,
+              addToCanvas
+                ? canvasInsertion(
+                    globalThis.document.querySelector('.canvas-stage'),
+                    composition,
+                    'pattern',
+                    selectedIds,
+                    canvasFrame(composition),
+                    { width: draft.width, height: draft.height },
+                  )
+                : undefined,
+            ),
         `Create ${draft.name} pattern`,
       );
       if (result.layerId) useSelectionStore.getState().select(result.layerId);
@@ -284,6 +312,7 @@ function PatternDialog({ patternId, onClose }: { patternId?: string; onClose: ()
     <dialog
       ref={dialog}
       className="pattern-resource-dialog"
+      {...move.dialogProps}
       aria-labelledby="pattern-dialog-title"
       onKeyDown={(event) => event.stopPropagation()}
       onCancel={(event) => {
@@ -291,7 +320,7 @@ function PatternDialog({ patternId, onClose }: { patternId?: string; onClose: ()
         onClose();
       }}
     >
-      <header>
+      <header {...move.handleProps}>
         <div>
           <h2 id="pattern-dialog-title">{patternId ? 'Edit pattern' : 'Create pattern'}</h2>
           <p>

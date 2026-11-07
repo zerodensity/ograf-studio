@@ -8,6 +8,12 @@ import {
 } from './shaderAnimation';
 import { normalizeLayerEffects } from './layerEffects';
 import {
+  modifierParameterSpec,
+  modifierParameterValue,
+  numericModifierProperties,
+  parseModifierProperty,
+} from './modifiers';
+import {
   effectParameterSpec,
   effectParameterValue,
   numericEffectProperties,
@@ -26,6 +32,7 @@ import type {
   LayerEffects,
   LayerKeyframe,
   LayerPropertyKeyframe,
+  LayerRevealProperty,
   LayerTransform,
 } from './types';
 
@@ -48,12 +55,34 @@ export const EFFECT_ANIMATION_PROPERTIES = [
   'dropShadowBlur',
 ] as const satisfies readonly (keyof LayerEffects)[];
 
+/**
+ * Track-only display properties with no static layer field. A layer lists them only once it owns
+ * keys for them (Animate In/Out writes them), so ordinary layers carry no extra tracks.
+ */
+export const REVEAL_ANIMATION_PROPERTIES = [
+  'scale',
+  'clipLeft',
+  'clipRight',
+  'clipTop',
+  'clipBottom',
+] as const satisfies readonly LayerRevealProperty[];
+
+export function isRevealAnimationProperty(property: string): property is LayerRevealProperty {
+  return (REVEAL_ANIMATION_PROPERTIES as readonly string[]).includes(property);
+}
+
+/** The value a reveal property holds without keys: full size, no inset. */
+export function revealPropertyDefault(property: LayerRevealProperty): number {
+  return property === 'scale' ? 1 : 0;
+}
+
 /** Fixed property vocabulary; layer-specific applicability is filtered below. */
 export const ANIMATABLE_LAYER_PROPERTIES: readonly AnimatableLayerProperty[] = [
   ...TRANSFORM_ANIMATION_PROPERTIES,
   'strokeWidth',
   ...EFFECT_ANIMATION_PROPERTIES,
   'motionPathProgress',
+  ...REVEAL_ANIMATION_PROPERTIES,
 ];
 
 export const ANIMATABLE_PROPERTY_LABELS: Record<string, string> = {
@@ -72,6 +101,11 @@ export const ANIMATABLE_PROPERTY_LABELS: Record<string, string> = {
   dropShadowOffsetY: 'Shadow Y',
   dropShadowBlur: 'Shadow Softness',
   motionPathProgress: 'Motion Path Progress',
+  scale: 'Scale',
+  clipLeft: 'Wipe Left',
+  clipRight: 'Wipe Right',
+  clipTop: 'Wipe Top',
+  clipBottom: 'Wipe Bottom',
 };
 
 const GRADIENT_STOP_OFFSET_PROPERTY = /^fill\.stops\[(0|[1-9]\d*)\]\.offset$/;
@@ -99,6 +133,7 @@ export function isAnimatableLayerProperty(property: string): property is Animata
     ANIMATABLE_LAYER_PROPERTIES.includes(property as AnimatableLayerProperty) ||
     isGradientStopOffsetProperty(property) ||
     parseShaderAnimationProperty(property) !== null ||
+    parseModifierProperty(property) !== null ||
     (parseEffectProperty(property) !== null && !property.endsWith('.color'))
   );
 }
@@ -107,7 +142,8 @@ export function isAnimatableLayerPropertyApplicable(
   layer: Layer,
   property: AnimatableLayerProperty,
 ): boolean {
-  if (property === 'motionPathProgress') return layer.motionPath !== null;
+  if (property === 'motionPathProgress') return Boolean(layer.motionPath);
+  if (parseModifierProperty(property)) return modifierParameterSpec(layer, property) !== undefined;
   if (parseShaderAnimationProperty(property))
     return shaderAnimationPropertySpec(layer.element, property) !== undefined;
   if (parseEffectProperty(property))
@@ -119,6 +155,11 @@ export function isAnimatableLayerPropertyApplicable(
 }
 
 export function animatablePropertyLabel(property: AnimatableLayerProperty, layer?: Layer): string {
+  const modifierPath = parseModifierProperty(property);
+  if (modifierPath) {
+    const modifier = layer?.modifiers?.find((entry) => entry.id === modifierPath.id);
+    return `${modifier?.name ?? 'Modifier'} · ${layer ? (modifierParameterSpec(layer, property)?.label ?? modifierPath.param) : modifierPath.param}`;
+  }
   if (parseShaderAnimationProperty(property))
     return layer
       ? (shaderAnimationPropertySpec(layer.element, property)?.label ?? property)
@@ -136,17 +177,21 @@ export function animatablePropertyLabel(property: AnimatableLayerProperty, layer
 
 export function getLayerAnimatableProperties(layer: Layer): AnimatableLayerProperty[] {
   const properties = new Set<AnimatableLayerProperty>(
-    ANIMATABLE_LAYER_PROPERTIES.filter((property) =>
-      isAnimatableLayerPropertyApplicable(layer, property),
+    ANIMATABLE_LAYER_PROPERTIES.filter(
+      (property) =>
+        !isRevealAnimationProperty(property) &&
+        isAnimatableLayerPropertyApplicable(layer, property),
     ),
   );
   for (const property of numericEffectProperties(layer.effects)) properties.add(property);
+  for (const property of numericModifierProperties(layer)) properties.add(property);
   for (const property of getShaderAnimatableProperties(layer.element)) properties.add(property);
   const fill =
     layer.element.type === 'rectangle' ||
     layer.element.type === 'ellipse' ||
     layer.element.type === 'path' ||
     layer.element.type === 'pattern' ||
+    layer.element.type === 'chart' ||
     layer.element.type === 'text'
       ? layer.element.fill
       : null;
@@ -179,6 +224,7 @@ export function pruneInvalidGradientStopTracks(layer: Layer): void {
     layer.element.type === 'ellipse' ||
     layer.element.type === 'path' ||
     layer.element.type === 'pattern' ||
+    layer.element.type === 'chart' ||
     layer.element.type === 'text'
       ? layer.element.fill
       : null;
@@ -212,7 +258,7 @@ function bounceOut(progress: number): number {
   return n1 * shifted * shifted + 0.984375;
 }
 
-/** Shared deterministic easing sampler used by editor evaluation and the GSAP runtime. */
+/** Shared deterministic easing sampler used by editor evaluation and the exported runtime. */
 export function easedProgress(progress: number, easing: EasingPreset): number {
   const inverse = 1 - progress;
   switch (easing) {
@@ -338,6 +384,14 @@ export function sortLayerPropertyKeyframes(
 }
 
 function staticPropertyValue(layer: Layer, property: AnimatableLayerProperty): number {
+  if (property === 'motionPathProgress') return layer.motionPath?.progress ?? 0;
+  if (parseModifierProperty(property)) {
+    const value = modifierParameterValue(layer, property);
+    if (value === undefined)
+      throw new Error(`Layer "${layer.name}" has no numeric modifier parameter ${property}.`);
+    return value;
+  }
+  if (isRevealAnimationProperty(property)) return revealPropertyDefault(property);
   if (parseShaderAnimationProperty(property))
     return getShaderAnimationValue(layer.element, property);
   if (parseEffectProperty(property)) {
@@ -358,6 +412,7 @@ function staticPropertyValue(layer: Layer, property: AnimatableLayerProperty): n
       layer.element.type === 'ellipse' ||
       layer.element.type === 'path' ||
       layer.element.type === 'pattern' ||
+      layer.element.type === 'chart' ||
       layer.element.type === 'text'
         ? layer.element.fill
         : null;
@@ -380,7 +435,17 @@ function staticPropertyValue(layer: Layer, property: AnimatableLayerProperty): n
   ];
 }
 
-/** Resolve old full-pose keys into tracks lazily so v4 objects remain readable during migration/tests. */
+/** Whether a property has an authored track, including legacy full-pose animation. */
+export function isLayerPropertyAnimated(layer: Layer, property: AnimatableLayerProperty): boolean {
+  if ((layer.animationTracks?.[property]?.length ?? 0) > 0) return true;
+  return (
+    layer.animationTrackMode !== 'independent' &&
+    TRANSFORM_ANIMATION_PROPERTIES.includes(property as keyof LayerTransform) &&
+    layer.keyframes.length > 0
+  );
+}
+
+/** Resolve static channels and old full-pose keys into the ordinary runtime track vocabulary. */
 export function getResolvedLayerAnimationTracks(layer: Layer): LayerAnimationTracks {
   const tracks: LayerAnimationTracks = {};
   for (const property of getLayerAnimatableProperties(layer)) {
@@ -390,7 +455,10 @@ export function getResolvedLayerAnimationTracks(layer: Layer): LayerAnimationTra
       continue;
     }
     if (parseShaderAnimationProperty(property)) continue;
-    if (TRANSFORM_ANIMATION_PROPERTIES.includes(property as keyof LayerTransform)) {
+    if (
+      layer.animationTrackMode !== 'independent' &&
+      TRANSFORM_ANIMATION_PROPERTIES.includes(property as keyof LayerTransform)
+    ) {
       tracks[property] = sortLayerKeyframes(layer.keyframes).map((keyframe) => ({
         id: `${keyframe.id}:${property}`,
         frame: keyframe.frame,
@@ -412,7 +480,11 @@ export function getResolvedLayerAnimationTracks(layer: Layer): LayerAnimationTra
 }
 
 export function createAnimationTracksFromLegacyLayer(layer: Layer): LayerAnimationTracks {
-  return getResolvedLayerAnimationTracks({ ...layer, animationTracks: {} });
+  const { animationTrackMode: _mode, ...legacyLayer } = layer;
+  return getResolvedLayerAnimationTracks({
+    ...legacyLayer,
+    animationTracks: {},
+  });
 }
 
 export function findLayerPropertyKeyframeAtFrame(
@@ -420,6 +492,7 @@ export function findLayerPropertyKeyframeAtFrame(
   property: AnimatableLayerProperty,
   frame: number,
 ): LayerPropertyKeyframe | undefined {
+  if (!isLayerPropertyAnimated(layer, property)) return undefined;
   const roundedFrame = Math.round(frame);
   return getResolvedLayerAnimationTracks(layer)[property]?.find(
     (keyframe) => keyframe.frame === roundedFrame,
@@ -479,9 +552,18 @@ export function findLayerKeyframeAtFrame(layer: Layer, frame: number): LayerKeyf
 
 /** Sample a layer's independent transform track at any frame. */
 export function getLayerTransformAtFrame(layer: Layer, frame: number): LayerTransform {
+  // All pose channels share one resolved track set. Resolving every animatable property again
+  // for each axis needlessly repeats legacy migration, shader inspection and key sorting.
+  const tracks = getResolvedLayerAnimationTracks(layer);
+  const first = sortLayerKeyframes(layer.keyframes)[0];
+  if (!first) throw new Error(`Layer "${layer.name}" has no animation keyframes.`);
   const result = {} as LayerTransform;
   for (const property of TRANSFORM_ANIMATION_PROPERTIES) {
-    result[property] = getLayerPropertyValueAtFrame(layer, property, frame);
+    result[property] = getTrackValueAtFrame(
+      tracks[property] ?? [],
+      frame,
+      first.transform[property],
+    );
   }
   return result;
 }

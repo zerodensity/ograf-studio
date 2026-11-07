@@ -1,0 +1,120 @@
+.font-library-dialog {
+  width: min(740px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: 0 12px 40px #000a;
+}
+.font-library-dialog::backdrop {
+  background: #0009;
+}
+.font-library-dialog header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+}
+.font-library-dialog header h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.font-library-dialog header p,
+.font-library-dialog footer {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.font-library-dialog button,
+.font-library-dialog input,
+.font-library-dialog select {
+  color: var(--text);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: inherit;
+  padding: 5px 8px;
+}
+.font-library-dialog button {
+  cursor: pointer;
+}
+.font-library-dialog button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.font-library-filters {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+}
+.font-library-filters input {
+  flex: 1;
+  min-width: 0;
+}
+.font-library-list {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 0 16px 14px;
+}
+.font-library-card {
+  border: 1px solid var(--border);
+  background: var(--bg-canvas);
+  border-radius: 4px;
+  padding: 10px;
+}
+.font-library-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.font-library-name strong {
+  font-size: 13px;
+}
+.font-library-name span,
+.font-library-card small {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.font-library-name button {
+  margin-left: auto;
+}
+.font-library-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 26px;
+  line-height: 1.35;
+  margin: 8px 0;
+}
+.font-library-card a {
+  color: var(--accent);
+}
+.font-library-dialog footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.font-library-error {
+  color: #ff9c92;
+  margin: 0 16px 10px;
+}
+.font-library-card details {
+  margin-top: 5px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.font-library-card summary {
+  cursor: pointer;
+}
+.font-library-license {
+  max-height: 150px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font: 11px/1.4 var(--mono, monospace);
+}

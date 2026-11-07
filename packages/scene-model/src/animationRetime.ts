@@ -1,5 +1,7 @@
 import { computeKeyframeFrames } from './keyframeTiming';
 import { sortLayerKeyframes, sortLayerPropertyKeyframes } from './layerAnimation';
+import { layerMotionWindows } from './layerMotion';
+import { retimeChartMarkAnimations } from './chartMarkAnimation';
 import type { Composition } from './types';
 
 export type AnimationRetimePhase = 'in' | 'on-air' | 'out' | 'entire';
@@ -62,6 +64,7 @@ export function retimeAnimationPhase(
 ): AnimationRetimeResult {
   const lifecycle = computeKeyframeFrames(composition);
   const range = animationRetimePhaseRange(composition, phase);
+  const markWindows = layerMotionWindows(composition);
   const { startFrame, endFrame: previousEndFrame } = range;
   const transitionIndexes = composition.transitions.flatMap((transition, index) => {
     const from = lifecycle.find((item) => item.keyframeId === transition.fromKeyframeId)?.frame;
@@ -96,6 +99,14 @@ export function retimeAnimationPhase(
     return frame + deltaFrames;
   };
   for (const layer of composition.layers) {
+    if (layer.element.type === 'chart')
+      retimeChartMarkAnimations(layer.element, markWindows, (frame) =>
+        frame < startFrame
+          ? frame
+          : frame <= previousEndFrame
+            ? Math.round(startFrame + (frame - startFrame) * scale)
+            : frame + deltaFrames,
+      );
     layer.keyframes = sortLayerKeyframes(
       layer.keyframes.map((keyframe) => ({ ...keyframe, frame: mapFrame(keyframe.frame) })),
     );

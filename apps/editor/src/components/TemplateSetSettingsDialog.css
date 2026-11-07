@@ -1,0 +1,284 @@
+.template-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #0009;
+}
+.template-settings-dialog {
+  width: min(900px, calc(100vw - 40px));
+  height: min(660px, calc(100dvh - 40px));
+  display: flex;
+  flex-direction: column;
+  color: var(--text-main);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 18px 60px #0008;
+  font-size: 12px;
+}
+.template-settings-dialog > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.template-settings-dialog h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.template-settings-dialog h3 {
+  margin: 8px 0 12px;
+  font-size: 14px;
+}
+.template-settings-dialog p {
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.template-settings-dialog > header p {
+  margin: 5px 0 0;
+}
+.template-settings-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+.template-settings-create-set {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.template-settings-body > nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 8px;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  min-width: 0;
+}
+.template-settings-body > nav > input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+}
+.template-settings-scope + .template-settings-scope {
+  margin-top: 10px;
+}
+.template-settings-body > nav button {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 3px;
+}
+.template-settings-body > nav .template-settings-scope-root {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text-main);
+  font-weight: 600;
+}
+.template-settings-scope-root small {
+  overflow: hidden;
+  max-width: 100%;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+  font-weight: 400;
+  font-size: 10px;
+}
+.template-settings-scope-pages {
+  margin-left: 10px;
+  padding-left: 5px;
+  border-left: 1px solid var(--border);
+}
+.template-settings-scope-pages button {
+  font-size: 11px;
+}
+.template-settings-body > nav button:hover {
+  background: var(--bg-hover, #ffffff0a);
+}
+.template-settings-body > nav button[aria-current='page'] {
+  background: var(--accent-dim, #395062);
+  color: var(--text-heading);
+}
+.template-settings-content {
+  border: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 18px 24px;
+  overflow: auto;
+}
+.template-settings-content:not(.template-settings-content--template):not(
+    .template-settings-content--plugins
+  )
+  label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.template-settings-content:not(.template-settings-content--template):not(
+    .template-settings-content--plugins
+  )
+  input,
+.template-settings-content:not(.template-settings-content--template):not(
+    .template-settings-content--plugins
+  )
+  select {
+  min-width: 0;
+  padding: 5px 7px;
+}
+.template-settings-content:not(.template-settings-content--template):not(
+    .template-settings-content--plugins
+  )
+  input[type='color'] {
+  padding: 0;
+  width: 70px;
+  height: 28px;
+}
+.template-settings-content:not(.template-settings-content--template):not(
+    .template-settings-content--plugins
+  )
+  label.template-settings-check {
+  flex-direction: row;
+  align-items: center;
+}
+.template-settings-content--template .inspector {
+  padding: 0;
+}
+.template-settings-impact {
+  margin: 0 0 18px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--bg-input, #0002);
+}
+.template-settings-no-results {
+  padding: 0 10px;
+}
+.template-settings-check small {
+  color: var(--text-dim);
+  margin-left: auto;
+}
+.template-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.template-settings-template-actions {
+  margin-bottom: 16px;
+}
+.template-settings-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+.template-settings-dialog > footer span {
+  margin-right: auto;
+  color: var(--text-dim);
+}
+.template-settings-dialog > footer small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-dim);
+}
+.template-settings-dialog button {
+  cursor: pointer;
+}
+.template-settings-error {
+  color: #ff8b8b !important;
+  padding: 0 18px;
+}
+@media (max-width: 600px) {
+  .template-settings-body {
+    grid-template-columns: 155px minmax(0, 1fr);
+  }
+  .template-settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .template-settings-content {
+    padding: 12px;
+  }
+  .template-settings-dialog > footer {
+    flex-wrap: wrap;
+  }
+  .template-settings-dialog > footer > span {
+    flex-basis: 100%;
+  }
+}
+.template-settings-content--plugins .configuration-page {
+  padding: 0;
+}
+.template-settings-content--plugins .configuration-application-card > header {
+  padding: 0;
+  border: 0;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.template-settings-content--plugins .configuration-page-header h2 {
+  font-size: 14px;
+}
+.plugin-requirement {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.plugin-requirement > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.plugin-requirement > header small {
+  color: var(--text-dim);
+  margin-left: auto;
+}
+.plugin-requirement p {
+  margin: 0;
+}
+.plugin-requirement code {
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+.plugin-requirement button {
+  justify-self: start;
+}
+.inspector-inherited-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.inspector-set-defaults {
+  margin: 0 0 12px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.inspector-set-defaults-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
