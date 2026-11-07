@@ -12,9 +12,14 @@ OGraf Studio is an open-source, browser-based editor for EBU OGraf-compatible HT
 lower thirds, scoreboards, tickers, full-screen graphics and reusable templates.
 
 [Download the latest release](https://github.com/zerodensity/ograf-studio/releases/latest) ·
-[Getting started](#get-started) · [Documentation](#documentation)
+[OGrafStudio.org](https://ografstudio.org/) · [Getting started](#get-started)
 
-![OGraf Studio editing the ZD News Globe Opener with AI Assistant](docs/images/ograf-studio-editor.png)
+[Examples](https://ografstudio.org/examples) ·
+[Tutorials](https://ografstudio.org/guides) ·
+[Documentation](https://ografstudio.org/docs) ·
+[LinkedIn community](https://www.linkedin.com/groups/40618425/)
+
+[![Data-driven charts in the OGraf Studio website showcase](docs/images/ograf-studio-showcase.png)](https://ografstudio.org/)
 
 ## Key features
 
