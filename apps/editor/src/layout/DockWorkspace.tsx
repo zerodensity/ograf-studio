@@ -1,5 +1,9 @@
+import { useCanvasViewStore } from '../state/canvasViewStore';
+import { usePaneRequestStore } from '../state/paneRequestStore';
+import { useWorkspaceStore } from '../state/workspaceStore';
 import {
   Fragment,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -14,28 +18,51 @@ import { useAgentReviewStore } from '../state/agentReviewStore';
 import { ResourcesPanel } from '../panels/ResourcesPanel';
 import { BrandKitPanel } from '../panels/BrandKitPanel';
 import { InspectorPanel } from '../panels/InspectorPanel';
+import { ModifiersPanel } from '../panels/ModifiersPanel';
 import { DataPanel } from '../panels/DataPanel';
+import { RulesPanel } from '../panels/RulesPanel';
+import { FunctionsPanel } from '../panels/FunctionsPanel';
 import { PreviewExportPanel } from '../panels/PreviewExportPanel';
+import { PlayoutControlsPanel } from '../panels/PlayoutControlsPanel';
 import { TimelinePanel } from '../panels/TimelinePanel';
+import { HistoryPanel } from '../panels/HistoryPanel';
+import { BoardPanel } from '../panels/BoardPanel';
+import { ReviewPanel } from '../panels/ReviewPanel';
+import { PluginsPanel } from '../panels/PluginsPanel';
+import { TransitionsPanel } from '../panels/TransitionsPanel';
+import { TemplateNavigatorPanel } from '../panels/TemplateNavigatorPanel';
+import { SceneTreePanel } from '../panels/SceneTreePanel';
+import { DockPaneVisibilityProvider } from './PaneVisibilityContext';
 import { ResizeHandle } from './ResizeHandle';
 import { PropertyColumnProvider } from '../components/PropertyRow';
 import { DetachablePane } from './DetachedWindows';
 import { useDetachedWindows } from './detachedWindowContext';
 import { useResizable } from './useResizable';
+import { createDockingSuppression } from './dockingSuppression';
+import { centerFloatingPane } from './centerFloatingPane';
+import {
+  outerDockDividerPlacement,
+  outerDockPlacement,
+  outerHorizontalPreviewSpan,
+} from './outerDockPlacement';
 import {
   activateDockPane,
   revealDockPane,
   closeDockPane,
-  createDefaultDockLayout,
+  DEFAULT_RULES_UNDOCKED_WIDTH,
+  DEFAULT_PLUGINS_UNDOCKED_WIDTH,
+  DEFAULT_TRANSITION_LOGIC_FLOATING_WIDTH,
   DOCK_PANE_LABELS,
   dockPaneAdjacentToTab,
   dockPaneToGroup,
   dockPaneToZone,
-  dockZoneNearFloatingRect,
+  dockPaneToOuterZone,
+  dockPaneAdjacentToGroup,
+  resizeOuterDockGroups,
   dockZoneNearPointer,
   floatDockPane,
+  initialFloatingWidth,
   moveFloatingDockPane,
-  parseDockLayout,
   reopenDockPane,
   resizeDockGroups,
   type DockGroupState,
@@ -47,38 +74,18 @@ import {
 } from './dockModel';
 import './DockWorkspace.css';
 
-const STORAGE_KEY = 'ograf-studio:dock-layout:v1';
 const PANE_MIME = 'application/x-ograf-studio-pane';
 
-function loadDockLayout(): DockLayoutState {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return parseDockLayout(JSON.parse(stored));
-  } catch {
-    // A usable default is more important than optional local layout persistence.
-  }
-  const layout = createDefaultDockLayout();
-  if (localStorage.getItem('ograf-studio:left-tab') === 'chat') {
-    layout.zones.left[0]!.activePane = 'chat';
-  }
-  return layout;
-}
-
-function persistDockLayout(layout: DockLayoutState): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
-  } catch {
-    // Ignore storage availability/quota failures; docking remains fully usable for the session.
-  }
-}
-
-function PaneContent({ pane }: { pane: DockPaneId }) {
+function PaneContent({ pane, active }: { pane: DockPaneId; active: boolean }) {
+  const { windows } = useDetachedWindows();
   return (
-    <DetachablePane pane={pane}>
-      <PropertyColumnProvider key={pane} pane={pane}>
-        <PaneBody pane={pane} />
-      </PropertyColumnProvider>
-    </DetachablePane>
+    <DockPaneVisibilityProvider visible={active || Boolean(windows[pane])}>
+      <DetachablePane pane={pane}>
+        <PropertyColumnProvider key={pane} pane={pane}>
+          <PaneBody pane={pane} />
+        </PropertyColumnProvider>
+      </DetachablePane>
+    </DockPaneVisibilityProvider>
   );
 }
 
@@ -86,6 +93,10 @@ function PaneBody({ pane }: { pane: DockPaneId }) {
   switch (pane) {
     case 'layers':
       return <LayerListPanel />;
+    case 'templates':
+      return <TemplateNavigatorPanel />;
+    case 'scene-tree':
+      return <SceneTreePanel />;
     case 'chat':
       return <AgentChatPanel />;
     case 'resources':
@@ -94,12 +105,30 @@ function PaneBody({ pane }: { pane: DockPaneId }) {
       return <BrandKitPanel />;
     case 'inspector':
       return <InspectorPanel />;
+    case 'modifiers':
+      return <ModifiersPanel />;
     case 'data':
       return <DataPanel />;
+    case 'rules':
+      return <RulesPanel />;
+    case 'functions':
+      return <FunctionsPanel />;
     case 'export':
       return <PreviewExportPanel />;
+    case 'playout-controls':
+      return <PlayoutControlsPanel />;
     case 'timeline':
       return <TimelinePanel />;
+    case 'history':
+      return <HistoryPanel />;
+    case 'board':
+      return <BoardPanel />;
+    case 'review':
+      return <ReviewPanel />;
+    case 'plugins':
+      return <PluginsPanel />;
+    case 'transitions':
+      return <TransitionsPanel />;
   }
 }
 
@@ -125,6 +154,7 @@ interface DockGroupProps {
   onPointerDockMove: (clientX: number, clientY: number) => void;
   onPointerDockEnd: (pane: DockPaneId, clientX: number, clientY: number) => void;
   onPointerDockCancel: () => void;
+  isDockingSuppressed: () => boolean;
   onClose: (pane: DockPaneId) => void;
 }
 
@@ -140,6 +170,7 @@ function DockGroup({
   onPointerDockMove,
   onPointerDockEnd,
   onPointerDockCancel,
+  isDockingSuppressed,
   onClose,
 }: DockGroupProps) {
   const suppressClickRef = useRef(false);
@@ -178,7 +209,7 @@ function DockGroup({
       document.body.classList.remove('is-reordering-dock-tab');
       clearIndicators();
       if (moved) suppressClickRef.current = true;
-      if (commit && moved && target) {
+      if (commit && moved && target && !isDockingSuppressed()) {
         onDockAtTab(sourcePane, target.groupId, target.pane, target.side);
       } else if (commit && moved && !overSource) {
         onPointerDockEnd(sourcePane, lastPointer.x, lastPointer.y);
@@ -204,7 +235,7 @@ function DockGroup({
       const targetPane = hovered?.dataset.dockPane as DockPaneId | undefined;
       const targetGroupId = hovered?.dataset.dockGroup;
       overSource = targetPane === sourcePane;
-      if (!hovered || !targetPane || !targetGroupId || overSource) {
+      if (!hovered || !targetPane || !targetGroupId || overSource || isDockingSuppressed()) {
         target = null;
         if (overSource) onClearDropPreview();
         else onPointerDockMove(moveEvent.clientX, moveEvent.clientY);
@@ -229,6 +260,7 @@ function DockGroup({
 
   return (
     <section
+      data-dock-group-id={group.id}
       className={`dock-group${visiblePanes.length ? '' : ' detached-empty'}`}
       style={{ flexGrow: group.weight }}
     >
@@ -346,7 +378,7 @@ function DockGroup({
             aria-label={DOCK_PANE_LABELS[pane]}
             hidden={pane !== activePane || Boolean(detached.windows[pane])}
           >
-            <PaneContent pane={pane} />
+            <PaneContent pane={pane} active={pane === activePane} />
           </div>
         ))}
       </div>
@@ -356,11 +388,20 @@ function DockGroup({
 
 interface DockRegionProps extends Omit<DockGroupProps, 'group'> {
   zone: DockZone;
+  outer?: boolean;
+  regionStyle?: CSSProperties;
   groups: DockGroupState[];
   onResizeGroups: (zone: DockZone, weights: Record<string, number>) => void;
 }
 
-function DockRegion({ zone, groups, onResizeGroups, ...groupProps }: DockRegionProps) {
+function DockRegion({
+  zone,
+  outer = false,
+  regionStyle,
+  groups,
+  onResizeGroups,
+  ...groupProps
+}: DockRegionProps) {
   const { windows } = useDetachedWindows();
   const visibleGroups = groups.filter((group) => group.panes.some((pane) => !windows[pane]));
   const regionRef = useRef<HTMLDivElement>(null);
@@ -415,7 +456,8 @@ function DockRegion({ zone, groups, onResizeGroups, ...groupProps }: DockRegionP
   return (
     <div
       ref={regionRef}
-      className={`dock-region dock-region-${zone}${vertical ? ' vertical' : ' horizontal'}${visibleGroups.length ? '' : ' detached-empty'}`}
+      className={`dock-region ${outer ? `dock-outer-${zone}` : `dock-region-${zone}`}${vertical ? ' vertical' : ' horizontal'}${visibleGroups.length ? '' : ' detached-empty'}`}
+      style={regionStyle}
       aria-label={`${zone} dock region`}
     >
       {groups.map((group) => (
@@ -589,15 +631,27 @@ function FloatingDockPane({
         </div>
       </div>
       <div className="dock-floating-content dock-pane-content active">
-        <PaneContent pane={floating.pane} />
+        <PaneContent pane={floating.pane} active />
       </div>
     </section>
   );
 }
 
-type DockDropTarget = DockZone | 'float';
+type OuterDockTarget = `outer-${DockZone}`;
+type GroupDockTarget = `group:${string}:${'before' | 'after'}`;
+type TabDockTarget = `tab:${string}`;
+type DockDropTarget = DockZone | OuterDockTarget | GroupDockTarget | TabDockTarget | 'float';
 
-function DockTargetIcon({ target }: { target: DockDropTarget }) {
+/** While a docking preview shows, tells the user Esc keeps the pane where they drop it. */
+function DockEscapeNote({ placement }: { placement: 'center' | DockZone }) {
+  return (
+    <div className={`dock-escape-note ${placement}`} role="note">
+      Press <kbd>Esc</kbd> to move without docking
+    </div>
+  );
+}
+
+function DockTargetIcon({ target }: { target: DockZone | 'float' }) {
   return (
     <span className={`dock-target-icon ${target}`} aria-hidden="true">
       <i />
@@ -607,7 +661,7 @@ function DockTargetIcon({ target }: { target: DockDropTarget }) {
 
 export interface DockPaneCommand {
   id: number;
-  action: 'open' | 'close';
+  action: 'open' | 'close' | 'float-center';
   pane: DockPaneId;
 }
 
@@ -621,21 +675,86 @@ export function DockWorkspace({
   onClosedPanesChange?: (panes: DockPaneId[]) => void;
 }) {
   const workspaceRef = useRef<HTMLDivElement>(null);
-  const [layout, setLayout] = useState(loadDockLayout);
+  const innerWorkspaceRef = useRef<HTMLDivElement>(null);
+  const designView = useCanvasViewStore((state) => state.mode === 'design');
+  const layout = useWorkspaceStore((state) => state.current.layout);
+  const sizes = useWorkspaceStore((state) => state.current.sizes);
+  const applyRevision = useWorkspaceStore((state) => state.applyRevision);
+  const setLayout = useCallback(
+    (next: DockLayoutState | ((current: DockLayoutState) => DockLayoutState)) => {
+      const state = useWorkspaceStore.getState();
+      state.updateLayout(typeof next === 'function' ? next(state.current.layout) : next);
+    },
+    [],
+  );
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const fitFloatingPanes = () => {
+      const bounds = workspace.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) return;
+      setLayout((current) => {
+        let changed = false;
+        const floating = current.floating.map((pane) => {
+          const width = Math.min(pane.width, Math.max(100, bounds.width - 12));
+          const height = Math.min(pane.height, Math.max(80, bounds.height - 12));
+          const x = Math.max(0, Math.min(pane.x, bounds.width - width));
+          const y = Math.max(0, Math.min(pane.y, bounds.height - height));
+          if (width === pane.width && height === pane.height && x === pane.x && y === pane.y)
+            return pane;
+          changed = true;
+          return { ...pane, x, y, width, height };
+        });
+        return changed ? { ...current, floating } : current;
+      });
+    };
+    fitFloatingPanes();
+    const observer = new ResizeObserver(fitFloatingPanes);
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, [applyRevision, setLayout]);
+  const detached = useDetachedWindows();
+  const detachedRef = useRef(detached);
+  detachedRef.current = detached;
   const proposalId = useAgentReviewStore((state) => state.proposals[0]?.id);
   useEffect(() => {
     if (proposalId) setLayout((current) => revealDockPane(current, 'chat'));
   }, [proposalId]);
-  const { windows: detachedWindows } = useDetachedWindows();
+  const paneRequest = usePaneRequestStore((state) => state.request);
+  useEffect(() => {
+    if (paneRequest) {
+      const entry = detachedRef.current.windows[paneRequest.pane];
+      if (entry && !entry.window.closed) entry.window.focus();
+      setLayout((current) => revealDockPane(current, paneRequest.pane));
+    }
+  }, [paneRequest]);
+  const resetRequest = usePaneRequestStore((state) => state.resetRequest);
+  useEffect(() => {
+    if (resetRequest > 0) useWorkspaceStore.getState().resetCurrent();
+  }, [resetRequest]);
+  const { windows: detachedWindows } = detached;
   const [draggingPane, setDraggingPane] = useState<DockPaneId | null>(null);
   const [dropTarget, setDropTarget] = useState<DockDropTarget | null>(null);
   const [movingFloatingPane, setMovingFloatingPane] = useState<DockPaneId | null>(null);
-  const [edgeDropTarget, setEdgeDropTarget] = useState<DockZone | null>(null);
+  const [edgeDropTarget, setEdgeDropTarget] = useState<DockDropTarget | null>(null);
+  const [dockingSuppressed, setDockingSuppressed] = useState(false);
+  const [dockingSuppression] = useState(() =>
+    createDockingSuppression(window, (suppressed) => {
+      setDockingSuppressed(suppressed);
+      if (!suppressed) return;
+      setDropTarget(null);
+      setEdgeDropTarget(null);
+      clearTabDropIndicators();
+    }),
+  );
+  useEffect(() => () => dockingSuppression.disarm(), [dockingSuppression]);
 
   const left = useResizable({
     key: 'left-sidebar',
     axis: 'col',
     defaultSize: 380,
+    value: sizes.left,
+    onSizeChange: (left) => useWorkspaceStore.getState().updateSizes({ left }),
     min: 220,
     max: 520,
   });
@@ -643,6 +762,8 @@ export function DockWorkspace({
     key: 'right-tabs',
     axis: 'col',
     defaultSize: 300,
+    value: sizes.right,
+    onSizeChange: (right) => useWorkspaceStore.getState().updateSizes({ right }),
     min: 220,
     max: 520,
     invert: true,
@@ -651,6 +772,8 @@ export function DockWorkspace({
     key: 'top-dock',
     axis: 'row',
     defaultSize: 220,
+    value: sizes.top,
+    onSizeChange: (top) => useWorkspaceStore.getState().updateSizes({ top }),
     min: 120,
     max: 420,
   });
@@ -658,15 +781,68 @@ export function DockWorkspace({
     key: 'timeline',
     axis: 'row',
     defaultSize: 220,
+    value: sizes.bottom,
+    onSizeChange: (bottom) => useWorkspaceStore.getState().updateSizes({ bottom }),
     min: 120,
     max: 480,
     invert: true,
   });
 
-  useEffect(() => persistDockLayout(layout), [layout]);
+  const outerLeft = useResizable({
+    key: 'outer-left',
+    axis: 'col',
+    defaultSize: 300,
+    value: sizes.outerLeft ?? 300,
+    onSizeChange: (outerLeft) => useWorkspaceStore.getState().updateSizes({ outerLeft }),
+    min: 180,
+    max: 700,
+  });
+  const outerRight = useResizable({
+    key: 'outer-right',
+    axis: 'col',
+    defaultSize: 300,
+    value: sizes.outerRight ?? 300,
+    onSizeChange: (outerRight) => useWorkspaceStore.getState().updateSizes({ outerRight }),
+    min: 180,
+    max: 700,
+    invert: true,
+  });
+  const outerTop = useResizable({
+    key: 'outer-top',
+    axis: 'row',
+    defaultSize: 200,
+    value: sizes.outerTop ?? 200,
+    onSizeChange: (outerTop) => useWorkspaceStore.getState().updateSizes({ outerTop }),
+    min: 100,
+    max: 500,
+  });
+  const outerBottom = useResizable({
+    key: 'outer-bottom',
+    axis: 'row',
+    defaultSize: 200,
+    value: sizes.outerBottom ?? 200,
+    onSizeChange: (outerBottom) => useWorkspaceStore.getState().updateSizes({ outerBottom }),
+    min: 100,
+    max: 500,
+    invert: true,
+  });
+
   useEffect(() => onClosedPanesChange?.(layout.closed), [layout.closed, onClosedPanesChange]);
   useEffect(() => {
     if (!paneCommand) return;
+    if (paneCommand.action === 'float-center') {
+      // Return an OS-detached pane to its stable Studio host before floating it here.
+      if (detachedRef.current.windows[paneCommand.pane]) detachedRef.current.dock(paneCommand.pane);
+      const bounds = workspaceRef.current?.getBoundingClientRect();
+      setLayout((current) =>
+        centerFloatingPane(current, paneCommand.pane, {
+          width: bounds?.width ?? 760,
+          height: bounds?.height ?? 640,
+        }),
+      );
+      return;
+    }
+    if (paneCommand.action === 'close') detachedRef.current.dock(paneCommand.pane);
     setLayout((current) => {
       if (paneCommand.action === 'close') return closeDockPane(current, paneCommand.pane);
       const bounds = workspaceRef.current?.getBoundingClientRect();
@@ -674,9 +850,15 @@ export function DockWorkspace({
       const preferred =
         paneCommand.pane === 'timeline'
           ? { width: 720, height: 340 }
-          : paneCommand.pane === 'chat' || paneCommand.pane === 'export'
-            ? { width: 460, height: 520 }
-            : { width: 380, height: 460 };
+          : paneCommand.pane === 'plugins'
+            ? { width: DEFAULT_PLUGINS_UNDOCKED_WIDTH, height: 520 }
+            : paneCommand.pane === 'transitions'
+              ? { width: DEFAULT_TRANSITION_LOGIC_FLOATING_WIDTH, height: 520 }
+              : paneCommand.pane === 'rules' || paneCommand.pane === 'functions'
+                ? { width: DEFAULT_RULES_UNDOCKED_WIDTH, height: 460 }
+                : paneCommand.pane === 'chat' || paneCommand.pane === 'export'
+                  ? { width: 460, height: 520 }
+                  : { width: 380, height: 460 };
       const width = Math.max(240, Math.min(preferred.width, bounds.width - 24));
       const height = Math.max(160, Math.min(preferred.height, bounds.height - 24));
       const cascade = (current.floating.length % 5) * 18;
@@ -690,7 +872,7 @@ export function DockWorkspace({
       );
       return reopenDockPane(current, paneCommand.pane, { x, y, width, height });
     });
-  }, [paneCommand]);
+  }, [paneCommand, setLayout]);
 
   const visibleZone = (zone: DockZone) =>
     layout.zones[zone].some((group) => group.panes.some((pane) => !detachedWindows[pane]));
@@ -707,21 +889,83 @@ export function DockWorkspace({
     setDraggingPane(pane);
   };
 
-  const finishDockDrag = () => {
+  function clearTabDropIndicators() {
     workspaceRef.current
       ?.querySelectorAll('.dock-tab-drop-before, .dock-tab-drop-after')
       .forEach((element) =>
         element.classList.remove('dock-tab-drop-before', 'dock-tab-drop-after'),
       );
+  }
+
+  const finishDockDrag = () => {
+    clearTabDropIndicators();
+    dockingSuppression.disarm();
     setDraggingPane(null);
     setDropTarget(null);
   };
 
   const pointerDockTargetAt = (clientX: number, clientY: number): DockDropTarget | null => {
     const bounds = workspaceRef.current?.getBoundingClientRect();
-    if (!bounds) return null;
-    const centerX = bounds.left + bounds.width / 2;
-    const centerY = bounds.top + bounds.height / 2;
+    const inner = innerWorkspaceRef.current?.getBoundingClientRect();
+    if (
+      !bounds ||
+      !inner ||
+      clientX < bounds.left ||
+      clientX > bounds.right ||
+      clientY < bounds.top ||
+      clientY > bounds.bottom
+    )
+      return null;
+    // Outer guides take priority over the pane under them. These use the same
+    // hit area whether a tab or a floating pane is being moved.
+    const outerGuides: Array<{ zone: DockZone; x: number; y: number }> = [
+      { zone: 'left', x: bounds.left + 22, y: bounds.top + bounds.height / 2 },
+      { zone: 'right', x: bounds.right - 22, y: bounds.top + bounds.height / 2 },
+      { zone: 'top', x: bounds.left + bounds.width / 2, y: bounds.top + 22 },
+      { zone: 'bottom', x: bounds.left + bounds.width / 2, y: bounds.bottom - 22 },
+    ];
+    const edge =
+      outerGuides.find(
+        (guide) => Math.abs(clientX - guide.x) <= 22 && Math.abs(clientY - guide.y) <= 22,
+      )?.zone ?? dockZoneNearPointer(clientX, clientY, bounds, 16);
+    if (edge) return `outer-${edge}`;
+    const groups =
+      workspaceRef.current?.querySelectorAll<HTMLElement>('.dock-group:not(.detached-empty)') ?? [];
+    for (const group of groups) {
+      const box = group.getBoundingClientRect();
+      if (clientX < box.left || clientX > box.right || clientY < box.top || clientY > box.bottom)
+        continue;
+      const tabs = group.querySelector('.dock-tabs')?.getBoundingClientRect();
+      if (
+        tabs &&
+        clientY >= tabs.top + 9 &&
+        clientY <= tabs.bottom &&
+        clientX >= tabs.left &&
+        clientX <= tabs.right
+      ) {
+        return `tab:${group.dataset.dockGroupId}`;
+      }
+      const region = group.closest('.dock-region');
+      const vertical = region?.classList.contains('vertical');
+      // Leave the tab bar usable for grouping while providing a generous
+      // insertion target just underneath it, including for the topmost pane.
+      if (
+        vertical &&
+        tabs &&
+        clientY > tabs.bottom &&
+        clientY <= tabs.bottom + Math.min(32, box.height * 0.2)
+      ) {
+        return `group:${group.dataset.dockGroupId}:before`;
+      }
+      const offset = vertical ? clientY - box.top : clientX - box.left;
+      const extent = vertical ? box.height : box.width;
+      const threshold = Math.min(32, extent * 0.2);
+      if (offset < threshold || offset > extent - threshold) {
+        return `group:${group.dataset.dockGroupId}:${offset < threshold ? 'before' : 'after'}`;
+      }
+    }
+    const centerX = inner.left + inner.width / 2;
+    const centerY = inner.top + inner.height / 2;
     const guides: Array<{ target: DockDropTarget; x: number; y: number }> = [
       { target: 'top', x: centerX, y: centerY - 49 },
       { target: 'left', x: centerX - 49, y: centerY },
@@ -729,61 +973,62 @@ export function DockWorkspace({
       { target: 'right', x: centerX + 49, y: centerY },
       { target: 'bottom', x: centerX, y: centerY + 49 },
     ];
-    const guide = guides.find(
-      (candidate) => Math.abs(clientX - candidate.x) <= 24 && Math.abs(clientY - candidate.y) <= 24,
+    return (
+      guides.find(
+        (candidate) =>
+          Math.abs(clientX - candidate.x) <= 24 && Math.abs(clientY - candidate.y) <= 24,
+      )?.target ?? null
     );
-    return guide?.target ?? dockZoneNearPointer(clientX, clientY, bounds);
+  };
+
+  const applyDockTarget = (pane: DockPaneId, target: DockDropTarget) => {
+    if (target.startsWith('outer-')) {
+      setLayout((current) => dockPaneToOuterZone(current, pane, target.slice(6) as DockZone));
+    } else if (target.startsWith('tab:')) {
+      setLayout((current) => dockPaneToGroup(current, pane, target.slice(4)));
+    } else if (target.startsWith('group:')) {
+      const [, groupId, side] = target.split(':');
+      if (groupId && (side === 'before' || side === 'after'))
+        setLayout((current) => dockPaneAdjacentToGroup(current, pane, groupId, side));
+    } else if (target !== 'float') {
+      setLayout((current) => dockPaneToZone(current, pane, target as DockZone));
+    }
   };
 
   const beginPointerDock = (pane: DockPaneId) => {
+    dockingSuppression.arm();
     setDraggingPane(pane);
     setDropTarget(null);
   };
 
   const updatePointerDock = (clientX: number, clientY: number) => {
-    setDropTarget(pointerDockTargetAt(clientX, clientY));
+    setDropTarget(dockingSuppression.suppressed ? null : pointerDockTargetAt(clientX, clientY));
   };
 
   const finishPointerDock = (pane: DockPaneId, clientX: number, clientY: number) => {
-    const target = pointerDockTargetAt(clientX, clientY);
+    const target = dockingSuppression.suppressed ? null : pointerDockTargetAt(clientX, clientY);
     if (target && target !== 'float') {
-      setLayout((current) => dockPaneToZone(current, pane, target));
+      applyDockTarget(pane, target);
     } else {
       const bounds = workspaceRef.current?.getBoundingClientRect();
+      const workspaceWidth = bounds?.width ?? 760;
+      const width = initialFloatingWidth(pane, workspaceWidth, 360);
       setLayout((current) =>
         floatDockPane(current, pane, {
-          x: Math.max(0, clientX - (bounds?.left ?? 0) - 180),
+          x: Math.max(
+            0,
+            Math.min(workspaceWidth - width, clientX - (bounds?.left ?? 0) - width / 2),
+          ),
           y: Math.max(0, clientY - (bounds?.top ?? 0) - 28),
+          width,
         }),
       );
     }
     finishDockDrag();
   };
 
-  const edgeZoneForFloating = (
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    clientX: number,
-    clientY: number,
-  ): DockZone | null => {
-    const bounds = workspaceRef.current?.getBoundingClientRect();
-    if (!bounds) return null;
-    return (
-      dockZoneNearFloatingRect(
-        {
-          left: bounds.left + x,
-          top: bounds.top + y,
-          right: bounds.left + x + width,
-          bottom: bounds.top + y + height,
-        },
-        bounds,
-      ) ?? dockZoneNearPointer(clientX, clientY, bounds)
-    );
-  };
-
   const beginFloatingMove = (pane: DockPaneId) => {
+    dockingSuppression.arm();
     setMovingFloatingPane(pane);
     setEdgeDropTarget(null);
   };
@@ -792,33 +1037,39 @@ export function DockWorkspace({
     pane: DockPaneId,
     x: number,
     y: number,
-    width: number,
-    height: number,
+    _width: number,
+    _height: number,
     clientX: number,
     clientY: number,
   ) => {
     setLayout((current) => moveFloatingDockPane(current, pane, x, y));
-    setEdgeDropTarget(edgeZoneForFloating(x, y, width, height, clientX, clientY));
+    setEdgeDropTarget(dockingSuppression.suppressed ? null : pointerDockTargetAt(clientX, clientY));
   };
 
   const finishFloatingMove = (
     pane: DockPaneId,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
+    _x: number,
+    _y: number,
+    _width: number,
+    _height: number,
     clientX: number,
     clientY: number,
   ) => {
-    const zone = edgeZoneForFloating(x, y, width, height, clientX, clientY);
-    if (zone) setLayout((current) => dockPaneToZone(current, pane, zone));
+    const zone = dockingSuppression.suppressed ? null : pointerDockTargetAt(clientX, clientY);
+    if (zone && zone !== 'float') applyDockTarget(pane, zone);
+    dockingSuppression.disarm();
     setMovingFloatingPane(null);
     setEdgeDropTarget(null);
   };
 
   const floatAtCenter = (pane: DockPaneId) => {
     const bounds = workspaceRef.current?.getBoundingClientRect();
-    const width = Math.min(380, Math.max(280, (bounds?.width ?? 760) - 80));
+    const workspaceWidth = bounds?.width ?? 760;
+    const width = initialFloatingWidth(
+      pane,
+      workspaceWidth,
+      Math.min(380, Math.max(280, workspaceWidth - 80)),
+    );
     const height = Math.min(460, Math.max(220, (bounds?.height ?? 640) - 80));
     setLayout((current) =>
       floatDockPane(current, pane, {
@@ -837,18 +1088,28 @@ export function DockWorkspace({
     if (!pane) return;
     if (target === 'float') {
       const bounds = workspaceRef.current?.getBoundingClientRect();
+      const workspaceWidth = bounds?.width ?? 760;
+      const width = initialFloatingWidth(pane, workspaceWidth, 360);
       setLayout((current) =>
         floatDockPane(current, pane, {
-          x: Math.max(0, event.clientX - (bounds?.left ?? 0) - 180),
+          x: Math.max(
+            0,
+            Math.min(workspaceWidth - width, event.clientX - (bounds?.left ?? 0) - width / 2),
+          ),
           y: Math.max(0, event.clientY - (bounds?.top ?? 0) - 28),
+          width,
         }),
       );
     } else {
-      setLayout((current) => dockPaneToZone(current, pane, target));
+      applyDockTarget(pane, target);
     }
     finishDockDrag();
   };
 
+  const closePane = (pane: DockPaneId) => {
+    detached.dock(pane);
+    setLayout((current) => closeDockPane(current, pane));
+  };
   const groupProps: Omit<DockGroupProps, 'group'> = {
     draggingPane,
     onActivate: (groupId, pane) => setLayout((current) => activateDockPane(current, groupId, pane)),
@@ -866,72 +1127,300 @@ export function DockWorkspace({
     onPointerDockMove: updatePointerDock,
     onPointerDockEnd: finishPointerDock,
     onPointerDockCancel: finishDockDrag,
-    onClose: (pane) => setLayout((current) => closeDockPane(current, pane)),
+    isDockingSuppressed: () => dockingSuppression.suppressed,
+    onClose: closePane,
   };
 
   const updateDockGroupWeights = (zone: DockZone, weights: Record<string, number>) => {
     setLayout((current) => resizeDockGroups(current, zone, weights));
   };
 
+  const outerGroups = (zone: DockZone) => layout.outerZones?.[zone] ?? [];
+  const hasOuter = (zone: DockZone) =>
+    outerGroups(zone).some((group) => group.panes.some((pane) => !detachedWindows[pane]));
+  const bottomPriority = hasOuter('bottom') && layout.outerBottomFullWidth === true;
+  const timelineOnly = (groups: DockGroupState[]) => {
+    const visible = groups.filter((group) => group.panes.some((pane) => !detachedWindows[pane]));
+    if (visible.length !== 1) return false;
+    const group = visible[0]!;
+    const panes = group.panes.filter((pane) => !detachedWindows[pane]);
+    return (panes.includes(group.activePane) ? group.activePane : panes[0]) === 'timeline';
+  };
+  const slimBottom = designView && timelineOnly(layout.zones.bottom);
+  const slimOuterBottom = designView && timelineOnly(outerGroups('bottom'));
+  const outerStyle = {
+    gridTemplateColumns: `${hasOuter('left') ? `${outerLeft.size}px var(--panel-divider-size)` : '0px 0px'} minmax(200px, 1fr) ${hasOuter('right') ? `var(--panel-divider-size) ${outerRight.size}px` : '0px 0px'}`,
+    gridTemplateRows: `${hasOuter('top') ? `${outerTop.size}px var(--panel-divider-size)` : '0px 0px'} minmax(120px, 1fr) ${hasOuter('bottom') ? `var(--panel-divider-size) ${slimOuterBottom ? 62 : outerBottom.size}px` : '0px 0px'}`,
+  } as CSSProperties;
+  const updateOuterWeights = (zone: DockZone, weights: Record<string, number>) =>
+    setLayout((current) => resizeOuterDockGroups(current, zone, weights));
+  const activeTarget = draggingPane ? dropTarget : edgeDropTarget;
+  const outerBounds = workspaceRef.current?.getBoundingClientRect();
+  const innerBounds = innerWorkspaceRef.current?.getBoundingClientRect();
+  const previewBounds = (() => {
+    if (!activeTarget || !outerBounds || !innerBounds || activeTarget === 'float') return undefined;
+    let box = activeTarget.startsWith('outer-') ? outerBounds : innerBounds;
+    let x = box.left - outerBounds.left,
+      y = box.top - outerBounds.top,
+      width = box.width,
+      height = box.height;
+    if (activeTarget.startsWith('group:') || activeTarget.startsWith('tab:')) {
+      const [, id, side] = activeTarget.split(':');
+      const el = [
+        ...(workspaceRef.current?.querySelectorAll<HTMLElement>('.dock-group') ?? []),
+      ].find((element) => element.dataset.dockGroupId === id);
+      if (!el) return undefined;
+      box = el.getBoundingClientRect();
+      x = box.left - outerBounds.left;
+      y = box.top - outerBounds.top;
+      width = box.width;
+      height = box.height;
+      if (activeTarget.startsWith('tab:')) {
+        return { left: x, top: y, width, height } as CSSProperties;
+      }
+      if (el.closest('.dock-region')?.classList.contains('vertical')) {
+        height /= 2;
+        if (side === 'after') y += height;
+      } else {
+        width /= 2;
+        if (side === 'after') x += width;
+      }
+    } else {
+      const outer = activeTarget.startsWith('outer-');
+      const zone = (outer ? activeTarget.slice(6) : activeTarget) as DockZone;
+      if (!outer && (zone === 'left' || zone === 'right')) {
+        const center = workspaceRef.current?.querySelector('.dock-center')?.getBoundingClientRect();
+        if (center) {
+          y = center.top - outerBounds.top;
+          height = center.height;
+        }
+      }
+      if (zone === 'left' || zone === 'right') {
+        width = Math.min(
+          width * 0.45,
+          outer
+            ? zone === 'left'
+              ? outerLeft.size
+              : outerRight.size
+            : zone === 'left'
+              ? left.size
+              : right.size,
+        );
+        if (zone === 'right') x += box.width - width;
+      } else {
+        if (outer) {
+          const span = outerHorizontalPreviewSpan(
+            zone,
+            outerBounds.width,
+            innerBounds.left - outerBounds.left,
+            innerBounds.width,
+          );
+          x = span.left;
+          width = span.width;
+        }
+        height = Math.min(
+          height * 0.45,
+          outer
+            ? zone === 'top'
+              ? outerTop.size
+              : outerBottom.size
+            : zone === 'top'
+              ? top.size
+              : bottom.size,
+        );
+        if (zone === 'bottom') y += box.height - height;
+      }
+
+      const pane = draggingPane ?? movingFloatingPane;
+      if (pane) {
+        // The model appends (or prepends) a separate group in this region. The
+        // indicator must show the space that group will occupy after flexing,
+        // rather than suggesting that it will replace the entire region.
+        const result = outer
+          ? dockPaneToOuterZone(layout, pane, zone)
+          : dockPaneToZone(layout, pane, zone);
+        const groups = (outer ? (result.outerZones?.[zone] ?? []) : result.zones[zone]).filter(
+          (group) => group.panes.some((item) => !detachedWindows[item]),
+        );
+        const targetIndex = groups.findIndex((group) => group.panes.includes(pane));
+        const region = workspaceRef.current?.querySelector<HTMLElement>(
+          outer ? `.dock-outer-${zone}` : `.dock-region-${zone}`,
+        );
+        if (region && !region.classList.contains('detached-empty')) {
+          const regionBox = region.getBoundingClientRect();
+          x = regionBox.left - outerBounds.left;
+          y = regionBox.top - outerBounds.top;
+          width = regionBox.width;
+          height = regionBox.height;
+          // The outer-edge drop changes corner priority; existing region bounds represent the
+          // previous layout. Project the target region before calculating its group split.
+          if (outer && zone === 'bottom') {
+            x = 0;
+            width = outerBounds.width;
+          } else if (outer && (zone === 'left' || zone === 'right')) {
+            y = 0;
+            height = outerBounds.height;
+          }
+        }
+        if (targetIndex >= 0 && groups.length > 1) {
+          const vertical = zone === 'left' || zone === 'right' || zone === 'bottom';
+          const divider = region?.querySelector<HTMLElement>('.dock-group-resize-handle');
+          const dividerBox = divider?.getBoundingClientRect();
+          const configuredDivider = region
+            ? Number.parseFloat(getComputedStyle(region).getPropertyValue('--panel-divider-size'))
+            : 0;
+          const dividerSize = dividerBox
+            ? vertical
+              ? dividerBox.height
+              : dividerBox.width
+            : Number.isFinite(configuredDivider)
+              ? configuredDivider
+              : 0;
+          const axisSize = vertical ? height : width;
+          const available = Math.max(0, axisSize - dividerSize * (groups.length - 1));
+          const totalWeight = groups.reduce((sum, group) => sum + group.weight, 0);
+          const beforeWeight = groups
+            .slice(0, targetIndex)
+            .reduce((sum, group) => sum + group.weight, 0);
+          const offset =
+            totalWeight > 0
+              ? (available * beforeWeight) / totalWeight + dividerSize * targetIndex
+              : 0;
+          const extent =
+            totalWeight > 0 ? (available * groups[targetIndex]!.weight) / totalWeight : axisSize;
+          if (vertical) {
+            y += offset;
+            height = extent;
+          } else {
+            x += offset;
+            width = extent;
+          }
+        }
+      }
+    }
+    return { left: x, top: y, width, height } as CSSProperties;
+  })();
+  const clusterStyle =
+    outerBounds && innerBounds
+      ? {
+          left: innerBounds.left - outerBounds.left + innerBounds.width / 2,
+          top: innerBounds.top - outerBounds.top + innerBounds.height / 2,
+        }
+      : undefined;
+
   const workspaceStyle = {
     gridTemplateColumns: `${hasLeft ? `${left.size}px` : '0px'} ${hasLeft ? 'var(--panel-divider-size)' : '0px'} minmax(200px, 1fr) ${hasRight ? 'var(--panel-divider-size)' : '0px'} ${hasRight ? `${right.size}px` : '0px'}`,
-    gridTemplateRows: `${hasTop ? `${top.size}px` : '0px'} ${hasTop ? 'var(--panel-divider-size)' : '0px'} minmax(120px, 1fr) ${hasBottom ? 'var(--panel-divider-size)' : '0px'} ${hasBottom ? `${bottom.size}px` : '0px'}`,
-    '--dock-bottom-size': `${bottom.size}px`,
-    '--dock-bottom-preview-size': `${Math.max(60, bottom.size / 2)}px`,
+    gridTemplateRows: `${hasTop ? `${top.size}px` : '0px'} ${hasTop ? 'var(--panel-divider-size)' : '0px'} minmax(120px, 1fr) ${hasBottom ? 'var(--panel-divider-size)' : '0px'} ${hasBottom ? `${slimBottom ? 62 : bottom.size}px` : '0px'}`,
   } as CSSProperties;
 
   return (
     <div
-      className={`dock-workspace${hasBottom ? ' has-bottom-dock' : ''}`}
+      className="dock-workspace"
       ref={workspaceRef}
-      style={workspaceStyle}
+      style={outerStyle}
+      onDragOver={(event) => {
+        if (!draggingPane || dockingSuppression.suppressed) return;
+        event.preventDefault();
+        setDropTarget(pointerDockTargetAt(event.clientX, event.clientY));
+      }}
+      onDrop={(event) => {
+        const target = pointerDockTargetAt(event.clientX, event.clientY);
+        if (target && draggingPane) dockToTarget(event, target);
+      }}
     >
-      {layout.zones.top.length > 0 ? (
-        <DockRegion
-          zone="top"
-          groups={layout.zones.top}
-          onResizeGroups={updateDockGroupWeights}
-          {...groupProps}
+      {(['left', 'right', 'top', 'bottom'] as DockZone[]).map((zone) =>
+        outerGroups(zone).length ? (
+          <DockRegion
+            key={`outer-${zone}`}
+            outer
+            zone={zone}
+            regionStyle={outerDockPlacement(zone, bottomPriority)}
+            groups={outerGroups(zone)}
+            onResizeGroups={updateOuterWeights}
+            {...groupProps}
+          />
+        ) : null,
+      )}
+      {hasOuter('left') ? (
+        <ResizeHandle
+          axis="col"
+          {...outerDockDividerPlacement('left', bottomPriority)}
+          onPointerDown={outerLeft.startDrag}
         />
       ) : null}
-      {hasTop ? (
-        <ResizeHandle axis="row" gridColumn="1 / -1" gridRow="2" onPointerDown={top.startDrag} />
-      ) : null}
-      {layout.zones.left.length > 0 ? (
-        <DockRegion
-          zone="left"
-          groups={layout.zones.left}
-          onResizeGroups={updateDockGroupWeights}
-          {...groupProps}
+      {hasOuter('right') ? (
+        <ResizeHandle
+          axis="col"
+          {...outerDockDividerPlacement('right', bottomPriority)}
+          onPointerDown={outerRight.startDrag}
         />
       ) : null}
-      {hasLeft ? (
-        <ResizeHandle axis="col" gridColumn="2" gridRow="3" onPointerDown={left.startDrag} />
-      ) : null}
-      <main className="dock-center">{center}</main>
-      {hasRight ? (
-        <ResizeHandle axis="col" gridColumn="4" gridRow="3" onPointerDown={right.startDrag} />
-      ) : null}
-      {layout.zones.right.length > 0 ? (
-        <DockRegion
-          zone="right"
-          groups={layout.zones.right}
-          onResizeGroups={updateDockGroupWeights}
-          {...groupProps}
+      {hasOuter('top') ? (
+        <ResizeHandle
+          axis="row"
+          {...outerDockDividerPlacement('top', bottomPriority)}
+          onPointerDown={outerTop.startDrag}
         />
       ) : null}
-      {hasBottom ? (
-        <ResizeHandle axis="row" gridColumn="1 / -1" gridRow="4" onPointerDown={bottom.startDrag} />
-      ) : null}
-      {layout.zones.bottom.length > 0 ? (
-        <DockRegion
-          zone="bottom"
-          groups={layout.zones.bottom}
-          onResizeGroups={updateDockGroupWeights}
-          {...groupProps}
+      {hasOuter('bottom') ? (
+        <ResizeHandle
+          axis="row"
+          {...outerDockDividerPlacement('bottom', bottomPriority)}
+          onPointerDown={outerBottom.startDrag}
         />
       ) : null}
-
+      <div className="dock-inner-workspace" ref={innerWorkspaceRef} style={workspaceStyle}>
+        {layout.zones.top.length > 0 ? (
+          <DockRegion
+            zone="top"
+            groups={layout.zones.top}
+            onResizeGroups={updateDockGroupWeights}
+            {...groupProps}
+          />
+        ) : null}
+        {hasTop ? (
+          <ResizeHandle axis="row" gridColumn="1 / -1" gridRow="2" onPointerDown={top.startDrag} />
+        ) : null}
+        {layout.zones.left.length > 0 ? (
+          <DockRegion
+            zone="left"
+            groups={layout.zones.left}
+            onResizeGroups={updateDockGroupWeights}
+            {...groupProps}
+          />
+        ) : null}
+        {hasLeft ? (
+          <ResizeHandle axis="col" gridColumn="2" gridRow="3" onPointerDown={left.startDrag} />
+        ) : null}
+        <main className="dock-center">{center}</main>
+        {hasRight ? (
+          <ResizeHandle axis="col" gridColumn="4" gridRow="3" onPointerDown={right.startDrag} />
+        ) : null}
+        {layout.zones.right.length > 0 ? (
+          <DockRegion
+            zone="right"
+            groups={layout.zones.right}
+            onResizeGroups={updateDockGroupWeights}
+            {...groupProps}
+          />
+        ) : null}
+        {hasBottom ? (
+          <ResizeHandle
+            axis="row"
+            gridColumn="1 / -1"
+            gridRow="4"
+            onPointerDown={bottom.startDrag}
+          />
+        ) : null}
+        {layout.zones.bottom.length > 0 ? (
+          <DockRegion
+            zone="bottom"
+            groups={layout.zones.bottom}
+            onResizeGroups={updateDockGroupWeights}
+            {...groupProps}
+          />
+        ) : null}
+      </div>
       {layout.floating.map((floating) => (
         <FloatingDockPane
           key={floating.pane}
@@ -943,20 +1432,26 @@ export function DockWorkspace({
           onDragStart={beginDockDrag}
           onDragEnd={finishDockDrag}
           onDock={(pane, zone) => setLayout((current) => dockPaneToZone(current, pane, zone))}
-          onClose={(pane) => setLayout((current) => closeDockPane(current, pane))}
+          onClose={closePane}
         />
       ))}
 
-      {draggingPane ? (
-        <div className="dock-hints" aria-label={`Dock ${DOCK_PANE_LABELS[draggingPane]}`}>
-          {dropTarget ? <div className={`dock-drop-preview ${dropTarget}`} /> : null}
-          <div className="dock-hint-cluster">
-            {(['top', 'left', 'float', 'right', 'bottom'] as DockDropTarget[]).map((target) => (
+      {(draggingPane || movingFloatingPane) && !dockingSuppressed ? (
+        <div
+          className="dock-hints"
+          aria-label={`Dock ${DOCK_PANE_LABELS[(draggingPane ?? movingFloatingPane)!]}`}
+        >
+          {activeTarget && previewBounds ? (
+            <div className="dock-drop-preview dock-geometry-preview" style={previewBounds} />
+          ) : null}
+          {activeTarget === 'float' ? <div className="dock-drop-preview float" /> : null}
+          <div className="dock-hint-cluster" style={clusterStyle}>
+            {(['top', 'left', 'float', 'right', 'bottom'] as const).map((target) => (
               <div
                 key={target}
-                className={`dock-hint dock-hint-${target}${dropTarget === target ? ' active' : ''}`}
+                className={`dock-hint dock-hint-${target}${activeTarget === target ? ' active' : ''}`}
                 role="button"
-                aria-label={target === 'float' ? 'Float pane' : `Dock ${target}`}
+                aria-label={target === 'float' ? 'Float pane' : `Dock ${target} inside workspace`}
                 onDragEnter={(event) => {
                   event.preventDefault();
                   setDropTarget(target);
@@ -965,23 +1460,44 @@ export function DockWorkspace({
                   event.preventDefault();
                   event.dataTransfer.dropEffect = 'move';
                 }}
-                onDrop={(event) => dockToTarget(event, target)}
+                onDrop={(event) => {
+                  event.stopPropagation();
+                  dockToTarget(event, target);
+                }}
               >
                 <DockTargetIcon target={target} />
               </div>
             ))}
           </div>
+          {(['top', 'left', 'right', 'bottom'] as DockZone[]).map((zone) => (
+            <div
+              key={zone}
+              className={`dock-hint dock-outer-guide ${zone}${activeTarget === `outer-${zone}` ? ' active' : ''}`}
+              role="button"
+              aria-label={`Dock ${zone} across workspace`}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                setDropTarget(`outer-${zone}`);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(event) => {
+                event.stopPropagation();
+                dockToTarget(event, `outer-${zone}`);
+              }}
+            >
+              <DockTargetIcon target={zone} />
+            </div>
+          ))}
+          <DockEscapeNote placement="center" />
         </div>
       ) : null}
-      {movingFloatingPane && edgeDropTarget ? (
-        <div
-          className="dock-hints dock-edge-hints"
-          aria-label={`Dock ${DOCK_PANE_LABELS[movingFloatingPane]} ${edgeDropTarget}`}
-        >
-          <div className={`dock-drop-preview ${edgeDropTarget}`} />
-          <div className={`dock-edge-hint ${edgeDropTarget}`}>
-            <DockTargetIcon target={edgeDropTarget} />
-            <span>Dock {edgeDropTarget}</span>
+      {dockingSuppressed ? (
+        <div className="dock-hints dock-suppressed-hints">
+          <div className="dock-suppressed-note" role="status">
+            Docking off (Esc)
           </div>
         </div>
       ) : null}

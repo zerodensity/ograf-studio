@@ -1,9 +1,69 @@
+import { canvasAutoKeyframe, canvasFrame, useCanvasViewStore } from './canvasViewStore';
 import { create } from 'zustand';
+import { current, isDraft, produce } from 'immer';
+import {
+  normalizeCanvasCrop,
+  validateLogicFunctionDefinitions,
+  assertLogicFunctionReferenceRemovable,
+  type LogicFunctionDefinition,
+  normalizeDataConnection,
+  MAX_DATA_CONNECTIONS,
+  layerCropErrors,
+  type CropRect,
+  type LayerCrop,
+  textPathReferenceErrors,
+  textPathCompatibilityErrors,
+} from '@ograf-editor/scene-model';
 import { immer } from 'zustand/middleware/immer';
+import { useProjectSetStore } from './projectSetStore';
+import { onAirFrame } from './onAirFrame';
+import {
+  compactFreshRecipeTiming,
+  createUiProject,
+  isUntouchedBlankTiming,
+  setNewCompositionTiming,
+} from './newTemplateTiming';
+import { synchronizeSetComponentLibrary } from './componentSetLibrary';
+import { planChartRendererUpgrade } from './chartRendererUpgrade';
+import {
+  rendererPluginKey,
+  MAX_RENDERER_PLUGIN_CATALOG_ENTRIES,
+  MAX_RENDERER_PLUGIN_CATALOG_BYTES,
+  rendererPluginByteLength,
+  validateRendererPluginReference,
+  validateRendererPluginSnapshot,
+  applyAnimationPreset,
+  applyChartMarkAnimationPreset,
+  chartRendererFeatureErrors,
+  isAnimationPresetPluginSnapshot,
+  isShaderPackPluginSnapshot,
+  resolveShaderPackPresetPaint,
+  studioPluginReference,
+  type AnimationPresetApplyOptions,
+  type ChartMarkAnimationOptions,
+  type StudioPluginReference,
+  type ShaderPackPluginSnapshot,
+  type ShaderPackPresetTarget,
+  type ChartPreset,
+  type RendererPluginReference,
+  type RendererPluginSnapshot,
+} from '@ograf-editor/scene-model';
+import {
+  rendererPluginReference,
+  useRendererPluginSettingsStore,
+  isInstalledChartPlugin,
+  assertStudioPluginsAllowed,
+} from './pluginSettingsStore';
 import {
   applyPathEdit,
   type PathEdit,
   assertMaskSourcesRemovable,
+  assertModifierSourcesRemovable,
+  assertModifierGroupCopySafe,
+  applyModifierSafeGroupChanges,
+  layerModifierFieldIds,
+  layerModifiersErrors,
+  remapLayerModifierReferences,
   layerMaskErrors,
   addEffect,
   ensureLegacyEffects,
@@ -17,8 +77,8 @@ import {
   effectParams,
   type EffectType,
   type EffectPatch,
-  createAsset,
   applyDesignTokenBinding,
+  markTypographyOverrides,
   bindFieldDefaultToken,
   syncDesignToken,
   stylePackColorUsesToken,
@@ -32,11 +92,16 @@ import {
   removeTilingPattern,
   addTilingPatternLayer,
   removeStylePack,
-  dataUriByteSize,
   findAssetConsumers,
   buildComponentDefinition,
+  updateComponentDefinitionFromLayers,
+  refreshComponentDependencies,
+  remapClockTimerLayerActions,
+  linkExistingComponentLayers,
+  reconcileProjectComponentInstances,
+  resetComponentInstanceOverrides,
+  makeComponentInstanceUnique as makeUniqueComponentInstance,
   createCustomActionDefinition,
-  computeKeyframeFrames,
   createFieldDefinition,
   cloneFieldDefinitionWithFreshIds,
   createId,
@@ -45,13 +110,26 @@ import {
   createLayerPropertyKeyframe,
   createLayerLoopClip,
   createLayerOfKind,
-  createProject,
+  createMediaCue,
+  createLayerVisualRule,
+  applyLayerMotion,
+  layerMotionStaggerOffsets,
+  layerMotionWindows,
+  pruneVisualRuleReferences,
+  rehomeVisualRuleGroupOwners,
+  remapVisualRule,
+  renameVisualRuleCustomAction,
+  visualRuleFieldIds,
+  isVisualRuleMouseFieldId,
   createShaderPaint,
   createShaderResource as createStoredShaderResource,
   createRectangleElement,
   inspectShaderElement,
+  inspectShaderSource,
+  inspectShaderResourcePaint,
   getElementShaderPaints,
   getElementShaderPaint,
+  hasElementMediaPaint,
   getShaderAnimatableProperties,
   getShaderAnimationValue,
   parseShaderAnimationProperty,
@@ -61,9 +139,15 @@ import {
   applyElementDataValue,
   shaderParameterTarget,
   isGradientPaint,
+  isMediaPaint,
   isShaderPaint,
+  normalizeMediaPaint,
+  normalizeTextAnimation,
+  normalizeClockTimerSettings,
   syncShaderParameterFields,
   syncCompositionShaderParameterFields,
+  syncDesignerBindingDefaults,
+  syncDesignerTransformBindingDefaults,
   createTransition,
   defaultTransformForRole,
   findLayerKeyframeAtFrame,
@@ -71,6 +155,14 @@ import {
   getLayerEffectsAtFrame,
   getPaintAtFrame,
   getLayerPropertyValueAtFrame,
+  isLayerPropertyAnimated,
+  resetLayerPropertyAnimation as resetPropertyAnimation,
+  syncResetShaderParameterDefault,
+  gradientStopIndexForProperty,
+  parseEffectProperty,
+  parseModifierProperty,
+  withEffectParameter,
+  withModifierParameter,
   getResolvedLayerAnimationTracks,
   getLayerTransformAtFrame,
   getTotalFrames,
@@ -78,6 +170,7 @@ import {
   materializeLowerThird,
   materializeBug,
   materializeClock,
+  materializeCountdown,
   materializeScoreboard,
   materializeTicker,
   materializeRepeater,
@@ -93,6 +186,11 @@ import {
   EFFECT_ANIMATION_PROPERTIES,
   type AnimatableLayerProperty,
   type Asset,
+  type TestDataRundown,
+  testRundownErrors,
+  type AudioElement,
+  type ChartElement,
+  type ClockTimerSettings,
   type BlendMode,
   type DesignToken,
   type DesignTokenTargetProperty,
@@ -109,6 +207,7 @@ import {
   type ImageElement,
   type ImageSequenceElement,
   type LottieElement,
+  type MediaCue,
   type ShaderElement,
   type ShaderPaint,
   type ShaderPaintSlot,
@@ -122,6 +221,17 @@ import {
   type LayerSemantics,
   type LayerTransform,
   type LayerConstraints,
+  type LayerAutoLayout,
+  type LayerVisualRule,
+  type LayerMotionSide,
+  type LayerMotionSpec,
+  type LayerMotionStagger,
+  type VisualRuleTrigger,
+  type DataConnectionDefinition,
+  DEFAULT_LAYER_AUTO_LAYOUT,
+  retimeAnimationPhase as retimeAnimationPhaseModel,
+  type AnimationRetimePhase,
+  type AnimationRetimeResult,
   type NewLayerKind,
   type MaterializedLowerThird,
   type MaterializedBroadcastRecipe,
@@ -134,6 +244,9 @@ import {
   type RectangleElement,
   type RuntimeCollectionDefinition,
   type TextElement,
+  type TickerElement,
+  normalizeTicker,
+  tickerErrors,
 } from '@ograf-editor/scene-model';
 import {
   alignedPatches,
@@ -143,10 +256,17 @@ import {
   type DistributionMode,
 } from '../canvas/layoutGeometry';
 import { useTimelineStore } from './timelineStore';
+import { getEditorLoopSample } from './editorLoopSample';
+import { nextTimerAlarm } from './timerAlarmRules';
 import { useLayerClipboardStore } from './layerClipboardStore';
 import { planLifecycleRetime, type LifecycleRetimePlan } from './lifecycleRetime';
 import { buildSvgBundle } from './svgBundleImport';
 import { placeImages, prepareImage, readImageSize, type ImagePlacement } from './imageImport';
+import { prepareAssetImport } from './assetImport';
+import { createNextBinding, createPlayoutBinding, playoutProperty } from './bindingFieldCreation';
+import { useTestDataStore } from './testDataStore';
+import { resolveDesignerElement, resolveDesignerEffects } from './dataBinding';
+import { resolvePreviewFieldValue } from './previewFieldValue';
 import {
   defaultShaderResourceName,
   isStoredShaderResourceTarget,
@@ -156,21 +276,66 @@ import {
   type ShaderResourcePatch,
   type StoredShaderResourceTarget,
 } from './shaderResources';
+import { shaderPackLayerTargetReason } from '../panels/shaderPackGalleryHelpers';
+
+/** Compare editable content, not the user's display name or object property insertion order. */
+function shaderLibraryContentKey(paint: ShaderPaint): string {
+  const canonical = (value: unknown): unknown =>
+    Array.isArray(value)
+      ? value.map(canonical)
+      : value && typeof value === 'object'
+        ? Object.fromEntries(
+            Object.entries(value)
+              .filter(([, item]) => item !== undefined)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([key, item]) => [key, canonical(item)]),
+          )
+        : value;
+  const { name: _name, ...content } = paint;
+  return JSON.stringify(canonical(content));
+}
+
+/** Approval is local and exact; a preset must never fall back to another version or chart default. */
+function installedShaderPack(reference: StudioPluginReference): ShaderPackPluginSnapshot {
+  const errors = validateRendererPluginReference(reference);
+  if (errors.length) throw new Error(errors.join(' '));
+  const entry = useRendererPluginSettingsStore
+    .getState()
+    .installed.find(
+      (candidate) =>
+        candidate.enabled &&
+        candidate.trusted &&
+        isShaderPackPluginSnapshot(candidate.snapshot) &&
+        rendererPluginKey(studioPluginReference(candidate.snapshot)) ===
+          rendererPluginKey(reference),
+    );
+  if (!entry || !isShaderPackPluginSnapshot(entry.snapshot))
+    throw new Error('Install, review and enable this exact shader pack in Plugins first.');
+  assertStudioPluginsAllowed([entry.snapshot]);
+  return entry.snapshot;
+}
 
 export type { NewLayerKind } from '@ograf-editor/scene-model';
 
 export type ElementFields = { fill: Paint } & Omit<RectangleElement, 'type' | 'fill'> & {
     patternId: string;
   } & Omit<EllipseElement, 'type' | 'fill'> &
-  Omit<TextElement, 'type' | 'fill'> &
-  Omit<ImageElement, 'type' | 'fill'> &
+  Omit<TextElement, 'type' | 'fill' | 'clock' | 'direction'> & {
+    clock?: ClockTimerSettings | null;
+    direction: TextElement['direction'] | TickerElement['direction'];
+  } & Omit<ImageElement, 'type' | 'fill'> &
+  Omit<AudioElement, 'type'> &
   Omit<PathElement, 'type' | 'fill'> &
   Omit<ImageSequenceElement, 'type' | 'fill'> &
   Omit<LottieElement, 'type' | 'fill'> &
+  Omit<ChartElement, 'type'> &
+  Omit<TickerElement, 'type' | 'direction'> &
   Omit<ShaderElement, 'type'>;
 
 interface ProjectState {
   project: Project;
+  /** Editor-only load boundary; same-set template navigation does not open a new document. */
+  documentLoadRevision: number;
   activeCompositionId: string;
   activeKeyframeId: string;
 }
@@ -182,7 +347,20 @@ interface ProjectActions {
     options?: ImagePlacement,
   ) => Promise<string[]>;
   newProject: () => void;
-  loadProject: (project: Project) => void;
+  loadProject: (
+    project: Project,
+    options?: {
+      freshUiTemplate?: boolean;
+      preserveFreshUiIdentity?: boolean;
+      setNavigationId?: string;
+      setTemplateId?: string | null;
+      previousTemplateId?: string | null;
+    },
+  ) => void;
+  /** Checkpoint non-serialized fresh-template bookkeeping for a failed session transaction. */
+  captureFreshTemplateSession: () => () => void;
+  setActiveComposition: (compositionId: string) => void;
+  setCompositionCrop: (crop: CropRect | undefined) => void;
   setProjectMeta: (
     patch: Partial<
       Pick<
@@ -201,7 +379,14 @@ interface ProjectActions {
     patch: Partial<
       Pick<
         Composition,
-        'name' | 'width' | 'height' | 'frameRate' | 'updateTransitionFrames' | 'backgroundColor'
+        | 'name'
+        | 'width'
+        | 'height'
+        | 'frameRate'
+        | 'updateTransitionFrames'
+        | 'shortOutFrames'
+        | 'updateInterruption'
+        | 'backgroundColor'
       >
     >,
   ) => void;
@@ -210,13 +395,42 @@ interface ProjectActions {
   updateCanvasGuide: (guideId: string, position: number) => void;
   removeCanvasGuide: (guideId: string) => void;
 
-  addLayer: (kind: NewLayerKind) => string;
+  addMediaCueFromAsset: (assetId: string) => string;
+  addSoundEventFromAsset: (assetId: string, frame?: number) => string;
+  /** An audio cue that only rules start: manual trigger, never on the timeline by itself. */
+  addRuleSoundFromAsset: (assetId: string) => string;
+  addLiveMediaCue: () => string;
+  updateMediaCue: (cueId: string, patch: Partial<MediaCue>) => void;
+  removeMediaCue: (cueId: string) => void;
+
+  addLayer: (
+    kind: NewLayerKind,
+    placement?: { x: number; y: number; groupId?: string; parentId?: string },
+  ) => string;
+  addDrawnPath: (path: {
+    d: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    closed: boolean;
+  }) => string;
+  /** A gallery choice always supplies an exact installed plugin version. */
+  addChartLayer: (
+    preset: ChartPreset,
+    provider: RendererPluginReference,
+    placement?: { x: number; y: number; groupId?: string; parentId?: string },
+  ) => string;
   setTilingPattern: (patch: TilingPatternPatch, patternId?: string) => string;
   removeTilingPattern: (patternId: string) => void;
-  addPatternInstance: (patternId: string) => string;
+  addPatternInstance: (
+    patternId: string,
+    placement?: { x: number; y: number; groupId?: string; parentId?: string },
+  ) => string;
   createPatternResource: (
     patch: TilingPatternPatch,
     addToCanvas?: boolean,
+    placement?: { x: number; y: number; groupId?: string; parentId?: string },
   ) => { patternId: string; layerId?: string };
   duplicatePatternResource: (patternId: string) => string;
   makePatternIndependent: (layerId: string) => string;
@@ -225,6 +439,7 @@ interface ProjectActions {
   addTicker: () => MaterializedBroadcastRecipe;
   addScoreboard: () => MaterializedBroadcastRecipe;
   addClock: () => MaterializedBroadcastRecipe;
+  addCountdown: () => MaterializedBroadcastRecipe;
   addRepeater: (
     layerIds: string[],
     count?: number,
@@ -235,7 +450,11 @@ interface ProjectActions {
   duplicateLayers: (layerIds: string[]) => string[];
   removeLayer: (layerId: string) => void;
   updateLayerTransform: (layerId: string, frame: number, patch: Partial<LayerTransform>) => void;
-  addLayerKeyframe: (layerId: string, frame: number) => string;
+  addLayerKeyframe: (
+    layerId: string,
+    frame: number,
+    options?: { includeEffects?: boolean },
+  ) => string;
   addLayerHoldFrame: (layerId: string, frame: number) => string;
   moveLayerKeyframe: (layerId: string, keyframeId: string, frame: number) => void;
   moveTimelineKeyframesTogether: (
@@ -253,6 +472,21 @@ interface ProjectActions {
     property: AnimatableLayerProperty,
     frame: number,
   ) => string;
+  enableLayerPropertyAnimation: (
+    layerId: string,
+    property: AnimatableLayerProperty,
+    frame: number,
+  ) => string;
+  toggleLayerPropertyKeyframe: (
+    layerId: string,
+    property: AnimatableLayerProperty,
+    frame: number,
+  ) => string | null;
+  resetLayerPropertyAnimation: (
+    layerId: string,
+    property: AnimatableLayerProperty,
+    frame: number,
+  ) => void;
   moveLayerPropertyKeyframe: (
     layerId: string,
     property: AnimatableLayerProperty,
@@ -296,6 +530,7 @@ interface ProjectActions {
       durationFrames: number;
       phaseOffsetFrames: number;
       repeatCount: number | null;
+      timing: import('@ograf-editor/scene-model').LayerLoopClip['timing'] | null;
     }>,
   ) => void;
   setLayerLoopPropertyTrack: (
@@ -305,6 +540,8 @@ interface ProjectActions {
   ) => void;
   removeLayerLoop: (layerId: string) => void;
   updateLayerElement: (layerId: string, patch: Partial<ElementFields>) => void;
+  selectChartProvider: (layerId: string, provider: RendererPluginReference) => void;
+  upgradeChartRenderer: (from: RendererPluginReference, to: RendererPluginReference) => void;
   editLayerPath: (layerId: string, edit: PathEdit, frame?: number) => void;
   updateLayerTextStroke: (
     layerId: string,
@@ -313,6 +550,24 @@ interface ProjectActions {
   ) => void;
   updateLayerPaint: (layerId: string, frame: number, paint: Paint | undefined) => void;
   createShaderResource: (paint?: ShaderPaint) => StoredShaderResourceTarget;
+  ensureShaderResource: (paint: ShaderPaint) => StoredShaderResourceTarget;
+  applyShaderPaintToLayers: (
+    layerIds: string | readonly string[],
+    paint: ShaderPaint,
+    target: ShaderPackPresetTarget,
+    options?: { saveResource?: boolean },
+  ) => void;
+  applyShaderPackPreset: (
+    layerIds: string | readonly string[],
+    reference: StudioPluginReference,
+    presetId: string,
+    target: ShaderPackPresetTarget,
+  ) => void;
+  importShaderPackPreset: (
+    reference: StudioPluginReference,
+    presetId: string,
+    target: ShaderPackPresetTarget,
+  ) => StoredShaderResourceTarget;
   updateShaderResource: (target: ShaderResourceTarget, patch: ShaderResourcePatch) => void;
   updateLayerShaderParameter: (
     layerId: string,
@@ -329,11 +584,21 @@ interface ProjectActions {
   ) => void;
   removeShaderResource: (target: ShaderResourceTarget) => void;
   updateLayerEffects: (layerId: string, frame: number, patch: Partial<LayerEffects>) => void;
-  addLayerEffect: (layerId: string, type: EffectType) => void;
+  addLayerEffect: (layerId: string, type: EffectType, patch?: EffectPatch) => void;
   updateLayerEffect: (layerId: string, effectId: string, patch: EffectPatch, frame: number) => void;
   removeLayerEffect: (layerId: string, effectId: string) => void;
   duplicateLayerEffect: (layerId: string, effectId: string) => void;
   reorderLayerEffects: (layerId: string, effectIds: string[]) => void;
+  addGroupEffect: (layerIds: string[], type: EffectType, patch?: EffectPatch) => void;
+  updateGroupEffect: (
+    layerIds: string[],
+    effectId: string,
+    patch: EffectPatch,
+    frame: number,
+  ) => void;
+  removeGroupEffect: (layerIds: string[], effectId: string) => void;
+  duplicateGroupEffect: (layerIds: string[], effectId: string) => void;
+  reorderGroupEffects: (layerIds: string[], effectIds: string[]) => void;
   renameLayer: (layerId: string, name: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
   toggleLayerGuide: (layerId: string) => void;
@@ -343,9 +608,66 @@ interface ProjectActions {
   ungroupLayers: (layerIds: string[]) => void;
   setLayerParent: (layerId: string, parentId: string | null) => void;
   setLayerClipChildren: (layerId: string, clipChildren: boolean) => void;
+  setLayerCrops: (crops: Record<string, LayerCrop | undefined>) => void;
   setLayerMask: (layerId: string, mask: Layer['mask'], hideSource?: boolean) => void;
   setLayerMaskOnly: (layerId: string, value: boolean) => void;
   setLayerConstraints: (layerId: string, constraints: Partial<LayerConstraints>) => void;
+  setLayerAutoLayout: (layerId: string, layout: Partial<LayerAutoLayout>) => void;
+  setLayerUpdateTransition: (layerId: string, patch: Partial<Layer['updateTransition']>) => void;
+  setLayerMotionPath: (layerId: string, link: Layer['motionPath']) => void;
+  setLayerMotionBlur: (layerId: string, value: NonNullable<Layer['motionBlur']>) => void;
+  setLayerTextPath: (layerId: string, link: Layer['textPath']) => void;
+  addLayerVisualRule: (layerId: string, trigger?: VisualRuleTrigger) => string | null;
+  /** Create one linked alarm and its ordinary Rule atomically. */
+  addClockTimerAlarm: (layerId: string) => string | null;
+  updateLayerVisualRule: (
+    layerId: string,
+    ruleId: string,
+    patch: Partial<Omit<LayerVisualRule, 'id'>>,
+  ) => void;
+  /** Moves a rule to another editable object, preserving explicit action targets and its identity. */
+  retargetLayerVisualRule: (
+    sourceLayerId: string,
+    ruleId: string,
+    targetLayerId: string,
+    hostGroupId?: string,
+  ) => boolean;
+  moveLayerVisualRule: (layerId: string, ruleId: string, direction: -1 | 1) => void;
+  duplicateLayerVisualRule: (layerId: string, ruleId: string) => string | null;
+  /**
+   * Bakes an Animate In or Out choice into each unlocked layer's tracks. A stagger spreads the
+   * layers' timing in the given order, replacing each spec's own `offsetFrames`.
+   */
+  setLayerMotion: (
+    layerIds: string | string[],
+    side: LayerMotionSide,
+    spec: LayerMotionSpec | null,
+    stagger?: LayerMotionStagger,
+  ) => void;
+  applyLayerAnimationPreset: (
+    layerIds: string | readonly string[],
+    reference: StudioPluginReference,
+    presetId: string,
+    side: LayerMotionSide,
+    options: AnimationPresetApplyOptions,
+  ) => void;
+  applyChartMarkPreset: (
+    layerId: string,
+    reference: StudioPluginReference,
+    presetId: string,
+    side: LayerMotionSide,
+    options: ChartMarkAnimationOptions,
+  ) => void;
+  clearChartMarkPreset: (layerId: string, side: LayerMotionSide) => void;
+  /** Replaces a whole rule, which lets the editor drop optional keys. */
+  replaceLayerVisualRule: (layerId: string, ruleId: string, rule: LayerVisualRule) => void;
+  removeLayerVisualRule: (layerId: string, ruleId: string) => void;
+  addDataConnection: () => string;
+  updateDataConnection: (
+    connectionId: string,
+    patch: Partial<Omit<DataConnectionDefinition, 'id'>>,
+  ) => void;
+  removeDataConnection: (connectionId: string) => void;
   setLayerSemantics: (layerId: string, patch: Partial<LayerSemantics>) => void;
   setDesignSystemName: (name: string) => void;
   applyStylePack: (stylePack: StylePackId) => AppliedStylePack;
@@ -376,8 +698,13 @@ interface ProjectActions {
     patch: Partial<{ durationFrames: number; easing: EasingPreset }>,
   ) => void;
   moveLifecycleKeyframe: (keyframeId: string, targetFrame: number) => LifecycleRetimePlan | null;
+  retimeAnimationPhase: (
+    phase: AnimationRetimePhase,
+    targetFrames: number,
+  ) => AnimationRetimeResult;
 
   addDataField: (type: FieldType) => string;
+  setLogicFunctions: (functions: LogicFunctionDefinition[], compositionId?: string) => void;
   removeDataField: (fieldId: string) => void;
   updateDataField: (
     fieldId: string,
@@ -391,15 +718,22 @@ interface ProjectActions {
         | 'defaultValue'
         | 'defaultTokenId'
         | 'required'
+        | 'exposeToOgraf'
         | 'options'
         | 'constraints'
         | 'fileExtensions'
         | 'properties'
         | 'items'
+        | 'nodosType'
       >
     >,
   ) => void;
+  /** Expose or hide complete field schemas together as one undoable edit. */
+  setDataFieldsExposure: (fieldIds: readonly string[], exposed: boolean) => void;
   setLayerBindings: (layerId: string, bindings: LayerBinding[]) => void;
+  addLayerBinding: (layerId: string) => string | null;
+  /** Creates or removes the one field + binding that lets playout fill this layer's content. */
+  setLayerPlayoutEditable: (layerId: string, editable: boolean) => void;
   addRuntimeCollection: (
     fieldId: string,
     prototypeLayerIds: string[],
@@ -411,7 +745,16 @@ interface ProjectActions {
     patch: Partial<
       Pick<
         RuntimeCollectionDefinition,
-        'name' | 'fieldId' | 'prototypeLayerIds' | 'offsetPerItem' | 'capacity'
+        | 'name'
+        | 'fieldId'
+        | 'prototypeLayerIds'
+        | 'offsetPerItem'
+        | 'capacity'
+        | 'itemKeyPath'
+        | 'sortPath'
+        | 'sortDirection'
+        | 'pageSize'
+        | 'page'
       >
     >,
   ) => void;
@@ -425,7 +768,9 @@ interface ProjectActions {
   ) => void;
 
   /** Reads `file` as a `data:` URI and adds it to the active composition's asset registry. */
+  setTestRundowns: (rundowns: TestDataRundown[]) => void;
   importAsset: (file: File) => Promise<string>;
+  addPreparedAsset: (asset: Asset) => string;
   importSvgBundle: (files: File[]) => Promise<{ assetId: string; warnings: string[] }>;
   updateAsset: (
     assetId: string,
@@ -451,6 +796,23 @@ interface ProjectActions {
     linked?: boolean,
   ) => string[];
   updateComponentFromLayers: (componentId: string, layerIds: string[]) => boolean;
+  updateComponentLayer: (
+    componentId: string,
+    sourceLayerId: string,
+    patch: Partial<Omit<Layer, 'id' | 'componentLink'>>,
+  ) => void;
+  updateComponentField: (
+    componentId: string,
+    sourceFieldId: string,
+    patch: Partial<FieldDefinition>,
+  ) => void;
+  bindComponentClockValue: (
+    componentId: string,
+    sourceLayerId: string,
+    fieldId?: string | null,
+  ) => void;
+  resetComponentOverrides: (layerIds: string[], paths?: string[]) => void;
+  makeComponentInstanceUnique: (instanceId: string) => string | null;
   refreshLinkedComponentInstances: (componentId: string) => string[];
   renameComponent: (componentId: string, name: string) => void;
   removeComponent: (componentId: string) => void;
@@ -463,6 +825,44 @@ function generateUniqueKey(existingKeys: string[], prefix: string): string {
   return `${prefix}${n}`;
 }
 
+function createRuleConditionField(composition: Composition, layer: Layer): FieldDefinition {
+  const key = generateUniqueKey(
+    composition.dataFields.map((candidate) => candidate.key),
+    'ruleCondition',
+  );
+  const field = createFieldDefinition('text', { key, label: `${layer.name} condition` });
+  composition.dataFields.push(field);
+  return field;
+}
+
+function nextVisualRuleName(composition: Composition, copiedName?: string): string {
+  const names = composition.layers.flatMap((layer) =>
+    (layer.visualRules ?? []).map((rule) => rule.name.trim().toLowerCase()),
+  );
+  const used = new Set(names);
+  const numbered = /^rule #(\d+)$/i;
+  if (
+    copiedName?.trim() &&
+    !numbered.test(copiedName.trim()) &&
+    !/^visual rule$/i.test(copiedName.trim())
+  ) {
+    const base = `${copiedName.trim()} copy`;
+    let candidate = base;
+    let suffix = 2;
+    while (used.has(candidate.toLowerCase())) candidate = `${base} ${suffix++}`;
+    return candidate;
+  }
+  let highest = 0n;
+  for (const name of names) {
+    const match = numbered.exec(name);
+    if (match) {
+      const number = BigInt(match[1]!);
+      if (number > highest) highest = number;
+    }
+  }
+  return `Rule #${highest + 1n}`;
+}
+
 export type ProjectStore = ProjectState & ProjectActions;
 
 export function getActiveComposition(project: Project, activeCompositionId: string): Composition {
@@ -473,24 +873,137 @@ export function getActiveComposition(project: Project, activeCompositionId: stri
   return composition;
 }
 
+function updateEffectAtFrame(
+  composition: Composition,
+  layer: Layer,
+  effectId: string,
+  patch: EffectPatch,
+  frame: number,
+): void {
+  const boundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
+  const existingEffect = getEffectStack(layer.effects).find((effect) => effect.id === effectId);
+  if (!existingEffect) throw new Error(`Effect not found: ${effectId}`);
+  const before = Object.fromEntries(
+    Object.entries(patch.params ?? {}).flatMap(([param, value]) => {
+      if (typeof value !== 'number') return [];
+      const property = effectProperty(existingEffect, param) as AnimatableLayerProperty;
+      return [[param, getLayerPropertyValueAtFrame(layer, property, boundedFrame)]];
+    }),
+  );
+  const effect = updateEffect(layer, effectId, patch);
+  for (const [param, value] of Object.entries(effectParams(effect, layer.effects))) {
+    if (typeof value !== 'number' || before[param] === undefined) continue;
+    const property = effectProperty(effect, param) as AnimatableLayerProperty;
+    if (!keyPropertyEdit(layer, property, boundedFrame, value, before[param]!))
+      offsetExistingPropertyKeys(layer, property, value - before[param]!);
+  }
+}
+
 function getDefaultAuthoringKeyframeId(composition: Composition): string {
   return (
     (
-      composition.keyframes.find((keyframe) => keyframe.role === 'start') ??
       composition.keyframes.find((keyframe) => keyframe.role === 'step') ??
+      composition.keyframes.find((keyframe) => keyframe.role === 'start') ??
       composition.keyframes[0]
     )?.id ?? ''
   );
 }
 
 function materializeAnimationTracks(layer: Layer): void {
-  const resolved = getResolvedLayerAnimationTracks(layer);
+  const resolved =
+    layer.animationTrackMode === 'independent'
+      ? layer.animationTracks
+      : getResolvedLayerAnimationTracks(layer);
   layer.animationTracks = Object.fromEntries(
     Object.entries(resolved).map(([property, keyframes]) => [
       property,
       keyframes?.map((keyframe) => ({ ...keyframe })) ?? [],
     ]),
   );
+}
+
+/** A new object is static until its designer explicitly keys a property. */
+function insertNewLayer(
+  composition: Composition,
+  layer: Layer,
+  kind: NewLayerKind,
+  placement?: {
+    x: number;
+    y: number;
+    groupId?: string;
+    parentId?: string;
+    width?: number;
+    height?: number;
+  },
+): void {
+  if (placement?.groupId) layer.groupId = placement.groupId;
+  if (placement?.parentId) layer.parentId = placement.parentId;
+  layer.animationTrackMode = 'independent';
+  layer.animationTracks = {};
+  layer.keyframes = [
+    createLayerKeyframe(0, {
+      ...defaultTransformForRole(kind, 'step'),
+      ...(placement
+        ? {
+            x: placement.x,
+            y: placement.y,
+            ...(placement.width !== undefined ? { width: placement.width } : {}),
+            ...(placement.height !== undefined ? { height: placement.height } : {}),
+          }
+        : {}),
+    }),
+  ];
+  composition.layers.push(layer);
+  syncShaderParameterFields(composition, layer);
+}
+
+function placePatternLayer(
+  composition: Composition,
+  layerId: string,
+  placement?: { x: number; y: number; groupId?: string; parentId?: string },
+): void {
+  const layer = composition.layers.find((candidate) => candidate.id === layerId);
+  if (!layer) throw new Error('The new pattern layer is unavailable.');
+  if (placement?.groupId) layer.groupId = placement.groupId;
+  if (placement?.parentId) layer.parentId = placement.parentId;
+  const transform = getLayerTransformAtFrame(layer, 0);
+  if (placement) Object.assign(transform, { x: placement.x, y: placement.y });
+  layer.animationTrackMode = 'independent';
+  layer.animationTracks = {};
+  layer.keyframes = [createLayerKeyframe(0, transform)];
+}
+
+const CHART_LAYER_PRESETS: Record<ChartPreset, true> = {
+  bar: true,
+  'horizontal-bar': true,
+  'stacked-bar': true,
+  line: true,
+  area: true,
+  pie: true,
+  doughnut: true,
+  radar: true,
+  'polar-area': true,
+};
+
+function selectedChartRendererSnapshot(provider: RendererPluginReference): RendererPluginSnapshot {
+  if (!provider) throw new Error('Select an installed chart renderer plugin first.');
+  const referenceErrors = validateRendererPluginReference(provider);
+  if (referenceErrors.length) throw new Error(referenceErrors.join(' '));
+  const installed = useRendererPluginSettingsStore
+    .getState()
+    .installed.find(
+      (entry) =>
+        isInstalledChartPlugin(entry) &&
+        entry.enabled &&
+        entry.trusted &&
+        rendererPluginKey(rendererPluginReference(entry.snapshot)) === rendererPluginKey(provider),
+    );
+  if (!installed || !isInstalledChartPlugin(installed))
+    throw new Error('Install, trust and enable this chart provider in Plugins first.');
+  const snapshot = structuredClone(installed.snapshot);
+  const errors = validateRendererPluginSnapshot(snapshot);
+  if (errors.length) throw new Error(errors.join(' '));
+  return snapshot;
 }
 
 function upsertPropertyKeyframe(
@@ -529,7 +1042,11 @@ function removeAggregateKeyframeIfOrphaned(layer: Layer, frame: number): void {
   const propertyKeyRemains = Object.values(layer.animationTracks).some((track) =>
     track?.some((keyframe) => keyframe.frame === frame),
   );
-  if (!propertyKeyRemains && layer.keyframes.length > 1) {
+  if (
+    !propertyKeyRemains &&
+    layer.keyframes.length > 1 &&
+    !(layer.animationTrackMode === 'independent' && frame === 0)
+  ) {
     layer.keyframes = layer.keyframes.filter((keyframe) => keyframe.frame !== frame);
   }
 }
@@ -594,6 +1111,92 @@ function writeLayerTransformAtFrame(
   keyframe.transform = getLayerTransformAtFrame(layer, roundedFrame);
 }
 
+/** Auto enables a new property; an existing track always follows playhead edits. */
+function shouldKeyPropertyEdit(layer: Layer, property: AnimatableLayerProperty): boolean {
+  return (
+    useCanvasViewStore.getState().mode === 'animate' &&
+    useTimelineStore.getState().editScope === 'playhead' &&
+    (canvasAutoKeyframe() || isLayerPropertyAnimated(layer, property))
+  );
+}
+
+export function keyPropertyEdit(
+  layer: Layer,
+  property: AnimatableLayerProperty,
+  frame: number,
+  value: number,
+  before = getLayerPropertyValueAtFrame(layer, property, frame),
+): boolean {
+  if (!shouldKeyPropertyEdit(layer, property)) return false;
+  if (Math.abs(value - before) < 1e-9) return true;
+  // Auto's first later edit needs the old design value at zero, not a synthetic Step/End pose.
+  if (!isLayerPropertyAnimated(layer, property) && frame > 0)
+    upsertPropertyKeyframe(layer, property, 0, before);
+  const key = upsertPropertyKeyframe(layer, property, frame, value);
+  syncAggregateKeyframe(layer, frame, key.easing);
+  return true;
+}
+
+function writePlayheadLayerTransform(
+  layer: Layer,
+  frame: number,
+  patch: Partial<LayerTransform>,
+): void {
+  for (const [property, value] of Object.entries(normalizeAuthoredTransformPatch(patch)) as Array<
+    [keyof LayerTransform, number]
+  >) {
+    if (!keyPropertyEdit(layer, property, frame, value))
+      offsetLayerTransform(layer, frame, { [property]: value });
+  }
+}
+
+/** Preserve the sampled design when the final key is removed. Virtual reveal channels reset. */
+function removePropertyKeyframe(
+  layer: Layer,
+  property: AnimatableLayerProperty,
+  keyframeId: string,
+  sampleFrame: number,
+): void {
+  const value = getLayerPropertyValueAtFrame(layer, property, sampleFrame);
+  materializeAnimationTracks(layer);
+  const track = layer.animationTracks[property] ?? [];
+  const removedFrame = track.find((key) => key.id === keyframeId)?.frame;
+  if (removedFrame === undefined) return;
+  const remaining = track.filter((key) => key.id !== keyframeId);
+  if (remaining.length) layer.animationTracks[property] = remaining;
+  else {
+    // Resolve legacy channels before opting this one out, preserving all other authored motion.
+    layer.animationTrackMode = 'independent';
+    delete layer.animationTracks[property];
+    if (TRANSFORM_ANIMATION_PROPERTIES.includes(property as keyof LayerTransform)) {
+      for (const key of layer.keyframes) key.transform[property as keyof LayerTransform] = value;
+    } else if (parseShaderAnimationProperty(property))
+      layer.element = applyShaderAnimationValues(layer.element, { [property]: value });
+    else if (parseEffectProperty(property))
+      layer.effects = withEffectParameter(layer.effects, property, value);
+    else if (parseModifierProperty(property))
+      layer.modifiers = withModifierParameter(layer, property, value).modifiers;
+    else if (property === 'strokeWidth' && layer.element.type === 'text')
+      layer.element.strokeWidth = value;
+    else if (property === 'motionPathProgress' && layer.motionPath)
+      layer.motionPath.progress = value;
+    else if (
+      EFFECT_ANIMATION_PROPERTIES.includes(property as (typeof EFFECT_ANIMATION_PROPERTIES)[number])
+    )
+      layer.effects = ensureLegacyEffects(
+        normalizeLayerEffects({ ...layer.effects, [property]: value }),
+        { [property]: value },
+      );
+    else {
+      const index = gradientStopIndexForProperty(property);
+      const fill = 'fill' in layer.element ? layer.element.fill : undefined;
+      if (index !== null && isGradientPaint(fill) && fill.stops[index])
+        fill.stops[index]!.offset = value;
+    }
+  }
+  removeAggregateKeyframeIfOrphaned(layer, removedFrame);
+}
+
 function normalizeOffsetProperty(
   layer: Layer,
   property: AnimatableLayerProperty,
@@ -608,10 +1211,16 @@ function normalizeOffsetProperty(
   if (
     property === 'opacity' ||
     property === 'dropShadowOpacity' ||
-    property.startsWith('fill.stops[')
+    property.startsWith('fill.stops[') ||
+    property.startsWith('clip')
   )
     return Math.max(0, Math.min(1, value));
-  if (property === 'blur' || property === 'dropShadowBlur' || property === 'strokeWidth')
+  if (
+    property === 'blur' ||
+    property === 'dropShadowBlur' ||
+    property === 'strokeWidth' ||
+    property === 'scale'
+  )
     return Math.max(0, value);
   const spec = effectParameterSpec(layer.effects, property);
   return spec ? Math.max(spec.min ?? -Infinity, Math.min(spec.max ?? Infinity, value)) : value;
@@ -647,17 +1256,66 @@ function offsetLayerTransform(layer: Layer, frame: number, patch: Partial<LayerT
   }
 }
 
+/** Design edits preserve existing keys: position offsets all poses, while an animated
+ * non-position property changes its existing on-air key. Constant properties stay constant. */
+function writeDesignLayerTransform(
+  layer: Layer,
+  frame: number,
+  patch: Partial<LayerTransform>,
+): void {
+  const normalized = normalizeAuthoredTransformPatch(patch);
+  const keyed = new Map<
+    keyof LayerTransform,
+    { trackKey?: LayerPropertyKeyframe; poseKey?: LayerKeyframe }
+  >();
+  for (const property of Object.keys(normalized) as Array<keyof LayerTransform>) {
+    if (property === 'x' || property === 'y') continue;
+    const resolved = getResolvedLayerAnimationTracks(layer)[property] ?? [];
+    const animated = resolved.some(
+      (key) => Math.abs(key.value - (resolved[0]?.value ?? key.value)) > 1e-9,
+    );
+    if (!animated) continue;
+    const track = layer.animationTracks[property];
+    const trackKey = track?.find((key) => key.frame === frame);
+    const poseKey = layer.keyframes.find((key) => key.frame === frame);
+    if ((track?.length && !trackKey) || (!track?.length && !poseKey))
+      throw new Error(
+        `The animated ${property} has no key at the on-air Step. Switch to Animate to edit it without changing other keys.`,
+      );
+    keyed.set(property, { trackKey, poseKey });
+  }
+  for (const [property, value] of Object.entries(normalized) as Array<
+    [keyof LayerTransform, number]
+  >) {
+    const existing = keyed.get(property);
+    if (!existing) {
+      offsetLayerTransform(layer, frame, { [property]: value });
+      continue;
+    }
+    const next = normalizeOffsetProperty(layer, property, value);
+    if (existing.trackKey) existing.trackKey.value = next;
+    if (existing.poseKey) existing.poseKey.transform[property] = next;
+  }
+}
+
 function writeUiLayerTransform(
   composition: Composition,
   layer: Layer,
   frame: number,
   patch: Partial<LayerTransform>,
 ): void {
-  const roundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
-  const autoKeyframe = useTimelineStore.getState().autoKeyframe;
+  const roundedFrame = Math.max(
+    0,
+    Math.min(getTotalFrames(composition), Math.round(canvasFrame(composition, frame))),
+  );
   const before = getLayerTransformAtFrame(layer, roundedFrame);
-  if (autoKeyframe) writeLayerTransformAtFrame(composition, layer, roundedFrame, patch);
-  else offsetLayerTransform(layer, roundedFrame, patch);
+  const keyedTranslation = {
+    x: shouldKeyPropertyEdit(layer, 'x'),
+    y: shouldKeyPropertyEdit(layer, 'y'),
+  };
+  if (useCanvasViewStore.getState().mode === 'design')
+    writeDesignLayerTransform(layer, roundedFrame, patch);
+  else writePlayheadLayerTransform(layer, roundedFrame, patch);
   const after = getLayerTransformAtFrame(layer, roundedFrame);
   const deltaX = after.x - before.x,
     deltaY = after.y - before.y;
@@ -668,12 +1326,20 @@ function writeUiLayerTransform(
       ...(deltaX !== 0 ? { x: pose.x + deltaX } : {}),
       ...(deltaY !== 0 ? { y: pose.y + deltaY } : {}),
     };
-    if (autoKeyframe) writeLayerTransformAtFrame(composition, descendant, roundedFrame, childPatch);
-    else offsetLayerTransform(descendant, roundedFrame, childPatch);
+    for (const axis of ['x', 'y'] as const) {
+      const value = childPatch[axis];
+      if (value === undefined) continue;
+      if (keyedTranslation[axis]) {
+        if (!isLayerPropertyAnimated(descendant, axis) && roundedFrame > 0)
+          upsertPropertyKeyframe(descendant, axis, 0, pose[axis]);
+        const key = upsertPropertyKeyframe(descendant, axis, roundedFrame, value);
+        syncAggregateKeyframe(descendant, roundedFrame, key.easing);
+      } else offsetLayerTransform(descendant, roundedFrame, { [axis]: value });
+    }
   }
 }
 
-function resizeConstrainedLayers(
+export function resizeConstrainedLayers(
   composition: Composition,
   oldSize: { width: number; height: number },
   newSize: { width: number; height: number },
@@ -699,13 +1365,28 @@ function resizeConstrainedLayers(
           newSize,
         ),
       }));
+    const staticProperties = new Set(
+      (['x', 'y', 'width', 'height'] as const).filter(
+        (property) =>
+          layer.animationTrackMode === 'independent' &&
+          !isLayerPropertyAnimated(layer, property) &&
+          resizedFrames.every(
+            ({ resized }) => resized[property] === resizedFrames[0]?.resized[property],
+          ),
+      ),
+    );
     for (const { frame, resized } of resizedFrames) {
-      writeLayerTransformAtFrame(composition, layer, frame, {
+      const patch = {
         x: resized.x,
         y: resized.y,
         width: resized.width,
         height: resized.height,
-      });
+      };
+      for (const property of staticProperties) {
+        offsetLayerTransform(layer, frame, { [property]: resized[property] });
+        delete (patch as Partial<typeof patch>)[property];
+      }
+      if (Object.keys(patch).length) writeLayerTransformAtFrame(composition, layer, frame, patch);
     }
   }
 }
@@ -773,6 +1454,119 @@ function uniqueCopiedFieldKey(base: string, used: Set<string>): string {
   return key;
 }
 
+function rememberCopiedSchemaIds(
+  source: FieldDefinition,
+  copy: FieldDefinition,
+  ids: Map<string, string>,
+): void {
+  ids.set(source.id, copy.id);
+  source.properties.forEach((child, index) => {
+    if (copy.properties[index]) rememberCopiedSchemaIds(child, copy.properties[index]!, ids);
+  });
+  if (source.items && copy.items) rememberCopiedSchemaIds(source.items, copy.items, ids);
+}
+
+/** A duplicated live instance needs a fresh identity map, including its cached inherited values. */
+function remapCopiedComponentLink(
+  source: Layer,
+  copy: Layer,
+  composition: Composition,
+  layers: Map<string, string>,
+  fields: Map<string, string>,
+  offset: number,
+  groups: ReadonlyMap<string, string>,
+): void {
+  if (!source.componentLink || !copy.componentLink) return;
+  const link = structuredClone(source.componentLink);
+  link.instanceId = copy.componentLink.instanceId;
+  const keys = new Map<string, string>();
+  const pairKeys = (before: Array<{ id: string }>, after: Array<{ id: string }>) => {
+    before.forEach((key, index) => {
+      if (after[index]) keys.set(key.id, after[index]!.id);
+    });
+  };
+  pairKeys(source.keyframes, copy.keyframes);
+  for (const [property, entries] of Object.entries(getResolvedLayerAnimationTracks(source)))
+    pairKeys(entries ?? [], copy.animationTracks[property as AnimatableLayerProperty] ?? []);
+  if (source.loop && copy.loop) {
+    keys.set(source.loop.id, copy.loop.id);
+    for (const [property, entries] of Object.entries(source.loop.tracks))
+      pairKeys(entries ?? [], copy.loop.tracks[property as AnimatableLayerProperty] ?? []);
+  }
+  pairKeys(source.visualRules, copy.visualRules);
+  const keyId = (id: string): string => {
+    let result = keys.get(id);
+    if (!result) {
+      result = createId('component-key');
+      keys.set(id, result);
+    }
+    return result;
+  };
+  link.fieldIds = Object.fromEntries(
+    Object.entries(link.fieldIds ?? {}).map(([id, actual]) => [id, fields.get(actual) ?? actual]),
+  );
+  link.keyIds = Object.fromEntries(
+    Object.entries(link.keyIds ?? {}).map(([id, actual]) => [id, keyId(actual)]),
+  );
+  if (link.offset) link.offset = { x: link.offset.x + offset, y: link.offset.y + offset };
+  if (link.baseline) {
+    const base = link.baseline;
+    base.id = copy.id;
+    base.groupId = copy.groupId;
+    if (base.parentId) base.parentId = layers.get(base.parentId) ?? base.parentId;
+    if (base.mask)
+      base.mask.sourceLayerId = layers.get(base.mask.sourceLayerId) ?? base.mask.sourceLayerId;
+    if (base.motionPath)
+      base.motionPath.sourceLayerId =
+        layers.get(base.motionPath.sourceLayerId) ?? base.motionPath.sourceLayerId;
+    if (base.textPath)
+      base.textPath.sourceLayerId =
+        layers.get(base.textPath.sourceLayerId) ?? base.textPath.sourceLayerId;
+    if (base.modifiers)
+      base.modifiers = remapLayerModifierReferences(base.modifiers, { layers, groups, fields })!;
+    for (const key of base.keyframes) {
+      key.id = keyId(key.id);
+      key.transform.x += offset;
+      key.transform.y += offset;
+    }
+    for (const tracks of [base.animationTracks, base.loop?.tracks])
+      for (const [property, entries] of Object.entries(tracks ?? {}))
+        for (const key of entries ?? []) {
+          key.id = keyId(key.id);
+          if (property === 'x' || property === 'y') key.value += offset;
+        }
+    if (base.loop) base.loop.id = keyId(base.loop.id);
+    base.bindings = base.bindings.map((binding) => ({
+      ...binding,
+      fieldId: fields.get(binding.fieldId) ?? binding.fieldId,
+    }));
+    base.visualRules = base.visualRules.map((rule) =>
+      remapVisualRule(rule, {
+        id: keyId(rule.id),
+        layerIds: layers,
+        fieldIds: fields,
+        groupIds: groups,
+      }),
+    );
+    remapClockTimerLayerActions(base as Layer, layers);
+  }
+  const remapField = (field: FieldDefinition): void => {
+    field.id = fields.get(field.id) ?? field.id;
+    field.properties.forEach(remapField);
+    if (field.items) remapField(field.items);
+    if (field.generatedShaderParameter)
+      field.generatedShaderParameter.layerId =
+        layers.get(field.generatedShaderParameter.layerId) ??
+        field.generatedShaderParameter.layerId;
+  };
+  for (const base of Object.values(link.fieldBaselines ?? {})) {
+    remapField(base);
+    const actual = composition.dataFields.find((field) => field.id === base.id);
+    if (actual) base.key = actual.key;
+  }
+  copy.componentLink = link;
+}
+
 function appendLayerCopies(
   composition: Composition,
   sourceComposition: Composition,
@@ -780,6 +1574,7 @@ function appendLayerCopies(
   offset: number,
   placement: 'front' | 'after-selection' = 'front',
 ): string[] {
+  assertModifierGroupCopySafe(sourceComposition, sources);
   const copiedIds: string[] = [];
   const copiedLayers: Layer[] = [];
   const usedNames = new Set(composition.layers.map((layer) => layer.name));
@@ -803,16 +1598,25 @@ function appendLayerCopies(
       ...new Set(
         sources
           .filter((layer) => linkedInstanceKey(layer) === instanceKey)
-          .flatMap((layer) => layer.bindings.map((binding) => binding.fieldId)),
+          .flatMap((layer) => [
+            ...layer.bindings.map((binding) => binding.fieldId),
+            ...(layer.visualRules ?? []).flatMap(visualRuleFieldIds),
+            ...layerModifierFieldIds(layer),
+            ...Object.values(layer.componentLink?.fieldIds ?? {}),
+          ]),
       ),
     ];
     for (const sourceFieldId of boundFieldIds) {
       const sourceField = sourceComposition.dataFields.find((field) => field.id === sourceFieldId);
       if (!sourceField) continue;
       const field = cloneFieldDefinitionWithFreshIds(sourceField);
+      if (field.generatedShaderParameter)
+        field.generatedShaderParameter.layerId =
+          idMap.get(field.generatedShaderParameter.layerId) ??
+          field.generatedShaderParameter.layerId;
       field.key = uniqueCopiedFieldKey(sourceField.key, usedFieldKeys);
       composition.dataFields.push(field);
-      fields.set(sourceFieldId, field.id);
+      rememberCopiedSchemaIds(sourceField, field, fields);
     }
     copiedFieldIds.set(instanceKey, fields);
   }
@@ -833,6 +1637,23 @@ function appendLayerCopies(
       name,
       groupId: source.groupId ? (groupMap.get(source.groupId) ?? null) : null,
       parentId: source.parentId ? (idMap.get(source.parentId) ?? null) : null,
+      motionPath: source.motionPath
+        ? {
+            ...source.motionPath,
+            sourceLayerId:
+              idMap.get(source.motionPath.sourceLayerId) ?? source.motionPath.sourceLayerId,
+          }
+        : null,
+      textPath:
+        source.textPath &&
+        (idMap.has(source.textPath.sourceLayerId) ||
+          composition.layers.some((layer) => layer.id === source.textPath!.sourceLayerId))
+          ? {
+              ...source.textPath,
+              sourceLayerId:
+                idMap.get(source.textPath.sourceLayerId) ?? source.textPath.sourceLayerId,
+            }
+          : null,
       mask: source.mask
         ? idMap.has(source.mask.sourceLayerId) ||
           composition.layers.some((layer) => layer.id === source.mask!.sourceLayerId)
@@ -854,6 +1675,19 @@ function appendLayerCopies(
             : undefined);
         return fieldId ? [{ ...structuredClone(binding), fieldId }] : [];
       }),
+      visualRules: (source.visualRules ?? []).flatMap((rule) => {
+        const available = (fieldId: string) =>
+          Boolean(fieldIds?.get(fieldId)) ||
+          composition.dataFields.some((field) => field.id === fieldId);
+        if (!visualRuleFieldIds(rule).every(available)) return [];
+        return [
+          remapVisualRule(rule, {
+            layerIds: idMap,
+            groupIds: groupMap,
+            ...(fieldIds ? { fieldIds } : {}),
+          }),
+        ];
+      }),
       keyframes: source.keyframes.map((keyframe) =>
         createLayerKeyframe(
           keyframe.frame,
@@ -867,7 +1701,16 @@ function appendLayerCopies(
       ),
       animationTracks: {},
     };
-    const sourceTracks = getResolvedLayerAnimationTracks(source);
+    if (source.modifiers)
+      layer.modifiers = remapLayerModifierReferences(source.modifiers, {
+        layers: idMap,
+        groups: groupMap,
+        ...(fieldIds ? { fields: fieldIds } : {}),
+      })!;
+    const sourceTracks =
+      source.animationTrackMode === 'independent'
+        ? source.animationTracks
+        : getResolvedLayerAnimationTracks(source);
     layer.animationTracks = Object.fromEntries(
       Object.entries(sourceTracks).map(([property, keyframes]) => [
         property,
@@ -877,7 +1720,7 @@ function appendLayerCopies(
             keyframe.value + (property === 'x' || property === 'y' ? offset : 0),
             {
               easing: keyframe.easing,
-              curve: keyframe.curve ? { ...keyframe.curve } : undefined,
+              ...(keyframe.curve ? { curve: { ...keyframe.curve } } : {}),
             },
           ),
         ),
@@ -896,7 +1739,7 @@ function appendLayerCopies(
                 keyframe.value + (property === 'x' || property === 'y' ? offset : 0),
                 {
                   easing: keyframe.easing,
-                  curve: keyframe.curve ? { ...keyframe.curve } : undefined,
+                  ...(keyframe.curve ? { curve: { ...keyframe.curve } } : {}),
                 },
               ),
             ),
@@ -904,6 +1747,9 @@ function appendLayerCopies(
         ),
       };
     }
+    remapClockTimerLayerActions(layer, idMap);
+    if (fieldIds)
+      remapCopiedComponentLink(source, layer, composition, idMap, fieldIds, offset, groupMap);
     copiedLayers.push(layer);
     copiedIds.push(layer.id);
   }
@@ -921,6 +1767,33 @@ function appendLayerCopies(
   }
 
   syncCompositionShaderParameterFields(composition);
+  const generatedFieldIds = new Map<string, string>();
+  for (const source of sources) {
+    const copy = copiedLayers.find((layer) => layer.id === idMap.get(source.id));
+    if (!copy) continue;
+    for (const binding of copy.bindings) {
+      const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
+      if (!field || field.generatedShaderParameter?.layerId !== copy.id) continue;
+      const original = source.bindings.find(
+        (candidate) => candidate.targetProperty === binding.targetProperty,
+      );
+      if (original) generatedFieldIds.set(original.fieldId, field.id);
+    }
+  }
+  if (generatedFieldIds.size)
+    for (const copy of copiedLayers) {
+      if (copy.modifiers)
+        copy.modifiers = remapLayerModifierReferences(copy.modifiers, {
+          fields: generatedFieldIds,
+        })!;
+      if (copy.componentLink?.baseline?.modifiers)
+        copy.componentLink.baseline.modifiers = remapLayerModifierReferences(
+          copy.componentLink.baseline.modifiers,
+          { fields: generatedFieldIds },
+        )!;
+    }
+  const modifierErrors = layerModifiersErrors(composition.layers, composition.dataFields);
+  if (modifierErrors.length) throw new Error(modifierErrors.join(' '));
   return copiedIds;
 }
 
@@ -941,51 +1814,358 @@ function duplicateObjectLayers(composition: Composition, layerIds: string[]): La
 
 let projectLoadGeneration = 0;
 
+function projectUsesMediaPaint(project: Project): boolean {
+  return project.compositions.some(
+    (composition) =>
+      isMediaPaint(composition.backgroundPaint) ||
+      (composition.mediaCues?.length ?? 0) > 0 ||
+      [
+        ...composition.layers,
+        ...composition.components.flatMap((component) => component.layers),
+      ].some((layer) => hasElementMediaPaint(layer.element) || layer.element.type === 'audio'),
+  );
+}
+
+function enforceMediaRuntimeProfile(project: Project): void {
+  if (
+    !projectUsesMediaPaint(project) &&
+    !project.compositions.some((composition) => composition.functions?.length)
+  )
+    return;
+  project.supportsRealTime = true;
+  project.supportsNonRealTime = false;
+}
+
+function pinChartRendererSnapshot(
+  composition: { rendererPlugins?: RendererPluginSnapshot[] },
+  snapshot: RendererPluginSnapshot,
+): void {
+  const key = rendererPluginKey(rendererPluginReference(snapshot));
+  const plugins = (composition.rendererPlugins ??= []);
+  const index = plugins.findIndex(
+    (entry) => rendererPluginKey(rendererPluginReference(entry)) === key,
+  );
+  const next =
+    index < 0
+      ? [...plugins, snapshot]
+      : plugins.map((entry, candidate) => (candidate === index ? snapshot : entry));
+  if (next.length > MAX_RENDERER_PLUGIN_CATALOG_ENTRIES)
+    throw new Error('This composition has too many pinned renderer versions.');
+  const bytes = next.reduce(
+    (size, entry) =>
+      size +
+      rendererPluginByteLength(JSON.stringify(entry.manifest)) +
+      rendererPluginByteLength(entry.source) +
+      rendererPluginByteLength(entry.licenseText),
+    0,
+  );
+  if (bytes > MAX_RENDERER_PLUGIN_CATALOG_BYTES)
+    throw new Error('Pinned renderer code exceeds this composition’s 8 MiB limit.');
+  if (index < 0) plugins.push(snapshot);
+  else plugins[index] = snapshot;
+}
+
 export const useProjectStore = create<ProjectStore>()(
-  immer((set, get) => {
-    const initialProject = createProject();
+  immer((publish, get) => {
+    // Reconcile before publishing so a source edit and its instances form one undoable edit.
+    const set = (
+      mutate: (state: ProjectStore) => void,
+      validateModifierDependencies = false,
+      loadingProject = false,
+    ): void => {
+      const previousProject = get().project;
+      let synchronizedSet: ReturnType<typeof synchronizeSetComponentLibrary> | undefined;
+      const session = useProjectSetStore.getState();
+      // Finish reconciliation and graph validation in a private draft. A rejected edit must
+      // not publish a component library, metadata change or undo entry in either store.
+      const staged = produce(get(), (state) => {
+        mutate(state);
+        const edited = isDraft(state.project) ? current(state.project) : state.project;
+        if (edited === previousProject) return;
+        reconcileProjectComponentInstances(
+          state.project,
+          !loadingProject && state.project.id === previousProject.id ? previousProject : undefined,
+        );
+        if (validateModifierDependencies) {
+          const errors = state.project.compositions.flatMap((composition) =>
+            layerModifiersErrors(composition.layers, composition.dataFields),
+          );
+          if (errors.length) throw new Error(errors.join('\n'));
+        }
+        const active = session.projectSet?.templates.find(
+          (template) => template.id === session.activeTemplateId,
+        );
+        if (
+          !loadingProject &&
+          session.projectSet &&
+          active &&
+          active.project.id === state.project.id
+        ) {
+          const project = isDraft(state.project) ? current(state.project) : state.project;
+          const synchronized = synchronizeSetComponentLibrary(
+            session.projectSet,
+            active.id,
+            project,
+            previousProject.id === project.id ? previousProject : undefined,
+          );
+          if (synchronized !== session.projectSet) {
+            synchronizedSet = synchronized;
+            const resolved = synchronized.templates.find(
+              (template) => template.id === active.id,
+            )?.project;
+            if (resolved && JSON.stringify(resolved) !== JSON.stringify(project))
+              state.project = resolved;
+          }
+        }
+      });
+      if (synchronizedSet) session.setProjectSet(synchronizedSet);
+      publish(staged);
+    };
+    const initialProject = createUiProject();
+    let freshUiProjectId: string | null = initialProject.id;
+    // Session-only bookkeeping: a blank created in this set remains fresh if the user
+    // navigates to another template and back. Opening a document or starting another
+    // project clears this list; no marker is serialized into the user's files.
+    let freshUiSetId: string | null = null;
+    const freshUiSetTemplates = new Map<string, string>();
     const initialComposition = initialProject.compositions[0]!;
+    const designerEdit = (
+      layerIds: string | readonly string[],
+      properties: readonly string[] | ((layer: Layer) => readonly string[]),
+      mutate: (state: ProjectStore, composition: Composition, layers: Layer[]) => void | false,
+    ): void => {
+      const values = useTestDataStore.getState().values;
+      const resets: Array<{ fieldId: string; sourcePath: string[] }> = [];
+      set((state) => {
+        const composition = getActiveComposition(state.project, state.activeCompositionId);
+        const ids = new Set(typeof layerIds === 'string' ? [layerIds] : layerIds);
+        const layers = composition.layers.filter((layer) => ids.has(layer.id));
+        if (layers.length !== ids.size || layers.some((layer) => layer.isLocked)) return;
+        const fields = current(composition.dataFields);
+        const before = layers.map((layer) => {
+          const authored = current(layer);
+          try {
+            return {
+              element: resolveDesignerElement(authored, values, fields),
+              effects: resolveDesignerEffects(authored, authored.effects, values, fields),
+            };
+          } catch {
+            // Invalid test input must not prevent the designer from repairing the authored value.
+            return { element: authored.element, effects: authored.effects };
+          }
+        });
+        const targets = layers.map((layer) =>
+          typeof properties === 'function' ? properties(layer) : properties,
+        );
+        const preview = Object.fromEntries(
+          fields.flatMap((field) => {
+            const value = resolvePreviewFieldValue(field, values[field.id]);
+            return value === undefined ? [] : [[field.id, value]];
+          }),
+        );
+        if (mutate(state, composition, layers) === false) return;
+        layers.forEach((layer, index) => markTypographyOverrides(layer, targets[index]!));
+        // Keep the link for Reset, but never let a later theme edit erase an explicit designer edit.
+        layers.forEach((layer, index) => {
+          for (const binding of layer.designTokenBindings) {
+            const property = binding.targetProperty;
+            if (
+              targets[index]!.includes('borderRadius') &&
+              property.startsWith('borderRadius') &&
+              property !== 'borderRadius' &&
+              before[index]!.element.type === 'rectangle' &&
+              layer.element.type === 'rectangle'
+            ) {
+              const corner = property.slice('borderRadius'.length);
+              const key =
+                `${corner.charAt(0).toLowerCase()}${corner.slice(1)}` as keyof typeof layer.element.borderRadius;
+              if (before[index]!.element.borderRadius[key] !== layer.element.borderRadius[key])
+                binding.overridden = true;
+            }
+            if (
+              targets[index]!.some(
+                (target) =>
+                  target === property ||
+                  property.startsWith(`${target}.`) ||
+                  property.startsWith(`${target}[`) ||
+                  (layer.element.type === 'text' && target === 'fill' && property === 'color'),
+              )
+            )
+              binding.overridden = true;
+          }
+        });
+        layers.forEach((layer, index) =>
+          resets.push(
+            ...syncDesignerBindingDefaults(
+              composition,
+              layer,
+              before[index]!,
+              targets[index]!,
+              preview,
+            ),
+          ),
+        );
+      });
+      useTestDataStore.getState().clearOverrides(resets);
+    };
+    const addFreshRecipe = <T>(
+      fallbackPack: StylePackId,
+      materialize: (composition: Composition) => T,
+    ): T => {
+      let result!: T;
+      let nextStepFrame: number | undefined;
+      set((state) => {
+        const composition = getActiveComposition(state.project, state.activeCompositionId);
+        const wasAtStep = useTimelineStore.getState().currentFrame === onAirFrame(composition);
+        if (
+          state.project.id === freshUiProjectId &&
+          compactFreshRecipeTiming(composition, fallbackPack) &&
+          wasAtStep
+        )
+          nextStepFrame = onAirFrame(composition);
+        result = materialize(composition);
+      });
+      if (nextStepFrame !== undefined) {
+        useTimelineStore.getState().controller?.seek(nextStepFrame);
+        useTimelineStore.getState().setCurrentFrame(nextStepFrame);
+      }
+      return result;
+    };
     return {
       project: initialProject,
+      documentLoadRevision: 0,
       activeCompositionId: initialProject.mainCompositionId,
       activeKeyframeId: getDefaultAuthoringKeyframeId(initialComposition),
+
+      captureFreshTemplateSession: () => {
+        const projectId = freshUiProjectId;
+        const setId = freshUiSetId;
+        const templates = [...freshUiSetTemplates];
+        return () => {
+          freshUiProjectId = projectId;
+          freshUiSetId = setId;
+          freshUiSetTemplates.clear();
+          for (const [id, value] of templates) freshUiSetTemplates.set(id, value);
+        };
+      },
 
       newProject: () => {
         projectLoadGeneration++;
         useLayerClipboardStore.getState().copy([]);
         useTimelineStore.getState().resetForProjectLoad();
         set((state) => {
-          const project = createProject();
+          const project = createUiProject();
+          freshUiProjectId = project.id;
           const composition = project.compositions[0]!;
           state.project = project;
+          state.documentLoadRevision = (state.documentLoadRevision ?? 0) + 1;
           state.activeCompositionId = project.mainCompositionId;
           state.activeKeyframeId = getDefaultAuthoringKeyframeId(composition);
         });
+        freshUiSetId = null;
+        freshUiSetTemplates.clear();
+        useTimelineStore.getState().setCurrentFrame(0);
       },
 
-      loadProject: (project) => {
+      loadProject: (project, options) => {
+        const outgoingId = get().project.id;
+        const outgoingWasFresh = freshUiProjectId === outgoingId;
+        const navigationSetId = options?.setNavigationId;
+        const session = useProjectSetStore.getState();
+        const outgoingTemplateId = options?.previousTemplateId ?? session.activeTemplateId;
+        const sameSetNavigation =
+          navigationSetId !== undefined && navigationSetId === session.projectSet?.id;
+        set(
+          (state) => {
+            const migrated = migrateProject(project);
+            for (const candidate of migrated.compositions)
+              syncCompositionShaderParameterFields(candidate);
+            enforceMediaRuntimeProfile(migrated);
+            state.project = migrated;
+            if (!sameSetNavigation)
+              state.documentLoadRevision = (state.documentLoadRevision ?? 0) + 1;
+            state.activeCompositionId = migrated.mainCompositionId;
+            const composition = getActiveComposition(migrated, migrated.mainCompositionId);
+            state.activeKeyframeId = getDefaultAuthoringKeyframeId(composition);
+          },
+          false,
+          true,
+        );
+        // A rejected incoming source must leave the outgoing editing session intact.
         projectLoadGeneration++;
+        if (sameSetNavigation) {
+          if (freshUiSetId !== navigationSetId) {
+            freshUiSetId = navigationSetId;
+            freshUiSetTemplates.clear();
+          }
+          if (outgoingWasFresh && outgoingTemplateId)
+            freshUiSetTemplates.set(outgoingTemplateId, outgoingId);
+          if (options?.freshUiTemplate && options.setTemplateId)
+            freshUiSetTemplates.set(options.setTemplateId, project.id);
+          freshUiProjectId =
+            options?.setTemplateId && freshUiSetTemplates.get(options.setTemplateId) === project.id
+              ? project.id
+              : null;
+        } else if (
+          options?.preserveFreshUiIdentity &&
+          outgoingWasFresh &&
+          project.id === outgoingId
+        ) {
+          freshUiProjectId = project.id;
+        } else {
+          freshUiSetId = null;
+          freshUiSetTemplates.clear();
+          freshUiProjectId = options?.freshUiTemplate ? project.id : null;
+        }
         useLayerClipboardStore.getState().copy([]);
+        const next = get();
+        useTimelineStore
+          .getState()
+          .resetForProjectLoad(
+            options?.freshUiTemplate
+              ? 0
+              : onAirFrame(getActiveComposition(next.project, next.activeCompositionId)),
+          );
+      },
+
+      setActiveComposition: (compositionId) => {
+        const composition = get().project.compositions.find((item) => item.id === compositionId);
+        if (!composition) throw new Error(`Composition not found: ${compositionId}`);
+        if (get().activeCompositionId === compositionId) return;
         useTimelineStore.getState().resetForProjectLoad();
         set((state) => {
-          const migrated = migrateProject(project);
-          for (const candidate of migrated.compositions)
-            syncCompositionShaderParameterFields(candidate);
-          state.project = migrated;
-          state.activeCompositionId = migrated.mainCompositionId;
-          const composition = getActiveComposition(migrated, migrated.mainCompositionId);
+          state.activeCompositionId = compositionId;
           state.activeKeyframeId = getDefaultAuthoringKeyframeId(composition);
         });
+        useTimelineStore.getState().setCurrentFrame(onAirFrame(composition));
       },
 
       setProjectMeta: (patch) =>
         set((state) => {
           Object.assign(state.project, patch);
+          enforceMediaRuntimeProfile(state.project);
         }),
 
-      updateCompositionSettings: (patch) =>
+      setCompositionCrop: (crop) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const normalized = normalizeCanvasCrop(crop, composition.width, composition.height);
+          if (normalized) composition.crop = normalized;
+          else delete composition.crop;
+        }),
+
+      updateCompositionSettings: (patch) => {
+        let nextStepFrame: number | undefined;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const resetBlankTiming =
+            state.project.id === freshUiProjectId &&
+            !useProjectSetStore.getState().projectSet &&
+            patch.frameRate !== undefined &&
+            patch.frameRate > 0 &&
+            patch.frameRate !== composition.frameRate &&
+            isUntouchedBlankTiming(composition);
+          const wasAtStep = useTimelineStore.getState().currentFrame === onAirFrame(composition);
           const oldSize = { width: composition.width, height: composition.height };
           const next = { ...patch };
           // Guard the numeric fields: a cleared/invalid input must not poison the composition
@@ -995,13 +2175,32 @@ export const useProjectStore = create<ProjectStore>()(
           if (next.frameRate !== undefined && !(next.frameRate > 0)) delete next.frameRate;
           if (next.updateTransitionFrames !== undefined)
             next.updateTransitionFrames = Math.max(0, Math.round(next.updateTransitionFrames));
+          if (next.shortOutFrames !== undefined)
+            next.shortOutFrames = Math.max(1, Math.round(next.shortOutFrames));
           const newSize = {
             width: next.width ?? composition.width,
             height: next.height ?? composition.height,
           };
           resizeConstrainedLayers(composition, oldSize, newSize);
           Object.assign(composition, next);
-        }),
+          if (resetBlankTiming) {
+            setNewCompositionTiming(composition);
+            if (wasAtStep) nextStepFrame = onAirFrame(composition);
+          }
+          if (next.backgroundColor !== undefined) {
+            delete composition.backgroundPaint;
+            delete composition.backgroundStyleId;
+            composition.backgroundPaintOverridden = true;
+          }
+          if (composition.crop)
+            composition.crop = normalizeCanvasCrop(
+              composition.crop,
+              composition.width,
+              composition.height,
+            );
+        });
+        if (nextStepFrame !== undefined) useTimelineStore.getState().setCurrentFrame(nextStepFrame);
+      },
 
       updateCompositionLayout: (patch) =>
         set((state) => {
@@ -1044,7 +2243,184 @@ export const useProjectStore = create<ProjectStore>()(
           );
         }),
 
-      addLayer: (kind) => {
+      addMediaCueFromAsset: (assetId) => {
+        let cueId = '';
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const asset = composition.assets.find((candidate) => candidate.id === assetId);
+          if (!asset || (asset.kind !== 'media' && asset.kind !== 'audio')) {
+            throw new Error('Media cues require an imported audio or video asset.');
+          }
+          const sourceId = createId('media-source');
+          const cue = createMediaCue({
+            name: asset.name.replace(/\.[^.]+$/, '') || 'Media Cue',
+            sources: [
+              {
+                id: sourceId,
+                name: asset.name,
+                kind: 'clip',
+                mediaType: asset.kind === 'audio' ? 'audio' : 'video',
+                src: `asset:${asset.id}`,
+              },
+            ],
+            activeSourceId: sourceId,
+            trigger:
+              asset.kind === 'audio'
+                ? { type: 'manual' }
+                : { type: 'lifecycle', keyframeId: state.activeKeyframeId },
+            durationFrames: null,
+          });
+          (composition.mediaCues ??= []).push(cue);
+          cueId = cue.id;
+          enforceMediaRuntimeProfile(state.project);
+        });
+        return cueId;
+      },
+
+      addSoundEventFromAsset: (assetId, frame) => {
+        let cueId = '';
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const asset = composition.assets.find((candidate) => candidate.id === assetId);
+          if (!asset || asset.kind !== 'audio') {
+            throw new Error('Sound Events require an imported audio asset.');
+          }
+          const sourceId = createId('media-source');
+          const startFrame = Math.max(
+            0,
+            Math.min(
+              getTotalFrames(composition),
+              Math.round(frame ?? useTimelineStore.getState().currentFrame),
+            ),
+          );
+          const cue = createMediaCue({
+            name: asset.name.replace(/\.[^.]+$/, '') || 'Sound Event',
+            sources: [
+              {
+                id: sourceId,
+                name: asset.name,
+                kind: 'clip',
+                mediaType: 'audio',
+                src: `asset:${asset.id}`,
+              },
+            ],
+            activeSourceId: sourceId,
+            trigger: { type: 'timeline', startFrame },
+            durationFrames: null,
+            loop: false,
+            muted: false,
+            retrigger: 'restart',
+          });
+          (composition.mediaCues ??= []).push(cue);
+          cueId = cue.id;
+          enforceMediaRuntimeProfile(state.project);
+        });
+        return cueId;
+      },
+
+      addRuleSoundFromAsset: (assetId) => {
+        let cueId = '';
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const asset = composition.assets.find((candidate) => candidate.id === assetId);
+          if (!asset || asset.kind !== 'audio') {
+            throw new Error('Rule sounds require an imported audio asset.');
+          }
+          const sourceId = createId('media-source');
+          const cue = createMediaCue({
+            name: asset.name.replace(/\.[^.]+$/, '') || 'Sound',
+            sources: [
+              {
+                id: sourceId,
+                name: asset.name,
+                kind: 'clip',
+                mediaType: 'audio',
+                src: `asset:${asset.id}`,
+              },
+            ],
+            activeSourceId: sourceId,
+            trigger: { type: 'manual' },
+            durationFrames: null,
+            loop: false,
+            muted: false,
+            retrigger: 'restart',
+          });
+          (composition.mediaCues ??= []).push(cue);
+          cueId = cue.id;
+          enforceMediaRuntimeProfile(state.project);
+        });
+        return cueId;
+      },
+
+      addLiveMediaCue: () => {
+        let cueId = '';
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const sourceId = createId('media-source');
+          const cue = createMediaCue({
+            name: 'Live Media',
+            sources: [{ id: sourceId, name: 'Live input', kind: 'live', tag: 'live.input' }],
+            activeSourceId: sourceId,
+            trigger: { type: 'lifecycle', keyframeId: state.activeKeyframeId },
+          });
+          (composition.mediaCues ??= []).push(cue);
+          cueId = cue.id;
+          enforceMediaRuntimeProfile(state.project);
+        });
+        return cueId;
+      },
+
+      updateMediaCue: (cueId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const cue = (composition.mediaCues ?? []).find((candidate) => candidate.id === cueId);
+          if (!cue) return;
+          Object.assign(cue, structuredClone(patch));
+          if (!cue.sources.some((source) => source.id === cue.activeSourceId)) {
+            cue.activeSourceId = cue.sources[0]?.id ?? null;
+          }
+          enforceMediaRuntimeProfile(state.project);
+        }),
+
+      removeMediaCue: (cueId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          assertLogicFunctionReferenceRemovable(composition, 'cue', cueId);
+          composition.mediaCues = (composition.mediaCues ?? []).filter((cue) => cue.id !== cueId);
+          pruneVisualRuleReferences(composition);
+        }),
+
+      addDrawnPath: (path) => {
+        const layer = createLayerOfKind('path');
+        if (layer.element.type !== 'path') throw new Error('Path layer creation failed');
+        layer.element.d = path.d;
+        layer.element.viewBoxWidth = path.width;
+        layer.element.viewBoxHeight = path.height;
+        if (!path.closed) {
+          layer.element.fill = 'transparent';
+          layer.element.strokeColor = '#ffffff';
+          layer.element.strokeWidth = 3;
+        }
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          insertNewLayer(composition, layer, 'path', path);
+        });
+        return layer.id;
+      },
+
+      addLayer: (kind, placement) => {
+        if (kind === 'chart') {
+          const provider = useRendererPluginSettingsStore.getState().defaultProvider;
+          if (!provider)
+            throw new Error(
+              'No default chart renderer selected. Create a chart from an installed provider in the Plugins toolbar.',
+            );
+          const snapshot = selectedChartRendererSnapshot(provider);
+          const preset = snapshot.manifest.presets.includes('bar')
+            ? 'bar'
+            : snapshot.manifest.presets[0]!;
+          return get().addChartLayer(preset, provider, placement);
+        }
         if (kind === 'pattern') {
           let id = '';
           set((state) => {
@@ -1054,41 +2430,53 @@ export const useProjectStore = create<ProjectStore>()(
               getPatternPresetPatch('dots', c.width, c.height, c.frameRate),
             );
             id = addTilingPatternLayer(c, p.id);
+            placePatternLayer(c, id, placement);
           });
           return id;
         }
         const layer = createLayerOfKind(kind);
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
-          const lifecycleFrames = computeKeyframeFrames(composition);
-          for (const [index, keyframe] of composition.keyframes.entries()) {
-            layer.keyframes.push(
-              createLayerKeyframe(
-                lifecycleFrames[index]?.frame ?? 0,
-                defaultTransformForRole(kind, keyframe.role),
-                {
-                  easing:
-                    composition.transitions.find(
-                      (transition) => transition.toKeyframeId === keyframe.id,
-                    )?.easing ?? 'linear',
-                },
-              ),
+          insertNewLayer(composition, layer, kind, placement);
+          if (kind === 'text' && layer.element.type === 'text') {
+            const token = composition.designSystem.tokens.find(
+              (item) =>
+                item.type === 'color' && /(?:text|foreground)/i.test(`${item.key} ${item.name}`),
             );
+            if (token) {
+              const binding = { tokenId: token.id, targetProperty: 'color' as const };
+              applyDesignTokenBinding(layer, binding, token);
+              layer.designTokenBindings.push(binding);
+            }
           }
-          materializeAnimationTracks(layer);
-          composition.layers.push(layer);
-          syncShaderParameterFields(composition, layer);
+          if (kind === 'audio') {
+            state.project.supportsRealTime = true;
+            state.project.supportsNonRealTime = false;
+          }
+        });
+        return layer.id;
+      },
+
+      addChartLayer: (preset, provider, placement) => {
+        if (typeof preset !== 'string' || !Object.hasOwn(CHART_LAYER_PRESETS, preset))
+          throw new Error('Unknown chart preset.');
+        const snapshot = selectedChartRendererSnapshot(provider);
+        if (!snapshot.manifest.presets.includes(preset))
+          throw new Error(`This chart provider does not support the ${preset} preset.`);
+        const layer = createLayerOfKind('chart');
+        if (layer.element.type !== 'chart') throw new Error('Expected chart element.');
+        layer.element.preset = preset;
+        layer.element.provider = { ...provider };
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          pinChartRendererSnapshot(composition, snapshot);
+          insertNewLayer(composition, layer, 'chart', placement);
         });
         return layer.id;
       },
 
       addLowerThird: () => {
-        let result!: MaterializedLowerThird;
-        set((state) => {
-          const composition = getActiveComposition(state.project, state.activeCompositionId);
-          result = materializeLowerThird(composition);
-        });
-        return result;
+        return addFreshRecipe('news', materializeLowerThird);
       },
       setTilingPattern: (patch, patternId) => {
         let id = '';
@@ -1108,17 +2496,16 @@ export const useProjectStore = create<ProjectStore>()(
             patternId,
           );
         }),
-      addPatternInstance: (patternId) => {
+      addPatternInstance: (patternId, placement) => {
         let id = '';
         set((state) => {
-          id = addTilingPatternLayer(
-            getActiveComposition(state.project, state.activeCompositionId),
-            patternId,
-          );
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          id = addTilingPatternLayer(composition, patternId);
+          placePatternLayer(composition, id, placement);
         });
         return id;
       },
-      createPatternResource: (patch, addToCanvas = true) => {
+      createPatternResource: (patch, addToCanvas = true, placement) => {
         let result!: { patternId: string; layerId?: string };
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
@@ -1129,7 +2516,10 @@ export const useProjectStore = create<ProjectStore>()(
             name = `${baseName} ${suffix++}`;
           const pattern = setTilingPattern(composition, { ...patch, name });
           result = { patternId: pattern.id };
-          if (addToCanvas) result.layerId = addTilingPatternLayer(composition, pattern.id);
+          if (addToCanvas) {
+            result.layerId = addTilingPatternLayer(composition, pattern.id);
+            placePatternLayer(composition, result.layerId, placement);
+          }
         });
         return result;
       },
@@ -1171,39 +2561,23 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       addBug: () => {
-        let result!: MaterializedBroadcastRecipe;
-        set((state) => {
-          result = materializeBug(getActiveComposition(state.project, state.activeCompositionId));
-        });
-        return result;
+        return addFreshRecipe('news', materializeBug);
       },
 
       addTicker: () => {
-        let result!: MaterializedBroadcastRecipe;
-        set((state) => {
-          result = materializeTicker(
-            getActiveComposition(state.project, state.activeCompositionId),
-          );
-        });
-        return result;
+        return addFreshRecipe('news', materializeTicker);
       },
 
       addScoreboard: () => {
-        let result!: MaterializedBroadcastRecipe;
-        set((state) => {
-          result = materializeScoreboard(
-            getActiveComposition(state.project, state.activeCompositionId),
-          );
-        });
-        return result;
+        return addFreshRecipe('sports', materializeScoreboard);
       },
 
       addClock: () => {
-        let result!: MaterializedBroadcastRecipe;
-        set((state) => {
-          result = materializeClock(getActiveComposition(state.project, state.activeCompositionId));
-        });
-        return result;
+        return addFreshRecipe('news', materializeClock);
+      },
+
+      addCountdown: () => {
+        return addFreshRecipe('sports', materializeCountdown);
       },
 
       addRepeater: (layerIds, count = 3, direction = 'horizontal', gap = 24) => {
@@ -1239,6 +2613,8 @@ export const useProjectStore = create<ProjectStore>()(
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           pastedIds = appendLayerCopies(composition, sourceComposition, sources, offset);
+          // Rules pasted from another composition may aim at layers that aren't here.
+          pruneVisualRuleReferences(composition);
         });
         return pastedIds;
       },
@@ -1277,10 +2653,14 @@ export const useProjectStore = create<ProjectStore>()(
           }
           if (composition.layers.find((layer) => layer.id === layerId)?.isLocked) return;
           assertMaskSourcesRemovable(composition, new Set([layerId]));
+          assertModifierSourcesRemovable(composition, new Set([layerId]));
+          rehomeVisualRuleGroupOwners(composition.layers, new Set([layerId]));
           composition.layers = composition.layers.filter((l) => l.id !== layerId);
           syncCompositionShaderParameterFields(composition);
           for (const layer of composition.layers) {
             if (layer.parentId === layerId) layer.parentId = null;
+            if (layer.motionPath?.sourceLayerId === layerId) layer.motionPath = null;
+            if (layer.textPath?.sourceLayerId === layerId) layer.textPath = null;
           }
           for (const folder of composition.layout.timelineFolders) {
             folder.layerIds = folder.layerIds.filter((candidate) => candidate !== layerId);
@@ -1288,18 +2668,32 @@ export const useProjectStore = create<ProjectStore>()(
           composition.layout.timelineFolders = composition.layout.timelineFolders.filter(
             (folder) => folder.layerIds.length > 0,
           );
+          pruneVisualRuleReferences(composition);
         }),
 
-      updateLayerTransform: (layerId, frame, patch) =>
+      updateLayerTransform: (layerId, frame, patch) => {
+        const values = useTestDataStore.getState().values;
+        const resets: Array<{ fieldId: string; sourcePath: string[] }> = [];
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((l) => l.id === layerId);
           if (!layer || layer.isLocked) return;
-          writeUiLayerTransform(composition, layer, frame, patch);
-        }),
+          const preview = Object.fromEntries(
+            composition.dataFields.flatMap((field) => {
+              const value = resolvePreviewFieldValue(field, values[field.id]);
+              return value === undefined ? [] : [[field.id, value]];
+            }),
+          );
+          const bound = syncDesignerTransformBindingDefaults(composition, layer, patch, preview);
+          resets.push(...bound.resets);
+          if (Object.keys(bound.patch).length)
+            writeUiLayerTransform(composition, layer, frame, bound.patch);
+        });
+        useTestDataStore.getState().clearOverrides(resets);
+      },
 
-      addLayerKeyframe: (layerId, frame) => {
-        let created!: LayerKeyframe;
+      addLayerKeyframe: (layerId, frame, options = {}) => {
+        let createdId = '';
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
@@ -1309,15 +2703,10 @@ export const useProjectStore = create<ProjectStore>()(
             Math.min(getTotalFrames(composition), Math.round(frame)),
           );
           const existing = findLayerKeyframeAtFrame(layer, roundedFrame);
-          if (existing) {
-            created = existing;
-            return;
-          }
-          created = createLayerKeyframe(
-            roundedFrame,
-            getLayerTransformAtFrame(layer, roundedFrame),
-          );
-          layer.keyframes.push(created);
+          const created =
+            existing ??
+            createLayerKeyframe(roundedFrame, getLayerTransformAtFrame(layer, roundedFrame));
+          if (!existing) layer.keyframes.push(created);
           layer.keyframes = sortLayerKeyframes(layer.keyframes);
           const transform = getLayerTransformAtFrame(layer, roundedFrame);
           for (const property of TRANSFORM_ANIMATION_PROPERTIES) {
@@ -1329,22 +2718,25 @@ export const useProjectStore = create<ProjectStore>()(
               created.easing,
             );
           }
-          const effects = getLayerEffectsAtFrame(layer, roundedFrame);
-          for (const property of EFFECT_ANIMATION_PROPERTIES) {
-            upsertPropertyKeyframe(
-              layer,
-              property,
-              roundedFrame,
-              effects[property],
-              created.easing,
-            );
+          if (options.includeEffects !== false) {
+            const effects = getLayerEffectsAtFrame(layer, roundedFrame);
+            for (const property of EFFECT_ANIMATION_PROPERTIES) {
+              upsertPropertyKeyframe(
+                layer,
+                property,
+                roundedFrame,
+                effects[property],
+                created.easing,
+              );
+            }
           }
+          createdId = created.id;
         });
-        return created.id;
+        return createdId;
       },
 
       addLayerHoldFrame: (layerId, frame) => {
-        let created!: LayerKeyframe;
+        let createdId = '';
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
@@ -1355,14 +2747,14 @@ export const useProjectStore = create<ProjectStore>()(
           );
           const existing = findLayerKeyframeAtFrame(layer, roundedFrame);
           if (existing) {
-            created = existing;
+            createdId = existing.id;
             return;
           }
           const previous = [...layer.keyframes]
             .sort((a, b) => a.frame - b.frame)
             .filter((keyframe) => keyframe.frame < roundedFrame)
             .at(-1);
-          created = createLayerKeyframe(
+          const created = createLayerKeyframe(
             roundedFrame,
             previous?.transform ?? getLayerTransformAtFrame(layer, roundedFrame),
             { easing: previous?.easing ?? 'linear' },
@@ -1388,8 +2780,9 @@ export const useProjectStore = create<ProjectStore>()(
               created.easing,
             );
           }
+          createdId = created.id;
         });
-        return created.id;
+        return createdId;
       },
 
       moveLayerKeyframe: (layerId, keyframeId, frame) =>
@@ -1594,12 +2987,15 @@ export const useProjectStore = create<ProjectStore>()(
             const propertyKey = layer.animationTracks[property]?.find(
               (candidate) => candidate.frame === keyframe.frame,
             );
-            if (propertyKey) propertyKey.easing = easing;
+            if (propertyKey) {
+              propertyKey.easing = easing;
+              delete propertyKey.curve;
+            }
           }
         }),
 
       addLayerPropertyKeyframe: (layerId, property, frame) => {
-        let created!: LayerPropertyKeyframe;
+        let createdId = '';
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
@@ -1614,7 +3010,7 @@ export const useProjectStore = create<ProjectStore>()(
             Math.min(getTotalFrames(composition), Math.round(frame)),
           );
           const existing = findLayerPropertyKeyframeAtFrame(layer, property, roundedFrame);
-          created =
+          const created =
             existing ??
             upsertPropertyKeyframe(
               layer,
@@ -1623,8 +3019,54 @@ export const useProjectStore = create<ProjectStore>()(
               getLayerPropertyValueAtFrame(layer, property, roundedFrame),
             );
           syncAggregateKeyframe(layer, roundedFrame, created.easing);
+          createdId = created.id;
         });
-        return created.id;
+        return createdId;
+      },
+
+      enableLayerPropertyAnimation: (layerId, property, frame) =>
+        get().addLayerPropertyKeyframe(layerId, property, frame),
+
+      resetLayerPropertyAnimation: (layerId, property, frame) => {
+        if (!Number.isFinite(frame)) throw new Error('Reset animation requires a finite frame.');
+        const source = getActiveComposition(get().project, get().activeCompositionId);
+        const boundedFrame = Math.max(0, Math.min(getTotalFrames(source), frame));
+        const loopSample = getEditorLoopSample(source, layerId, boundedFrame);
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer) throw new Error('The selected object is no longer in this composition.');
+          resetPropertyAnimation(layer, property, boundedFrame, {
+            composition,
+            ...(loopSample ? { loopElapsedFrames: loopSample.elapsedFrames } : {}),
+          });
+          syncResetShaderParameterDefault(composition, layer, property);
+        });
+      },
+
+      toggleLayerPropertyKeyframe: (layerId, property, frame) => {
+        const state = get();
+        const composition = getActiveComposition(state.project, state.activeCompositionId);
+        const layer = composition.layers.find((candidate) => candidate.id === layerId);
+        if (!layer || layer.isLocked) return null;
+        const roundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
+        const key = findLayerPropertyKeyframeAtFrame(layer, property, roundedFrame);
+        if (!key) return get().addLayerPropertyKeyframe(layerId, property, roundedFrame);
+        set((draft) => {
+          const current = getActiveComposition(
+            draft.project,
+            draft.activeCompositionId,
+          ).layers.find((candidate) => candidate.id === layerId);
+          if (current) {
+            removePropertyKeyframe(current, property, key.id, roundedFrame);
+            if (parseShaderAnimationProperty(property))
+              syncShaderParameterFields(
+                getActiveComposition(draft.project, draft.activeCompositionId),
+                current,
+              );
+          }
+        });
+        return null;
       },
 
       moveLayerPropertyKeyframe: (layerId, property, keyframeId, frame) =>
@@ -1658,15 +3100,8 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
           if (!layer || layer.isLocked) return;
-          materializeAnimationTracks(layer);
-          const track = layer.animationTracks[property] ?? [];
-          if (track.length <= 1 && !parseShaderAnimationProperty(property)) return;
-          const removedFrame = track.find((candidate) => candidate.id === keyframeId)?.frame;
-          layer.animationTracks[property] = track.filter(
-            (candidate) => candidate.id !== keyframeId,
-          );
-          if (layer.animationTracks[property]?.length === 0) delete layer.animationTracks[property];
-          if (removedFrame !== undefined) removeAggregateKeyframeIfOrphaned(layer, removedFrame);
+          removePropertyKeyframe(layer, property, keyframeId, canvasFrame(composition));
+          if (parseShaderAnimationProperty(property)) syncShaderParameterFields(composition, layer);
         }),
 
       updateLayerPropertyKeyframeValue: (layerId, property, keyframeId, value) =>
@@ -1697,7 +3132,10 @@ export const useProjectStore = create<ProjectStore>()(
           const keyframe = layer.animationTracks[property]?.find(
             (candidate) => candidate.id === keyframeId,
           );
-          if (keyframe) keyframe.easing = easing;
+          if (keyframe) {
+            keyframe.easing = easing;
+            delete keyframe.curve;
+          }
         }),
 
       updateLayerPropertyKeyframeCurve: (layerId, property, keyframeId, curve) =>
@@ -1834,7 +3272,14 @@ export const useProjectStore = create<ProjectStore>()(
           if (patch.name !== undefined) layer.loop.name = patch.name.trim() || 'Loop';
           if (patch.activation !== undefined)
             layer.loop.activation = structuredClone(patch.activation);
+          if (patch.activation?.type === 'customAction' && patch.repeatCount === undefined) {
+            layer.loop.repeatCount = 1;
+          }
           layer.loop.durationFrames = nextDuration;
+          if (patch.timing !== undefined) {
+            if (patch.timing === null) delete layer.loop.timing;
+            else layer.loop.timing = structuredClone(patch.timing);
+          }
           if (patch.phaseOffsetFrames !== undefined) {
             layer.loop.phaseOffsetFrames = Math.round(patch.phaseOffsetFrames);
           }
@@ -1888,11 +3333,122 @@ export const useProjectStore = create<ProjectStore>()(
           applyPathEdit(layer, edit, frame);
         }),
 
-      updateLayerElement: (layerId, patch) =>
+      selectChartProvider: (layerId, provider) => {
+        const snapshot = selectedChartRendererSnapshot(provider);
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
-          const layer = composition.layers.find((l) => l.id === layerId);
+          const layer = composition.layers.find((item) => item.id === layerId);
+          if (!layer || layer.isLocked || layer.element.type !== 'chart') return;
+          const oldProvider = layer.element.provider;
+          layer.element.provider = { ...provider };
+          if (!snapshot.manifest.presets.includes(layer.element.preset))
+            layer.element.preset = snapshot.manifest.presets[0]!;
+          if (oldProvider && rendererPluginKey(oldProvider) !== rendererPluginKey(provider)) {
+            const oldKey = rendererPluginKey(oldProvider);
+            const stillUsed = [
+              ...composition.layers,
+              ...composition.components.flatMap((component) => component.layers),
+            ].some(
+              (candidate) =>
+                candidate.element.type === 'chart' &&
+                candidate.element.provider &&
+                rendererPluginKey(candidate.element.provider) === oldKey,
+            );
+            if (!stillUsed)
+              composition.rendererPlugins = (composition.rendererPlugins ?? []).filter(
+                (entry) => rendererPluginKey(rendererPluginReference(entry)) !== oldKey,
+              );
+          }
+          pinChartRendererSnapshot(composition, snapshot);
+        });
+      },
+
+      upgradeChartRenderer: (from, to) => {
+        const snapshot = selectedChartRendererSnapshot(to);
+        const session = useProjectSetStore.getState();
+        const plan = planChartRendererUpgrade(
+          get().project,
+          from,
+          snapshot,
+          session.projectSet,
+          session.activeTemplateId,
+        );
+        if (plan.errors.length) throw new Error(plan.errors.join('\n'));
+        const sourceKey = rendererPluginKey(from);
+        set((state) => {
+          for (const composition of state.project.compositions) {
+            let changed = false;
+            for (const layer of composition.layers) {
+              if (
+                layer.element.type === 'chart' &&
+                layer.element.provider &&
+                rendererPluginKey(layer.element.provider) === sourceKey
+              ) {
+                // Let the component reconciler carry inherited provider changes. Editing an
+                // inherited materialized child here would accidentally create a local override.
+                const link = layer.componentLink;
+                const source =
+                  link &&
+                  composition.components
+                    .find((component) => component.id === link.componentId)
+                    ?.layers.find((item) => item.id === link.sourceLayerId);
+                const inheritedFromSource =
+                  source?.element.type === 'chart' &&
+                  source.element.provider &&
+                  rendererPluginKey(source.element.provider) === sourceKey;
+                const baseline = link?.baseline?.element;
+                const inheritedBeforeEdit =
+                  baseline?.type === 'chart' &&
+                  baseline.provider &&
+                  rendererPluginKey(baseline.provider) === sourceKey;
+                const overridden = link?.overridePaths?.some(
+                  (path) =>
+                    path === '/element' ||
+                    path === '/element/provider' ||
+                    path.startsWith('/element/provider/'),
+                );
+                if (inheritedFromSource && inheritedBeforeEdit && !overridden) continue;
+                layer.element.provider = { ...to };
+                changed = true;
+              }
+            }
+            for (const component of composition.components) {
+              let componentChanged = false;
+              for (const layer of component.layers) {
+                if (
+                  layer.element.type === 'chart' &&
+                  layer.element.provider &&
+                  rendererPluginKey(layer.element.provider) === sourceKey
+                ) {
+                  layer.element.provider = { ...to };
+                  changed = true;
+                  componentChanged = true;
+                }
+              }
+              if (componentChanged && component.context)
+                pinChartRendererSnapshot(component.context, snapshot);
+            }
+            if (changed) pinChartRendererSnapshot(composition, snapshot);
+          }
+        });
+      },
+
+      updateLayerElement: (layerId, patch) =>
+        designerEdit(layerId, Object.keys(patch), (state, composition, layers) => {
+          const layer = layers[0]!;
           if (layer && !layer.isLocked) {
+            if (layer.textPath && layer.element.type === 'text') {
+              const candidate = { ...layer.element, ...patch } as typeof layer.element;
+              candidate.textAnimation = normalizeTextAnimation(candidate.textAnimation);
+              const errors = textPathCompatibilityErrors(candidate);
+              if (errors.length) throw new Error(errors.join('\n'));
+            }
+            if (layer.element.type === 'ticker') {
+              const ticker = { ...layer.element, ...patch };
+              const errors = tickerErrors(ticker);
+              if (errors.length) throw new Error(errors.join('\n'));
+              Object.assign(patch, normalizeTicker(ticker as TickerElement));
+            }
             const shaderPaints = getElementShaderPaints({
               ...layer.element,
               ...patch,
@@ -1901,51 +3457,80 @@ export const useProjectStore = create<ProjectStore>()(
               const inspection = inspectShaderElement(paint);
               if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
             }
+            if (layer.element.type === 'text' && patch.textAnimation !== undefined) {
+              patch.textAnimation = normalizeTextAnimation({
+                ...layer.element.textAnimation,
+                ...patch.textAnimation,
+              });
+            }
+            if (layer.element.type === 'text' && patch.clock != null)
+              patch.clock = normalizeClockTimerSettings({ ...layer.element.clock, ...patch.clock });
+            if (
+              layer.element.type === 'text' &&
+              patch.content !== undefined &&
+              patch.content !== layer.element.content &&
+              patch.runs === undefined
+            ) {
+              layer.element.runs = [];
+            }
             Object.assign(layer.element, patch);
+            if (
+              layer.element.type === 'text' &&
+              Object.hasOwn(patch, 'clock') &&
+              patch.clock == null
+            )
+              delete layer.element.clock;
+            enforceMediaRuntimeProfile(state.project);
             syncShaderParameterFields(composition, layer);
             pruneInvalidGradientStopTracks(layer);
+            if (Object.hasOwn(patch, 'clock') && patch.clock == null)
+              pruneVisualRuleReferences(composition);
           }
         }),
 
       updateLayerShaderParameter: (layerId, frame, slot, name, value) =>
-        set((state) => {
-          const composition = getActiveComposition(state.project, state.activeCompositionId);
-          const layer = composition.layers.find((candidate) => candidate.id === layerId);
-          if (!layer || layer.isLocked || !getElementShaderPaint(layer.element, slot)) return;
-          const roundedFrame = Math.max(
-            0,
-            Math.min(getTotalFrames(composition), Math.round(frame)),
-          );
-          const incoming = applyElementDataValue(
-            layer.element,
-            shaderParameterTarget(name, slot),
-            value,
-          );
-          const authoredChanges: Record<string, number> = {};
-          for (const property of getShaderAnimatableProperties(layer.element)) {
-            const parsed = parseShaderAnimationProperty(property)!;
-            if (parsed.slot !== slot || parsed.name !== name) continue;
-            const before = getLayerPropertyValueAtFrame(layer, property, roundedFrame);
-            const next = getShaderAnimationValue(incoming, property);
-            if (Math.abs(next - before) < 1e-9) continue;
-            if (useTimelineStore.getState().autoKeyframe) {
-              const key = upsertPropertyKeyframe(layer, property, roundedFrame, next);
-              syncAggregateKeyframe(layer, roundedFrame, key.easing);
-            } else {
-              offsetExistingPropertyKeys(layer, property, next - before);
-              authoredChanges[property] = next;
+        designerEdit(
+          layerId,
+          [shaderParameterTarget(name, slot)],
+          (_state, composition, layers) => {
+            const layer = layers[0]!;
+            if (!layer || layer.isLocked || !getElementShaderPaint(layer.element, slot)) return;
+            const roundedFrame = Math.max(
+              0,
+              Math.min(getTotalFrames(composition), Math.round(frame)),
+            );
+            const incoming = applyElementDataValue(
+              layer.element,
+              shaderParameterTarget(name, slot),
+              value,
+            );
+            const authoredChanges: Record<string, number> = {};
+            for (const property of getShaderAnimatableProperties(layer.element)) {
+              const parsed = parseShaderAnimationProperty(property)!;
+              if (parsed.slot !== slot || parsed.name !== name) continue;
+              const before = getLayerPropertyValueAtFrame(layer, property, roundedFrame);
+              const next = getShaderAnimationValue(incoming, property);
+              if (Math.abs(next - before) < 1e-9) continue;
+              if (!keyPropertyEdit(layer, property, roundedFrame, next, before)) {
+                offsetExistingPropertyKeys(layer, property, next - before);
+                authoredChanges[property] = next;
+              }
             }
-          }
-          if (Object.keys(authoredChanges).length) {
-            layer.element = applyShaderAnimationValues(layer.element, authoredChanges);
-            syncShaderParameterFields(composition, layer);
-          }
-        }),
+            if (Object.keys(authoredChanges).length) {
+              layer.element = applyShaderAnimationValues(layer.element, authoredChanges);
+              syncShaderParameterFields(composition, layer);
+            }
+          },
+        ),
 
       createShaderResource: (paint) => {
         let target: StoredShaderResourceTarget | undefined;
         set((state) => {
-          const next = shaderPaintWithPatch(paint ?? createShaderPaint(), {});
+          const next = shaderPaintWithPatch(
+            paint ?? createShaderPaint(),
+            {},
+            { libraryResource: true },
+          );
           if (!next.name) next.name = defaultShaderResourceName(state.project);
           const resource = createStoredShaderResource({ paint: next });
           state.project.shaders.push(resource);
@@ -1954,18 +3539,246 @@ export const useProjectStore = create<ProjectStore>()(
         return target!;
       },
 
-      updateShaderResource: (target, patch) =>
+      ensureShaderResource: (paint) => {
+        const inspection = inspectShaderResourcePaint(paint);
+        if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
+        let target: StoredShaderResourceTarget | undefined;
+        set((state) => {
+          const existing = state.project.shaders.find(
+            (resource) =>
+              shaderLibraryContentKey(resource.paint) === shaderLibraryContentKey(paint),
+          );
+          if (existing) {
+            target = { shaderId: existing.id };
+          } else {
+            const resource = createStoredShaderResource({ paint: structuredClone(paint) });
+            state.project.shaders.push(resource);
+            target = { shaderId: resource.id };
+          }
+        });
+        return target!;
+      },
+
+      importShaderPackPreset: (reference, presetId, target) => {
+        const paint = resolveShaderPackPresetPaint(
+          installedShaderPack(reference),
+          presetId,
+          target,
+        );
+        return get().ensureShaderResource(paint);
+      },
+
+      applyShaderPackPreset: (layerIds, reference, presetId, target) => {
+        const paint = resolveShaderPackPresetPaint(
+          installedShaderPack(reference),
+          presetId,
+          target,
+        );
+        get().applyShaderPaintToLayers(layerIds, paint, target, { saveResource: true });
+      },
+
+      applyShaderPaintToLayers: (layerIds, paint, target, options = {}) => {
+        if (!['fill', 'outline', 'effect'].includes(target))
+          throw new Error('Unknown shader application target.');
+        const validatedPaint = structuredClone(paint);
+        if (target === 'effect') delete validatedPaint.inputImage;
+        const ids = new Set(typeof layerIds === 'string' ? [layerIds] : layerIds);
+        if (!ids.size) throw new Error('Select an object before applying a shader.');
+        const active = getActiveComposition(get().project, get().activeCompositionId);
+        const selected = active.layers.filter((layer) => ids.has(layer.id));
+        if (selected.length !== ids.size)
+          throw new Error('A selected shader target no longer exists.');
+        const previousGeneratedFields = active.dataFields.filter(
+          (field) =>
+            field.generatedShaderParameter && ids.has(field.generatedShaderParameter.layerId),
+        );
+        for (const layer of selected) {
+          const reason = shaderPackLayerTargetReason(layer, target);
+          if (reason) throw new Error(reason);
+        }
+        const slot = target === 'outline' ? 'stroke' : 'fill';
+        const inspection = inspectShaderElement(validatedPaint, {
+          channel0Provided: target === 'effect',
+        });
+        if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
+        if (options.saveResource) {
+          const resourceInspection = inspectShaderResourcePaint(paint);
+          if (!resourceInspection.valid) throw new Error(resourceInspection.errors.join('\n'));
+        }
+        const properties =
+          target === 'effect'
+            ? []
+            : [
+                target === 'outline' ? 'strokePaint' : 'fill',
+                ...(target === 'fill' ? ['color'] : []),
+                ...inspection.parameters.map((parameter) =>
+                  shaderParameterTarget(parameter.name, slot),
+                ),
+              ];
+        const sharedEffectId = target === 'effect' ? createId('fx') : undefined;
+        designerEdit([...ids], properties, (state, composition, layers) => {
+          const prepared = layers.map((layer) => structuredClone(current(layer)));
+          const byId = new Map(prepared.map((layer) => [layer.id, layer]));
+          const scope: Composition = {
+            ...current(composition),
+            layers: composition.layers.map((layer) => byId.get(layer.id) ?? current(layer)),
+            dataFields: structuredClone(current(composition.dataFields)),
+          };
+          for (const layer of prepared) {
+            // Preflight again inside the single transaction, before publishing any target.
+            const reason = shaderPackLayerTargetReason(layer, target);
+            if (reason) throw new Error(reason);
+            const copy = structuredClone(paint);
+            if (target === 'effect') {
+              delete copy.inputImage;
+              addEffect(
+                layer,
+                'shader',
+                {
+                  name: copy.name?.trim() || 'Shader',
+                  enabled: true,
+                  blendMode: 'normal',
+                  blendOpacity: 1,
+                  shader: copy,
+                },
+                undefined,
+                sharedEffectId,
+              );
+            } else {
+              if (target === 'outline') {
+                if (layer.element.type !== 'text') throw new Error('Shader outlines require text.');
+                layer.element.strokePaint = copy;
+              } else {
+                const element = layer.element;
+                if (
+                  element.type === 'rectangle' ||
+                  element.type === 'ellipse' ||
+                  element.type === 'path' ||
+                  element.type === 'pattern' ||
+                  element.type === 'text' ||
+                  element.type === 'image' ||
+                  element.type === 'image-sequence' ||
+                  element.type === 'lottie'
+                )
+                  element.fill = copy;
+                else throw new Error('The selected object does not support a shader fill.');
+              }
+              syncShaderParameterFields(scope, layer);
+              if (target === 'fill') pruneInvalidGradientStopTracks(layer);
+            }
+          }
+          // Applied copies carry attribution, not live references; no pack execution pin is needed.
+          layers.forEach((layer, index) => Object.assign(layer, prepared[index]!));
+          composition.dataFields = scope.dataFields;
+          if (
+            options.saveResource &&
+            !state.project.shaders.some(
+              (resource) =>
+                shaderLibraryContentKey(resource.paint) === shaderLibraryContentKey(paint),
+            )
+          )
+            state.project.shaders.push(
+              createStoredShaderResource({ paint: structuredClone(paint) }),
+            );
+        });
+        // Removed generated parameters must not regain an old test override if a later shader
+        // introduces the same name. Ordinary/shared fields and unrelated preview data stay intact.
+        const fields = new Set(
+          getActiveComposition(get().project, get().activeCompositionId).dataFields.map(
+            (field) => field.id,
+          ),
+        );
+        useTestDataStore
+          .getState()
+          .clearOverrides(
+            previousGeneratedFields
+              .filter((field) => !fields.has(field.id))
+              .map((field) => ({ fieldId: field.id, sourcePath: [] })),
+          );
+      },
+
+      updateShaderResource: (target, patch) => {
+        const values = useTestDataStore.getState().values;
+        const resets: Array<{ fieldId: string; sourcePath: string[] }> = [];
         set((state) => {
           if (isStoredShaderResourceTarget(target)) {
             const { resource, paint } = resolveShaderResource(state.project, target);
-            resource.paint = shaderPaintWithPatch(paint, patch);
+            resource.paint = shaderPaintWithPatch(paint, patch, { libraryResource: true });
             return;
           }
-          const { composition, component, layer, paint } = resolveShaderResource(
+          const { composition, component, layer, paint, item } = resolveShaderResource(
             state.project,
             target,
           );
+          const before = { element: current(layer.element), effects: current(layer.effects) };
           if (layer.isLocked) throw new Error(`Shader resource object "${layer.name}" is locked.`);
+          if (target.tickerBackground) {
+            if (layer.element.type !== 'ticker') throw new Error('Expected a ticker.');
+            layer.element.background = shaderPaintWithPatch(paint, patch);
+            return;
+          }
+          if (item) {
+            const next = shaderPaintWithPatch(paint, patch, {
+              channel0Provided: target.slot === 'effect',
+            });
+            if (target.slot === 'effect') {
+              const effect =
+                item.effects &&
+                getEffectStack(item.effects).find(
+                  (entry) => entry.id === target.effectId && entry.type === 'shader',
+                );
+              if (!effect) throw new Error('The ticker shader effect no longer exists.');
+              effect.shader = next;
+              return;
+            }
+            if (target.slot === 'stroke') {
+              if (item.element.type !== 'text') throw new Error('Shader outlines require text.');
+              item.element.strokePaint = next;
+            } else if (item.element.type === 'shader') item.element = next;
+            else if ('fill' in item.element) item.element.fill = next;
+            else throw new Error('The ticker item cannot use this shader paint.');
+            const prefix = `items.${item.id}.${shaderParameterTarget('', target.slot)}`;
+            const parameters = new Set(
+              inspectShaderSource(next.fragmentSource).parameters.map(
+                (parameter) => parameter.name,
+              ),
+            );
+            layer.bindings = layer.bindings.filter(
+              (binding) =>
+                !binding.targetProperty.startsWith(prefix) ||
+                parameters.has(binding.targetProperty.slice(prefix.length)),
+            );
+            const scope = component
+              ? {
+                  ...composition,
+                  layers: component.layers,
+                  dataFields: component.dataFields,
+                  runtimeCollections: [],
+                  components: [],
+                }
+              : composition;
+            resets.push(
+              ...syncDesignerBindingDefaults(
+                scope,
+                layer,
+                before,
+                Object.keys(patch.parameters ?? {}).map((name) => `${prefix}${name}`),
+                Object.fromEntries(
+                  scope.dataFields.map((field) => [
+                    field.id,
+                    resolvePreviewFieldValue(field, values[field.id])!,
+                  ]),
+                ),
+              ),
+            );
+            if (component) component.dataFields = scope.dataFields;
+            return;
+          }
+          if (target.slot === 'effect') {
+            const next = shaderPaintWithPatch(paint, patch, { channel0Provided: true });
+            updateEffect(layer, target.effectId, { shader: next });
+            return;
+          }
           const next = shaderPaintWithPatch(paint, patch);
           if (target.slot === 'stroke') {
             if (layer.element.type !== 'text')
@@ -1973,8 +3786,10 @@ export const useProjectStore = create<ProjectStore>()(
             layer.element.strokePaint = next;
           } else if (layer.element.type === 'shader') {
             layer.element = next;
-          } else {
+          } else if ('fill' in layer.element) {
             layer.element.fill = next;
+          } else {
+            throw new Error('The selected object cannot use a shader paint.');
           }
           if (component) {
             const scope: Composition = {
@@ -1985,11 +3800,45 @@ export const useProjectStore = create<ProjectStore>()(
               components: [],
             };
             syncShaderParameterFields(scope, layer);
+            resets.push(
+              ...syncDesignerBindingDefaults(
+                scope,
+                layer,
+                before,
+                Object.keys(patch.parameters ?? {}).map((name) =>
+                  shaderParameterTarget(name, target.slot),
+                ),
+                Object.fromEntries(
+                  scope.dataFields.map((field) => [
+                    field.id,
+                    resolvePreviewFieldValue(field, values[field.id])!,
+                  ]),
+                ),
+              ),
+            );
             component.dataFields = scope.dataFields;
           } else {
             syncShaderParameterFields(composition, layer);
+            resets.push(
+              ...syncDesignerBindingDefaults(
+                composition,
+                layer,
+                before,
+                Object.keys(patch.parameters ?? {}).map((name) =>
+                  shaderParameterTarget(name, target.slot),
+                ),
+                Object.fromEntries(
+                  composition.dataFields.map((field) => [
+                    field.id,
+                    resolvePreviewFieldValue(field, values[field.id])!,
+                  ]),
+                ),
+              ),
+            );
           }
-        }),
+        });
+        useTestDataStore.getState().clearOverrides(resets);
+      },
 
       removeShaderResource: (target) =>
         set((state) => {
@@ -2000,8 +3849,39 @@ export const useProjectStore = create<ProjectStore>()(
             );
             return;
           }
-          const { composition, component, layer } = resolveShaderResource(state.project, target);
+          const { composition, component, layer, item } = resolveShaderResource(
+            state.project,
+            target,
+          );
           if (layer.isLocked) throw new Error(`Shader resource object "${layer.name}" is locked.`);
+          if (target.tickerBackground) {
+            if (layer.element.type !== 'ticker') throw new Error('Expected a ticker.');
+            delete layer.element.background;
+            return;
+          }
+          if (item) {
+            if (target.slot === 'effect') {
+              if (item.effects)
+                item.effects.stack = getEffectStack(item.effects).filter(
+                  (entry) => entry.id !== target.effectId,
+                );
+            } else if (target.slot === 'stroke' && item.element.type === 'text')
+              delete item.element.strokePaint;
+            else if (item.element.type === 'shader')
+              item.element = createRectangleElement({ fill: '#3b3f4a' });
+            else if (['text', 'image', 'image-sequence', 'lottie'].includes(item.element.type))
+              delete (item.element as { fill?: Paint }).fill;
+            else if ('fill' in item.element) item.element.fill = '#3b3f4a';
+            const prefix = `items.${item.id}.${target.slot === 'effect' ? `effects.${target.effectId}.` : shaderParameterTarget('', target.slot)}`;
+            layer.bindings = layer.bindings.filter(
+              (binding) => !binding.targetProperty.startsWith(prefix),
+            );
+            return;
+          }
+          if (target.slot === 'effect') {
+            removeEffect(layer, target.effectId);
+            return;
+          }
           if (target.slot === 'stroke') {
             if (layer.element.type !== 'text')
               throw new Error('Shader outlines are supported only on text.');
@@ -2013,11 +3893,14 @@ export const useProjectStore = create<ProjectStore>()(
             layer.element.type === 'text' ||
             layer.element.type === 'image' ||
             layer.element.type === 'image-sequence' ||
+            layer.element.type === 'chart' ||
             layer.element.type === 'lottie'
           ) {
             delete layer.element.fill;
-          } else {
+          } else if ('fill' in layer.element) {
             layer.element.fill = '#3b3f4a';
+          } else {
+            throw new Error('The selected object cannot use a shader paint.');
           }
           const prefix = shaderParameterTarget('', target.slot);
           for (const tracks of [layer.animationTracks, layer.loop?.tracks]) {
@@ -2054,9 +3937,8 @@ export const useProjectStore = create<ProjectStore>()(
         }),
 
       updateLayerTextStroke: (layerId, frame, patch) =>
-        set((state) => {
-          const composition = getActiveComposition(state.project, state.activeCompositionId);
-          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+        designerEdit(layerId, Object.keys(patch), (_state, composition, layers) => {
+          const layer = layers[0]!;
           if (!layer || layer.isLocked || layer.element.type !== 'text') return;
           if (patch.strokeColor !== undefined) {
             layer.element.strokeColor = patch.strokeColor;
@@ -2073,25 +3955,20 @@ export const useProjectStore = create<ProjectStore>()(
           if (patch.strokeWidth === undefined) return;
           const numeric = Number(patch.strokeWidth);
           const strokeWidth = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
-          if (!useTimelineStore.getState().autoKeyframe) {
-            const before = getLayerPropertyValueAtFrame(layer, 'strokeWidth', frame);
-            offsetExistingPropertyKeys(layer, 'strokeWidth', strokeWidth - before);
-            layer.element.strokeWidth = strokeWidth;
-            return;
-          }
-          layer.element.strokeWidth = strokeWidth;
+          const before = getLayerPropertyValueAtFrame(layer, 'strokeWidth', frame);
           const roundedFrame = Math.max(
             0,
             Math.min(getTotalFrames(composition), Math.round(frame)),
           );
-          const keyframe = upsertPropertyKeyframe(layer, 'strokeWidth', roundedFrame, strokeWidth);
-          syncAggregateKeyframe(layer, roundedFrame, keyframe.easing);
+          if (!keyPropertyEdit(layer, 'strokeWidth', roundedFrame, strokeWidth, before)) {
+            offsetExistingPropertyKeys(layer, 'strokeWidth', strokeWidth - before);
+          }
+          layer.element.strokeWidth = strokeWidth;
         }),
 
       updateLayerPaint: (layerId, frame, paint) =>
-        set((state) => {
-          const composition = getActiveComposition(state.project, state.activeCompositionId);
-          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+        designerEdit(layerId, ['fill', 'color'], (state, composition, layers) => {
+          const layer = layers[0]!;
           if (
             !layer ||
             layer.isLocked ||
@@ -2102,31 +3979,48 @@ export const useProjectStore = create<ProjectStore>()(
               layer.element.type !== 'text' &&
               layer.element.type !== 'image' &&
               layer.element.type !== 'image-sequence' &&
+              layer.element.type !== 'chart' &&
               layer.element.type !== 'lottie')
           ) {
             return;
           }
           const element = layer.element;
+          if (isMediaPaint(paint)) {
+            state.project.supportsRealTime = true;
+            state.project.supportsNonRealTime = false;
+          }
           if (
             element.type === 'image' ||
             element.type === 'image-sequence' ||
             element.type === 'lottie'
           ) {
-            if (paint !== undefined && !isShaderPaint(paint))
-              throw new Error('Media fill must be a shader or original pixels.');
+            if (paint !== undefined && !isShaderPaint(paint) && !isMediaPaint(paint))
+              throw new Error('Media fill must be a shader, media paint, or original pixels.');
             if (isShaderPaint(paint)) {
               const inspection = inspectShaderElement(paint);
               if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
               element.fill = paint;
-            } else delete element.fill;
+            } else if (isMediaPaint(paint)) element.fill = normalizeMediaPaint(paint);
+            else delete element.fill;
             syncShaderParameterFields(composition, layer);
             return;
+          }
+          if (element.type === 'chart') {
+            // Editing the standard Fill replaces the legacy presentation-only gradient.
+            if (element.presentation) delete element.presentation.gradient;
+            if (paint === undefined) {
+              delete element.fill;
+              syncShaderParameterFields(composition, layer);
+              pruneInvalidGradientStopTracks(layer);
+              return;
+            }
           }
           if (paint === undefined) return;
           if (isShaderPaint(paint)) {
             const inspection = inspectShaderElement(paint);
             if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
           }
+          if (isMediaPaint(paint)) paint = normalizeMediaPaint(paint);
           if (element.type === 'text') {
             if (typeof paint === 'string') {
               element.color = paint;
@@ -2140,50 +4034,29 @@ export const useProjectStore = create<ProjectStore>()(
             0,
             Math.min(getTotalFrames(composition), Math.round(frame)),
           );
-          const previous = element.fill;
+          const previous = element.fill ?? paint;
           const previousEvaluated = getPaintAtFrame(
             previous,
             getResolvedLayerAnimationTracks(layer),
             roundedFrame,
           );
-          if (!useTimelineStore.getState().autoKeyframe) {
-            if (isGradientPaint(paint) && isGradientPaint(previousEvaluated)) {
-              paint.stops.forEach((stop, index) => {
-                const before = previousEvaluated.stops[index]?.offset;
-                if (before !== undefined)
-                  offsetExistingPropertyKeys(
-                    layer,
-                    `fill.stops[${index}].offset`,
-                    stop.offset - before,
-                  );
-              });
-            }
-            element.fill = paint;
-            syncShaderParameterFields(composition, layer);
-            pruneInvalidGradientStopTracks(layer);
-            return;
-          }
-          materializeAnimationTracks(layer);
-          if (isGradientPaint(paint) && isGradientPaint(previous)) {
+          if (
+            isGradientPaint(paint) &&
+            isGradientPaint(previous) &&
+            isGradientPaint(previousEvaluated)
+          ) {
             element.fill = {
               ...paint,
-              stops: paint.stops.map((stop, index) => ({
-                ...stop,
-                offset: previous.stops[index]?.offset ?? stop.offset,
-              })),
+              stops: paint.stops.map((stop, index) => {
+                const before = previousEvaluated.stops[index]?.offset;
+                if (before === undefined || Math.abs(stop.offset - before) < 1e-9) return stop;
+                const property = `fill.stops[${index}].offset` as const;
+                if (keyPropertyEdit(layer, property, roundedFrame, stop.offset, before))
+                  return { ...stop, offset: previous.stops[index]?.offset ?? stop.offset };
+                offsetExistingPropertyKeys(layer, property, stop.offset - before);
+                return stop;
+              }),
             };
-            if (isGradientPaint(previousEvaluated)) {
-              paint.stops.forEach((stop, index) => {
-                if (previousEvaluated.stops[index]?.offset === stop.offset) return;
-                const keyframe = upsertPropertyKeyframe(
-                  layer,
-                  `fill.stops[${index}].offset`,
-                  roundedFrame,
-                  stop.offset,
-                );
-                syncAggregateKeyframe(layer, roundedFrame, keyframe.easing);
-              });
-            }
           } else {
             element.fill = paint;
           }
@@ -2191,51 +4064,27 @@ export const useProjectStore = create<ProjectStore>()(
           pruneInvalidGradientStopTracks(layer);
         }),
 
-      addLayerEffect: (layerId, type) =>
+      addLayerEffect: (layerId, type, patch) =>
         set((state) => {
           const layer = getActiveComposition(state.project, state.activeCompositionId).layers.find(
             (l) => l.id === layerId,
           );
-          if (layer && !layer.isLocked) addEffect(layer, type);
+          if (layer && !layer.isLocked) addEffect(layer, type, patch);
         }),
       updateLayerEffect: (layerId, effectId, patch, frame) =>
-        set((state) => {
-          const composition = getActiveComposition(state.project, state.activeCompositionId),
-            layer = composition.layers.find((l) => l.id === layerId);
-          if (!layer || layer.isLocked) return;
-          if (!useTimelineStore.getState().autoKeyframe) {
-            const existingEffect = getEffectStack(layer.effects).find(
-              (effect) => effect.id === effectId,
-            );
-            if (!existingEffect) throw new Error(`Effect not found: ${effectId}`);
-            const before = Object.fromEntries(
-              Object.entries(patch.params ?? {}).flatMap(([param, value]) => {
-                if (typeof value !== 'number') return [];
-                const property = effectProperty(existingEffect, param) as AnimatableLayerProperty;
-                return [[param, getLayerPropertyValueAtFrame(layer, property, frame)]];
-              }),
-            );
-            const effect = updateEffect(layer, effectId, patch);
-            for (const [param, value] of Object.entries(effectParams(effect, layer.effects)))
-              if (typeof value === 'number' && before[param] !== undefined)
-                offsetExistingPropertyKeys(
-                  layer,
-                  effectProperty(effect, param) as AnimatableLayerProperty,
-                  value - before[param]!,
-                );
-            return;
-          }
-          const effect = updateEffect(layer, effectId, patch),
-            boundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
-          for (const [param, value] of Object.entries(patch.params ?? {}))
-            if (typeof value === 'number')
-              upsertPropertyKeyframe(
-                layer,
-                effectProperty(effect, param) as AnimatableLayerProperty,
-                boundedFrame,
-                value,
-              );
-        }),
+        designerEdit(
+          layerId,
+          (layer) => {
+            const effect = getEffectStack(layer.effects).find((entry) => entry.id === effectId);
+            return effect
+              ? Object.keys(patch.params ?? {}).map((name) => effectProperty(effect, name))
+              : [];
+          },
+          (_state, composition, layers) => {
+            const layer = layers[0]!;
+            updateEffectAtFrame(composition, layer, effectId, patch, frame);
+          },
+        ),
       removeLayerEffect: (layerId, effectId) =>
         set((state) => {
           const layer = getActiveComposition(state.project, state.activeCompositionId).layers.find(
@@ -2257,10 +4106,105 @@ export const useProjectStore = create<ProjectStore>()(
           );
           if (layer && !layer.isLocked) reorderEffects(layer, effectIds);
         }),
-      updateLayerEffects: (layerId, frame, patch) =>
+      addGroupEffect: (layerIds, type, patch) => {
+        const effectId = createId('fx');
         set((state) => {
-          const composition = getActiveComposition(state.project, state.activeCompositionId);
-          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          const composition = getActiveComposition(state.project, state.activeCompositionId),
+            wanted = new Set(layerIds),
+            layers = composition.layers.filter((layer) => wanted.has(layer.id));
+          if (layers.length !== wanted.size || layers.some((layer) => layer.isLocked)) return;
+          for (const layer of layers) addEffect(layer, type, patch, undefined, effectId);
+        });
+      },
+      updateGroupEffect: (layerIds, effectId, patch, frame) =>
+        designerEdit(
+          layerIds,
+          (layer) => {
+            const effect = getEffectStack(layer.effects).find((entry) => entry.id === effectId);
+            return effect
+              ? Object.keys(patch.params ?? {}).map((name) => effectProperty(effect, name))
+              : [];
+          },
+          (_state, composition, layers) => {
+            const wanted = new Set(layerIds);
+            if (
+              layers.length !== wanted.size ||
+              layers.some(
+                (layer) =>
+                  layer.isLocked ||
+                  !getEffectStack(layer.effects).some((effect) => effect.id === effectId),
+              )
+            )
+              return false;
+            for (const layer of layers)
+              updateEffectAtFrame(composition, layer, effectId, patch, frame);
+          },
+        ),
+      removeGroupEffect: (layerIds, effectId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId),
+            wanted = new Set(layerIds),
+            layers = composition.layers.filter((layer) => wanted.has(layer.id));
+          if (
+            layers.length !== wanted.size ||
+            layers.some(
+              (layer) =>
+                layer.isLocked ||
+                !getEffectStack(layer.effects).some((effect) => effect.id === effectId),
+            )
+          )
+            return;
+          for (const layer of layers) removeEffect(layer, effectId);
+        }),
+      duplicateGroupEffect: (layerIds, effectId) => {
+        const duplicateId = createId('fx');
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId),
+            wanted = new Set(layerIds),
+            layers = composition.layers.filter((layer) => wanted.has(layer.id));
+          if (
+            layers.length !== wanted.size ||
+            layers.some(
+              (layer) =>
+                layer.isLocked ||
+                !getEffectStack(layer.effects).some((effect) => effect.id === effectId),
+            )
+          )
+            return;
+          for (const layer of layers) duplicateEffect(layer, effectId, duplicateId);
+        });
+      },
+      reorderGroupEffects: (layerIds, effectIds) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId),
+            wanted = new Set(layerIds),
+            shared = new Set(effectIds),
+            layers = composition.layers.filter((layer) => wanted.has(layer.id));
+          if (
+            layers.length !== wanted.size ||
+            layers.some(
+              (layer) =>
+                layer.isLocked ||
+                effectIds.some(
+                  (effectId) =>
+                    !getEffectStack(layer.effects).some((effect) => effect.id === effectId),
+                ),
+            )
+          )
+            return;
+          for (const layer of layers) {
+            const stack = getEffectStack(layer.effects),
+              queue = effectIds.map((id) => stack.find((effect) => effect.id === id)!),
+              reordered = stack.map((effect) => (shared.has(effect.id) ? queue.shift()! : effect));
+            reorderEffects(
+              layer,
+              reordered.map((effect) => effect.id),
+            );
+          }
+        }),
+      updateLayerEffects: (layerId, frame, patch) =>
+        designerEdit(layerId, Object.keys(patch), (_state, composition, layers) => {
+          const layer = layers[0]!;
           if (!layer || layer.isLocked) return;
           const roundedFrame = Math.max(
             0,
@@ -2270,30 +4214,14 @@ export const useProjectStore = create<ProjectStore>()(
             normalizeLayerEffects({ ...layer.effects, ...patch }),
             patch,
           );
-          if (!useTimelineStore.getState().autoKeyframe) {
-            for (const property of EFFECT_ANIMATION_PROPERTIES)
-              if (patch[property] !== undefined)
-                offsetExistingPropertyKeys(
-                  layer,
-                  property,
-                  normalized[property] -
-                    getLayerPropertyValueAtFrame(layer, property, roundedFrame),
-                );
-            layer.effects = normalized;
-            return;
-          }
-          layer.effects = normalized;
           for (const property of EFFECT_ANIMATION_PROPERTIES) {
             if (patch[property] !== undefined) {
-              const keyframe = upsertPropertyKeyframe(
-                layer,
-                property,
-                roundedFrame,
-                normalized[property],
-              );
-              syncAggregateKeyframe(layer, roundedFrame, keyframe.easing);
+              const before = getLayerPropertyValueAtFrame(layer, property, roundedFrame);
+              if (!keyPropertyEdit(layer, property, roundedFrame, normalized[property], before))
+                offsetExistingPropertyKeys(layer, property, normalized[property] - before);
             }
           }
+          layer.effects = normalized;
         }),
 
       renameLayer: (layerId, name) =>
@@ -2314,7 +4242,10 @@ export const useProjectStore = create<ProjectStore>()(
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((l) => l.id === layerId);
-          if (layer) layer.isGuide = !layer.isGuide;
+          if (layer) {
+            layer.isGuide = !layer.isGuide;
+            if (layer.isGuide) pruneVisualRuleReferences(composition);
+          }
         }),
 
       setLayerBlendMode: (layerId, blendMode) =>
@@ -2337,9 +4268,10 @@ export const useProjectStore = create<ProjectStore>()(
         const groupId = createId('group');
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
-          for (const layer of composition.layers) {
-            if (unique.includes(layer.id)) layer.groupId = groupId;
-          }
+          applyModifierSafeGroupChanges(
+            composition.layers,
+            new Map(unique.map((id) => [id, groupId])),
+          );
         });
         return groupId;
       },
@@ -2360,9 +4292,14 @@ export const useProjectStore = create<ProjectStore>()(
               .map((layer) => layer.groupId)
               .filter((groupId): groupId is string => Boolean(groupId)),
           );
-          for (const layer of composition.layers) {
-            if (layer.groupId && groupIds.has(layer.groupId)) layer.groupId = null;
-          }
+          applyModifierSafeGroupChanges(
+            composition.layers,
+            new Map(
+              composition.layers
+                .filter((layer) => layer.groupId && groupIds.has(layer.groupId))
+                .map((layer) => [layer.id, null]),
+            ),
+          );
         }),
 
       createComponent: (layerIds, name) => {
@@ -2376,6 +4313,7 @@ export const useProjectStore = create<ProjectStore>()(
             layerIds,
             name ?? `Component ${composition.components.length + 1}`,
           );
+          definition.scope = useProjectSetStore.getState().projectSet ? 'set' : 'local';
         } catch {
           return null;
         }
@@ -2383,22 +4321,29 @@ export const useProjectStore = create<ProjectStore>()(
           getActiveComposition(state.project, state.activeCompositionId).components.push(
             definition,
           );
+          linkExistingComponentLayers(
+            getActiveComposition(state.project, state.activeCompositionId),
+            definition,
+            layerIds,
+          );
         });
         return definition.id;
       },
 
-      instantiateComponent: (componentId, offset = { x: 40, y: 40 }, linked = false) => {
+      instantiateComponent: (componentId, offset = { x: 40, y: 40 }, linked = true) => {
         const snapshot = useProjectStore.getState();
         const composition = getActiveComposition(snapshot.project, snapshot.activeCompositionId);
         const definition = composition.components.find((candidate) => candidate.id === componentId);
         if (!definition) return [];
-        const instance = instantiateComponentDefinition(composition, definition, offset, linked);
+        let layerIds: string[] = [];
         set((state) => {
           const target = getActiveComposition(state.project, state.activeCompositionId);
+          const instance = instantiateComponentDefinition(target, definition, offset, linked);
           target.dataFields.push(...instance.dataFields);
           target.layers.push(...instance.layers);
+          layerIds = instance.layers.map((layer) => layer.id);
         });
-        return instance.layers.map((layer) => layer.id);
+        return layerIds;
       },
 
       updateComponentFromLayers: (componentId, layerIds) => {
@@ -2407,20 +4352,125 @@ export const useProjectStore = create<ProjectStore>()(
         const index = composition.components.findIndex((candidate) => candidate.id === componentId);
         const existing = composition.components[index];
         if (!existing || layerIds.length === 0) return false;
-        let replacement: ComponentDefinition;
-        try {
-          replacement = buildComponentDefinition(composition, layerIds, existing.name, existing.id);
-        } catch {
-          return false;
-        }
         set((state) => {
           const target = getActiveComposition(state.project, state.activeCompositionId);
-          const targetIndex = target.components.findIndex(
-            (candidate) => candidate.id === componentId,
-          );
-          if (targetIndex >= 0) target.components[targetIndex] = replacement;
+          updateComponentDefinitionFromLayers(target, componentId, layerIds);
         });
         return true;
+      },
+
+      updateComponentLayer: (componentId, sourceLayerId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const definition = composition.components.find((item) => item.id === componentId);
+          const layer = definition?.layers.find((item) => item.id === sourceLayerId);
+          if (!definition || !layer) throw new Error('The component source no longer exists.');
+          const before = {
+            element: structuredClone(
+              isDraft(layer.element) ? current(layer.element) : layer.element,
+            ),
+            effects: structuredClone(
+              isDraft(layer.effects) ? current(layer.effects) : layer.effects,
+            ),
+          };
+          const { element, effects, ...rest } = patch;
+          Object.assign(layer, structuredClone(rest));
+          if (element) {
+            if (element.type !== layer.element.type)
+              throw new Error('A component source edit must retain the element type.');
+            layer.element = structuredClone(element);
+          }
+          if (effects) layer.effects = normalizeLayerEffects({ ...layer.effects, ...effects });
+          const properties = [
+            ...[...new Set([...Object.keys(before.element), ...Object.keys(layer.element)])].filter(
+              (key) =>
+                JSON.stringify((before.element as unknown as Record<string, unknown>)[key]) !==
+                JSON.stringify((layer.element as unknown as Record<string, unknown>)[key]),
+            ),
+            ...Object.keys(effects ?? {}).filter(
+              (key) =>
+                JSON.stringify((before.effects as unknown as Record<string, unknown>)[key]) !==
+                JSON.stringify((layer.effects as unknown as Record<string, unknown>)[key]),
+            ),
+          ];
+          if (effects) {
+            const previousEffects = new Map(
+              getEffectStack(before.effects).map((effect) => [effect.id, effect]),
+            );
+            for (const effect of getEffectStack(layer.effects)) {
+              const previous = previousEffects.get(effect.id);
+              const previousParams = previous ? effectParams(previous, before.effects) : {};
+              for (const [parameter, value] of Object.entries(effectParams(effect, layer.effects)))
+                if (JSON.stringify(previousParams[parameter]) !== JSON.stringify(value))
+                  properties.push(`effects.${effect.id}.${parameter}`);
+            }
+          }
+          const sourceContext = {
+            ...composition,
+            layers: definition.layers,
+            dataFields: definition.dataFields,
+          };
+          syncShaderParameterFields(sourceContext, layer);
+          syncDesignerBindingDefaults(sourceContext, layer, before, properties);
+          definition.dataFields = sourceContext.dataFields;
+          refreshComponentDependencies(composition, definition);
+        }),
+
+      bindComponentClockValue: (componentId, sourceLayerId, fieldId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const definition = composition.components.find((item) => item.id === componentId);
+          const source = definition?.layers.find((item) => item.id === sourceLayerId);
+          if (!definition || !source || source.element.type !== 'text' || !source.element.clock)
+            throw new Error('Clock component source not found.');
+          if (fieldId === undefined) {
+            const created = createPlayoutBinding(source, definition.dataFields);
+            if (!created) return;
+            definition.dataFields.push(created.field);
+            fieldId = created.field.id;
+          } else if (fieldId && !definition.dataFields.some((field) => field.id === fieldId)) {
+            throw new Error('The selected component field no longer exists.');
+          }
+          source.bindings = source.bindings.filter(
+            (binding) => binding.targetProperty !== 'clock.manualValue',
+          );
+          if (fieldId) source.bindings.push({ fieldId, targetProperty: 'clock.manualValue' });
+          refreshComponentDependencies(composition, definition);
+        }),
+
+      updateComponentField: (componentId, sourceFieldId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const definition = composition.components.find((item) => item.id === componentId);
+          const field = definition?.dataFields.find((item) => item.id === sourceFieldId);
+          if (!definition || !field) throw new Error('The component parameter no longer exists.');
+          if (patch.id !== undefined && patch.id !== field.id)
+            throw new Error('A component parameter edit cannot change its identity.');
+          if (patch.key !== undefined) {
+            const key = patch.key.trim();
+            if (
+              !key ||
+              definition.dataFields.some((item) => item.id !== field.id && item.key === key)
+            )
+              throw new Error('Use a unique, nonempty component parameter key.');
+          }
+          Object.assign(field, structuredClone(patch));
+          refreshComponentDependencies(composition, definition);
+        }),
+
+      resetComponentOverrides: (layerIds, paths) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          resetComponentInstanceOverrides(composition, layerIds, paths);
+        }),
+
+      makeComponentInstanceUnique: (instanceId) => {
+        let componentId: string | null = null;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          componentId = makeUniqueComponentInstance(composition, instanceId).id;
+        });
+        return componentId;
       },
 
       refreshLinkedComponentInstances: (componentId) => {
@@ -2458,9 +4508,30 @@ export const useProjectStore = create<ProjectStore>()(
       removeComponent: (componentId) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
-          composition.components = composition.components.filter(
-            (candidate) => candidate.id !== componentId,
+          const session = useProjectSetStore.getState();
+          const set = session.projectSet;
+          const definition = composition.components.find(
+            (candidate) => candidate.id === componentId,
           );
+          if (
+            composition.layers.some((layer) => layer.componentLink?.componentId === componentId) ||
+            (definition?.scope === 'set' &&
+              set?.templates.some((template) =>
+                (template.id === session.activeTemplateId
+                  ? state.project
+                  : template.project
+                ).compositions.some((scope) =>
+                  scope.layers.some((layer) => layer.componentLink?.componentId === componentId),
+                ),
+              ))
+          )
+            throw new Error(
+              'Remove the component instances or make them unique before deleting their source.',
+            );
+          for (const scope of definition?.scope === 'set'
+            ? state.project.compositions
+            : [composition])
+            scope.components = scope.components.filter((candidate) => candidate.id !== componentId);
         }),
 
       createTimelineFolder: (layerIds) => {
@@ -2521,7 +4592,7 @@ export const useProjectStore = create<ProjectStore>()(
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
-          if (!layer || parentId === layerId) return;
+          if (!layer || layer.isLocked || parentId === layerId) return;
           if (parentId && !composition.layers.some((candidate) => candidate.id === parentId))
             return;
           if (
@@ -2530,13 +4601,30 @@ export const useProjectStore = create<ProjectStore>()(
           )
             return;
           layer.parentId = parentId;
-        }),
+          const errors = layerModifiersErrors(composition.layers, composition.dataFields);
+          if (errors.length) throw new Error(errors.join('\n'));
+        }, true),
 
       setLayerClipChildren: (layerId, clipChildren) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
           if (layer) layer.clipChildren = clipChildren;
+        }),
+      setLayerCrops: (crops) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layers = composition.layers.filter((layer) => Object.hasOwn(crops, layer.id));
+          if (layers.some((layer) => layer.isLocked))
+            throw new Error('Unlock the selected layers before cropping.');
+          for (const layer of layers) {
+            const crop = crops[layer.id];
+            if (crop) {
+              const errors = layerCropErrors(crop);
+              if (errors.length) throw new Error(errors.join(' '));
+              layer.crop = structuredClone(crop);
+            } else delete layer.crop;
+          }
         }),
       setLayerMask: (layerId, mask, hideSource = true) =>
         set((state) => {
@@ -2566,6 +4654,494 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((candidate) => candidate.id === layerId);
           if (layer) Object.assign(layer.constraints, constraints);
+        }),
+
+      setLayerAutoLayout: (layerId, layout) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          layer.autoLayout ??= structuredClone(DEFAULT_LAYER_AUTO_LAYOUT);
+          Object.assign(layer.autoLayout, layout);
+          layer.autoLayout.gap = Math.max(0, Math.round(layer.autoLayout.gap));
+          for (const key of [
+            'paddingTop',
+            'paddingRight',
+            'paddingBottom',
+            'paddingLeft',
+          ] as const) {
+            layer.autoLayout[key] = Math.max(0, Math.round(layer.autoLayout[key]));
+          }
+          layer.autoLayout.minWidth = Math.max(0, Math.round(layer.autoLayout.minWidth));
+          layer.autoLayout.maxWidth = Math.max(0, Math.round(layer.autoLayout.maxWidth));
+          const errors = layerModifiersErrors(composition.layers, composition.dataFields);
+          if (errors.length) throw new Error(errors.join('\n'));
+        }, true),
+
+      setLayerUpdateTransition: (layerId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          layer.updateTransition ??= { style: 'inherit', durationFrames: 0, distance: 24 };
+          Object.assign(layer.updateTransition, patch);
+          layer.updateTransition.durationFrames = Math.max(
+            0,
+            Math.round(layer.updateTransition.durationFrames),
+          );
+          layer.updateTransition.distance = Math.max(0, layer.updateTransition.distance);
+        }),
+
+      setLayerMotionBlur: (layerId, value) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((item) => item.id === layerId);
+          if (!layer || layer.isLocked) return;
+          if (
+            !Number.isFinite(value.shutterAngle) ||
+            value.shutterAngle < 0 ||
+            value.shutterAngle > 360
+          )
+            throw new Error('Shutter angle must be between 0 and 360 degrees.');
+          layer.motionBlur = { enabled: !!value.enabled, shutterAngle: value.shutterAngle };
+        }),
+
+      setLayerMotionPath: (layerId, link) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked || link?.sourceLayerId === layerId) return;
+          if (
+            link &&
+            !composition.layers.some(
+              (candidate) =>
+                candidate.id === link.sourceLayerId && candidate.element.type === 'path',
+            )
+          )
+            return;
+          if (
+            link &&
+            (!Number.isFinite(link.progress) ||
+              link.progress < 0 ||
+              link.progress > 1 ||
+              typeof link.orientToPath !== 'boolean' ||
+              !Number.isFinite(link.offsetX) ||
+              !Number.isFinite(link.offsetY) ||
+              (link.rotationOffset !== undefined &&
+                (!Number.isFinite(link.rotationOffset) || Math.abs(link.rotationOffset) > 360)))
+          )
+            throw new Error('Enter valid Spline Path progress, offsets and orientation settings.');
+          layer.motionPath = link ? structuredClone(link) : null;
+          const errors = layerModifiersErrors(composition.layers, composition.dataFields);
+          if (errors.length) throw new Error(errors.join('\n'));
+        }, true),
+
+      setLayerTextPath: (layerId, link) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          if (link) {
+            const errors = textPathReferenceErrors(layer, link, composition.layers);
+            if (layer.element.type === 'text')
+              errors.push(...textPathCompatibilityErrors(layer.element));
+            if (errors.length) throw new Error(errors.join('\n'));
+          }
+          layer.textPath = link ? structuredClone(link) : null;
+        }, true),
+
+      addClockTimerAlarm: (layerId) => {
+        let id: string | null = null;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (
+            !layer ||
+            layer.isLocked ||
+            layer.isGuide ||
+            layer.element.type !== 'text' ||
+            !layer.element.clock
+          )
+            return;
+          const rule = createLayerVisualRule({
+            name: nextVisualRuleName(composition),
+            trigger: 'timer-alarm',
+            timerAlarm: nextTimerAlarm(composition.layers, layer.id, layer.element.clock),
+            actions: [],
+          });
+          (layer.visualRules ??= []).push(rule);
+          id = rule.id;
+        });
+        return id;
+      },
+
+      addLayerVisualRule: (layerId, trigger = 'data') => {
+        let id: string | null = null;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          const alarmSource =
+            trigger === 'timer-alarm'
+              ? layer.element.type === 'text' && layer.element.clock
+                ? layer
+                : composition.layers.find(
+                    (candidate) =>
+                      !candidate.isGuide &&
+                      candidate.element.type === 'text' &&
+                      candidate.element.clock,
+                  )
+              : null;
+          if (trigger === 'timer-alarm' && !alarmSource) return;
+          const createdField = trigger === 'data' && composition.dataFields.length === 0;
+          const field =
+            trigger === 'data'
+              ? (composition.dataFields[0] ?? createRuleConditionField(composition, layer))
+              : null;
+          const rule = createLayerVisualRule({
+            name: nextVisualRuleName(composition),
+            trigger,
+            fieldId: field?.id ?? '',
+            ...(alarmSource?.element.type === 'text' && alarmSource.element.clock
+              ? {
+                  timerAlarm: nextTimerAlarm(
+                    composition.layers,
+                    alarmSource.id,
+                    alarmSource.element.clock,
+                  ),
+                  actions: [],
+                }
+              : {}),
+            ...(createdField ? { operator: 'not-empty' as const } : {}),
+          });
+          layer.visualRules ??= [];
+          layer.visualRules.push(rule);
+          id = rule.id;
+        });
+        return id;
+      },
+
+      updateLayerVisualRule: (layerId, ruleId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          const rule = layer?.visualRules?.find((candidate) => candidate.id === ruleId);
+          if (!layer || layer.isLocked || !rule) return;
+          Object.assign(rule, structuredClone(patch));
+          if (
+            rule.trigger === 'data' &&
+            !isVisualRuleMouseFieldId(rule.fieldId) &&
+            !composition.dataFields.some((field) => field.id === rule.fieldId)
+          ) {
+            const createdField = composition.dataFields.length === 0;
+            rule.fieldId = (
+              composition.dataFields[0] ?? createRuleConditionField(composition, layer)
+            ).id;
+            if (createdField) rule.operator = 'not-empty';
+          }
+        }),
+
+      retargetLayerVisualRule: (sourceLayerId, ruleId, targetLayerId, hostGroupId) => {
+        let retargeted = false;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const source = composition.layers.find((layer) => layer.id === sourceLayerId);
+          const target = composition.layers.find((layer) => layer.id === targetLayerId);
+          if (
+            !source ||
+            !target ||
+            source.isLocked ||
+            target.isLocked ||
+            source.isGuide ||
+            target.isGuide
+          )
+            return;
+          if (hostGroupId && target.groupId !== hostGroupId) return;
+          const index = (source.visualRules ?? []).findIndex((rule) => rule.id === ruleId);
+          if (index < 0) return;
+          retargeted = true;
+          // Explicit action targets remain unchanged; implicit "this object" actions follow the owner.
+          const rule = structuredClone(current(source.visualRules[index]!));
+          if (hostGroupId) rule.hostGroupId = hostGroupId;
+          else delete rule.hostGroupId;
+          if (source === target) {
+            source.visualRules[index] = rule;
+            return;
+          }
+          source.visualRules.splice(index, 1);
+          (target.visualRules ??= []).push(rule);
+        });
+        return retargeted;
+      },
+
+      moveLayerVisualRule: (layerId, ruleId, direction) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          const index = (layer.visualRules ?? []).findIndex((rule) => rule.id === ruleId);
+          const target = index + direction;
+          if (index < 0 || target < 0 || target >= layer.visualRules.length) return;
+          const [rule] = layer.visualRules.splice(index, 1);
+          layer.visualRules.splice(target, 0, rule!);
+        }),
+
+      duplicateLayerVisualRule: (layerId, ruleId) => {
+        let duplicatedId: string | null = null;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          const index = (layer.visualRules ?? []).findIndex((rule) => rule.id === ruleId);
+          const source = layer.visualRules[index];
+          if (!source) return;
+          duplicatedId = createId('visual-rule');
+          layer.visualRules.splice(index + 1, 0, {
+            ...structuredClone(current(source)),
+            id: duplicatedId,
+            name: nextVisualRuleName(composition, source.name),
+          });
+        });
+        return duplicatedId;
+      },
+
+      applyLayerAnimationPreset: (layerIds, reference, presetId, side, options) => {
+        const referenceErrors = validateRendererPluginReference(reference);
+        if (referenceErrors.length) throw new Error(referenceErrors.join(' '));
+        const entry = useRendererPluginSettingsStore
+          .getState()
+          .installed.find(
+            (item) =>
+              item.enabled &&
+              item.trusted &&
+              isAnimationPresetPluginSnapshot(item.snapshot) &&
+              rendererPluginKey(studioPluginReference(item.snapshot)) ===
+                rendererPluginKey(reference),
+          );
+        if (!entry || !isAnimationPresetPluginSnapshot(entry.snapshot))
+          throw new Error(
+            'Install, review and enable this exact animation preset pack in Plugins first.',
+          );
+        assertStudioPluginsAllowed([entry.snapshot]);
+        const snapshot = structuredClone(entry.snapshot);
+        const request = structuredClone(options);
+        const ids = new Set(typeof layerIds === 'string' ? [layerIds] : layerIds);
+        if (!ids.size)
+          throw new Error('Select an unlocked object before applying an animation preset.');
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const selected = composition.layers.filter((layer) => ids.has(layer.id));
+          if (selected.length !== ids.size)
+            throw new Error('A selected animation target no longer exists.');
+          const layers = selected.filter((layer) => !layer.isLocked);
+          if (!layers.length)
+            throw new Error('Select an unlocked object before applying an animation preset.');
+          const prepared = layers.map((layer) => structuredClone(current(layer)));
+          const scope: Composition = {
+            ...current(composition),
+            layers: prepared,
+            animationPresetPlugins: [
+              ...(composition.animationPresetPlugins
+                ? current(composition.animationPresetPlugins)
+                : []),
+            ],
+          };
+          // Every target is prepared before publishing anything, so incompatible group members,
+          // parameter/frame errors or pinning limits cannot leave a partially animated selection.
+          for (const layer of prepared)
+            applyAnimationPreset(scope, layer, snapshot, presetId, side, request);
+          layers.forEach((layer, index) => {
+            const next = prepared[index]!;
+            layer.animationTracks = next.animationTracks;
+            layer.keyframes = next.keyframes;
+            layer.animationPresets = next.animationPresets;
+            layer.motion = next.motion;
+          });
+          composition.animationPresetPlugins = scope.animationPresetPlugins;
+        });
+      },
+
+      applyChartMarkPreset: (layerId, reference, presetId, side, options) => {
+        const referenceErrors = validateRendererPluginReference(reference);
+        if (referenceErrors.length) throw new Error(referenceErrors.join(' '));
+        const key = rendererPluginKey(reference);
+        const installed = useRendererPluginSettingsStore
+          .getState()
+          .installed.find(
+            (entry) =>
+              entry.enabled &&
+              entry.trusted &&
+              isAnimationPresetPluginSnapshot(entry.snapshot) &&
+              rendererPluginKey(studioPluginReference(entry.snapshot)) === key,
+          );
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((entry) => entry.id === layerId);
+          if (!layer || layer.element.type !== 'chart' || layer.isLocked)
+            throw new Error('Select an unlocked chart before applying a mark animation.');
+          const retained = composition.animationPresetPlugins?.find(
+            (snapshot) => rendererPluginKey(studioPluginReference(snapshot)) === key,
+          );
+          const snapshot = installed?.snapshot ?? (retained ? current(retained) : undefined);
+          if (!snapshot || !isAnimationPresetPluginSnapshot(snapshot))
+            throw new Error(
+              'Install and enable the exact animation pack, or use one retained in this template.',
+            );
+          const prepared = structuredClone(current(layer));
+          const scope: Composition = {
+            ...current(composition),
+            layers: [prepared],
+            animationPresetPlugins: structuredClone(
+              composition.animationPresetPlugins ? current(composition.animationPresetPlugins) : [],
+            ),
+          };
+          applyChartMarkAnimationPreset(
+            scope,
+            prepared,
+            snapshot,
+            presetId,
+            side,
+            structuredClone(options),
+          );
+          if (prepared.element.type !== 'chart') throw new Error('Chart target changed.');
+          const provider = composition.rendererPlugins?.find(
+            (entry) =>
+              prepared.element.type === 'chart' &&
+              prepared.element.provider &&
+              rendererPluginKey({ ...entry.manifest, sha256: entry.sha256 }) ===
+                rendererPluginKey(prepared.element.provider),
+          );
+          if (!provider)
+            throw new Error('Choose a chart renderer supporting mark animations first.');
+          const errors = chartRendererFeatureErrors(prepared.element, provider.manifest);
+          if (errors.length) throw new Error(errors.join(' '));
+          layer.element = prepared.element;
+          composition.animationPresetPlugins = scope.animationPresetPlugins;
+        });
+      },
+
+      clearChartMarkPreset: (layerId, side) =>
+        set((state) => {
+          if (side !== 'in' && side !== 'out')
+            throw new Error('Mark animation side must be In or Out.');
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((entry) => entry.id === layerId);
+          if (!layer || layer.element.type !== 'chart' || layer.isLocked)
+            throw new Error('Select an unlocked chart before clearing its mark animation.');
+          if (!layer.element.markAnimations) return;
+          delete layer.element.markAnimations[side];
+          if (!layer.element.markAnimations.in && !layer.element.markAnimations.out)
+            delete layer.element.markAnimations;
+        }),
+
+      setLayerMotion: (layerIds, side, spec, stagger) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const ids = new Set(Array.isArray(layerIds) ? layerIds : [layerIds]);
+          const layers = composition.layers.filter((layer) => ids.has(layer.id) && !layer.isLocked);
+          const offsets =
+            spec && stagger ? layerMotionStaggerOffsets(composition, layers, side, stagger) : null;
+          // A stagger needs room in the span: shorten the motion rather than collapse the cascade.
+          const windows = layerMotionWindows(composition);
+          const available = windows ? (side === 'in' ? windows.inFrames : windows.outFrames) : 0;
+          const spread = Math.max(0, ...(offsets?.values() ?? []));
+          const durationFrames =
+            spec && offsets
+              ? Math.max(1, Math.min(spec.durationFrames, available - spread))
+              : spec?.durationFrames;
+          for (const layer of layers)
+            applyLayerMotion(
+              composition,
+              layer,
+              side,
+              spec && offsets
+                ? {
+                    ...spec,
+                    durationFrames: durationFrames!,
+                    offsetFrames: offsets.get(layer.id) ?? 0,
+                  }
+                : spec,
+            );
+        }),
+
+      replaceLayerVisualRule: (layerId, ruleId, next) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          const index = layer?.visualRules?.findIndex((candidate) => candidate.id === ruleId) ?? -1;
+          if (!layer || layer.isLocked || index < 0) return;
+          const rule = { ...structuredClone(next), id: ruleId };
+          if (
+            (rule.trigger ?? 'data') === 'data' &&
+            !isVisualRuleMouseFieldId(rule.fieldId) &&
+            !composition.dataFields.some((field) => field.id === rule.fieldId)
+          ) {
+            const createdField = composition.dataFields.length === 0;
+            rule.fieldId = (
+              composition.dataFields[0] ?? createRuleConditionField(composition, layer)
+            ).id;
+            if (createdField) rule.operator = 'not-empty';
+          }
+          layer.visualRules[index] = rule;
+        }),
+
+      removeLayerVisualRule: (layerId, ruleId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          layer.visualRules = (layer.visualRules ?? []).filter((rule) => rule.id !== ruleId);
+        }),
+
+      addDataConnection: () => {
+        const id = createId('data-connection');
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          composition.dataConnections ??= [];
+          if (composition.dataConnections.length >= MAX_DATA_CONNECTIONS)
+            throw new Error(
+              `A composition supports at most ${MAX_DATA_CONNECTIONS} data connections.`,
+            );
+          composition.dataConnections.push(
+            normalizeDataConnection({
+              id,
+              name: `Data connection ${composition.dataConnections.length + 1}`,
+              format: 'json',
+              source: 'url',
+              url: '',
+              embeddedText: '',
+              refreshMs: 0,
+              missing: 'default',
+              enabled: true,
+              mappings: composition.dataFields.map((field) => ({
+                fieldId: field.id,
+                sourcePath: field.key,
+              })),
+            }),
+          );
+        });
+        return id;
+      },
+
+      updateDataConnection: (connectionId, patch) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const connection = (composition.dataConnections ?? []).find(
+            (candidate) => candidate.id === connectionId,
+          );
+          if (!connection) return;
+          Object.assign(connection, structuredClone(patch));
+          connection.refreshMs = Number.isFinite(connection.refreshMs)
+            ? Math.min(86400000, Math.max(0, Math.round(connection.refreshMs)))
+            : 0;
+        }),
+
+      removeDataConnection: (connectionId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          composition.dataConnections = (composition.dataConnections ?? []).filter(
+            (connection) => connection.id !== connectionId,
+          );
         }),
 
       setLayerSemantics: (layerId, patch) =>
@@ -2632,7 +5208,7 @@ export const useProjectStore = create<ProjectStore>()(
         return tokenId;
       },
 
-      updateDesignToken: (tokenId, patch) =>
+      updateDesignToken: (tokenId, patch) => {
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const token = composition.designSystem.tokens.find(
@@ -2646,10 +5222,50 @@ export const useProjectStore = create<ProjectStore>()(
           next.value = normalizeDesignTokenValue(next.type, next.value);
           Object.assign(token, next);
           syncDesignToken(composition, token.id);
-        }),
+          if (
+            useProjectSetStore
+              .getState()
+              .projectSet?.brandKit?.tokens.some((item) => item.id === tokenId)
+          ) {
+            for (const other of state.project.compositions) {
+              if (other.id === composition.id) continue;
+              const linked = other.designSystem.tokens.find((item) => item.id === tokenId);
+              if (linked) {
+                linked.value = next.value;
+                syncDesignToken(other, tokenId);
+              }
+            }
+          }
+        });
+        const session = useProjectSetStore.getState();
+        if (
+          patch.value !== undefined &&
+          session.projectSet?.brandKit?.tokens.some((item) => item.id === tokenId)
+        ) {
+          session.setProjectSet({
+            ...session.projectSet,
+            templates: session.projectSet.templates.map((template) =>
+              template.id === session.activeTemplateId
+                ? {
+                    ...template,
+                    brandKitOverrides: [
+                      ...new Set([...(template.brandKitOverrides ?? []), tokenId]),
+                    ],
+                  }
+                : template,
+            ),
+          });
+        }
+      },
 
       removeDesignToken: (tokenId) =>
         set((state) => {
+          if (
+            useProjectSetStore
+              .getState()
+              .projectSet?.brandKit?.tokens.some((token) => token.id === tokenId)
+          )
+            return;
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           if (
             stylePackColorUsesToken(composition, tokenId) ||
@@ -2673,6 +5289,7 @@ export const useProjectStore = create<ProjectStore>()(
           );
           if (!layer || !token || layer.isLocked) return;
           const binding = { tokenId, targetProperty };
+          markTypographyOverrides(layer, [targetProperty]);
           applyDesignTokenBinding(layer, binding, token);
           layer.designTokenBindings = [
             ...layer.designTokenBindings.filter(
@@ -2702,9 +5319,7 @@ export const useProjectStore = create<ProjectStore>()(
           for (const [layerId, patch] of alignedPatches(items, mode)) {
             const layer = composition.layers.find((candidate) => candidate.id === layerId);
             if (layer) {
-              if (useTimelineStore.getState().autoKeyframe)
-                writeLayerTransformAtFrame(composition, layer, frame, patch);
-              else writeUiLayerTransform(composition, layer, frame, patch);
+              writeUiLayerTransform(composition, layer, frame, patch);
             }
           }
         }),
@@ -2718,9 +5333,7 @@ export const useProjectStore = create<ProjectStore>()(
           for (const [layerId, patch] of distributedPatches(items, mode)) {
             const layer = composition.layers.find((candidate) => candidate.id === layerId);
             if (layer) {
-              if (useTimelineStore.getState().autoKeyframe)
-                writeLayerTransformAtFrame(composition, layer, frame, patch);
-              else writeUiLayerTransform(composition, layer, frame, patch);
+              writeUiLayerTransform(composition, layer, frame, patch);
             }
           }
         }),
@@ -2803,6 +5416,7 @@ export const useProjectStore = create<ProjectStore>()(
           composition.transitions = composition.transitions.filter(
             (t) => t.fromKeyframeId !== keyframeId && t.toKeyframeId !== keyframeId,
           );
+          pruneVisualRuleReferences(composition);
           if (previousKeyframe && nextKeyframe) {
             composition.transitions.push(
               createTransition(previousKeyframe.id, nextKeyframe.id, {
@@ -2853,6 +5467,15 @@ export const useProjectStore = create<ProjectStore>()(
         return result;
       },
 
+      retimeAnimationPhase: (phase, targetFrames) => {
+        let result!: AnimationRetimeResult;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          result = retimeAnimationPhaseModel(composition, phase, targetFrames);
+        });
+        return result;
+      },
+
       addDataField: (type) => {
         let newField!: ReturnType<typeof createFieldDefinition>;
         set((state) => {
@@ -2867,20 +5490,45 @@ export const useProjectStore = create<ProjectStore>()(
         return newField.id;
       },
 
+      setLogicFunctions: (functions, compositionId) =>
+        set((state) => {
+          const composition = compositionId
+            ? state.project.compositions.find((candidate) => candidate.id === compositionId)
+            : getActiveComposition(state.project, state.activeCompositionId);
+          if (!composition) throw new Error('Composition not found.');
+          const errors = validateLogicFunctionDefinitions(functions, composition);
+          if (errors.length) throw new Error(errors.join('\n'));
+          if (functions.length) composition.functions = structuredClone(functions);
+          else delete composition.functions;
+          enforceMediaRuntimeProfile(state.project);
+        }),
+
       removeDataField: (fieldId) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
+          assertLogicFunctionReferenceRemovable(composition, 'field', fieldId);
+          if (composition.layers.some((layer) => layer.loop?.timing?.holdFieldId === fieldId))
+            throw new Error('Unlink loop hold timing before deleting its data field.');
           if (
             composition.dataFields.find((field) => field.id === fieldId)?.generatedShaderParameter
           )
             return;
+          if (composition.layers.some((layer) => layerModifierFieldIds(layer).includes(fieldId)))
+            throw new Error(
+              'Retarget or remove Hide on Empty modifiers before deleting their data field.',
+            );
           composition.dataFields = composition.dataFields.filter((f) => f.id !== fieldId);
+          for (const connection of composition.dataConnections ?? [])
+            connection.mappings = connection.mappings.filter(
+              (mapping) => mapping.fieldId !== fieldId,
+            );
           composition.runtimeCollections = composition.runtimeCollections.filter(
             (collection) => collection.fieldId !== fieldId,
           );
           for (const layer of composition.layers) {
             layer.bindings = layer.bindings.filter((binding) => binding.fieldId !== fieldId);
           }
+          pruneVisualRuleReferences(composition);
         }),
 
       updateDataField: (fieldId, patch) =>
@@ -2898,6 +5546,12 @@ export const useProjectStore = create<ProjectStore>()(
             else nextPatch.key = trimmed;
           }
           Object.assign(field, nextPatch);
+          // Choosing a native field type clears a previous engine-specific identity.
+          if (
+            ('type' in nextPatch || 'nodosType' in nextPatch) &&
+            nextPatch.nodosType === undefined
+          )
+            delete field.nodosType;
           if (nextPatch.defaultTokenId !== undefined)
             bindFieldDefaultToken(composition, field, nextPatch.defaultTokenId);
           else if (nextPatch.defaultValue !== undefined || nextPatch.type !== undefined)
@@ -2923,6 +5577,20 @@ export const useProjectStore = create<ProjectStore>()(
           if (field.generatedShaderParameter) syncCompositionShaderParameterFields(composition);
         }),
 
+      setDataFieldsExposure: (fieldIds, exposed) => {
+        const selected = new Set(fieldIds);
+        if (!selected.size) return;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const apply = (field: FieldDefinition) => {
+            if ((field.exposeToOgraf !== false) !== exposed) field.exposeToOgraf = exposed;
+            for (const property of field.properties) apply(property);
+            if (field.items) apply(field.items);
+          };
+          for (const field of composition.dataFields) if (selected.has(field.id)) apply(field);
+        });
+      },
+
       setLayerBindings: (layerId, bindings) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
@@ -2932,6 +5600,64 @@ export const useProjectStore = create<ProjectStore>()(
             syncShaderParameterFields(composition, layer);
           }
         }),
+
+      setLayerPlayoutEditable: (layerId, editable) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          const property = layer ? playoutProperty(layer) : null;
+          if (!layer || layer.isLocked || !property) return;
+          const bound = layer.bindings.filter(
+            (binding) => binding.targetProperty === property.value,
+          );
+          if (editable) {
+            if (bound.length > 0) return;
+            const created = createPlayoutBinding(layer, composition.dataFields);
+            if (!created) return;
+            composition.dataFields.push(created.field);
+            layer.bindings.push(created.binding);
+            return;
+          }
+          layer.bindings = layer.bindings.filter(
+            (binding) => binding.targetProperty !== property.value,
+          );
+          // A field nothing else reads goes with the switch, so toggling doesn't pile up fields.
+          for (const { fieldId } of bound) {
+            const stillUsed =
+              composition.layers.some(
+                (candidate) =>
+                  candidate.bindings.some((binding) => binding.fieldId === fieldId) ||
+                  (candidate.visualRules ?? []).some((rule) =>
+                    visualRuleFieldIds(rule).includes(fieldId),
+                  ),
+              ) || composition.runtimeCollections.some((item) => item.fieldId === fieldId);
+            const field = composition.dataFields.find((candidate) => candidate.id === fieldId);
+            if (!stillUsed && field && !field.generatedShaderParameter)
+              composition.dataFields = composition.dataFields.filter(
+                (candidate) => candidate.id !== fieldId,
+              );
+          }
+        }),
+
+      addLayerBinding: (layerId) => {
+        let fieldId: string | null = null;
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer || layer.isLocked) return;
+          const created = createNextBinding(
+            layer,
+            composition.dataFields,
+            useTimelineStore.getState().currentFrame,
+          );
+          if (!created) return;
+          composition.dataFields.push(created.field);
+          layer.bindings.push(created.binding);
+          syncShaderParameterFields(composition, layer);
+          fieldId = created.field.id;
+        });
+        return fieldId;
+      },
 
       addRuntimeCollection: (fieldId, prototypeLayerIds, offsetPerItem, capacity) => {
         let id = '';
@@ -2953,6 +5679,11 @@ export const useProjectStore = create<ProjectStore>()(
             offsetPerItem: { ...offsetPerItem },
             capacity: normalizedCapacity,
             overflow: 'truncate',
+            itemKeyPath: [],
+            sortPath: [],
+            sortDirection: 'none',
+            pageSize: 0,
+            page: 0,
           });
         });
         return id;
@@ -2968,6 +5699,11 @@ export const useProjectStore = create<ProjectStore>()(
           Object.assign(collection, patch);
           collection.capacity = Math.max(1, Math.min(100, Math.round(collection.capacity)));
           collection.prototypeLayerIds = [...new Set(collection.prototypeLayerIds)];
+          collection.pageSize = Math.max(
+            0,
+            Math.min(collection.capacity, Math.round(collection.pageSize ?? 0)),
+          );
+          collection.page = Math.max(0, Math.round(collection.page ?? 0));
           const field = composition.dataFields.find(
             (candidate) => candidate.id === collection.fieldId,
           );
@@ -2999,7 +5735,27 @@ export const useProjectStore = create<ProjectStore>()(
       removeCustomAction: (actionDefId) =>
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const removed = composition.customActions.find((action) => action.id === actionDefId);
+          if (removed)
+            assertLogicFunctionReferenceRemovable(composition, 'action', removed.actionId);
           composition.customActions = composition.customActions.filter((a) => a.id !== actionDefId);
+          if (removed) {
+            for (const layer of composition.layers) {
+              if (
+                layer.loop?.activation.type === 'customAction' &&
+                layer.loop.activation.customActionId === removed.actionId
+              ) {
+                layer.loop = null;
+              }
+              if (
+                layer.element.type === 'text' &&
+                layer.element.textAnimation.customActionId === removed.actionId
+              ) {
+                layer.element.textAnimation.customActionId = null;
+              }
+            }
+            pruneVisualRuleReferences(composition);
+          }
         }),
 
       updateCustomAction: (actionDefId, patch) =>
@@ -3009,12 +5765,32 @@ export const useProjectStore = create<ProjectStore>()(
           if (!action) return;
           const nextPatch = { ...patch };
           if (nextPatch.actionId !== undefined) {
+            const previousActionId = action.actionId;
             const trimmed = nextPatch.actionId.trim();
+            if (trimmed !== previousActionId)
+              assertLogicFunctionReferenceRemovable(composition, 'action', previousActionId);
             const isDuplicate =
               trimmed.length === 0 ||
               composition.customActions.some((a) => a.id !== actionDefId && a.actionId === trimmed);
             if (isDuplicate) delete nextPatch.actionId;
-            else nextPatch.actionId = trimmed;
+            else {
+              nextPatch.actionId = trimmed;
+              for (const layer of composition.layers) {
+                if (
+                  layer.loop?.activation.type === 'customAction' &&
+                  layer.loop.activation.customActionId === previousActionId
+                ) {
+                  layer.loop.activation.customActionId = trimmed;
+                }
+                if (
+                  layer.element.type === 'text' &&
+                  layer.element.textAnimation.customActionId === previousActionId
+                ) {
+                  layer.element.textAnimation.customActionId = trimmed;
+                }
+              }
+              renameVisualRuleCustomAction(composition.layers, previousActionId, trimmed);
+            }
           }
           Object.assign(action, nextPatch);
         }),
@@ -3050,79 +5826,91 @@ export const useProjectStore = create<ProjectStore>()(
               'The document changed. Choose the image again in the current document.',
             );
           let ids: string[] = [];
-          set((state) => {
-            const current = getActiveComposition(state.project, state.activeCompositionId);
-            if (
-              !Array.isArray(source) &&
-              !current.assets.some(
-                (a) =>
-                  a.id === source.assetId &&
-                  a.kind === 'image' &&
-                  a.dataUri === images[0]?.asset.dataUri,
-              )
-            ) {
-              throw new Error('This resource changed while loading. Choose it again.');
-            }
-            const currentSource = current.layers.find(
-              (l) => l.id === options.replaceLayerId,
-            )?.element;
-            if (
-              options.replaceLayerId &&
-              originalSource?.type === 'image' &&
-              currentSource?.type === 'image' &&
-              originalSource.src !== currentSource.src
-            ) {
-              throw new Error(
-                'This image was changed while loading. Choose the replacement again.',
+          const resets: Array<{ fieldId: string; sourcePath: string[] }> = [];
+          const previewValues = useTestDataStore.getState().values;
+          const commitImage = () =>
+            set((state) => {
+              const current = getActiveComposition(state.project, state.activeCompositionId);
+              if (
+                !Array.isArray(source) &&
+                !current.assets.some(
+                  (a) =>
+                    a.id === source.assetId &&
+                    a.kind === 'image' &&
+                    a.dataUri === images[0]?.asset.dataUri,
+                )
+              ) {
+                throw new Error('This resource changed while loading. Choose it again.');
+              }
+              const currentSource = current.layers.find(
+                (l) => l.id === options.replaceLayerId,
+              )?.element;
+              const replacement = current.layers.find(
+                (layer) => layer.id === options.replaceLayerId,
               );
-            }
-            ids = placeImages(current, images, options);
-            for (const id of ids) {
-              const layer = current.layers.find((l) => l.id === id)!;
-              if (!options.replaceLayerId) materializeAnimationTracks(layer);
-            }
-          });
+              const before = replacement
+                ? { element: { ...replacement.element }, effects: replacement.effects }
+                : undefined;
+              if (
+                options.replaceLayerId &&
+                originalSource?.type === 'image' &&
+                currentSource?.type === 'image' &&
+                originalSource.src !== currentSource.src
+              ) {
+                throw new Error(
+                  'This image was changed while loading. Choose the replacement again.',
+                );
+              }
+              ids = placeImages(current, images, options);
+              for (const id of ids) {
+                const layer = current.layers.find((l) => l.id === id)!;
+                if (!options.replaceLayerId) materializeAnimationTracks(layer);
+                else if (before)
+                  resets.push(
+                    ...syncDesignerBindingDefaults(
+                      current,
+                      layer,
+                      before,
+                      ['src'],
+                      Object.fromEntries(
+                        current.dataFields.map((field) => [
+                          field.id,
+                          resolvePreviewFieldValue(field, previewValues[field.id])!,
+                        ]),
+                      ),
+                    ),
+                  );
+              }
+            });
+          if (options.commit) options.commit(commitImage);
+          else commitImage();
+          useTestDataStore.getState().clearOverrides(resets);
           return ids;
         } finally {
           unsubscribe();
         }
       },
 
+      setTestRundowns: (rundowns) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const errors = testRundownErrors(composition, rundowns);
+          if (errors.length) throw new Error(errors.join('\n'));
+          composition.testRundowns = structuredClone(rundowns);
+        }),
+
       importAsset: async (file) => {
-        const dataUri = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'));
-          reader.readAsDataURL(file);
-        });
-        const extension = file.name.split('.').at(-1)?.toLowerCase();
-        const fontMime =
-          extension === 'woff2'
-            ? 'font/woff2'
-            : extension === 'woff'
-              ? 'font/woff'
-              : extension === 'otf'
-                ? 'font/otf'
-                : extension === 'ttf'
-                  ? 'font/ttf'
-                  : undefined;
-        const mimeType = (fontMime ?? file.type) || 'application/octet-stream';
-        const kind = fontMime ? 'font' : mimeType.startsWith('image/') ? 'image' : 'source';
-        const asset = createAsset({
-          name: file.name,
-          kind,
-          dataUri,
-          mimeType,
-          originalFileName: file.name,
-          byteSize: file.size || dataUriByteSize(dataUri),
-          ...(fontMime ? { fontFamily: file.name.replace(/\.[^.]+$/, '') } : {}),
-          ...(fontMime ? { fontWeight: '100 900', fontStyle: 'normal' as const } : {}),
-        });
+        const { asset } = await prepareAssetImport(file);
+        return get().addPreparedAsset(asset);
+      },
+
+      addPreparedAsset: (asset) => {
         let assetId = asset.id;
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const duplicate = composition.assets.find(
-            (candidate) => candidate.dataUri === dataUri && candidate.mimeType === mimeType,
+            (candidate) =>
+              candidate.dataUri === asset.dataUri && candidate.mimeType === asset.mimeType,
           );
           if (duplicate) assetId = duplicate.id;
           else composition.assets.push(asset);
@@ -3156,7 +5944,12 @@ export const useProjectStore = create<ProjectStore>()(
           if (
             consumers.layerIds.length > 0 ||
             consumers.fieldIds.length > 0 ||
-            consumers.fontLayerIds.length > 0
+            consumers.fontLayerIds.length > 0 ||
+            consumers.mediaCueIds.length > 0 ||
+            (consumers.componentIds?.length ?? 0) > 0 ||
+            consumers.compositionBackground ||
+            (consumers.backgroundStyleIds?.length ?? 0) > 0 ||
+            (consumers.typographyStyleIds?.length ?? 0) > 0
           ) {
             return;
           }

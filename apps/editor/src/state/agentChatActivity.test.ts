@@ -4,6 +4,7 @@ vi.hoisted(() =>
   vi.stubGlobal('window', {
     location: { protocol: 'http:', host: 'localhost:5173' },
     clearTimeout,
+    addEventListener: () => undefined,
   }),
 );
 afterAll(() => vi.unstubAllGlobals());
@@ -17,6 +18,7 @@ vi.mock('./ografCompatibility', () => ({ certifyExportArtifacts: vi.fn() }));
 import {
   finishAgentChatTurn,
   updateAgentChatActivity,
+  updateAgentChatContext,
   useAgentChatStore,
   useAgentReviewStore,
 } from './agentBridge';
@@ -29,6 +31,7 @@ describe('single-line assistant activity', () => {
       activeTurnStartedAt: Date.now(),
       pendingAssistantText: '',
       progress: null,
+      context: null,
       sessionUsage: { input: 0, output: 0, cacheRead: 0 },
     });
     useAgentReviewStore.setState({ proposals: [] });
@@ -78,5 +81,29 @@ describe('single-line assistant activity', () => {
     updateAgentChatActivity({ type: 'chat.text', turnId: 'old-turn', text: 'Old progress' });
     expect(useAgentChatStore.getState().pendingAssistantText).toBe('');
     expect(useAgentChatStore.getState().progress).toBeNull();
+  });
+
+  it('shows estimated context separately from progress and ignores another turn’s report', () => {
+    updateAgentChatActivity({ type: 'chat.text', turnId: 'turn', text: 'Checking the scene.' });
+    const progress = useAgentChatStore.getState().progress;
+    const report = {
+      type: 'chat.context' as const,
+      turnId: 'turn',
+      model: 'test-model',
+      contextWindowTokens: 65_536,
+      historyBudgetTokens: 16_384,
+      toolPageTokens: 2048,
+      estimatedInputTokens: 8200,
+      source: 'fallback' as const,
+      omittedMessages: 30,
+      historyResultId: 'saved-history',
+      estimated: true as const,
+      message: 'Estimated context; earlier conversation remains available through paging.',
+    };
+    updateAgentChatContext(report);
+    expect(useAgentChatStore.getState().context).toEqual(report);
+    expect(useAgentChatStore.getState().progress).toBe(progress);
+    updateAgentChatContext({ ...report, turnId: 'old-turn', estimatedInputTokens: 1 });
+    expect(useAgentChatStore.getState().context).toEqual(report);
   });
 });

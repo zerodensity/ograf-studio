@@ -1,5 +1,6 @@
 import { getElementFill, hasElementShaderPaint, svgPaint } from '@ograf-editor/scene-model';
 import {
+  layerCropPolygon,
   effectStackToSvg,
   effectStackPadding,
   parseEffectProperty,
@@ -8,6 +9,8 @@ import {
 import { applyElementDataValue } from '@ograf-editor/scene-model';
 import {
   getLayerEffectsAtFrame,
+  getCompositionOutputRect,
+  type SourceCrop,
   getLayerAnimatableProperties,
   getLayerPropertyWithLighting,
   computeKeyframeFrames,
@@ -27,12 +30,17 @@ import {
   clipPathSvgForParentBounds,
   roundedRectangleSvgPath,
   resolveElementAssetReferences,
+  textAnimationVisibleText,
   valueAtSourcePath,
   type Composition,
   type Element,
   type FieldValue,
   type Layer,
   type Project,
+  sampleTicker,
+  getTickerLayout,
+  isShaderPaint,
+  isMediaPaint,
 } from '@ograf-editor/scene-model';
 
 const escapeXml = (value: unknown) =>
@@ -42,6 +50,26 @@ const escapeXml = (value: unknown) =>
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;');
+
+function croppedImageSvg(
+  src: string,
+  width: number,
+  height: number,
+  crop: SourceCrop | undefined,
+  fit: 'contain' | 'cover' | 'fill',
+  id: string,
+): string {
+  const preserve = fit === 'fill' ? 'none' : fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet';
+  if (!crop)
+    return `<image width="${width}" height="${height}" preserveAspectRatio="${preserve}" href="${escapeXml(src)}"/>`;
+  const sourceWidth = crop.sourceAspectRatio ?? width / height;
+  const x = crop.x * sourceWidth,
+    y = crop.y,
+    w = crop.width * sourceWidth,
+    h = crop.height;
+  const clipId = `${id}-source-crop`;
+  return `<svg width="${width}" height="${height}" viewBox="${x} ${y} ${w} ${h}" preserveAspectRatio="${preserve}" overflow="hidden"><defs><clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${w}" height="${h}"/></clipPath></defs><image width="${sourceWidth}" height="1" preserveAspectRatio="none" clip-path="url(#${clipId})" href="${escapeXml(src)}"/></svg>`;
+}
 
 function elementSvg(
   element: Element,
@@ -54,6 +82,52 @@ function elementSvg(
   if (hasElementShaderPaint(element))
     return `<rect width="${width}" height="${height}" fill="transparent"/>`;
   switch (element.type) {
+    case 'ticker': {
+      const clipId = `${svgId}-ticker-clip`,
+        fadeId = `${svgId}-ticker-fade`,
+        gradientId = `${svgId}-ticker-gradient`;
+      const sample = sampleTicker(element, width, (frame / compositionFrameRate) * 1000);
+      const layout = getTickerLayout(element, height);
+      const left = Math.min(
+        width / 2,
+        element.direction === 'left' ? element.exitFade : element.entryFade,
+      );
+      const right = Math.min(
+        width / 2,
+        element.direction === 'left' ? element.entryFade : element.exitFade,
+      );
+      const background =
+        element.background &&
+        !isShaderPaint(element.background) &&
+        !isMediaPaint(element.background)
+          ? svgPaint(element.background, width, height, `${svgId}-background`)
+          : undefined;
+      const fade =
+        left || right
+          ? `<linearGradient id="${gradientId}"><stop offset="0" stop-color="white" stop-opacity="${left ? 0 : 1}"/><stop offset="${width ? left / width : 0}" stop-color="white"/><stop offset="${width ? 1 - right / width : 1}" stop-color="white"/><stop offset="1" stop-color="white" stop-opacity="${right ? 0 : 1}"/></linearGradient><mask id="${fadeId}" maskUnits="userSpaceOnUse" x="0" y="0" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="url(#${gradientId})"/></mask>`
+          : '';
+      const tracks = Array.from({ length: Math.min(128, sample.copies) }, (_, copy) =>
+        element.items
+          .map((item, index) => {
+            const box = layout[index]!;
+            const x = box.x + copy * sample.period + sample.offset;
+            if (x + box.width <= 0 || x >= width) return '';
+            const itemId = `${svgId}-item-${copy}-${index}`;
+            const filters = item.effects ? effectStackToSvg(item.effects) : '';
+            const content = elementSvg(
+              item.element,
+              box.width,
+              box.height,
+              frame,
+              compositionFrameRate,
+              itemId,
+            );
+            return `<g transform="translate(${x} ${(height - box.height) / 2})"${filters ? ` filter="url(#${itemId}-effect)"` : ''}>${filters ? `<defs><filter id="${itemId}-effect">${filters}</filter></defs>` : ''}${content}</g>`;
+          })
+          .join(''),
+      ).join('');
+      return `<defs><clipPath id="${clipId}"><rect width="${width}" height="${height}"/></clipPath>${fade}${background?.defs ?? ''}</defs>${background ? `<rect width="${width}" height="${height}" fill="${background.fill}"/>` : ''}<g clip-path="url(#${clipId})"${fade ? ` mask="url(#${fadeId})"` : ''} direction="${element.textDirection}" style="unicode-bidi:plaintext">${tracks}</g>`;
+    }
     case 'pattern':
       return element.definition
         ? `<svg width="${width}" height="${height}" viewBox="0 0 ${element.definition.width} ${element.definition.height}" preserveAspectRatio="none">${tilingSvgContent(element, svgId, 0)}</svg>`
@@ -69,14 +143,15 @@ function elementSvg(
     case 'text': {
       const paint = svgPaint(getElementFill(element)!, width, height, `${svgId}-text-fill`);
       const paintDefs = paint.defs ? `<defs>${paint.defs}</defs>` : '';
+      const visibleText = textAnimationVisibleText(element, frame);
       const transformed =
         element.textTransform === 'uppercase'
-          ? element.content.toUpperCase()
+          ? visibleText.toUpperCase()
           : element.textTransform === 'lowercase'
-            ? element.content.toLowerCase()
+            ? visibleText.toLowerCase()
             : element.textTransform === 'capitalize'
-              ? element.content.replace(/\b\p{L}/gu, (character) => character.toUpperCase())
-              : element.content;
+              ? visibleText.replace(/\b\p{L}/gu, (character) => character.toUpperCase())
+              : visibleText;
       const lines = transformed.split(/\r?\n/);
       const anchor =
         element.textAlign === 'center' ? 'middle' : element.textAlign === 'right' ? 'end' : 'start';
@@ -109,7 +184,7 @@ function elementSvg(
     }
     case 'image':
       return element.src
-        ? `<image width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet" href="${escapeXml(element.src)}"/>`
+        ? croppedImageSvg(element.src, width, height, element.crop, element.fit ?? 'contain', svgId)
         : '';
     case 'path':
       return svgMaskSourceContent(element, width, height, svgId);
@@ -121,16 +196,22 @@ function elementSvg(
         : Math.min(rawIndex, Math.max(0, element.frames.length - 1));
       const src = element.frames[index];
       return src
-        ? `<image width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet" href="${escapeXml(src)}"/>`
+        ? croppedImageSvg(src, width, height, element.crop, element.fit ?? 'contain', svgId)
         : '';
     }
     case 'shader':
       // WebGL pixels require the authoritative browser capture path.
       return `<rect width="${width}" height="${height}" fill="transparent"/>`;
+    case 'chart':
+      // Chart providers paint a Canvas; use browser capture for authoritative pixels.
+      return `<rect width="${width}" height="${height}" fill="transparent"/>`;
     case 'lottie':
       // The authoritative DOM/canvas capture path renders the exact Lottie frame. This lightweight
       // pure-SVG authoring overview cannot run a Canvas2D player, so retain the layer bounds.
       return `<rect width="${width}" height="${height}" fill="transparent"/>`;
+    case 'audio':
+      // Audio has no diagnostic SVG pixels. Playback is handled by the authoritative browser runtime.
+      return '';
   }
 }
 
@@ -181,6 +262,22 @@ function layerSvg(
   const filterPadding = effectStackPadding(effects);
   const originX = transform.transformOriginX * transform.width;
   const originY = transform.transformOriginY * transform.height;
+  const scale = Math.max(0, getLayerPropertyValueAtFrame(layer, 'scale', frame));
+  const scaleTransform =
+    scale === 1
+      ? ''
+      : ` translate(${originX} ${originY}) scale(${scale}) translate(${-originX} ${-originY})`;
+  const inset = (property: 'clipLeft' | 'clipRight' | 'clipTop' | 'clipBottom') =>
+    Math.min(1, Math.max(0, getLayerPropertyValueAtFrame(layer, property, frame)));
+  const insetLeft = inset('clipLeft');
+  const insetRight = inset('clipRight');
+  const insetTop = inset('clipTop');
+  const insetBottom = inset('clipBottom');
+  const revealId = `reveal-${escapeXml(layer.id)}${escapeXml(options.idSuffix ?? '')}`;
+  const reveal =
+    insetLeft || insetRight || insetTop || insetBottom
+      ? `<clipPath id="${revealId}"><rect x="${insetLeft * transform.width}" y="${insetTop * transform.height}" width="${Math.max(0, 1 - insetLeft - insetRight) * transform.width}" height="${Math.max(0, 1 - insetTop - insetBottom) * transform.height}"/></clipPath>`
+      : '';
   const resolveElement = (candidate: Layer) =>
     resolveElementAssetReferences(
       candidate.bindings.reduce<Element>((resolved, binding) => {
@@ -238,7 +335,7 @@ function layerSvg(
     parent && parentTransform
       ? `<clipPath id="${clipId}"><path d="${escapeXml(clipPathSvgForParentBounds(transform, parentTransform, parent.element.type === 'rectangle' ? parent.element.borderRadius : 0))}"/></clipPath>`
       : '';
-  const content = elementSvg(
+  const elementContent = elementSvg(
     element,
     transform.width,
     transform.height,
@@ -246,6 +343,15 @@ function layerSvg(
     compositionFrameRate,
     `path-${escapeXml(layer.id)}${escapeXml(options.idSuffix ?? '')}`,
   );
+  const content = reveal
+    ? `<g clip-path="url(#${revealId})">${elementContent}</g>`
+    : elementContent;
+  const layerCropId = `layer-crop-${escapeXml(layer.id)}${escapeXml(options.idSuffix ?? '')}`;
+  const cropPoints = layer.crop ? layerCropPolygon(layer.crop) : undefined;
+  const cropClip = cropPoints
+    ? `<clipPath id="${layerCropId}"><polygon points="${cropPoints.map((point) => `${point.x * transform.width},${point.y * transform.height}`).join(' ')}"/></clipPath>`
+    : '';
+  const croppedContent = cropClip ? `<g clip-path="url(#${layerCropId})">${content}</g>` : content;
   const maskId = 'mask-' + escapeXml(layer.id) + escapeXml(options.idSuffix ?? '');
   const mask = layer.mask
     ? layerMaskSvg(
@@ -281,7 +387,7 @@ function layerSvg(
         maskId,
       )
     : '';
-  return `<defs>${filters ? `<filter id="${filterId}" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse" x="${-filterPadding}" y="${-filterPadding}" width="${transform.width + 2 * filterPadding}" height="${transform.height + 2 * filterPadding}">${filters}</filter>` : ''}${clip}${mask}</defs><g transform="translate(${transform.x} ${transform.y}) rotate(${transform.rotation} ${originX} ${originY})" opacity="${transform.opacity}"${layer.blendMode === 'normal' ? '' : ` style="mix-blend-mode:${layer.blendMode}"`}${filters ? ` filter="url(#${filterId})"` : ''}${mask ? ` mask="url(#${maskId})"` : ''}>${clip ? `<g clip-path="url(#${clipId})">${content}</g>` : content}</g>`;
+  return `<defs>${filters ? `<filter id="${filterId}" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse" x="${-filterPadding}" y="${-filterPadding}" width="${transform.width + 2 * filterPadding}" height="${transform.height + 2 * filterPadding}">${filters}</filter>` : ''}${clip}${reveal}${cropClip}${mask}</defs><g transform="translate(${transform.x} ${transform.y}) rotate(${transform.rotation} ${originX} ${originY})${scaleTransform}" opacity="${transform.opacity}"${layer.blendMode === 'normal' ? '' : ` style="mix-blend-mode:${layer.blendMode}"`}${filters ? ` filter="url(#${filterId})"` : ''}${mask ? ` mask="url(#${maskId})"` : ''}>${clip ? `<g clip-path="url(#${clipId})">${croppedContent}</g>` : croppedContent}</g>`;
 }
 
 export function renderCompositionFrameSvg(
@@ -385,6 +491,7 @@ export function renderCompositionFrameSvg(
         .join('');
     })
     .join('');
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${composition.width}" height="${composition.height}" viewBox="0 0 ${composition.width} ${composition.height}" style="isolation:isolate">${background}${content}</svg>`;
+  const output = getCompositionOutputRect(composition);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${output.width}" height="${output.height}" viewBox="${output.x} ${output.y} ${output.width} ${output.height}" style="isolation:isolate">${background}${content}</svg>`;
   return { svg, composition, frame: normalizedFrame };
 }

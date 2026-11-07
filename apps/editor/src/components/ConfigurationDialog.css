@@ -1,0 +1,508 @@
+.configuration-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: #0009;
+  padding: 20px;
+}
+.configuration-dialog {
+  width: min(850px, calc(100vw - 40px));
+  height: min(640px, calc(100dvh - 40px));
+  min-width: min(540px, calc(100vw - 40px));
+  min-height: min(320px, calc(100dvh - 40px));
+  max-width: calc(100vw - 40px);
+  max-height: calc(100dvh - 40px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  resize: both;
+  overflow: hidden;
+  padding-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel, #292929);
+  color: var(--text-main, #eee);
+  box-shadow: 0 14px 60px #0009;
+  font-size: 12px;
+  outline: none;
+}
+.configuration-dialog::-webkit-resizer {
+  background: linear-gradient(
+    135deg,
+    transparent 40%,
+    #8b8b8b 40%,
+    #8b8b8b 48%,
+    transparent 48%,
+    transparent 62%,
+    #8b8b8b 62%,
+    #8b8b8b 70%,
+    transparent 70%
+  );
+}
+.configuration-applications {
+  display: grid;
+  gap: 6px;
+}
+.configuration-application-card {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #242424;
+  padding: 6px 8px;
+  min-width: 0;
+}
+.configuration-application-card > header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.configuration-application-card > header > strong {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.configuration-application-card > header select {
+  max-width: 36%;
+  min-width: 70px;
+}
+.application-status,
+.application-default-badge,
+.application-included-badge {
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: #3b3b3b;
+  color: var(--text-muted, #aaa);
+}
+.application-status.is-active {
+  color: #9ce9bf;
+  background: #254234;
+}
+.application-default-badge {
+  color: #9eddfa;
+  background: #27414f;
+}
+.application-included-badge {
+  color: #b4dfc3;
+  background: #294036;
+}
+.configuration-default-provider {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0;
+}
+.application-components {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+.application-components > section {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.application-components > section + section {
+  border-left: 1px solid var(--border);
+  padding-left: 10px;
+}
+.application-components.is-preset-pack {
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+}
+.application-component-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+.application-kind {
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  color: var(--text-muted, #aaa);
+  background: #373737;
+  white-space: nowrap;
+}
+.application-components h4 {
+  font-size: 11px;
+  color: var(--text-muted, #aaa);
+  margin: 0 0 2px;
+  font-weight: normal;
+}
+.application-components strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.application-components span,
+.application-components a,
+.application-components small {
+  font-size: 11px;
+  font-weight: normal;
+}
+.application-components span {
+  color: var(--text-muted, #aaa);
+}
+.application-components a {
+  color: var(--accent, #5bc8fa);
+}
+.configuration-application-card > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+.configuration-application-card > footer > span {
+  font-size: 11px;
+  color: var(--text-muted, #aaa);
+}
+.application-details {
+  margin-top: 4px;
+}
+.application-details > summary,
+.application-bundle-details summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted, #aaa);
+}
+.application-bundle-details dl {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 3px 8px;
+  margin: 7px 0;
+  font-size: 11px;
+}
+.application-bundle-details dt {
+  color: var(--text-muted, #aaa);
+}
+.application-bundle-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.application-bundle-details details {
+  margin: 6px 0;
+}
+.application-bundle-details pre {
+  max-height: 210px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  margin: 5px 0;
+  background: #151515;
+  font: 11px/1.4 monospace;
+}
+.configuration-subdialog-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Reviews are body portals above Settings & Preferences and workspace chrome. */
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #0009;
+}
+
+.configuration-dialog.configuration-embedded {
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  resize: none;
+  background: transparent;
+}
+.configuration-embedded > .configuration-content {
+  display: block;
+  overflow: visible;
+}
+.configuration-embedded .configuration-page {
+  overflow: visible;
+  padding: 6px 8px;
+  scrollbar-gutter: auto;
+}
+.configuration-embedded .configuration-page-header {
+  margin-bottom: 6px;
+}
+.configuration-subdialog {
+  width: min(730px, 94vw);
+  max-height: 82vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: var(--bg-panel, #292929);
+  border: 1px solid var(--accent, #5bc8fa);
+  border-radius: 5px;
+  padding: 12px;
+  box-shadow: 0 14px 60px #0009;
+  outline: none;
+}
+.configuration-subdialog h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+.configuration-subdialog .configuration-page-header {
+  margin-bottom: 10px;
+}
+.application-update-comparison {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.application-update-comparison th,
+.application-update-comparison td {
+  text-align: left;
+  vertical-align: top;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.application-update-comparison th {
+  font-weight: normal;
+  color: var(--text-muted, #aaa);
+}
+.application-update-comparison th:first-child {
+  width: 28%;
+}
+.application-update-comparison small {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted, #aaa);
+  margin-top: 2px;
+}
+.configuration-update-warnings {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: #ffd18b;
+  font-size: 11px;
+}
+.configuration-update-warnings li {
+  margin: 3px 0;
+}
+.application-new-default {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 3px;
+}
+.configuration-subdialog .configuration-review-actions {
+  position: sticky;
+  bottom: -12px;
+  margin: 8px -12px -12px;
+  padding: 8px 12px;
+  background: var(--bg-panel, #292929);
+  border-top: 1px solid var(--border);
+}
+.configuration-header {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.configuration-content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+.configuration-content > nav {
+  padding: 10px 6px;
+  border-right: 1px solid var(--border);
+}
+.configuration-content > nav button {
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+}
+.configuration-content > nav button.is-selected {
+  color: var(--accent, #5bc8fa);
+  border-color: var(--accent, #5bc8fa);
+}
+.configuration-page {
+  container-type: inline-size;
+  padding: 8px 10px 12px;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: #858585 #242424;
+  min-height: 0;
+  min-width: 0;
+  overscroll-behavior: contain;
+}
+.configuration-page::-webkit-scrollbar {
+  width: 12px;
+}
+.configuration-page::-webkit-scrollbar-track {
+  background: #242424;
+}
+.configuration-page::-webkit-scrollbar-thumb {
+  border: 3px solid #242424;
+  border-radius: 6px;
+  background: #858585;
+}
+.configuration-page::-webkit-scrollbar-thumb:hover {
+  background: #aaa;
+}
+.configuration-page h2,
+.configuration-page h3 {
+  font-size: 13px;
+  margin: 0;
+}
+.configuration-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.configuration-help {
+  color: var(--text-muted, #aaa);
+  line-height: 1.4;
+  margin: 6px 0;
+}
+.configuration-plugin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.configuration-plugin-row > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.configuration-plugin-row small,
+.configuration-plugin-row span,
+.configuration-plugin-row code {
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--text-muted, #aaa);
+}
+.configuration-plugin-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  flex-wrap: wrap;
+}
+.configuration-plugin-actions label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.configuration-plugin-state {
+  flex: none;
+}
+.configuration-project-plugins {
+  margin-top: 16px;
+}
+.configuration-review {
+  margin-top: 14px;
+  border: 1px solid var(--accent, #5bc8fa);
+  padding: 10px;
+  border-radius: 4px;
+}
+.configuration-review dl {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 5px 8px;
+  margin: 10px 0;
+}
+.configuration-review dt {
+  color: var(--text-muted, #aaa);
+}
+.configuration-review dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.configuration-review details {
+  margin: 8px 0;
+}
+.configuration-review pre {
+  max-height: 210px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  background: #151515;
+  font: 11px/1.4 monospace;
+}
+.configuration-review p {
+  line-height: 1.5;
+}
+.configuration-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.configuration-error {
+  color: #ff9999;
+  white-space: pre-wrap;
+}
+@media (max-width: 640px) {
+  .configuration-content {
+    grid-template-columns: 90px minmax(0, 1fr);
+  }
+  .configuration-plugin-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .application-components {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+  .application-components > section + section {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+  }
+  .configuration-application-card > header {
+    flex-wrap: wrap;
+  }
+  .configuration-application-card > header > strong {
+    flex-basis: 100%;
+  }
+}
+@container (max-width: 440px) {
+  .application-components,
+  .application-components.is-preset-pack {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+  .application-components > section + section {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 4px;
+  }
+  .configuration-application-card > header {
+    flex-wrap: wrap;
+  }
+  .configuration-application-card > header > strong {
+    flex-basis: 100%;
+  }
+  .configuration-plugin-actions {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+}

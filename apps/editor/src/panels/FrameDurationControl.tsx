@@ -1,8 +1,11 @@
-import { useEditorWindow } from '../layout/EditorWindow';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useState, type ReactNode } from 'react';
 import { PropertyRow } from '../components/PropertyRow';
-import { analyzeMillisecondDuration, millisecondsForFrames } from './timelineFormatting';
+import { useWorkspaceStore } from '../state/workspaceStore';
+import {
+  formatDurationInput,
+  parseDurationInput,
+  resolveFrameDurationDraft,
+} from './durationInput';
 import './FrameDurationControl.css';
 
 interface FrameDurationControlProps {
@@ -10,129 +13,91 @@ interface FrameDurationControlProps {
   frames: number;
   frameRate: number;
   minFrames: number;
+  maxFrames?: number;
+  disabled?: boolean;
   onChange: (frames: number) => void;
   compact?: boolean;
   propertyColumns?: boolean;
+  labelSuffix?: ReactNode;
 }
 
-const displayMilliseconds = (milliseconds: number) => Number(milliseconds.toFixed(3)).toString();
-
+/** Frame-aligned storage with a user-selectable duration display and explicit-unit input. */
 export function FrameDurationControl({
   label,
   frames,
   frameRate,
   minFrames,
+  maxFrames,
+  disabled = false,
   onChange,
   compact = false,
   propertyColumns = false,
+  labelSuffix,
 }: FrameDurationControlProps) {
-  const { window, document } = useEditorWindow();
-  const rootRef = useRef<HTMLDivElement>(null);
-  const exactMilliseconds = millisecondsForFrames(frames, frameRate);
-  const [milliseconds, setMilliseconds] = useState(exactMilliseconds);
-  useEffect(() => setMilliseconds(exactMilliseconds), [exactMilliseconds]);
-  const analysis = useMemo(
-    () => analyzeMillisecondDuration(milliseconds, frameRate),
-    [milliseconds, frameRate],
-  );
-  const commitFrames = (nextFrames: number) => {
-    const clamped = Math.max(minFrames, nextFrames);
-    onChange(clamped);
-    setMilliseconds(millisecondsForFrames(clamped, frameRate));
+  const unit = useWorkspaceStore((state) => state.editorPreferences.durationUnit ?? 'seconds');
+  const formatted = formatDurationInput(frames, frameRate, unit);
+  const [draft, setDraft] = useState(formatted);
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    setDraft(formatted);
+  }, [formatted]);
+  const commit = () => {
+    const parsed = resolveFrameDurationDraft(draft, formatted, frameRate, unit);
+    if (parsed === undefined) {
+      setMessage('');
+      return;
+    }
+    if (!parsed) {
+      setMessage('Enter a duration such as 0.5s, 500ms, 12f or 00:00:01:05.');
+      return;
+    }
+    const next = Math.min(maxFrames ?? Number.MAX_SAFE_INTEGER, Math.max(minFrames, parsed.frames));
+    if (next !== frames) onChange(next);
+    setDraft(formatDurationInput(next, frameRate, unit));
+    setMessage(
+      parsed.rounded || next !== parsed.frames
+        ? `${draft.trim()} → ${next}f at ${Number(frameRate.toFixed(3))} fps`
+        : '',
+    );
   };
-  const explanation = analysis.representable
-    ? `${analysis.nearestFrames} exact frame${analysis.nearestFrames === 1 ? '' : 's'} at ${Number(frameRate.toFixed(3))} fps`
-    : `${milliseconds} ms = ${analysis.exactFrames.toFixed(3)} frames`;
-  const rounding = (
-    <div className="frame-duration-rounding" role="group" aria-label="Frame rounding choices">
-      <button type="button" onClick={() => commitFrames(analysis.floorFrames)}>
-        Down {Math.max(minFrames, analysis.floorFrames)}
-      </button>
-      <button type="button" onClick={() => commitFrames(analysis.nearestFrames)}>
-        Nearest {Math.max(minFrames, analysis.nearestFrames)}
-      </button>
-      <button type="button" onClick={() => commitFrames(analysis.ceilFrames)}>
-        Up {Math.max(minFrames, analysis.ceilFrames)}
-      </button>
-    </div>
-  );
-  const bounds =
-    compact && !analysis.representable ? rootRef.current?.getBoundingClientRect() : undefined;
-
   return (
-    <div
-      ref={rootRef}
-      className={`frame-duration-control${compact ? ' compact' : ''}`}
-      title={compact ? `${label}: ${explanation}` : undefined}
-    >
+    <div className={`frame-duration-control${compact ? ' compact' : ''}`}>
       <PropertyRow
-        help={`${label === 'Update crossfade' ? 'Duration of transitions when new playback data is applied.' : 'Duration of the incoming lifecycle transition.'} Enter an exact frame count; the milliseconds value follows the composition frame rate.`}
         resizable={propertyColumns}
-        title={compact ? `${label} in frames` : undefined}
+        help="Enter seconds, milliseconds, frames or non-drop timecode. Values are stored as whole frames."
       >
-        <span>{compact ? 'f' : `${label} frames`}</span>
+        <span>{label}</span>
         <input
-          aria-label={`${label} frames`}
-          type="number"
-          min={minFrames}
-          step={1}
-          value={frames}
-          onChange={(event) => commitFrames(Math.round(Number(event.target.value)))}
-        />
-      </PropertyRow>
-      <PropertyRow
-        help={`${label === 'Update crossfade' ? 'Duration of transitions when new playback data is applied.' : 'Duration of the incoming lifecycle transition.'} Enter milliseconds. If the value falls between frames, choose a rounding option to keep the timeline frame-aligned.`}
-        resizable={propertyColumns}
-        className="frame-duration-milliseconds"
-        title={compact ? `${label} in milliseconds` : undefined}
-      >
-        <span>{compact ? 'ms' : 'milliseconds'}</span>
-        <input
-          aria-label={`${label} milliseconds`}
-          type="number"
-          min={0}
-          step="any"
-          value={displayMilliseconds(milliseconds)}
-          aria-invalid={!analysis.representable}
-          onKeyDown={(event) => {
-            if (compact && event.key === 'Escape') setMilliseconds(exactMilliseconds);
-          }}
+          aria-label={/duration$/i.test(label) ? label : `${label} duration`}
+          type="text"
+          disabled={disabled}
+          inputMode="decimal"
+          value={draft}
+          aria-invalid={Boolean(message && !parseDurationInput(draft, frameRate, unit))}
           onChange={(event) => {
-            const value = Math.max(0, Number(event.target.value));
-            setMilliseconds(value);
-            const next = analyzeMillisecondDuration(value, frameRate);
-            if (next.representable) commitFrames(next.nearestFrames);
+            setDraft(event.currentTarget.value);
+            setMessage('');
+          }}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              event.currentTarget.blur();
+            } else if (event.key === 'Escape') {
+              setDraft(formatted);
+              setMessage('');
+            }
           }}
         />
       </PropertyRow>
-      {!compact && (
-        <span
-          className={analysis.representable ? 'frame-duration-exact' : 'frame-duration-warning'}
+      {(message || labelSuffix) && (
+        <div
+          className={`frame-duration-provenance ${message ? 'frame-duration-warning' : 'frame-duration-exact'}`}
         >
-          {explanation}
-        </span>
+          <span role={message ? 'status' : undefined}>{message}</span>
+          {labelSuffix}
+        </div>
       )}
-      {!analysis.representable &&
-        (compact && bounds
-          ? createPortal(
-              <div
-                className="frame-duration-popover"
-                style={{
-                  left: Math.max(8, Math.min(bounds.left, window.innerWidth - 300)),
-                  top:
-                    bounds.bottom + 100 < window.innerHeight
-                      ? bounds.bottom + 6
-                      : Math.max(8, bounds.top - 86),
-                }}
-              >
-                <p className="frame-duration-warning" role="alert">
-                  {explanation}
-                </p>
-                {rounding}
-              </div>,
-              document.body,
-            )
-          : rounding)}
     </div>
   );
 }

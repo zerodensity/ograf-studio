@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createLayerOfKind, createTilingPattern } from '@ograf-editor/scene-model';
+import {
+  createLayerOfKind,
+  createChartElement,
+  createTilingPattern,
+  textAnimationSegmentVisual,
+} from '@ograf-editor/scene-model';
 import {
   createShaderPaintMask,
   shaderMaskContainRect,
@@ -8,6 +13,148 @@ import {
 } from './shaderPaintMask';
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('chart mark shader/media coverage', () => {
+  it('clears empty chart coverage without drawing a zero-size source and recovers on resize', async () => {
+    const { host, contexts, query } = fixture();
+    const source = { width: 0, height: 0, dataset: { ografChartRevision: '1' } };
+    query.mockImplementation((...args: unknown[]) =>
+      String(args[0]).includes('chart-fill-mask') ? source : null,
+    );
+    const mask = createShaderPaintMask(host, createChartElement({ fill: '#ffffff' }), {
+      width: 200,
+      height: 100,
+    });
+    const context = contexts[0]!;
+    context.drawImage.mockImplementation((input: unknown) => {
+      const canvas = input as HTMLCanvasElement;
+      if (canvas.width <= 0 || canvas.height <= 0) throw new Error('zero-size canvas');
+    });
+
+    await expect(mask.update(0)).resolves.not.toBeNull();
+    expect(context.clearRect).toHaveBeenCalledTimes(1);
+    expect(context.drawImage).not.toHaveBeenCalled();
+    expect(await mask.update(1)).toBeNull();
+
+    source.width = 640;
+    source.height = 360;
+    await expect(mask.update(2)).resolves.not.toBeNull();
+    expect(context.drawImage).toHaveBeenCalledWith(source, 0, 0, 200, 100);
+
+    source.width = 0;
+    context.drawImage.mockClear();
+    await expect(mask.update(3)).resolves.not.toBeNull();
+    expect(context.clearRect).toHaveBeenCalledTimes(3);
+    expect(context.drawImage).not.toHaveBeenCalled();
+
+    source.width = 640;
+    await expect(mask.update(4)).resolves.not.toBeNull();
+    expect(context.drawImage).toHaveBeenCalledTimes(1);
+    mask.dispose();
+  });
+
+  it('reads only the provider mark mask and invalidates it when the chart frame changes', async () => {
+    const { host, contexts, query } = fixture();
+    const source = { width: 640, height: 360, dataset: { ografChartRevision: '1' } };
+    query.mockImplementation((...args: unknown[]) =>
+      String(args[0]).includes('chart-fill-mask') ? source : null,
+    );
+    const mask = createShaderPaintMask(host, createChartElement({ fill: '#ffffff' }), {
+      width: 200,
+      height: 100,
+    });
+    const coverage = await mask.update(0);
+    expect(contexts[0]!.drawImage).toHaveBeenCalledWith(source, 0, 0, 200, 100);
+    // Media paints use drawImage(), so the default API must keep returning a Canvas source.
+    expect(coverage).toHaveProperty('getContext');
+    expect(contexts[0]!.getImageData).not.toHaveBeenCalled();
+    expect(await mask.update(100)).toBeNull();
+    source.dataset.ografChartRevision = '2';
+    expect(await mask.update(100)).not.toBeNull();
+    mask.dispose();
+  });
+
+  it('retains complete shader snapshots across chart revisions and disposal', async () => {
+    const { host, contexts, query } = fixture(2, 2);
+    const source = { width: 2, height: 2, dataset: { ografChartRevision: '1' }, alpha: 64 };
+    query.mockImplementation((...args: unknown[]) =>
+      String(args[0]).includes('chart-fill-mask') ? source : null,
+    );
+    const mask = createShaderPaintMask(host, createChartElement({ fill: '#ffffff' }), {
+      width: 2,
+      height: 2,
+    });
+    const context = contexts[0]!;
+    const stagingPixels = new Uint8ClampedArray(16);
+    context.clearRect.mockImplementation(() => stagingPixels.fill(0));
+    context.drawImage.mockImplementation(() => {
+      for (let offset = 3; offset < stagingPixels.length; offset += 4)
+        stagingPixels[offset] = source.alpha;
+    });
+    context.getImageData.mockImplementation(() => ({
+      width: 2,
+      height: 2,
+      data: stagingPixels.slice(),
+    }));
+    const options = { immutableChartSnapshot: true } as const;
+    const first = (await mask.update(0, options)) as ImageData;
+    expect(context.getImageData).toHaveBeenCalledWith(0, 0, 2, 2);
+    expect([...first.data]).toEqual([0, 0, 0, 64, 0, 0, 0, 64, 0, 0, 0, 64, 0, 0, 0, 64]);
+    expect(await mask.update(100, options)).toBeNull();
+    expect(context.getImageData).toHaveBeenCalledTimes(1);
+
+    source.alpha = 192;
+    source.dataset.ografChartRevision = '2';
+    const second = (await mask.update(100, options)) as ImageData;
+    expect(second).not.toBe(first);
+    expect(second.data).not.toBe(first.data);
+    expect(second.data[15]).toBe(192);
+    expect(first.data[15]).toBe(64);
+    mask.dispose();
+    stagingPixels.fill(0);
+    expect(first.data[15]).toBe(64);
+    expect(second.data[15]).toBe(192);
+  });
+
+  it('snapshots cleared hidden chart coverage and replaces it after resize', async () => {
+    const { host, contexts, query } = fixture();
+    const source = { width: 0, height: 0, dataset: { ografChartRevision: '1' } };
+    query.mockImplementation((...args: unknown[]) =>
+      String(args[0]).includes('chart-fill-mask') ? source : null,
+    );
+    const mask = createShaderPaintMask(host, createChartElement({ fill: '#ffffff' }), {
+      width: 200,
+      height: 100,
+    });
+    const context = contexts[0]!;
+    const options = { immutableChartSnapshot: true } as const;
+    const hidden = await mask.update(0, options);
+    expect(hidden).toBe(context.getImageData.mock.results[0]!.value);
+    expect(context.getImageData).toHaveBeenCalledWith(0, 0, 200, 100);
+    expect(context.drawImage).not.toHaveBeenCalled();
+    expect(await mask.update(1, options)).toBeNull();
+    expect(context.getImageData).toHaveBeenCalledTimes(1);
+
+    source.width = 640;
+    source.height = 360;
+    const visible = await mask.update(2, options);
+    expect(visible).not.toBe(hidden);
+    expect(context.drawImage).toHaveBeenCalledWith(source, 0, 0, 200, 100);
+    expect(context.getImageData).toHaveBeenCalledTimes(2);
+    mask.dispose();
+  });
+
+  it('keeps non-chart shader coverage on its existing Canvas path', async () => {
+    const { host, contexts } = fixture();
+    const mask = createShaderPaintMask(host, createLayerOfKind('rectangle').element, {
+      width: 200,
+      height: 100,
+    });
+    expect(await mask.update(0, { immutableChartSnapshot: true })).toHaveProperty('getContext');
+    expect(contexts[0]!.getImageData).not.toHaveBeenCalled();
+    mask.dispose();
+  });
+});
 
 function fixture(width = 200, height = 100) {
   const contexts: ReturnType<typeof makeContext>[] = [];
@@ -90,6 +237,7 @@ function nativeTextFixture() {
     textTransform: 'none',
     transform: 'none',
     transformOrigin: '0px 0px',
+    filter: 'none',
     textOverflow: 'clip',
     display: 'flex',
     whiteSpace: 'pre-wrap',
@@ -163,6 +311,7 @@ function nativeTextFixture() {
     element,
     contexts,
     computed,
+    original,
     setStrokeWidth(width: number) {
       computed.webkitTextStrokeWidth = `${width}px`;
       style.cssText = `font-size:41.2px;-webkit-text-stroke-width:${width}px`;
@@ -170,7 +319,387 @@ function nativeTextFixture() {
   };
 }
 
+function nestedTextFixture() {
+  const fixture = nativeTextFixture();
+  const document = fixture.host.ownerDocument;
+  const computed = {
+    ...fixture.computed,
+    direction: 'ltr',
+    opacity: '1',
+    visibility: 'visible',
+  };
+  type TextNode = { nodeType: 3; textContent: string; rects: DOMRect[] };
+  type ElementNode = {
+    nodeType: 1;
+    ownerDocument: Document;
+    style: { cssText: string; setProperty: ReturnType<typeof vi.fn>; transform?: string };
+    computed: typeof computed;
+    children: ElementNode[];
+    childNodes: Array<ElementNode | TextNode>;
+    firstChild: ElementNode | TextNode | null;
+    textContent: string;
+    getAttribute: (key: string) => string | null;
+    getBoundingClientRect: () => DOMRect;
+    querySelectorAll: () => ElementNode[];
+    cloneNode: () => ElementNode;
+  };
+  function text(value: string, x: number, y: number, columns = value.length): TextNode {
+    return {
+      nodeType: 3,
+      textContent: value,
+      rects: [...value].map(
+        (_character, index) =>
+          ({
+            left: x + (index % columns) * 20,
+            top: y + Math.floor(index / columns) * 50,
+            width: 20,
+            height: 40,
+          }) as DOMRect,
+      ),
+    };
+  }
+  function node(
+    childNodes: Array<ElementNode | TextNode>,
+    patch: Partial<typeof computed> = {},
+    options: { cursor?: boolean; bounds?: DOMRect } = {},
+  ): ElementNode {
+    const children = childNodes.filter((child): child is ElementNode => child.nodeType === 1);
+    const style = { ...computed, ...patch };
+    const result: ElementNode = {
+      nodeType: 1,
+      ownerDocument: document,
+      style: {
+        get cssText() {
+          return JSON.stringify(style);
+        },
+        setProperty: vi.fn(),
+      },
+      computed: style,
+      children,
+      childNodes,
+      firstChild: childNodes[0] ?? null,
+      get textContent() {
+        return childNodes.map((child) => child.textContent).join('');
+      },
+      getAttribute: (key) => (options.cursor && key === 'data-ograf-text-cursor' ? 'bar' : null),
+      getBoundingClientRect: () =>
+        options.bounds ?? ({ left: 0, top: 0, width: 200, height: 100 } as DOMRect),
+      querySelectorAll: () => children.flatMap((child) => [child, ...child.querySelectorAll()]),
+      cloneNode: () =>
+        node(
+          childNodes.map((child) => (child.nodeType === 1 ? child.cloneNode() : { ...child })),
+          style,
+          options,
+        ),
+    };
+    return result;
+  }
+  const defaultView = document.defaultView!;
+  Object.assign(defaultView, {
+    getComputedStyle: (element: ElementNode) => element.computed ?? computed,
+  });
+  Object.assign(document, {
+    createRange: () => {
+      let target: TextNode;
+      let offset = 0;
+      return {
+        setStart: (value: TextNode, index: number) => {
+          target = value;
+          offset = index;
+        },
+        setEnd: vi.fn(),
+        detach: vi.fn(),
+        getClientRects: () => [target.rects[offset]],
+      };
+    },
+  });
+  const createElement = document.createElement.bind(document);
+  const paints: Array<{ text: string; font: string; alpha: number; direction: string }> = [];
+  Object.assign(document, {
+    createElement: (tag: string) => {
+      const result = createElement(tag);
+      if (tag !== 'div') {
+        const context = fixture.contexts.at(-1)!;
+        context.fillText.mockImplementation((value: string) =>
+          paints.push({
+            text: value,
+            font: context.font,
+            alpha: context.globalAlpha,
+            direction: context.direction,
+          }),
+        );
+        Object.assign(context, { transform: vi.fn() });
+      }
+      return result;
+    },
+  });
+  return {
+    ...fixture,
+    node,
+    text,
+    paints,
+    mount(root: ElementNode) {
+      Object.assign(fixture.host, { children: [root] });
+      fixture.element.content = root.textContent;
+    },
+  };
+}
+
 describe('shader fill coverage', () => {
+  it.each(['flip', 'rotate', 'stretch'] as const)(
+    'replays %s glyph matrices around their native center after a backward seek',
+    async (type) => {
+      vi.stubGlobal(
+        'DOMMatrix',
+        class {
+          a: number;
+          b: number;
+          c: number;
+          d: number;
+          e: number;
+          f: number;
+          constructor(value: string) {
+            [this.a, this.b, this.c, this.d, this.e, this.f] = value
+              .slice(7, -1)
+              .split(',')
+              .map(Number) as [number, number, number, number, number, number];
+          }
+        },
+      );
+      const fixture = nestedTextFixture();
+      const segment = fixture.node(
+        [fixture.text('A', 20, 10)],
+        {
+          opacity: '0',
+          transformOrigin: '10px 20px',
+        },
+        { bounds: { left: 20, top: 10, width: 20, height: 40 } as DOMRect },
+      );
+      fixture.mount(fixture.node([segment]));
+      const mask = createShaderPaintMask(fixture.host, fixture.element, {
+        width: 200,
+        height: 100,
+      });
+      const context = fixture.contexts[0]! as (typeof fixture.contexts)[number] & {
+        transform: ReturnType<typeof vi.fn>;
+      };
+      const matrixAt = (progress: number) => {
+        const visual = textAnimationSegmentVisual(type, progress);
+        const angle = ((visual.rotateXDeg ?? visual.rotateDeg ?? 0) * Math.PI) / 180;
+        if (type === 'flip') return [1, 0, 0, Math.cos(angle), 0, 0];
+        if (type === 'rotate')
+          return [Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle), 0, 0];
+        return [visual.scaleX!, 0, 0, 1, 0, 0];
+      };
+      const sample = async (progress: number) => {
+        const visual = textAnimationSegmentVisual(type, progress);
+        segment.computed.opacity = String(visual.opacity);
+        segment.computed.transform =
+          progress === 1 ? 'none' : `matrix(${matrixAt(progress).join(',')})`;
+        return mask.update(progress * 1000);
+      };
+      await sample(0);
+      expect(context.fillText).not.toHaveBeenCalled();
+      await sample(0.5);
+      expect(context.transform).toHaveBeenLastCalledWith(...matrixAt(0.5));
+      expect(context.translate).toHaveBeenCalledWith(30, 30);
+      expect(context.translate).toHaveBeenCalledWith(-30, -30);
+      expect(fixture.paints.at(-1)).toMatchObject({ text: 'A', alpha: 0.875 });
+      await sample(1);
+      expect(fixture.paints.at(-1)).toMatchObject({ text: 'A', alpha: 1 });
+      expect(await sample(0.5)).not.toBeNull();
+      expect(context.transform).toHaveBeenLastCalledWith(...matrixAt(0.5));
+      expect(fixture.paints.at(-1)).toMatchObject({ text: 'A', alpha: 0.875 });
+      expect(await sample(0.5)).toBeNull();
+      mask.dispose();
+    },
+  );
+
+  it('scales blur glyph alpha to the backing resolution and clears it on completion and replay', async () => {
+    const fixture = nestedTextFixture();
+    const segment = fixture.node([fixture.text('A', 20, 10)], {
+      opacity: '0',
+      filter: 'blur(8px)',
+    });
+    const sibling = fixture.node([fixture.text('B', 50, 10)]);
+    fixture.mount(fixture.node([segment, sibling]));
+    const mask = createShaderPaintMask(fixture.host, fixture.element, { width: 400, height: 200 });
+    const context = fixture.contexts[0]!;
+    const filterStack: string[] = [];
+    context.save.mockImplementation(() => filterStack.push(context.filter));
+    context.restore.mockImplementation(() => {
+      context.filter = filterStack.pop() ?? 'none';
+    });
+    Object.assign(context, { getTransform: () => ({ a: 2, b: 0, c: 0, d: 2 }) });
+    const draws: Array<{ text: string; filter: string; alpha: number }> = [];
+    context.fillText.mockImplementation((text: string) =>
+      draws.push({
+        text,
+        filter: context.filter,
+        alpha: context.globalAlpha,
+      }),
+    );
+    await mask.update(0);
+    expect(draws).toEqual([{ text: 'B', filter: 'none', alpha: 1 }]);
+    const sample = async (progress: number) => {
+      const visual = textAnimationSegmentVisual('blur', progress);
+      segment.computed.opacity = String(visual.opacity);
+      segment.computed.filter = progress === 1 ? 'none' : `blur(${visual.blurPx}px)`;
+      draws.length = 0;
+      await mask.update(progress * 1000);
+      return [...draws];
+    };
+    const halfway = await sample(0.5);
+    expect(halfway).toEqual([
+      { text: 'A', filter: 'blur(2px)', alpha: 0.875 },
+      { text: 'B', filter: 'none', alpha: 1 },
+    ]);
+    expect(await sample(1)).toEqual([
+      { text: 'A', filter: 'none', alpha: 1 },
+      { text: 'B', filter: 'none', alpha: 1 },
+    ]);
+    expect(await sample(0.5)).toEqual(halfway);
+    mask.dispose();
+  });
+
+  it('draws nested styled runs using each native font, direction and wrapped line position', async () => {
+    const fixture = nestedTextFixture();
+    const bold = fixture.node([fixture.text('A B', 10, 5)], {
+      fontWeight: '900',
+      fontFamily: 'Brand Sans, Arial',
+    });
+    const italic = fixture.node([fixture.text('CD', 90, 5, 1)], {
+      fontStyle: 'italic',
+      fontSize: '32px',
+      direction: 'rtl',
+    });
+    fixture.mount(fixture.node([fixture.node([bold, italic])]));
+    const mask = createShaderPaintMask(fixture.host, fixture.element, { width: 200, height: 100 });
+
+    await mask.update();
+
+    expect(fixture.contexts[0]!.fillText.mock.calls).toEqual([
+      ['A B', 10, 35],
+      ['C', 90, 35],
+      ['D', 90, 85],
+    ]);
+    expect(fixture.paints).toMatchObject([
+      { text: 'A B', font: 'normal 900 41.2px Brand Sans, Arial', direction: 'ltr' },
+      { text: 'C', font: 'italic 700 32px Arial', direction: 'rtl' },
+      { text: 'D', font: 'italic 700 32px Arial', direction: 'rtl' },
+    ]);
+    expect(await mask.update(100)).toBeNull();
+    mask.dispose();
+  });
+
+  it('uses animated segment visibility and opacity, skips the cursor, and invalidates cached alpha', async () => {
+    const fixture = nestedTextFixture();
+    const visible = fixture.node([fixture.text('A', 10, 5)], { opacity: '0.5' });
+    const hidden = fixture.node([fixture.text('B', 30, 5)], { visibility: 'hidden' });
+    const faded = fixture.node([fixture.text('C', 50, 5)], { opacity: '0' });
+    const cursor = fixture.node([fixture.text('|', 70, 5)], {}, { cursor: true });
+    fixture.mount(
+      fixture.node([fixture.node([visible, hidden, faded, cursor], { opacity: '0.5' })]),
+    );
+    const mask = createShaderPaintMask(fixture.host, fixture.element, { width: 200, height: 100 });
+
+    await mask.update();
+
+    expect(fixture.paints).toEqual([
+      { text: 'A', font: 'normal 700 41.2px Arial', alpha: 0.25, direction: 'ltr' },
+    ]);
+    expect(await mask.update(100)).toBeNull();
+    hidden.computed.visibility = 'visible';
+    expect(await mask.update(200)).not.toBeNull();
+    expect(fixture.paints.slice(1)).toMatchObject([
+      { text: 'A', alpha: 0.25 },
+      { text: 'B', alpha: 0.5 },
+    ]);
+    mask.dispose();
+  });
+
+  it('invalidates cached text alpha when an ancestor becomes visible', async () => {
+    const fixture = nestedTextFixture();
+    const root = fixture.node([fixture.text('A', 10, 5)]);
+    let className = 'hidden',
+      hidden = false;
+    const ancestor = {
+      style: { visibility: 'hidden', display: '' },
+      parentElement: null,
+      getRootNode: () => ({}),
+      getAttribute: (name: string) => (name === 'class' ? className : null),
+      hasAttribute: (name: string) => name === 'hidden' && hidden,
+    };
+    Object.assign(root, { parentElement: ancestor, getRootNode: () => ({}) });
+    fixture.mount(root);
+    const mask = createShaderPaintMask(fixture.host, fixture.element, { width: 200, height: 100 });
+    expect(await mask.update(0)).not.toBeNull();
+    expect(await mask.update(1)).toBeNull();
+    ancestor.style.visibility = 'visible';
+    expect(await mask.update(2)).not.toBeNull();
+    expect(await mask.update(3)).toBeNull();
+    className = 'shown';
+    expect(await mask.update(4)).not.toBeNull();
+    hidden = true;
+    expect(await mask.update(5)).not.toBeNull();
+    expect(await mask.update(6)).toBeNull();
+    Object.assign(fixture.host.ownerDocument.defaultView!, { innerWidth: 1280, innerHeight: 720 });
+    expect(await mask.update(7)).not.toBeNull();
+    expect(await mask.update(8)).toBeNull();
+    mask.dispose();
+  });
+
+  it('replays nested animation matrices after clipping the reveal parent and measures transforms only once', async () => {
+    vi.stubGlobal(
+      'DOMMatrix',
+      class {
+        a = 1;
+        b = 0;
+        c = 0;
+        d = 1;
+        e = 0;
+        f = 20;
+        constructor(_value: string) {}
+      },
+    );
+    const fixture = nestedTextFixture();
+    const inner = fixture.node(
+      [fixture.text('Goal', 50, 10)],
+      {
+        transform: 'matrix(1, 0, 0, 1, 0, 20)',
+        transformOrigin: '0px 0px',
+      },
+      { bounds: { left: 50, top: 10, width: 80, height: 40 } as DOMRect },
+    );
+    const reveal = fixture.node(
+      [inner],
+      { overflowX: 'hidden', overflowY: 'hidden' },
+      {
+        bounds: { left: 50, top: 10, width: 80, height: 40 } as DOMRect,
+      },
+    );
+    const root = fixture.node([reveal]);
+    const cloned = root.cloneNode();
+    root.cloneNode = () => cloned;
+    fixture.mount(root);
+    const mask = createShaderPaintMask(fixture.host, fixture.element, { width: 200, height: 100 });
+
+    await mask.update();
+
+    const context = fixture.contexts[0]! as (typeof fixture.contexts)[number] & {
+      transform: ReturnType<typeof vi.fn>;
+    };
+    expect(context.rect).toHaveBeenCalledWith(50, 10, 80, 40);
+    expect(context.clip).toHaveBeenCalledOnce();
+    expect(context.transform).toHaveBeenCalledExactlyOnceWith(1, 0, 0, 1, 0, 20);
+    expect(context.clip.mock.invocationCallOrder[0]).toBeLessThan(
+      context.transform.mock.invocationCallOrder[0]!,
+    );
+    expect(cloned.children[0]!.children[0]!.style.transform).toBe('none');
+    expect(context.fillText).toHaveBeenCalledWith('Goal', 50, 40);
+    mask.dispose();
+  });
+
   it('uses the same native shaped lines for fill and centered glyph stroke without filling the stroke mask', async () => {
     const fixture = nativeTextFixture();
     const fill = createShaderPaintMask(fixture.host, fixture.element, { width: 200, height: 100 });

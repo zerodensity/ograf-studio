@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyLayerMotion,
   createAnimationTracksFromLegacyLayer,
   createComposition,
+  createCustomActionDefinition,
   createDefaultTransform,
   createLayerKeyframe,
   createLayerLoopClip,
@@ -38,6 +40,52 @@ function staticTransform(overrides: Partial<LayerTransform>): LayerTransform {
 }
 
 describe('design and motion QA', () => {
+  it('warns when a composition has more than eight shader views', () => {
+    const composition = createComposition();
+    composition.layers = Array.from({ length: 9 }, () => {
+      const layer = createLayerOfKind('shader');
+      layer.keyframes = [createLayerKeyframe(0, createDefaultTransform())];
+      return layer;
+    });
+    const finding = reviewCompositionDesign(composition).findings.find(
+      (entry) => entry.id === 'performance.shader-context-budget',
+    );
+    expect(finding?.layerIds).toHaveLength(9);
+    expect(finding?.message).toContain('9 shader views');
+    composition.layers.pop();
+    expect(
+      reviewCompositionDesign(composition).findings.some(
+        (entry) => entry.id === 'performance.shader-context-budget',
+      ),
+    ).toBe(false);
+  });
+  it('recognizes closed wipes and zero-scale poses as hidden lifecycle boundaries', () => {
+    const composition = createComposition();
+    const pose = staticTransform({ x: 200, y: 800, width: 900, height: 120 });
+    const wiped = authoredLayer('rectangle', 'Wiped bar', [pose, pose, pose]);
+    const popped = authoredLayer('rectangle', 'Popped badge', [pose, pose, pose]);
+    wiped.semantics.role = 'container';
+    popped.semantics.role = 'accent';
+    composition.layers = [wiped, popped];
+    applyLayerMotion(composition, wiped, 'in', {
+      style: 'wipe',
+      direction: 'left',
+      durationFrames: 8,
+    });
+    applyLayerMotion(composition, wiped, 'out', {
+      style: 'wipe',
+      direction: 'left',
+      durationFrames: 8,
+    });
+    applyLayerMotion(composition, popped, 'in', { style: 'pop', durationFrames: 8 });
+    applyLayerMotion(composition, popped, 'out', { style: 'scale', durationFrames: 8 });
+
+    const report = reviewCompositionDesign(composition);
+    expect(
+      report.findings.filter((finding) => /^motion\.no-(entrance|exit)\./.test(finding.id)),
+    ).toEqual([]);
+  });
+
   it('reports semantic coverage and lifecycle motion with stable layer references', () => {
     const composition = createComposition();
     const lowerThird = materializeLowerThird(composition);
@@ -122,6 +170,97 @@ describe('design and motion QA', () => {
     expect(ids.some((id) => id.startsWith('motion.easing-direction'))).toBe(false);
   });
 
+  it('counts a co-moving parent assembly once while still reporting independently moving siblings', () => {
+    const composition = createComposition();
+    const panel = authoredLayer(
+      'rectangle',
+      'Panel',
+      [
+        staticTransform({ x: -200, y: 700, width: 800 }),
+        staticTransform({ x: 100, y: 700, width: 800 }),
+        staticTransform({ x: 100, y: 700, width: 800 }),
+      ],
+      'cubic-out',
+    );
+    panel.groupId = 'assembly';
+    const children = [150, 300, 450].map((x, index) => {
+      const layer = authoredLayer(
+        'rectangle',
+        `Detail ${index}`,
+        [
+          staticTransform({ x: x - 300, y: 720 }),
+          staticTransform({ x, y: 720 }),
+          staticTransform({ x, y: 720 }),
+        ],
+        'cubic-out',
+      );
+      layer.groupId = panel.groupId;
+      layer.parentId = panel.id;
+      return layer;
+    });
+    composition.layers = [panel, ...children];
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('motion.lockstep'),
+      ),
+    ).toBe(false);
+    // Parenting alone is not an exemption: these three details now move independently inside a static panel.
+    for (const key of panel.animationTracks.x ?? []) key.value = 100;
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('motion.lockstep'),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ['center', 98, 104],
+    ['right', 102, 98],
+  ] as const)('compares %s text anchors rather than unrelated left bounds', (align, x, width) => {
+    const composition = createComposition();
+    const firstPose = staticTransform({ x: 100, y: 100, width: 100 });
+    const secondPose = staticTransform({ x, y: 250, width });
+    const first = authoredLayer('text', 'Label', [firstPose, firstPose, firstPose]);
+    const second = authoredLayer('text', 'Value', [secondPose, secondPose, secondPose]);
+    first.groupId = second.groupId = 'text-stack';
+    if (first.element.type !== 'text' || second.element.type !== 'text')
+      throw new Error('Expected text');
+    first.element.textAlign = second.element.textAlign = align;
+    composition.layers = [first, second];
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('layout.edge-alignment'),
+      ),
+    ).toBe(false);
+    for (const key of second.animationTracks.x ?? []) key.value += 3;
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('layout.edge-alignment'),
+      ),
+    ).toBe(true);
+  });
+
+  it('recognizes automatic clock text while still reporting an unbound manual clock', () => {
+    const composition = createComposition();
+    const valuePose = staticTransform({ x: 100, y: 100, width: 400, height: 100 });
+    const clock = authoredLayer('clock', 'Clock', [valuePose, valuePose, valuePose]);
+    composition.layers = [clock];
+    if (clock.element.type !== 'text' || !clock.element.clock)
+      throw new Error('Expected native clock');
+    expect(clock.element.clock.source).toBe('automatic');
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('data.unbound-text'),
+      ),
+    ).toBe(false);
+    clock.element.clock.source = 'manual';
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('data.unbound-text'),
+      ),
+    ).toBe(true);
+  });
+
   it('detects weak type hierarchy and near-miss text alignment with an optical opt-out', () => {
     const composition = createComposition();
     const result = materializeLowerThird(composition);
@@ -191,6 +330,28 @@ describe('design and motion QA', () => {
     layer.semantics.tags = [];
 
     layer.loop.tracks.opacity![1]!.value = 0.2;
+    expect(
+      reviewCompositionDesign(composition).findings.some((finding) =>
+        finding.id.startsWith('loop.seam'),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not require one-shot custom-action clips to have matching endpoints', () => {
+    const composition = createComposition({
+      customActions: [createCustomActionDefinition({ actionId: 'celebrate', name: 'Celebrate' })],
+    });
+    const pose = staticTransform({ x: 100, y: 100 });
+    const layer = authoredLayer('rectangle', 'One-shot plate', [pose, pose, pose]);
+    layer.loop = createLayerLoopClip({
+      activation: { type: 'customAction', customActionId: 'celebrate' },
+      durationFrames: 10,
+      repeatCount: 1,
+      tracks: {
+        x: [createLayerPropertyKeyframe(0, 100), createLayerPropertyKeyframe(10, 300)],
+      },
+    });
+    composition.layers = [layer];
     expect(
       reviewCompositionDesign(composition).findings.some((finding) =>
         finding.id.startsWith('loop.seam'),

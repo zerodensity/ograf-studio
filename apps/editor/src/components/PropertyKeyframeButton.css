@@ -1,0 +1,45 @@
+.property-keyframe-button {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  min-width: 22px;
+  height: var(--ui-control-height);
+  min-height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.property-keyframe-button svg {
+  display: block;
+  overflow: visible;
+}
+
+.property-keyframe-button path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.property-keyframe-button.is-animated {
+  color: var(--accent);
+}
+
+.property-keyframe-button.is-keyed path {
+  fill: currentColor;
+}
+
+.property-keyframe-button:hover:not(:disabled),
+.property-keyframe-button:focus-visible {
+  border-color: var(--accent-focus);
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.property-keyframe-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

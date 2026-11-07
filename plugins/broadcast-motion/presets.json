@@ -1,0 +1,158 @@
+[
+  {
+    "id": "slide-settle",
+    "name": "Slide & Settle",
+    "description": "Slide from the left, overshoot gently, and settle while fading in. Exit to the right.",
+    "parameters": [
+      {
+        "id": "distance",
+        "label": "Distance (pixels)",
+        "default": 120,
+        "min": 0,
+        "max": 2000,
+        "step": 1
+      }
+    ],
+    "tracks": {
+      "in": [
+        {
+          "property": "x",
+          "mode": "offset",
+          "keys": [
+            { "at": 0, "value": { "parameter": "distance", "multiplier": -1 } },
+            {
+              "at": 0.7,
+              "value": { "parameter": "distance", "multiplier": 0.12 },
+              "easing": "cubic-out"
+            },
+            { "at": 0.86, "value": { "parameter": "distance", "multiplier": -0.02 } },
+            { "at": 1, "value": "on-air" }
+          ]
+        },
+        {
+          "property": "opacity",
+          "mode": "absolute",
+          "keys": [
+            { "at": 0, "value": 0 },
+            { "at": 0.35, "value": "on-air" },
+            { "at": 1, "value": "on-air" }
+          ]
+        }
+      ],
+      "out": [
+        {
+          "property": "x",
+          "mode": "offset",
+          "keys": [
+            { "at": 0, "value": "on-air" },
+            { "at": 0.2, "value": { "parameter": "distance", "multiplier": -0.08 } },
+            { "at": 1, "value": { "parameter": "distance" }, "easing": "cubic-in" }
+          ]
+        },
+        {
+          "property": "opacity",
+          "mode": "absolute",
+          "keys": [
+            { "at": 0, "value": "on-air" },
+            { "at": 0.4, "value": "on-air" },
+            { "at": 1, "value": 0 }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "pulse-pop",
+    "name": "Pulse Pop",
+    "description": "Pop into view with a small overshoot and settle. Pulse once before shrinking out.",
+    "parameters": [
+      { "id": "bounce", "label": "Overshoot", "default": 0.14, "min": 0, "max": 0.5, "step": 0.01 }
+    ],
+    "tracks": {
+      "in": [
+        {
+          "property": "scale",
+          "mode": "factor",
+          "keys": [
+            { "at": 0, "value": 0.05 },
+            { "at": 0.65, "value": { "parameter": "bounce", "offset": 1 }, "easing": "cubic-out" },
+            { "at": 0.82, "value": 0.98 },
+            { "at": 1, "value": "on-air" }
+          ]
+        },
+        {
+          "property": "opacity",
+          "mode": "absolute",
+          "keys": [
+            { "at": 0, "value": 0 },
+            { "at": 0.35, "value": "on-air" },
+            { "at": 1, "value": "on-air" }
+          ]
+        }
+      ],
+      "out": [
+        {
+          "property": "scale",
+          "mode": "factor",
+          "keys": [
+            { "at": 0, "value": "on-air" },
+            { "at": 0.25, "value": { "parameter": "bounce", "offset": 1 } },
+            { "at": 1, "value": 0.05, "easing": "cubic-in" }
+          ]
+        },
+        {
+          "property": "opacity",
+          "mode": "absolute",
+          "keys": [
+            { "at": 0, "value": "on-air" },
+            { "at": 0.5, "value": "on-air" },
+            { "at": 1, "value": 0 }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "curtain",
+    "name": "Curtain Reveal",
+    "description": "Open a center-out horizontal curtain without resizing text. Close it on exit.",
+    "tracks": {
+      "in": [
+        {
+          "property": "clipLeft",
+          "mode": "absolute",
+          "keys": [
+            { "at": 0, "value": 0.5 },
+            { "at": 1, "value": "on-air", "easing": "cubic-out" }
+          ]
+        },
+        {
+          "property": "clipRight",
+          "mode": "absolute",
+          "keys": [
+            { "at": 0, "value": 0.5 },
+            { "at": 1, "value": "on-air", "easing": "cubic-out" }
+          ]
+        }
+      ],
+      "out": [
+        {
+          "property": "clipLeft",
+          "mode": "absolute",
+          "keys": [
+            { "at": 0, "value": "on-air" },
+            { "at": 1, "value": 0.5, "easing": "cubic-in" }
+          ]
+        },
+        {
+          "property": "clipRight",
+          "mode": "absolute",
+          "keys": [
+            { "at": 0, "value": "on-air" },
+            { "at": 1, "value": 0.5, "easing": "cubic-in" }
+          ]
+        }
+      ]
+    }
+  }
+]

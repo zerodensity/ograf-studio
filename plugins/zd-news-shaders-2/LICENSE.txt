@@ -1,0 +1,15 @@
+ZD News Shaders 2
+Declared shader license: CC0-1.0
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Original source declaration supplied with these shaders:
+
+The forty numbered shaders, the preview page, the preview server and the example projects are
+original work dedicated to the public domain under CC0-1.0. The "inspired by" credits name ideas
+only; no code from those shaders was used.
+
+This pack includes only numbered GLSL shaders 21 through 40. It does not include shaders 01
+through 20, the preview server/page, example projects or realistic-flag.glsl, which retains
+separate existing terms. Individual source comments and credits are retained unchanged.
+Publisher and license metadata are declarations, not independent verification of authorship
+or redistribution rights.

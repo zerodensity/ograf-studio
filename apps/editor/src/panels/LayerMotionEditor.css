@@ -1,0 +1,96 @@
+.layer-motion-editor {
+  display: grid;
+  gap: 6px;
+}
+
+.layer-motion-side {
+  display: grid;
+  gap: 3px;
+}
+
+.layer-motion-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.layer-motion-label {
+  width: 26px;
+  flex: none;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.layer-motion-row > select {
+  min-width: 0;
+  flex: 1;
+}
+
+.layer-motion-directions {
+  display: flex;
+  flex: none;
+  gap: 1px;
+}
+
+.layer-motion-directions > button,
+.layer-motion-preview {
+  width: 22px;
+  flex: none;
+  padding: 0;
+}
+.layer-motion-plugins {
+  flex: none;
+  padding-inline: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.layer-motion-directions > button.active {
+  background: var(--accent);
+  color: var(--bg-panel);
+}
+
+.layer-motion-details {
+  padding-left: 30px;
+  flex-wrap: wrap;
+}
+
+.layer-motion-details label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.layer-motion-details input {
+  width: 52px;
+}
+
+.layer-motion-details small {
+  font-size: 10px;
+}
+
+.layer-motion-stagger {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.layer-motion-stagger input {
+  width: 40px;
+}
+
+.layer-motion-stagger select {
+  min-width: 0;
+}
+
+.layer-motion-hint {
+  margin: 0;
+  padding-left: 30px;
+  color: var(--text-dim);
+  font-size: 11px;
+}

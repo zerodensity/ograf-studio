@@ -4,6 +4,38 @@ import { createProject, DEFAULT_SHADER_FRAGMENT_SOURCE } from '@ograf-editor/sce
 import { AuthoringSession } from './session';
 
 describe('shader authoring', () => {
+  it('keeps a connected template valid when replacing shader paint and restores the mapping on undo', () => {
+    const session = new AuthoringSession(createProject());
+    const added = session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'add_layer', kind: 'rectangle', element: { fill: { type: 'shader' } } }],
+    });
+    const composition = added.project.compositions[0]!;
+    const field = composition.dataFields.find((candidate) => candidate.generatedShaderParameter)!;
+    session.apply({
+      expectedRevision: 1,
+      operations: [
+        {
+          type: 'add_data_connection',
+          connection: { mappings: [{ fieldId: field.id, sourcePath: 'amount' }] },
+        },
+      ],
+    });
+    const replaced = session.apply({
+      expectedRevision: 2,
+      operations: [
+        { type: 'update_element', layerId: composition.layers[0]!.id, patch: { fill: '#ffffff' } },
+      ],
+    });
+    expect(replaced.validation.errors).toEqual([]);
+    expect(replaced.project.compositions[0]!.dataConnections[0]!.mappings).toEqual([]);
+    const restored = session.undo(3);
+    expect(restored.validation.valid).toBe(true);
+    expect(restored.project.compositions[0]!.dataConnections[0]!.mappings).toEqual([
+      { fieldId: field.id, sourcePath: 'amount' },
+    ]);
+  });
+
   it('authors shader property and loop keys through shared numeric operations and rejects stale targets atomically', () => {
     const session = new AuthoringSession(createProject(), 'shader-keys');
     const created = session.apply({

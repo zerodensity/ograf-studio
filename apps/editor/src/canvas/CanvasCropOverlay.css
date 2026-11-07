@@ -1,0 +1,162 @@
+.canvas-crop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  overflow: hidden;
+  outline: none;
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+}
+
+.canvas-crop-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.canvas-crop-dim {
+  fill: rgb(0 0 0 / 58%);
+}
+
+.canvas-crop-hit {
+  fill: transparent;
+  pointer-events: all;
+  cursor: move;
+}
+
+.canvas-crop-full-outline,
+.canvas-crop-outline-shadow,
+.canvas-crop-outline,
+.canvas-crop-thirds {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.canvas-crop-full-outline {
+  stroke: rgb(255 255 255 / 45%);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.canvas-crop-outline-shadow {
+  stroke: rgb(0 0 0 / 85%);
+  stroke-width: 3;
+}
+
+.canvas-crop-outline {
+  stroke: white;
+  stroke-width: 1;
+}
+
+.canvas-crop-thirds {
+  stroke: rgb(255 255 255 / 65%);
+  stroke-width: 1;
+}
+
+.canvas-crop-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #171717;
+  border-radius: 1px;
+  background: white;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 35%);
+  transform: translate(-50%, -50%);
+}
+
+.canvas-crop-handle:hover,
+.canvas-crop-handle:focus-visible {
+  background: var(--accent, #57b5fa);
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+.canvas-crop-toolbar {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #555);
+  border-radius: var(--radius-control, 4px);
+  background: var(--bg-panel, #292929);
+  color: var(--text-primary, #eee);
+  box-shadow: 0 3px 12px rgb(0 0 0 / 40%);
+  cursor: default;
+}
+
+.canvas-crop-toolbar strong {
+  margin-right: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.canvas-crop-toolbar output {
+  margin-right: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-muted, #bbb);
+}
+
+.canvas-crop-toolbar button {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.canvas-crop-toolbar .canvas-crop-apply {
+  border-color: var(--accent, #57b5fa);
+}
+
+.canvas-crop-message {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 36px);
+  box-sizing: border-box;
+  padding: 5px 9px;
+  border-radius: 4px;
+  background: rgb(20 20 20 / 85%);
+  color: #ddd;
+  font-size: 11px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.canvas-crop-message.is-error {
+  color: #ffb1b1;
+}
+
+.canvas-crop-source {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  background-color: #686868;
+  background-image: conic-gradient(#989898 25%, transparent 0 50%, #989898 0 75%, transparent 0);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+
+.canvas-crop-source img,
+.canvas-crop-source video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}

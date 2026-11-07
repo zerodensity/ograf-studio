@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
 import {
   createCustomActionDefinition,
+  createRendererPluginSnapshot,
   createShaderPaint,
   getElementShaderPaint,
   createFieldDefinition,
@@ -16,15 +17,141 @@ import {
   createLayerLoopClip,
   syncCompositionShaderParameterFields,
 } from '@ograf-editor/scene-model';
-import { assembleManifest, compileDescriptor, generateMainJs } from '@ograf-editor/codegen';
+import {
+  assembleManifest,
+  compileDescriptor,
+  generateMainJs,
+  buildExportArtifactsWithRuntime,
+  buildCoordinatedExportArtifactsWithRuntime,
+} from '@ograf-editor/codegen';
 import { OGRAF_MANIFEST_SCHEMA_URL, type OGrafManifest } from '@ograf-editor/ograf-types';
 import { importOgrafData } from './importOgraf';
+import { createTransitionLogicNewsExample } from '../examples/transitionLogicNews';
+import { resolveProjectSetTemplate } from './projectSet';
 
 async function packageBytes(files: Record<string, string>): Promise<Uint8Array> {
   const zip = new JSZip();
   for (const [path, contents] of Object.entries(files)) zip.file(path, contents);
   return zip.generateAsync({ type: 'uint8array' });
 }
+
+describe('coordinated package import protection', () => {
+  const manifest = {
+    $schema: OGRAF_MANIFEST_SCHEMA_URL,
+    id: 'news-transition-logic',
+    name: 'News Transition Logic',
+    main: 'main.js',
+    supportsRealTime: true,
+    supportsNonRealTime: true,
+  };
+
+  it('refuses the exported news runtime instead of silently recovering an empty single template', async () => {
+    const set = createTransitionLogicNewsExample(1_760_000_000_000);
+    const artifacts = buildCoordinatedExportArtifactsWithRuntime(
+      {
+        id: set.id,
+        name: set.name,
+        definition: set.transitionLogic!,
+        componentAssets: set.componentAssets ?? [],
+        templates: set.templates.map((template) => ({
+          id: template.id,
+          name: template.name,
+          project: resolveProjectSetTemplate(set, template.id),
+        })),
+      },
+      'export class CoordinatedGraphicElement {}',
+    );
+    expect(artifacts.errors).toEqual([]);
+    const zip = await packageBytes({
+      [artifacts.manifestFileName]: JSON.stringify(artifacts.manifest),
+      'main.js': artifacts.mainJs,
+    });
+    await expect(importOgrafData('news.ograf.zip', zip)).rejects.toThrow(
+      /coordinated playout runtime package.*original \.ogs/,
+    );
+  });
+
+  it('recognizes a coordinated manifest even when main.js is not supplied', async () => {
+    await expect(
+      importOgrafData(
+        'news.ograf.json',
+        JSON.stringify({
+          ...manifest,
+          v_ografTransitionLogic: { version: 1 },
+        }),
+      ),
+    ).rejects.toThrow('coordinated playout runtime package');
+  });
+
+  it.each(['const', 'let', 'var'])(
+    'recognizes a %s descriptor without evaluating runtime JavaScript or preferring partial source',
+    async (declaration) => {
+      const partialSource = createProject({ name: 'Only one template' });
+      const zip = await packageBytes({
+        'news.ograf.json': JSON.stringify(manifest),
+        'main.js': `throw new Error("Runtime must never execute"); ${declaration} exportedTransitionDescriptor = {};`,
+        'source.ogs': JSON.stringify(partialSource),
+      });
+      await expect(importOgrafData('news.ograf.zip', zip)).rejects.toThrow(
+        'cannot recover its complete template set',
+      );
+    },
+  );
+});
+
+it('recovers pinned chart providers from a compiled package without executing plugin code', async () => {
+  const project = createProject();
+  const composition = project.compositions[0]!;
+  const plugin = createRendererPluginSnapshot({
+    manifest: {
+      schemaVersion: 1,
+      apiVersion: 1,
+      kind: 'chart',
+      id: 'test.chart',
+      version: '1.0.0',
+      name: 'Pinned Chart',
+      presets: ['bar'],
+      license: 'MIT',
+    },
+    source: 'throw new Error("Do not execute while importing"); export default {};\n',
+    licenseText: 'MIT imported license\n',
+  });
+  const layer = createLayerOfKind('chart');
+  if (layer.element.type !== 'chart') throw new Error('Expected chart');
+  layer.element.provider = {
+    id: plugin.manifest.id,
+    version: plugin.manifest.version,
+    sha256: plugin.sha256,
+  };
+  layer.keyframes = [createLayerKeyframe(0, defaultTransformFor('chart'))];
+  composition.layers = [layer];
+  composition.rendererPlugins = [plugin];
+  const artifacts = buildExportArtifactsWithRuntime(
+    project,
+    composition,
+    'class GraphicElement {}',
+  );
+  expect(artifacts.errors).toEqual([]);
+  const files = {
+    [artifacts.manifestFileName]: JSON.stringify(artifacts.manifest),
+    'main.js': artifacts.mainJs,
+    ...Object.fromEntries(artifacts.resources.map((resource) => [resource.path, resource.data])),
+  };
+  const imported = await importOgrafData('pinned-chart.ograf.zip', await packageBytes(files));
+  expect(imported.mode).toBe('compiled-descriptor');
+  expect(imported.project.compositions[0]!.rendererPlugins).toEqual([plugin]);
+  expect(imported.project.compositions[0]!.layers[0]!.element).toMatchObject({
+    type: 'chart',
+    provider: { id: plugin.manifest.id, version: plugin.manifest.version, sha256: plugin.sha256 },
+  });
+  const sourcePath = artifacts.resources.find((resource) =>
+    resource.path.endsWith('/renderer.js'),
+  )!.path;
+  files[sourcePath] = 'export default { changed: true };';
+  await expect(
+    importOgrafData('tampered-chart.ograf.zip', await packageBytes(files)),
+  ).rejects.toThrow('package source differs');
+});
 
 it('imports editable text with independent fill and outline shader fields', async () => {
   const project = createProject();

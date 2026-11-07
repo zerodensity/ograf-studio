@@ -27,12 +27,14 @@ export const usePathEditStore = create<{
     useTimelineStore.getState().controller?.pause();
     useTimelineStore.getState().setPlaying(false);
     try {
-      runDiscreteHistoryStep(() =>
-        state.editLayerPath(
-          layerId,
-          { action: 'convert' },
-          useTimelineStore.getState().currentFrame,
-        ),
+      runDiscreteHistoryStep(
+        () =>
+          state.editLayerPath(
+            layerId,
+            { action: 'convert' },
+            useTimelineStore.getState().currentFrame,
+          ),
+        'Convert to editable path',
       );
       useSelectionStore.getState().select(layerId);
       set({ layerId, error: null });

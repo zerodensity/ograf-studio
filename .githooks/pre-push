@@ -1,0 +1,4 @@
+#!/bin/sh
+# OGRAF_AUTHORING_SKILL_GUARD
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec node "$hook_dir/../scripts/packageAuthoringSkill.mjs" --check-push

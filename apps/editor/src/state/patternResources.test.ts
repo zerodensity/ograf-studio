@@ -1,11 +1,37 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getPatternPresetPatch } from '@ograf-editor/scene-model';
+import {
+  computeKeyframeFrames,
+  getLayerTransformAtFrame,
+  getPatternPresetPatch,
+} from '@ograf-editor/scene-model';
 import { useProjectStore } from './projectStore';
 
 const composition = () => useProjectStore.getState().project.compositions[0]!;
 beforeEach(() => useProjectStore.getState().newProject());
 
 describe('visual pattern resource authoring', () => {
+  it('applies optional positions and group membership across new pattern entry points', () => {
+    const store = useProjectStore.getState();
+    const placement = { x: 312, y: 128, groupId: 'group-placement' };
+    const { patternId, layerId } = store.createPatternResource(
+      getPatternPresetPatch('dots', 800, 400, 25),
+      true,
+      placement,
+    );
+    const ids = [
+      layerId!,
+      store.addPatternInstance(patternId, placement),
+      store.addLayer('pattern', placement),
+    ];
+    for (const id of ids) {
+      const layer = composition().layers.find((candidate) => candidate.id === id)!;
+      expect(layer.groupId).toBe(placement.groupId);
+      expect(layer.animationTrackMode).toBe('independent');
+      expect(layer.animationTracks).toEqual({});
+      for (const { frame } of computeKeyframeFrames(composition()))
+        expect(getLayerTransformAtFrame(layer, frame)).toMatchObject({ x: 312, y: 128 });
+    }
+  });
   it('creates a named preset and its linked layer atomically without O/D symbols', () => {
     const { patternId, layerId } = useProjectStore
       .getState()

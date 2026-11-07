@@ -56,6 +56,13 @@ export class AuthoringSession {
   #redo: HistoryEntry[] = [];
   #listeners = new Set<(change: AuthoringSessionChange) => void>();
   #changes: AuthoringChangeRecord[] = [];
+  #mutationValidator:
+    | ((
+        previous: Project,
+        candidate: Project,
+        context?: { documentContext?: 'standalone' },
+      ) => void)
+    | null = null;
 
   constructor(project: Project, id = createId('session')) {
     this.id = id;
@@ -64,6 +71,19 @@ export class AuthoringSession {
 
   get revision(): number {
     return this.#revision;
+  }
+
+  /** Host-owned document context, evaluated before any mutation or history publication. */
+  setMutationValidator(
+    validator:
+      | ((
+          previous: Project,
+          candidate: Project,
+          context?: { documentContext?: 'standalone' },
+        ) => void)
+      | null,
+  ): void {
+    this.#mutationValidator = validator;
   }
 
   snapshot(): AuthoringSessionSnapshot {
@@ -114,8 +134,10 @@ export class AuthoringSession {
 
   replaceExternal(project: Project, reason = 'Editor project update'): AuthoringSessionSnapshot {
     const next = migrateProject(clone(project));
-    if (JSON.stringify(next) === JSON.stringify(this.#project)) return this.snapshot();
+    const current = migrateProject(clone(this.#project));
+    if (JSON.stringify(next) === JSON.stringify(current)) return this.snapshot();
     const affectedLayerIds = changedLayerIds(this.#project, next);
+    this.#mutationValidator?.(this.#project, next);
     // The browser owns undo history for direct UI edits. Mirroring every drag/keystroke into this
     // history would make an agent undo disagree with the editor's undo stack.
     this.#undo = [];
@@ -151,12 +173,14 @@ export class AuthoringSession {
     project: Project,
     expectedRevision: number,
     reason = 'Reset project',
+    options: { documentContext?: 'standalone' } = {},
   ): AuthoringMutationResult {
     if (expectedRevision !== this.#revision) {
       throw new RevisionConflictError(expectedRevision, this.#revision);
     }
     const previousRevision = this.#revision;
     const next = migrateProject(clone(project));
+    this.#mutationValidator?.(this.#project, next, options);
     const summary: AuthoringChangeSummary = {
       operationCount: 1,
       operationTypes: ['reset_project'],
@@ -188,6 +212,7 @@ export class AuthoringSession {
       revision: this.#revision,
       source: 'agent',
       reason,
+      ...(options.documentContext ? { documentContext: options.documentContext } : {}),
       project: clone(this.#project),
       summary,
     });
@@ -210,6 +235,7 @@ export class AuthoringSession {
     const previousRevision = this.#revision;
     const { project, summary } = applyAuthoringOperations(this.#project, request.operations);
     const validation = validateProject(project);
+    this.#mutationValidator?.(this.#project, project);
     if (request.dryRun) {
       return {
         sessionId: this.id,
@@ -250,8 +276,10 @@ export class AuthoringSession {
     if (expectedRevision !== this.#revision) {
       throw new RevisionConflictError(expectedRevision, this.#revision);
     }
-    const previous = this.#undo.pop();
+    const previous = this.#undo.at(-1);
     if (!previous) throw new Error('Nothing to undo.');
+    this.#mutationValidator?.(this.#project, previous.project);
+    this.#undo.pop();
     this.#redo.push({
       token: previous.token,
       project: clone(this.#project),
@@ -273,8 +301,10 @@ export class AuthoringSession {
     if (expectedRevision !== this.#revision) {
       throw new RevisionConflictError(expectedRevision, this.#revision);
     }
-    const next = this.#redo.pop();
+    const next = this.#redo.at(-1);
     if (!next) throw new Error('Nothing to redo.');
+    this.#mutationValidator?.(this.#project, next.project);
+    this.#redo.pop();
     this.#undo.push({
       token: next.token,
       project: clone(this.#project),

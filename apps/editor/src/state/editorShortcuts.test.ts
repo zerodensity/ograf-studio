@@ -51,7 +51,7 @@ function activeComposition() {
   return getActiveComposition(state.project, state.activeCompositionId);
 }
 
-describe('editor duplicate shortcut', () => {
+describe('editor selection shortcuts', () => {
   beforeEach(() => {
     useProjectStore.getState().newProject();
     useSelectionStore.getState().select(null);
@@ -67,7 +67,7 @@ describe('editor duplicate shortcut', () => {
   it.each([
     ['Ctrl', { ctrlKey: true, metaKey: false }],
     ['Command', { ctrlKey: false, metaKey: true }],
-  ])('duplicates the current selection in place with %s+D', (_label, modifier) => {
+  ])('duplicates the current selection in place with %s+Shift+D', (_label, modifier) => {
     const sourceId = useProjectStore.getState().addLayer('rectangle');
     useProjectStore.getState().updateLayerTransform(sourceId, 7, { x: 345, y: 217 });
     const source = activeComposition().layers.find((layer) => layer.id === sourceId)!;
@@ -77,7 +77,7 @@ describe('editor duplicate shortcut', () => {
     const owner = new ShortcutWindow();
     const uninstall = installEditorShortcuts(owner as unknown as Window);
 
-    const preventDefault = owner.dispatch(modifier);
+    const preventDefault = owner.dispatch({ ...modifier, shiftKey: true });
     const composition = activeComposition();
     const copy = composition.layers[1]!;
 
@@ -96,6 +96,7 @@ describe('editor duplicate shortcut', () => {
     const uninstall = installEditorShortcuts(owner as unknown as Window);
 
     const preventDefault = owner.dispatch({
+      shiftKey: true,
       target: {
         tagName: 'BUTTON',
         getAttribute: (name: string) => (name === 'data-editor-shortcuts' ? 'allow' : null),
@@ -113,8 +114,8 @@ describe('editor duplicate shortcut', () => {
     const owner = new ShortcutWindow();
     const uninstall = installEditorShortcuts(owner as unknown as Window);
 
-    owner.dispatch();
-    owner.dispatch();
+    owner.dispatch({ shiftKey: true });
+    owner.dispatch({ shiftKey: true });
     expect(activeComposition().layers).toHaveLength(3);
 
     undo();
@@ -135,13 +136,12 @@ describe('editor duplicate shortcut', () => {
       { target: { isContentEditable: true } },
       { repeat: true },
       { altKey: true },
-      { shiftKey: true },
       { ctrlKey: false, metaKey: false },
     ];
 
     for (const patch of ignored) expect(owner.dispatch(patch)).not.toHaveBeenCalled();
     useSelectionStore.getState().select('missing-layer');
-    expect(owner.dispatch()).toHaveBeenCalledOnce();
+    expect(owner.dispatch({ shiftKey: true })).toHaveBeenCalledOnce();
     expect(activeComposition().layers).toHaveLength(1);
     uninstall();
   });
@@ -153,11 +153,57 @@ describe('editor duplicate shortcut', () => {
     const uninstall = installEditorShortcuts(owner as unknown as Window);
 
     const preventDefault = owner.dispatch({
+      shiftKey: true,
       target: { tagName: 'DIV', closest: () => ({ role: 'dialog' }) },
     });
 
     expect(preventDefault).not.toHaveBeenCalled();
     expect(activeComposition().layers).toHaveLength(1);
+    uninstall();
+  });
+
+  it('clears layer and keyframe selection with Ctrl+D without changing the project', () => {
+    const sourceId = useProjectStore.getState().addLayer('rectangle');
+    const source = activeComposition().layers.find((layer) => layer.id === sourceId)!;
+    useSelectionStore.getState().selectLayerKeyframe(sourceId, source.keyframes[0]!.id, null);
+    const owner = new ShortcutWindow();
+    const uninstall = installEditorShortcuts(owner as unknown as Window);
+
+    const preventDefault = owner.dispatch({ target: { tagName: 'BUTTON' } });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(useSelectionStore.getState()).toMatchObject({
+      selectedLayerId: null,
+      selectedLayerIds: [],
+      selectedLayerKeyframeId: null,
+      selectedLayerKeyframes: [],
+    });
+    expect(activeComposition().layers).toHaveLength(1);
+    uninstall();
+  });
+
+  it('restores deselected layers before Ctrl+Z continues into project history', () => {
+    const sourceId = useProjectStore.getState().addLayer('rectangle');
+    resetHistory();
+    useProjectStore.getState().updateLayerTransform(sourceId, 0, { x: 320 });
+    vi.runAllTimers();
+    useSelectionStore.getState().select(sourceId);
+    const owner = new ShortcutWindow();
+    const uninstall = installEditorShortcuts(owner as unknown as Window);
+
+    owner.dispatch({ target: { tagName: 'BUTTON' } });
+    owner.dispatch({ key: 'z', code: 'KeyZ', target: { tagName: 'BUTTON' } });
+
+    expect(activeComposition().layers).toHaveLength(1);
+    expect(useSelectionStore.getState()).toMatchObject({
+      selectedLayerId: sourceId,
+      selectedLayerIds: [sourceId],
+      selectedLayerKeyframeId: null,
+      selectedLayerKeyframes: [],
+    });
+    expect(getLayerTransformAtFrame(activeComposition().layers[0]!, 0).x).toBe(320);
+    owner.dispatch({ key: 'z', code: 'KeyZ' });
+    expect(getLayerTransformAtFrame(activeComposition().layers[0]!, 0).x).not.toBe(320);
     uninstall();
   });
 });

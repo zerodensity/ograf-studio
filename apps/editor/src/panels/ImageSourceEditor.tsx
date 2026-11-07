@@ -4,6 +4,7 @@ import type { Asset, Layer } from '@ograf-editor/scene-model';
 import { ImagePicker } from '../components/ImagePicker';
 import { useProjectStore } from '../state/projectStore';
 import { readImageSize } from '../state/imageImport';
+import { SourceCropEditor } from './SourceCropEditor';
 
 export function ImageSourceEditor({ layer, assets }: { layer: Layer; assets: Asset[] }) {
   const [open, setOpen] = useState(false);
@@ -47,6 +48,36 @@ export function ImageSourceEditor({ layer, assets }: { layer: Layer; assets: Ass
           {dimensions.width} × {dimensions.height} px · Original size
         </p>
       )}
+      {layer.element.type === 'image' ? (
+        <>
+          <PropertyRow
+            help="How the selected image region fits inside this layer."
+            className="inspector-row"
+          >
+            <span>Fit</span>
+            <select
+              value={layer.element.fit ?? 'contain'}
+              disabled={layer.isLocked}
+              onChange={(event) =>
+                useProjectStore.getState().updateLayerElement(layer.id, {
+                  fit: event.currentTarget.value as 'contain' | 'cover' | 'fill',
+                })
+              }
+            >
+              <option value="contain">Contain</option>
+              <option value="cover">Cover</option>
+              <option value="fill">Stretch</option>
+            </select>
+          </PropertyRow>
+          <SourceCropEditor
+            layerId={layer.id}
+            value={layer.element.crop}
+            src={preview}
+            disabled={layer.isLocked}
+            onChange={(crop) => useProjectStore.getState().updateLayerElement(layer.id, { crop })}
+          />
+        </>
+      ) : null}
       {layer.bindings.some((b) => b.targetProperty === 'src') && (
         <p className="inspector-hint">A data binding can override this image during playback.</p>
       )}

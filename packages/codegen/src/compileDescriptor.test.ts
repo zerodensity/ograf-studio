@@ -2,11 +2,15 @@ import { getElementShaderPaint } from '@ograf-editor/scene-model';
 import { describe, expect, it } from 'vitest';
 import {
   createComposition,
+  createCustomActionDefinition,
   createFieldDefinition,
   createKeyframe,
   createLayerKeyframe,
   createLayerPropertyKeyframe,
   createLayerOfKind,
+  createLayerVisualRule,
+  createMediaCue,
+  createAsset,
   createTransition,
   materializeLowerThird,
   type Composition,
@@ -35,6 +39,98 @@ const POSE = {
 };
 
 describe('compileDescriptor', () => {
+  it('retains keyboard events, guards, delayed targets and data actions in standalone output', () => {
+    const layer = createLayerOfKind('rectangle');
+    const field = createFieldDefinition('integer', { key: 'count', defaultValue: 0 });
+    layer.visualRules = [
+      createLayerVisualRule({
+        trigger: 'key-down',
+        keyboard: { key: 'A', ctrl: true, alt: false, repeat: true },
+        delayFrames: 7,
+        conditions: [{ fieldId: field.id, sourcePath: [], operator: 'less-than', value: 5 }],
+        actions: [
+          { type: 'set-data', fieldId: field.id, mode: 'increase', value: 1 },
+          { type: 'toggle-visibility', targetLayerId: layer.id, transitionFrames: 8 },
+        ],
+      }),
+    ];
+    const descriptor = compileDescriptor(compositionWith([layer], { dataFields: [field] }));
+    expect(descriptor.layers[0]!.visualRules?.[0]).toMatchObject({
+      trigger: 'key-down',
+      keyboard: { key: 'a', ctrl: true, alt: false, repeat: true },
+      delayFrames: 7,
+      conditions: [{ dataKey: 'count', operator: 'less-than', value: 5 }],
+      actions: [
+        { type: 'set-data', dataKey: 'count', mode: 'increase', value: 1 },
+        { type: 'toggle-visibility', targetLayerId: layer.id, transitionFrames: 8 },
+      ],
+    });
+    expect(descriptor.layers[0]!.visualRules?.[0]?.keyboard).not.toBe(
+      layer.visualRules[0]!.keyboard,
+    );
+  });
+  it('publishes typewriter replay duration on its OGraf custom action', () => {
+    const text = createLayerOfKind('text');
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.textAnimation = {
+      ...text.element.textAnimation,
+      type: 'typewriter',
+      durationFrames: 18,
+      customActionId: 'retype',
+    };
+    const descriptor = compileDescriptor(
+      compositionWith([text], {
+        customActions: [createCustomActionDefinition({ actionId: 'retype', name: 'Retype' })],
+      }),
+    );
+    expect(descriptor.customActions).toEqual([
+      expect.objectContaining({ id: 'retype', durationFrames: 18 }),
+    ]);
+  });
+
+  it('carries a word reveal preset and its replay duration into playout', () => {
+    const text = createLayerOfKind('text');
+    if (text.element.type !== 'text') throw new Error('Expected text layer.');
+    text.element.textAnimation = {
+      ...text.element.textAnimation,
+      type: 'word-reveal',
+      durationFrames: 16,
+      customActionId: 'reveal',
+    };
+    const descriptor = compileDescriptor(
+      compositionWith([text], {
+        customActions: [createCustomActionDefinition({ actionId: 'reveal', name: 'Reveal' })],
+      }),
+    );
+    expect(descriptor.layers[0]?.element).toMatchObject({
+      type: 'text',
+      textAnimation: { type: 'word-reveal', durationFrames: 16 },
+    });
+    expect(descriptor.customActions).toContainEqual(
+      expect.objectContaining({ id: 'reveal', durationFrames: 16 }),
+    );
+  });
+
+  it('retains only active Auto layout parent relationships for runtime flow', () => {
+    const parent = createLayerOfKind('rectangle');
+    const child = createLayerOfKind('text');
+    child.parentId = parent.id;
+    parent.autoLayout = {
+      ...parent.autoLayout,
+      direction: 'horizontal',
+      gap: 18,
+      paddingLeft: 12,
+      hugWidth: true,
+    };
+    const descriptor = compileDescriptor(compositionWith([parent, child]));
+    expect(descriptor.layers[0]!.autoLayout).toMatchObject({
+      direction: 'horizontal',
+      gap: 18,
+      paddingLeft: 12,
+      hugWidth: true,
+    });
+    expect(descriptor.layers[1]!.layoutParentId).toBe(parent.id);
+  });
   it('preserves shader source and playback controls in the compiled and exported descriptor', () => {
     const shader = createLayerOfKind('shader');
     const paint = getElementShaderPaint(shader.element)!;
@@ -311,6 +407,44 @@ describe('compileDescriptor', () => {
     );
     expect(descriptor.stepCount).toBe(0);
     expect(descriptor.stepKeyframeIds).toEqual([]);
+  });
+
+  it('compiles Media Cues and materializes the active video source onto its target layer', () => {
+    const target = createLayerOfKind('rectangle');
+    const composition = compositionWith([target]);
+    composition.assets.push(
+      createAsset({
+        id: 'clip',
+        kind: 'media',
+        mimeType: 'video/mp4',
+        dataUri: 'data:video/mp4;base64,AAAA',
+      }),
+    );
+    composition.mediaCues.push(
+      createMediaCue({
+        id: 'cue',
+        sources: [
+          { id: 'source', name: 'Clip', kind: 'clip', mediaType: 'video', src: 'asset:clip' },
+        ],
+        activeSourceId: 'source',
+        trimStartMs: 250,
+        visual: { targetLayerId: target.id, fit: 'contain', positionX: 0.25, positionY: 0.75 },
+      }),
+    );
+    const descriptor = compileDescriptor(composition);
+    expect(descriptor.mediaCues?.[0]?.sources[0]).toMatchObject({
+      src: 'data:video/mp4;base64,AAAA',
+    });
+    expect(descriptor.layers[0]!.element).toMatchObject({
+      fill: {
+        type: 'media',
+        source: { kind: 'clip', src: 'data:video/mp4;base64,AAAA' },
+        fit: 'contain',
+        positionX: 0.25,
+        positionY: 0.75,
+        offsetMs: 250,
+      },
+    });
   });
 
   it('rejects a descriptor without both lifecycle boundaries', () => {

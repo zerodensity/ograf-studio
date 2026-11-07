@@ -3,8 +3,86 @@ import {
   createFieldDefinition,
   createRectangleLayer,
   createTextLayer,
+  createLayerVisualRule,
+  createDefaultTransform,
 } from '@ograf-editor/scene-model';
-import { resolveEffectiveElement } from './dataBinding';
+import {
+  resolveDesignerElement,
+  resolveDesignerEffects,
+  resolveEffectiveElement,
+  resolveEffectiveEffects,
+  resolveDesignerTransform,
+  bindableProperties,
+  ruleProperties,
+} from './dataBinding';
+
+describe('designer binding values', () => {
+  it('previews native geometry from nested field defaults and test values, preserving alpha fades', () => {
+    const layer = createRectangleLayer();
+    const field = createFieldDefinition('object', {
+      key: 'actor',
+      defaultValue: { x: 120, alpha: 0.5 },
+    });
+    layer.bindings = [
+      { fieldId: field.id, targetProperty: 'layer.x', sourcePath: ['x'] },
+      { fieldId: field.id, targetProperty: 'layer.opacity', sourcePath: ['alpha'] },
+    ];
+    const pose = createDefaultTransform({ x: 10, opacity: 0.4 });
+    expect(resolveDesignerTransform(layer, pose, {}, [field])).toMatchObject({
+      x: 120,
+      opacity: 0.2,
+    });
+    expect(
+      resolveDesignerTransform(layer, pose, { [field.id]: { x: 300, alpha: 0 } }, [field]),
+    ).toMatchObject({ x: 300, opacity: 0 });
+    expect(pose.x).toBe(10);
+    const targets = bindableProperties(layer.element).map((property) => property.value);
+    expect(targets).toEqual(
+      expect.arrayContaining([
+        'layer.x',
+        'layer.y',
+        'layer.width',
+        'layer.height',
+        'layer.rotation',
+        'layer.opacity',
+      ]),
+    );
+    expect(
+      ruleProperties(layer.element)
+        .find((group) => group.label === 'Content')!
+        .options.some((property) => property.value.startsWith('layer.')),
+    ).toBe(false);
+  });
+  it('shows editable bound values while runtime visual rules keep their own output', () => {
+    const layer = createRectangleLayer();
+    const fill = createFieldDefinition('color', { defaultValue: '#00ff00' });
+    const shadow = createFieldDefinition('color', { defaultValue: '#0000ff' });
+    const fields = [fill, shadow];
+    layer.bindings = [
+      { fieldId: fill.id, targetProperty: 'fill' },
+      { fieldId: shadow.id, targetProperty: 'dropShadowColor' },
+    ];
+    layer.visualRules = [
+      createLayerVisualRule({
+        fieldId: fill.id,
+        operator: 'equals',
+        value: '#00ff00',
+        actions: [
+          { type: 'property', targetProperty: 'fill', value: '#ff0000' },
+          { type: 'property', targetProperty: 'dropShadowColor', value: '#ff0000' },
+        ],
+      }),
+    ];
+    expect(resolveDesignerElement(layer, {}, fields)).toMatchObject({ fill: '#00ff00' });
+    expect(resolveDesignerEffects(layer, layer.effects, {}, fields)).toMatchObject({
+      dropShadowColor: '#0000ff',
+    });
+    expect(resolveEffectiveElement(layer, {}, [], fields)).toMatchObject({ fill: '#ff0000' });
+    expect(resolveEffectiveEffects(layer, layer.effects, {}, fields)).toMatchObject({
+      dropShadowColor: '#ff0000',
+    });
+  });
+});
 
 describe('resolveEffectiveElement', () => {
   it('uses the declared field default when no explicit test value exists', () => {

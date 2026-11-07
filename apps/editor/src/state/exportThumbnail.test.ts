@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
 import { createProject } from '@ograf-editor/scene-model';
+import { getExportProfile, getOfflinePreviewFileName } from '@ograf-editor/codegen';
 import { validateManifest } from '@ograf-editor/validation';
 import { exportProjectAsZip } from './exportPackage';
 import { certifyExportArtifacts } from './ografCompatibility';
@@ -42,6 +43,16 @@ describe('OGraf ZIP thumbnails', () => {
     expect(validateManifest(manifest).valid).toBe(true);
     expect(await zip.file(name)!.async('uint8array')).toEqual(png);
     expect(zip.file('main.js')).not.toBeNull();
+    const certified = vi.mocked(certifyExportArtifacts).mock.calls[0]![0];
+    expect(await zip.file(getOfflinePreviewFileName(certified))!.async('string')).toContain(
+      '<!doctype html>',
+    );
+    expect(await zip.file('main.js')!.async('string')).toBe(certified.mainJs);
+    for (const resource of certified.resources) {
+      expect(await zip.file(resource.path)!.async(resource.base64 ? 'base64' : 'string')).toBe(
+        resource.data,
+      );
+    }
     expect(vi.mocked(certifyExportArtifacts).mock.calls[0]![0].resources).toContainEqual({
       path: name,
       data: Buffer.from(png).toString('base64'),
@@ -51,6 +62,22 @@ describe('OGraf ZIP thumbnails', () => {
       expect.objectContaining({ thumbnailFrame: 7, mainCompositionId: project.mainCompositionId }),
     );
     expect(project).toEqual(source);
+  });
+
+  it('includes an offline preview in a non-realtime-only package without changing its manifest', async () => {
+    const project = createProject();
+    await exportProjectAsZip(project, project.compositions[0]!, getExportProfile('non-realtime'));
+    const blob = vi.mocked(saveBlobToFile).mock.calls[0]![0];
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const certified = vi.mocked(certifyExportArtifacts).mock.calls[0]![0];
+    expect(await zip.file(getOfflinePreviewFileName(certified))!.async('string')).toContain(
+      '<!doctype html>',
+    );
+    expect(JSON.parse(await zip.file(certified.manifestFileName)!.async('string'))).toEqual(
+      certified.manifest,
+    );
+    expect(certified.manifest.supportsRealTime).toBe(false);
+    expect(certified.manifest.supportsNonRealTime).toBe(true);
   });
 
   it('does not save an incomplete ZIP when thumbnail rendering fails', async () => {

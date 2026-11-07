@@ -8,6 +8,8 @@ import { AuthoringWorkspace } from './workspace';
 import { createOGrafToolRecords } from '@ograf-editor/agent-tools';
 import { ChatAgentController } from './agent/chatAgent';
 import { installEmbeddedEditor, installStaticEditor } from './staticEditor';
+import { installStudioWorkspacePreferences } from './studioWorkspacePreferences';
+import { NodosPresetHost } from './nodos/nodosPresets';
 
 export interface OGrafAuthoringHostOptions {
   workspaceRoot?: string;
@@ -28,6 +30,10 @@ export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}
     bridge.sendChatEvent(event),
   );
   bridge.setChatController(chat);
+  const nodosPresets = new NodosPresetHost(httpServer);
+  nodosPresets.install(app);
+  bridge.setNodosPresetHost(nodosPresets);
+  httpServer.on('close', () => nodosPresets.close());
 
   app.post('/mcp', async (request: Request, response: Response) => {
     const releaseExternal = chat.beginExternalRequest();
@@ -69,7 +75,12 @@ export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}
     response.status(405).json({ error: 'Method not allowed.' }),
   );
   app.get('/health', (_request: Request, response: Response) =>
-    response.json({ ok: true, editorConnected: bridge.connected, workspaceRoot: workspace.root }),
+    response.json({
+      ok: true,
+      editorConnected: bridge.connected,
+      editor: bridge.health,
+      workspaceRoot: workspace.root,
+    }),
   );
   app.get('/captures/:token', (request: Request, response: Response) => {
     const token = request.params.token;
@@ -80,6 +91,7 @@ export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}
     response.setHeader('Cache-Control', 'private, no-store, max-age=0');
     return response.send(asset.data);
   });
+  if (options.embeddedEditorAssets || options.editorRoot) installStudioWorkspacePreferences(app);
   if (options.embeddedEditorAssets) installEmbeddedEditor(app, options.embeddedEditorAssets);
   else if (options.editorRoot) installStaticEditor(app, options.editorRoot);
   return { app, httpServer, workspace, bridge, chat };

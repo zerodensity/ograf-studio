@@ -1,0 +1,67 @@
+.presenter-export-panel {
+  display: grid;
+  gap: 14px;
+  padding: 10px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.presenter-export-panel header {
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.presenter-export-panel header span,
+.presenter-export-panel p {
+  color: #b1b5bd;
+  line-height: 1.5;
+  margin: 5px 0 10px;
+}
+
+.presenter-export-panel section {
+  padding-top: 12px;
+  border-top: 1px solid #444;
+}
+
+.presenter-export-panel h3 {
+  margin: 0 0 6px;
+  color: #eee;
+  font-size: 12px;
+}
+
+.presenter-export-panel label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.presenter-export-panel select {
+  box-sizing: border-box;
+  max-width: 100%;
+  width: 100%;
+  min-height: 28px;
+}
+
+.presenter-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.presenter-export-actions button {
+  min-height: 28px;
+}
+
+.presenter-export-panel .presenter-export-status,
+.presenter-export-panel .presenter-export-error {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.presenter-export-panel .presenter-export-status {
+  color: #8dd7ed;
+}
+
+.presenter-export-panel .presenter-export-error {
+  color: #ffaaa6;
+}

@@ -48,7 +48,10 @@ export function PathEditor({ layer, pose, zoom, container, onPreview }: Props) {
   const stop = usePathEditStore((s) => s.stop);
   const commit = (edit: PathEdit) => {
     try {
-      runDiscreteHistoryStep(() => useProjectStore.getState().editLayerPath(layer.id, edit));
+      runDiscreteHistoryStep(
+        () => useProjectStore.getState().editLayerPath(layer.id, edit),
+        'Edit path',
+      );
       setError(null);
     } catch (e) {
       setError((e as Error).message);

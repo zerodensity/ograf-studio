@@ -6,6 +6,14 @@ interface LiveTransform {
   patch: Partial<LayerTransform>;
 }
 
+interface SelectionSnapshot {
+  selectedLayerId: string | null;
+  selectedLayerIds: string[];
+  selectedLayerKeyframeId: string | null;
+  selectedLayerProperty: AnimatableLayerProperty | null;
+  selectedLayerKeyframes: SelectedLayerKeyframe[];
+}
+
 export interface SelectedLayerKeyframe {
   layerId: string;
   keyframeId: string;
@@ -19,7 +27,10 @@ interface SelectionState {
   selectedLayerProperty: AnimatableLayerProperty | null;
   selectedLayerKeyframes: SelectedLayerKeyframe[];
   liveTransform: LiveTransform | null;
+  deselectionUndo: SelectionSnapshot | null;
   select: (layerId: string | null) => void;
+  deselectAll: () => void;
+  undoDeselectAll: () => boolean;
   selectLayerProperty: (layerId: string, property: AnimatableLayerProperty) => void;
   selectMany: (layerIds: string[]) => void;
   toggleLayerSelection: (layerId: string) => void;
@@ -39,13 +50,30 @@ interface SelectionState {
   clearLiveTransform: () => void;
 }
 
-export const useSelectionStore = create<SelectionState>((set) => ({
+const emptySelection: SelectionSnapshot = {
+  selectedLayerId: null,
+  selectedLayerIds: [],
+  selectedLayerKeyframeId: null,
+  selectedLayerProperty: null,
+  selectedLayerKeyframes: [],
+};
+
+const selectionSnapshot = (state: SelectionState): SelectionSnapshot => ({
+  selectedLayerId: state.selectedLayerId,
+  selectedLayerIds: [...state.selectedLayerIds],
+  selectedLayerKeyframeId: state.selectedLayerKeyframeId,
+  selectedLayerProperty: state.selectedLayerProperty,
+  selectedLayerKeyframes: state.selectedLayerKeyframes.map((keyframe) => ({ ...keyframe })),
+});
+
+export const useSelectionStore = create<SelectionState>((set, get) => ({
   selectedLayerId: null,
   selectedLayerIds: [],
   selectedLayerKeyframeId: null,
   selectedLayerProperty: null,
   selectedLayerKeyframes: [],
   liveTransform: null,
+  deselectionUndo: null,
   select: (layerId) =>
     set({
       selectedLayerId: layerId,
@@ -54,7 +82,24 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       selectedLayerProperty: null,
       selectedLayerKeyframes: [],
       liveTransform: null,
+      deselectionUndo: null,
     }),
+  deselectAll: () =>
+    set((state) =>
+      state.selectedLayerIds.length === 0 && state.selectedLayerKeyframes.length === 0
+        ? state
+        : {
+            ...emptySelection,
+            liveTransform: null,
+            deselectionUndo: selectionSnapshot(state),
+          },
+    ),
+  undoDeselectAll: () => {
+    const snapshot = get().deselectionUndo;
+    if (!snapshot) return false;
+    set({ ...snapshot, liveTransform: null, deselectionUndo: null });
+    return true;
+  },
   selectMany: (layerIds) => {
     const selectedLayerIds = [...new Set(layerIds)];
     set({
@@ -64,6 +109,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       selectedLayerProperty: null,
       selectedLayerKeyframes: [],
       liveTransform: null,
+      deselectionUndo: null,
     });
   },
   selectLayerProperty: (layerId, property) =>
@@ -74,6 +120,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       selectedLayerKeyframeId: null,
       selectedLayerKeyframes: [],
       liveTransform: null,
+      deselectionUndo: null,
     }),
   toggleLayerSelection: (layerId) =>
     set((state) => {
@@ -88,6 +135,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
         selectedLayerProperty: null,
         selectedLayerKeyframes: [],
         liveTransform: null,
+        deselectionUndo: null,
       };
     }),
   toggleManyLayerSelection: (layerIds) =>
@@ -106,6 +154,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
         selectedLayerProperty: null,
         selectedLayerKeyframes: [],
         liveTransform: null,
+        deselectionUndo: null,
       };
     }),
   deselectLayer: (layerId) =>
@@ -122,6 +171,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
         selectedLayerProperty: null,
         selectedLayerKeyframes: [],
         liveTransform: null,
+        deselectionUndo: null,
       };
     }),
   selectLayerKeyframe: (layerId, keyframeId, property = null) => {
@@ -133,6 +183,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       selectedLayerProperty: property,
       selectedLayerKeyframes: [selection],
       liveTransform: null,
+      deselectionUndo: null,
     });
   },
   selectLayerKeyframes: (keyframes, primary = keyframes.at(-1) ?? null) => {
@@ -162,6 +213,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       selectedLayerProperty: resolvedPrimary?.property ?? null,
       selectedLayerKeyframes: unique,
       liveTransform: null,
+      deselectionUndo: null,
     });
   },
   clearLayerKeyframe: () =>
@@ -169,6 +221,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       selectedLayerKeyframeId: null,
       selectedLayerProperty: null,
       selectedLayerKeyframes: [],
+      deselectionUndo: null,
     }),
   setLiveTransform: (layerId, patch) => set({ liveTransform: { layerId, patch } }),
   clearLiveTransform: () => set({ liveTransform: null }),

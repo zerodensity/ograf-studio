@@ -43,9 +43,10 @@ beforeEach(() => {
 describe('shader animation authoring', () => {
   it('deleting an aggregate frame removes its lone shader key and restores data control', () => {
     const { store, id, layer } = setup();
-    useTimelineStore.getState().setAutoKeyframe(true);
-    store.updateLayerShaderParameter(id, 5, 'fill', 'yaw', 30);
-    store.updateLayerShaderParameter(id, 7, 'fill', 'pitch', 10);
+    const yaw = store.addLayerPropertyKeyframe(id, 'fill.parameters.yaw', 5);
+    store.updateLayerPropertyKeyframeValue(id, 'fill.parameters.yaw', yaw, 30);
+    const pitch = store.addLayerPropertyKeyframe(id, 'fill.parameters.pitch', 7);
+    store.updateLayerPropertyKeyframeValue(id, 'fill.parameters.pitch', pitch, 10);
     const frame = layer().keyframes.find((key) => key.frame === 5)!;
     const otherTrack = structuredClone(layer().animationTracks['fill.parameters.pitch']);
     const strokeTrack = structuredClone(layer().animationTracks.strokeWidth);
@@ -63,6 +64,7 @@ describe('shader animation authoring', () => {
     useTimelineStore.getState().setAutoKeyframe(true);
     store.updateLayerShaderParameter(id, 12, 'fill', 'yaw', 30);
     expect(layer().animationTracks['fill.parameters.yaw']).toMatchObject([
+      { frame: 0, value: 0 },
       { frame: 12, value: 30 },
     ]);
     expect(layer().animationTracks['fill.parameters.pitch']).toBeUndefined();
@@ -75,7 +77,7 @@ describe('shader animation authoring', () => {
       true,
     );
   });
-  it('samples Inspector values and offsets existing curves when Auto-keyframe is off', () => {
+  it('samples Inspector values and keys only the playhead when Auto-keyframe is off', () => {
     const { store, id, layer } = setup();
     useTimelineStore.getState().setAutoKeyframe(true);
     store.updateLayerShaderParameter(id, 0, 'fill', 'yaw', -20);
@@ -91,32 +93,54 @@ describe('shader animation authoring', () => {
     expect(
       layer().animationTracks['fill.parameters.yaw']!.map((key) => [key.frame, key.value]),
     ).toEqual([
-      [0, -10],
-      [12, 40],
+      [0, -20],
+      [6, 15],
+      [12, 30],
     ]);
     expect(getLayerPropertyValueAtFrame(layer(), 'fill.parameters.yaw', 6)).toBe(15);
     expect(getElementShaderPaint(layer().element)!.parameters.pitch).toBe(3);
+    useTimelineStore.getState().setEditScope('whole-animation');
+    store.updateLayerShaderParameter(id, 6, 'fill', 'yaw', 25);
+    expect(
+      layer().animationTracks['fill.parameters.yaw']!.map((key) => [key.frame, key.value]),
+    ).toEqual([
+      [0, -10],
+      [6, 25],
+      [12, 40],
+    ]);
   });
   it('does not key or overwrite untouched animated vector channels', () => {
     const { store, id, layer } = setup();
     useTimelineStore.getState().setAutoKeyframe(true);
     store.updateLayerShaderParameter(id, 12, 'fill', 'offset', [0.5, 0]);
     store.updateLayerShaderParameter(id, 12, 'fill', 'offset', [0.5, 0.8]);
-    expect(layer().animationTracks['fill.parameters.offset.x']).toHaveLength(1);
-    expect(layer().animationTracks['fill.parameters.offset.y']).toMatchObject([{ value: 0.8 }]);
+    expect(layer().animationTracks['fill.parameters.offset.x']).toMatchObject([
+      { frame: 0, value: 0 },
+      { frame: 12, value: 0.5 },
+    ]);
+    expect(layer().animationTracks['fill.parameters.offset.y']).toMatchObject([
+      { frame: 0, value: 0 },
+      { frame: 12, value: 0.8 },
+    ]);
+    const xKeys = structuredClone(layer().animationTracks['fill.parameters.offset.x']);
     useTimelineStore.getState().setAutoKeyframe(false);
     store.updateLayerShaderParameter(id, 12, 'fill', 'offset', [0.5, 0.3]);
-    expect(getElementShaderPaint(layer().element)!.parameters.offset).toEqual([0, 0.3]);
-    expect(layer().animationTracks['fill.parameters.offset.x']![0]!.value).toBe(0.5);
+    expect(getElementShaderPaint(layer().element)!.parameters.offset).toEqual([0, 0]);
+    expect(layer().animationTracks['fill.parameters.offset.x']).toEqual(xKeys);
+    expect(getLayerPropertyValueAtFrame(layer(), 'fill.parameters.offset.y', 12)).toBe(0.3);
   });
-  it('can remove the last shader key and return the parameter to its default', () => {
-    const { store, id, layer } = setup();
+  it('removes the last shader key and freezes its sampled value as the editable data default', () => {
+    const { store, id, layer, composition } = setup();
     const key = store.addLayerPropertyKeyframe(id, 'fill.parameters.yaw', 12);
     store.updateLayerPropertyKeyframeValue(id, 'fill.parameters.yaw', key, 500);
     expect(getLayerPropertyValueAtFrame(layer(), 'fill.parameters.yaw', 12)).toBe(90);
     store.removeLayerPropertyKeyframe(id, 'fill.parameters.yaw', key);
     expect(getResolvedLayerAnimationTracks(layer())['fill.parameters.yaw']).toBeUndefined();
-    expect(getLayerPropertyValueAtFrame(layer(), 'fill.parameters.yaw', 12)).toBe(0);
+    expect(getLayerPropertyValueAtFrame(layer(), 'fill.parameters.yaw', 12)).toBe(90);
+    expect(
+      composition().dataFields.find((field) => field.generatedShaderParameter?.name === 'yaw')!
+        .defaultValue,
+    ).toBe(90);
   });
   it('clamps discrete loop keys and removes only the deleted paint slot animation', () => {
     const { store, id, layer } = setup();

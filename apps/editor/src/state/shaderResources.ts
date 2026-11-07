@@ -1,7 +1,10 @@
 import {
   getElementShaderPaint,
   getElementShaderPaints,
+  getEffectStack,
+  effectEnabled,
   inspectShaderElement,
+  inspectShaderResourcePaint,
   inspectShaderSource,
   normalizeShaderParameterValue,
   type ComponentDefinition,
@@ -12,6 +15,8 @@ import {
   type ShaderPaintSlot,
   type ShaderParameterValue,
   type ShaderResource,
+  type TickerItem,
+  isShaderPaint,
 } from '@ograf-editor/scene-model';
 
 /** Persist only identity when opening a resource editor; resolve the current paint before writing. */
@@ -20,12 +25,19 @@ export interface ShaderUsageTarget {
   layerId: string;
   slot: ShaderPaintSlot;
   componentId?: string;
+  itemId?: string;
+  tickerBackground?: true;
 }
+export interface ShaderEffectUsageTarget extends Omit<ShaderUsageTarget, 'slot'> {
+  slot: 'effect';
+  effectId: string;
+}
+export type AppliedShaderResourceTarget = ShaderUsageTarget | ShaderEffectUsageTarget;
 
 export interface StoredShaderResourceTarget {
   shaderId: string;
 }
-export type ShaderResourceTarget = ShaderUsageTarget | StoredShaderResourceTarget;
+export type ShaderResourceTarget = AppliedShaderResourceTarget | StoredShaderResourceTarget;
 
 export function isStoredShaderResourceTarget(
   target: ShaderResourceTarget,
@@ -35,17 +47,20 @@ export function isStoredShaderResourceTarget(
 
 /** Drop display metadata when retaining or transferring a resource identity. */
 export function shaderResourceTarget(target: ShaderResourceTarget): ShaderResourceTarget {
-  return isStoredShaderResourceTarget(target)
-    ? { shaderId: target.shaderId }
-    : {
-        compositionId: target.compositionId,
-        layerId: target.layerId,
-        slot: target.slot,
-        ...(target.componentId === undefined ? {} : { componentId: target.componentId }),
-      };
+  if (isStoredShaderResourceTarget(target)) return { shaderId: target.shaderId };
+  const identity = {
+    compositionId: target.compositionId,
+    layerId: target.layerId,
+    ...(target.componentId === undefined ? {} : { componentId: target.componentId }),
+    ...(target.itemId === undefined ? {} : { itemId: target.itemId }),
+    ...(target.tickerBackground ? { tickerBackground: true as const } : {}),
+  };
+  return target.slot === 'effect'
+    ? { ...identity, slot: 'effect', effectId: target.effectId }
+    : { ...identity, slot: target.slot };
 }
 
-export type ShaderResourcePatch = Partial<Omit<ShaderPaint, 'type'>>;
+export type ShaderResourcePatch = Partial<Omit<ShaderPaint, 'type' | 'packProvenance'>>;
 
 export type ShaderResourceUsage = ShaderResourceTarget & {
   key: string;
@@ -59,15 +74,40 @@ export type ShaderResourceUsage = ShaderResourceTarget & {
 
 export function shaderResourceKey(target: ShaderResourceTarget): string {
   if (isStoredShaderResourceTarget(target)) return JSON.stringify(['library', target.shaderId]);
-  return JSON.stringify([
-    target.compositionId,
-    target.componentId ?? null,
-    target.layerId,
-    target.slot,
-  ]);
+  const identity = [target.compositionId, target.componentId ?? null, target.layerId, target.slot];
+  if (target.itemId) identity.push('ticker-item', target.itemId);
+  if (target.tickerBackground) identity.push('ticker-background');
+  if (target.slot === 'effect') identity.push(target.effectId);
+  return JSON.stringify(identity);
 }
 
-/** Saved project shaders shown in Resources. Applied object paints are edited in Properties. */
+/** An effect-only shader needs the preceding stack image rather than a stored image input. */
+export function shaderResourceIsEffectOnly(paint: ShaderPaint): boolean {
+  return (
+    !inspectShaderElement(paint).valid &&
+    inspectShaderElement(paint, { channel0Provided: true }).valid
+  );
+}
+
+// Inert 8×8 checkerboard, used only to show effect-only resources outside a layer stack.
+const EFFECT_PREVIEW_IMAGE =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAIUlEQVR4nGM4e/bsfxDW1dUFY3Q+A0EFuCRgfMIKBoEbAAsHnYFFmaZlAAAAAElFTkSuQmCC';
+
+/** Never persist the preview texture: saved shaders reserve iChannel0 for their future stack. */
+export function shaderResourcePreviewPaint(paint: ShaderPaint): ShaderPaint {
+  if (!shaderResourceIsEffectOnly(paint)) return paint;
+  return {
+    ...structuredClone(paint),
+    inputImage: {
+      source: EFFECT_PREVIEW_IMAGE,
+      name: 'Preview checkerboard — not applied',
+      wrap: 'repeat',
+      filter: 'nearest',
+    },
+  };
+}
+
+/** Saved project library shaders, independent of their applied copies. */
 export function collectStoredShaderResources(project: Project): ShaderResourceUsage[] {
   return (project.shaders ?? []).map((resource) => ({
     shaderId: resource.id,
@@ -75,7 +115,7 @@ export function collectStoredShaderResources(project: Project): ShaderResourceUs
     label:
       (typeof resource.paint.name === 'string' ? resource.paint.name.trim() : '') ||
       'Project shader',
-    usageLabel: 'Project shader',
+    usageLabel: shaderResourceIsEffectOnly(resource.paint) ? 'Effect shader' : 'Project shader',
     compositionName: 'Project library',
     paint: resource.paint,
     locked: false,
@@ -88,27 +128,84 @@ export function collectShaderResources(project: Project): ShaderResourceUsage[] 
     ...collectStoredShaderResources(project),
     ...project.compositions.flatMap((composition) => {
       const collect = (layers: Layer[], component?: ComponentDefinition) =>
-        layers.flatMap((layer) =>
-          getElementShaderPaints(layer.element).map(({ slot, paint }) => {
+        layers.flatMap((layer) => {
+          const usage = (
+            target: AppliedShaderResourceTarget,
+            paint: ShaderPaint,
+            usageLabel: string,
+          ) => ({
+            ...target,
+            key: shaderResourceKey(target),
+            label: (typeof paint.name === 'string' ? paint.name.trim() : '') || usageLabel,
+            usageLabel,
+            paint,
+            locked: layer.isLocked,
+            compositionName: composition.name,
+            ...(component ? { componentName: component.name } : {}),
+          });
+          const scope = {
+            compositionId: composition.id,
+            layerId: layer.id,
+            ...(component ? { componentId: component.id } : {}),
+          };
+          const paints = getElementShaderPaints(layer.element).map(({ slot, paint }) => {
             const target: ShaderResourceTarget = {
-              compositionId: composition.id,
-              layerId: layer.id,
+              ...scope,
               slot,
-              ...(component ? { componentId: component.id } : {}),
             };
             const usageLabel = `${layer.name} · ${slot === 'stroke' ? 'Outline' : 'Fill'}`;
-            return {
-              ...target,
-              key: shaderResourceKey(target),
-              label: (typeof paint.name === 'string' ? paint.name.trim() : '') || usageLabel,
-              usageLabel,
-              paint,
-              locked: layer.isLocked,
-              compositionName: composition.name,
-              ...(component ? { componentName: component.name } : {}),
+            return usage(target, paint, usageLabel);
+          });
+          const effects = getEffectStack(layer.effects).flatMap((effect) => {
+            if (effect.type !== 'shader' || !effect.shader) return [];
+            const target: ShaderEffectUsageTarget = {
+              ...scope,
+              slot: 'effect',
+              effectId: effect.id,
             };
-          }),
-        );
+            const usageLabel = `${layer.name} · Effect: ${effect.name}${effectEnabled(effect, layer.effects) ? '' : ' (Bypassed)'}`;
+            return [usage(target, effect.shader, usageLabel)];
+          });
+          const nested =
+            layer.element.type === 'ticker'
+              ? layer.element.items.flatMap((item) => {
+                  const itemScope = { ...scope, itemId: item.id };
+                  const label = `${layer.name} · ${item.name ?? item.id}`;
+                  const itemPaints = getElementShaderPaints(item.element).map(({ slot, paint }) =>
+                    usage(
+                      { ...itemScope, slot },
+                      paint,
+                      `${label} · ${slot === 'stroke' ? 'Outline' : 'Fill'}`,
+                    ),
+                  );
+                  const itemEffects = item.effects
+                    ? getEffectStack(item.effects).flatMap((effect) =>
+                        effect.type === 'shader' && effect.shader
+                          ? [
+                              usage(
+                                { ...itemScope, slot: 'effect', effectId: effect.id },
+                                effect.shader,
+                                `${label} · Effect: ${effect.name}${effectEnabled(effect, item.effects!) ? '' : ' (Bypassed)'}`,
+                              ),
+                            ]
+                          : [],
+                      )
+                    : [];
+                  return [...itemPaints, ...itemEffects];
+                })
+              : [];
+          const background =
+            layer.element.type === 'ticker' && isShaderPaint(layer.element.background)
+              ? [
+                  usage(
+                    { ...scope, slot: 'fill', tickerBackground: true },
+                    layer.element.background,
+                    `${layer.name} · Background`,
+                  ),
+                ]
+              : [];
+          return [...paints, ...effects, ...nested, ...background];
+        });
       return [
         ...collect(composition.layers),
         ...composition.components.flatMap((component) => collect(component.layers, component)),
@@ -136,6 +233,7 @@ interface ResolvedShaderUsage {
   component?: ComponentDefinition;
   layer: Layer;
   paint: ShaderPaint;
+  item?: TickerItem;
 }
 interface ResolvedStoredShader {
   scope: 'library';
@@ -150,7 +248,7 @@ export function resolveShaderResource(
 ): ResolvedStoredShader;
 export function resolveShaderResource(
   project: Project,
-  target: ShaderUsageTarget,
+  target: AppliedShaderResourceTarget,
 ): ResolvedShaderUsage;
 export function resolveShaderResource(
   project: Project,
@@ -165,7 +263,7 @@ export function resolveShaderResource(
     if (!resource) throw new Error('The project shader resource no longer exists.');
     return { scope: 'library', resource, paint: resource.paint };
   }
-  if (target.slot !== 'fill' && target.slot !== 'stroke')
+  if (target.slot !== 'fill' && target.slot !== 'stroke' && target.slot !== 'effect')
     throw new Error('Unknown shader paint slot.');
   const composition = project.compositions.find((item) => item.id === target.compositionId);
   if (!composition) throw new Error('The shader resource composition no longer exists.');
@@ -179,9 +277,33 @@ export function resolveShaderResource(
     (item) => item.id === target.layerId,
   );
   if (!layer) throw new Error('The shader resource object no longer exists.');
-  const paint = getElementShaderPaint(layer.element, target.slot);
+  if (target.itemId && target.tickerBackground)
+    throw new Error('Choose a ticker item or background.');
+  const item =
+    target.itemId && layer.element.type === 'ticker'
+      ? layer.element.items.find((candidate) => candidate.id === target.itemId)
+      : undefined;
+  if (target.itemId && !item) throw new Error('The ticker item no longer exists.');
+  if (target.tickerBackground) {
+    if (
+      target.slot !== 'fill' ||
+      layer.element.type !== 'ticker' ||
+      !isShaderPaint(layer.element.background)
+    )
+      throw new Error('The ticker no longer uses a background shader.');
+    return { scope: 'usage', composition, component, layer, paint: layer.element.background };
+  }
+  const paint =
+    target.slot === 'effect'
+      ? (item
+          ? item.effects
+            ? getEffectStack(item.effects)
+            : []
+          : getEffectStack(layer.effects)
+        ).find((effect) => effect.id === target.effectId && effect.type === 'shader')?.shader
+      : getElementShaderPaint(item?.element ?? layer.element, target.slot);
   if (!paint) throw new Error('This object no longer uses a shader in the selected paint slot.');
-  return { scope: 'usage', composition, component, layer, paint };
+  return { scope: 'usage', composition, component, layer, paint, ...(item ? { item } : {}) };
 }
 
 /** Preserve compatible controls using the latest values, dropping removed or retyped symbols. */
@@ -220,7 +342,7 @@ export function preserveShaderParameterValues(
 export function shaderPaintWithPatch(
   current: ShaderPaint,
   patch: ShaderResourcePatch,
-  options: { channel0Provided?: boolean } = {},
+  options: { channel0Provided?: boolean; libraryResource?: boolean } = {},
 ): ShaderPaint {
   if ('type' in patch) throw new Error('A shader resource edit cannot change its paint type.');
   for (const key of Object.keys(patch)) {
@@ -263,11 +385,21 @@ export function shaderPaintWithPatch(
     speed: patch.speed ?? current.speed,
     resolutionScale: patch.resolutionScale ?? current.resolutionScale,
     parameters,
+    ...(current.packProvenance
+      ? {
+          packProvenance: {
+            ...current.packProvenance,
+            reference: { ...current.packProvenance.reference },
+          },
+        }
+      : {}),
     ...(inputImage
       ? { inputImage: inputImageChanged ? structuredClone(inputImage) : inputImage }
       : {}),
   };
-  const inspection = inspectShaderElement(next, options);
+  const inspection = options.libraryResource
+    ? inspectShaderResourcePaint(next)
+    : inspectShaderElement(next, options);
   if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
   return next;
 }

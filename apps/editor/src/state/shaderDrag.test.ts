@@ -16,6 +16,7 @@ import {
 
 import {
   encodeShaderResourceDrag,
+  shaderEffectPatchFromResourceDrag,
   shaderPaintFromResourceDrag,
   SHADER_RESOURCE_MIME,
 } from './shaderDrag';
@@ -122,6 +123,30 @@ describe('shader resource drag references', () => {
     expect(paint.parameters).not.toBe(source.paint.parameters);
     (paint.parameters.backgroundColor as number[])[0] = 0.9;
     expect(source.paint.parameters.backgroundColor).toEqual([0.1, 0.2, 0.3]);
+  });
+
+  it('turns a resource drop into an enabled shader effect that owns the incoming layer image', () => {
+    const project = fixture();
+    const source = inlineShaderResources(project)[0]!;
+    source.paint.inputImage = {
+      source: 'data:image/png;base64,cG5n',
+      name: 'Old input',
+      wrap: 'clamp',
+      filter: 'linear',
+    };
+    const patch = shaderEffectPatchFromResourceDrag(
+      project,
+      encodeShaderResourceDrag(project.id, source),
+    );
+    expect(patch).toMatchObject({
+      name: 'Fill shader',
+      enabled: true,
+      blendMode: 'normal',
+      blendOpacity: 1,
+      shader: { type: 'shader', fragmentSource: source.paint.fragmentSource },
+    });
+    expect(patch.shader).not.toHaveProperty('inputImage');
+    expect(source.paint.inputImage).toBeDefined();
   });
 
   it('distinguishes saved-component outline copies and lets the target create its own fields', () => {

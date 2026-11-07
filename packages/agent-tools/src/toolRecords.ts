@@ -1,7 +1,15 @@
+import { coordinatedExportFile } from './coordinatedExportFile';
+import {
+  registerToolResultPager,
+  toolResultPagerForWorkspace,
+  ToolResultPagingError,
+} from './resultPaging';
 import {
   getShaderAnimatableProperties,
   shaderAnimationPropertySpec,
 } from '@ograf-editor/scene-model';
+import { templateSetOperationSchema } from './templateSetSchemas';
+import { livePlayoutOperationSchema } from './playoutSchemas';
 import {
   getElementShaderPaint,
   getElementShaderPaints,
@@ -20,6 +28,9 @@ import {
 } from '@ograf-editor/authoring-core';
 import {
   buildExportArtifactsWithRuntime,
+  buildOfflinePreviewHtml,
+  assertOfflinePreviewFileAvailable,
+  getOfflinePreviewFileName,
   getExportProfile,
   validatePackageLayout,
   withExportThumbnail,
@@ -28,14 +39,21 @@ import {
 } from '@ograf-editor/codegen';
 import {
   ANIMATABLE_LAYER_PROPERTIES,
+  LAYER_MOTION_STYLES,
   EFFECT_CATALOG,
   EFFECT_BLEND_MODES,
   getEffectStack,
   effectProperty,
   effectEnabled,
   effectParams,
+  MODIFIER_CATALOG,
+  MODIFIER_TYPES,
+  getLayerModifiers,
+  numericModifierProperties,
   patternRows,
   patternRowOffset,
+  sampleTicker,
+  getTickerLayout,
   PATTERN_PRESETS,
   getPatternPresetPatch,
   BLEND_MODES,
@@ -56,6 +74,7 @@ import {
   intersectConvexPolygons,
   inspectLottieAnimationData,
   inspectShaderElement,
+  inspectDataFieldUsage,
   MAX_SHADER_IMAGE_BYTES,
   MAX_SHADER_SOURCE_BYTES,
   LOTTIE_READY_TIMEOUT_MS,
@@ -66,12 +85,14 @@ import {
   reviewCompositionDesign,
   transformBoundsPolygon,
   TRANSFORM_ANIMATION_PROPERTIES,
+  TRANSITION_LOGIC_VERSION,
   valueAtSourcePath,
   type Composition,
   type Project,
 } from '@ograf-editor/scene-model';
 import JSZip from 'jszip';
 import { writeTemplateFiles } from './projectFiles';
+import { decodeTemplateSetArchive } from './templateSetFiles';
 import {
   projectThumbnailFrame,
   thumbnailRenderProject,
@@ -126,7 +147,7 @@ const SHADER_PAINT_CAPABILITIES = {
     shape: '{id,paint:ShaderPaint}',
     read: 'ograf_get_project include:["shaders"]',
     semantics:
-      'Saved unused shaders are authoring resources, with no layer or OGraf data fields. Applying a library shader copies its paint independently into an object.',
+      'project.shaders stores saved library resources, with no layer or OGraf data fields. Applied shader paints remain independent copies in layer fills, text outlines or effect entries; the Resources UI also lists these usages without adding library copies.',
     authoring:
       'Read project.shaders, then copy resource.paint into update_element.patch.fill, text strokePaint, or add_effect/update_effect patch.shader. Remove inputImage when copying into an effect because its iChannel0 is the incoming stack image. New Shader, rename, Load GLSL, Save shader and library removal are editor UI actions; no dedicated shader-library mutation operation is exposed.',
   },
@@ -145,11 +166,12 @@ const SHADER_PAINT_CAPABILITIES = {
     'image',
     'image-sequence',
     'lottie',
+    'chart',
   ],
   shape:
     'Shader RGBA is multiplied by the object shape or source alpha; original media colors are replaced. Text outlines can use an independent strokePaint shader clipped by native glyph stroke alpha. One independent embedded image may be sampled through iChannel0; the shader cannot sample the painted object, lower layers or external broadcast video.',
   editor:
-    'Resources > Shaders provides saved shaders with previews, Edit/Load/remove and drag to Fill or text Outline. Applied copies are edited on the object in Properties and do not appear as duplicate resources. Shader source edits use Save shader; copying a resource creates an independent paint. Auto-keyframe and Timeline + Property expose declared channels; local loops have their own preview.',
+    'Resources > Shaders lists saved library shaders and applied Fill, Outline and shader Effect usages, including bypassed effects and component definitions. Edit/Load opens the dedicated shader editor; Properties retains parameter controls and an Edit shader action. Applied edits change only the identified layer slot or effect. Removing a library entry keeps applied copies; removing an applied entry detaches that paint or removes that effect. Dragging copies independently. Shader source edits use Save shader. Auto-keyframe and Timeline + Property expose declared channels; local loops have their own preview.',
   animation:
     'Use set_property_track for lifecycle keys, or set_layer_loop plus set_loop_property_track for ambient motion. Inspect shaderAnimationProperties for exact paths and limits. Float channels interpolate; int/bool hold (bool keys are 0/1), vec2 uses .x/.y, colors .r/.g/.b/.a. Active keyed channels override data only for those channels; loop-only channels return to data when inactive. iTime continues independently. Keep loop endpoints equal and exposed symbol names stable.',
   fragmentSource: {
@@ -168,7 +190,7 @@ const SHADER_PAINT_CAPABILITIES = {
     declarations:
       'Literal global float/int/bool/vec2/vec3/vec4 constants or object-like #define constants. slider: float/int; color: vec3/vec4; toggle: bool; vector2: vec2.',
     exposure:
-      'Every marked parameter automatically gets an ordinary typed OGraf data field and fill.parameters.NAME or strokePaint.parameters.NAME binding. Identical parameter names in fill and outline remain independent. No separate expose option or manual field creation is needed. Removed symbols remove only unused generated fields; copies get independent fields.',
+      'Every marked parameter automatically gets an ordinary typed data field and fill.parameters.NAME or strokePaint.parameters.NAME binding, exposed to OGraf by default. Identical parameter names in fill and outline remain independent. No pragma expose keyword or manual field creation is needed. Set the generated field exposeToOgraf:false to keep its controls, defaults, bindings and Rules internal while excluding it from public playout data. Removed symbols remove only unused generated fields; copies get independent fields.',
     dataTypes:
       'float: number; int: integer; bool: boolean; vec3/vec4 colors: #rrggbb/#rrggbbaa; vec2: object with numeric x and y properties.',
   },
@@ -198,12 +220,63 @@ const SHADER_PAINT_CAPABILITIES = {
     ],
     timing:
       'iTime is absolute composition elapsed seconds multiplied by speed; deterministic backward and repeated seeking.',
+    frameCompletion: {
+      realtime: 'asynchronous-gpu-submission-without-finish-or-per-draw-error-read',
+      deterministic: 'asynchronous-gpu-fence-at-content-readiness-seek-and-capture-boundaries',
+      contract:
+        'Ordinary shader animation submits GPU work without a blocking gl.finish or per-draw gl.getError. Explicit content readiness, OGraf goToTime and browser capture await the requested GPU frame using zero-timeout fence polling that yields to the event loop. Context loss, disposal, failed waits and a bounded timeout reject completion; they never report an unfinished capture as ready. Shader compilation and initialization diagnostics remain available. This changes GPU scheduling, not authored timing, uniforms, bindings, Rules or animation sampling.',
+    },
     portability:
       'The target renderer must support WebGL2. Source inspection is not a GLSL compile or rendering check. SVG-only previews cannot render shader pixels.',
     editing:
       'Set element.fill to {type:shader, fragmentSource, speed:1, resolutionScale:1, parameters:{}, inputImage?} on an existing shape, text, or media layer. Use update_element.patch.fill for fill edits; text also accepts independent strokePaint with the same shape. Set strokePaint:null to restore its solid strokeColor. inputImage.source is an embedded PNG/JPEG data URI sampled as iChannel0. Source pragmas define editable parameters and automatically exposed typed runtime bindings. Exposed controls support numeric lifecycle and loop tracks. Scalars use fill.parameters.NAME or strokePaint.parameters.NAME; vec2 uses .x/.y, colors .r/.g/.b/.a. Integer/toggle keys hold until the next key (toggle values0/1). Only keyed channels override data; unkeyed channels retain data/defaults.',
     verification:
       'Inspect shaderPaintInspections.fill and shaderPaintInspections.stroke, then render and certify the exported package in a browser with WebGL2; test representative timestamps and backward seeks.',
+  },
+};
+
+const WEBCAM_PREVIEW_CAPABILITIES = {
+  ui: 'Camera Settings beside Start webcam in Live tag controls and Playout Controls > Background > Webcam, including the shared preview popup. Canvas Layout links to Open Playout Controls.',
+  activation:
+    'Opening settings does not start capture or request camera permission. Start webcam is the explicit permission and capture action; MCP does not activate or configure the local camera.',
+  capture:
+    'Requested resolution and FPS are session preferences. Save settings before Start stores them without capture; Apply while running uses constraints on the existing shared video track. Actual resolution and FPS are read back from the track and can differ from requested values. A shared or busy camera may restrict switching to a larger capture format.',
+  nativeConstraints:
+    'Apply serializes resolution/FPS constraints before image-control constraints on the same track. Actual values come from getSettings(); getConstraints() describes requests and is not proof of camera output. If a later phase fails, attempt to restore prior capture/image settings and report current actual values and any restoration error.',
+  imageControls:
+    'Show only image controls advertised by this browser and camera, using their supported ranges and modes. Exposure time, focus distance and color temperature require the matching manual mode when that mode control is advertised. Missing capabilities do not imply support; basic resolution/FPS preferences remain available.',
+  sharedStream:
+    'Live tags and the Webcam presentation background share one local camera stream. The editor and independent Studio previews share the presentation capture session; settings affect all active consumers. Stopping one consumer leaves other active consumers running.',
+  previewOutput:
+    'Single-template and combined previews render the webcam once beneath the graphic output, including embedded, fullscreen and detached windows. Sync editor and preview uses the editor mirror and must not add a second webcam layer. Authored opaque composition backgrounds or full-frame objects cover the camera; use transparent output where it should show.',
+  lifecycle:
+    'Presentation capture persists across template switches within the same set and Take, Update, Out or Clear. Explicit Stop background webcam or switching away from Webcam releases the presentation consumer while an active Live tag may retain the track. Opening an unrelated document/set or the capture owner pagehide stops all camera capture. Opening settings, restoring Webcam mode or opening a preview never requests permission or starts capture.',
+  failure:
+    'Rejected constraints keep the active stream and last accepted preferences; show the error and current actual values. Stop and camera switches invalidate stale settings results.',
+  reset:
+    'Reset clears requested resolution/FPS and restores readable image-control values captured when the current stream started. It is not a camera factory reset. Switching cameras keeps resolution/FPS preferences and clears camera-specific image preferences.',
+  persistence:
+    'Presentation mode and still-image preferences persist locally in IndexedDB, outside projects, .ogs, exports and workspace presets. Camera selection, capture settings and footage remain session-only; restoring Webcam mode never starts capture. Exported live tags still require the target renderer source hook.',
+};
+
+const MEDIA_PAINT_CAPABILITIES = {
+  type: 'media',
+  authoring:
+    'Use add_media_cue/update_media_cue and cue.visual.targetLayerId for cue-driven media. A chart with mark-paint-v1 may also use an ordinary element.fill MediaPaint.',
+  semantics:
+    'A video/live source is clipped by the target geometry. Chart fills use provider-supplied mark coverage, preserving axes, text, outlines and labels. Audio stays on the nonvisual cue track; paint stays muted.',
+  shape:
+    '{type:"media",source:{kind:"clip",src}|{kind:"live",tag,fallback?},fit:"cover"|"contain"|"fill",positionX:0..1,positionY:0..1,loop:boolean,speed:0.1..16,offsetMs:nonnegative,trimEndMs:null|greater-than-offset,timelineStartMs:nonnegative,muted:true}',
+  assetImport:
+    'Import MP4/WebM or MP3/WAV/OGG through Resources > Media or ograf_import_asset. Paint clip sources must reference video media; audio stays on cues. Use asset:<id> for imported clips or fallback images.',
+  timing:
+    'Media Cue owns cue-driven trigger/retrigger/source transition and audio. Direct paint uses its existing trim/loop/speed/timeline fields. Media paint remains real-time-only; live source readiness and ZeroDensityHTML requirements are unchanged.',
+  liveTag: {
+    element: 'zd-ograf-media',
+    version: 1,
+    sourceAttribute: 'data-source-tag',
+    manifestEngineRequirement: 'ZeroDensityHTML >= 1.0',
+    webcamPreview: WEBCAM_PREVIEW_CAPABILITIES,
   },
 };
 
@@ -216,12 +289,15 @@ const CAPABILITY_SECTIONS = [
   'designSystem',
   'loops',
   'bindings',
+  'plugins',
+  'templateSets',
   'editor',
 ] as const;
 
 type CapabilitySection = (typeof CAPABILITY_SECTIONS)[number];
 
 const CAPABILITY_SECTION_KEYS: Record<CapabilitySection, readonly string[]> = {
+  templateSets: ['templateSets'],
   shaders: ['paintSchemas', 'animatablePropertyPatterns'],
   tiling: ['tiling'],
   elements: [
@@ -230,16 +306,21 @@ const CAPABILITY_SECTION_KEYS: Record<CapabilitySection, readonly string[]> = {
     'paintSchemas',
     'animatableProperties',
     'animatablePropertyPatterns',
+    'layerMotion',
     'blendModes',
     'masking',
     'tiling',
     'composableEffects',
+    'modifiers',
+    'mediaCues',
+    'cropping',
   ],
-  easing: ['easingPresets'],
+  easing: ['easingPresets', 'layerMotion'],
   semantics: ['semantics', 'semanticAuthoring'],
   designSystem: ['designSystem', 'assets', 'reusableComponents'],
   loops: ['loopAnimation', 'composableEffects'],
   bindings: ['bindings'],
+  plugins: ['rendererPlugins', 'animationPresetPlugins', 'shaderPacks'],
   editor: [
     'editor',
     'liveEditorConnected',
@@ -320,7 +401,7 @@ function consolidateOperationTools(
     name: 'ograf_apply_operations',
     config: {
       title: 'Apply OGraf operations',
-      description: 'Atomic apply, dry-run, rendered preview, or Accept/Reject proposal.',
+      description: 'Atomic apply, dry-run, preview, or Accept/Reject proposal.',
       inputSchema: consolidatedOperationInputSchema,
       annotations: mutation,
     },
@@ -479,6 +560,11 @@ const IMPORT_MIME_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
   '.ttf': 'font/ttf',
   '.otf': 'font/otf',
   '.woff': 'font/woff',
@@ -626,6 +712,8 @@ function inspectComposition(composition: Composition) {
         pixelsPerSecond: (row.period * row.cycles * composition.frameRate) / pattern.cycleFrames,
       })),
     })),
+    mediaCues: structuredClone(composition.mediaCues ?? []),
+    functions: structuredClone(composition.functions ?? []),
     layers: composition.layers.map((layer, index) => ({
       index,
       id: layer.id,
@@ -678,6 +766,8 @@ function inspectComposition(composition: Composition) {
             ),
           }
         : {}),
+      modifiers: getLayerModifiers(layer),
+      modifierAnimationProperties: numericModifierProperties(layer),
       effectStack: getEffectStack(layer.effects).map((e) => ({
         ...e,
         enabled: effectEnabled(e, layer.effects),
@@ -696,9 +786,15 @@ function inspectComposition(composition: Composition) {
       mask: layer.mask,
       lighting: layer.lighting ?? null,
       constraints: layer.constraints,
+      autoLayout: layer.autoLayout,
+      visualRules: layer.visualRules,
+      updateTransition: layer.updateTransition,
+      motionPath: layer.motionPath,
+      textPath: layer.textPath ?? null,
+      motionBlur: layer.motionBlur ?? null,
       semantics: layer.semantics,
       designTokenBindings: layer.designTokenBindings,
-      componentLink: layer.componentLink,
+      componentLink: componentLinkSummary(layer.componentLink),
       runtimeCollectionId:
         composition.runtimeCollections.find((collection) =>
           collection.prototypeLayerIds.includes(layer.id),
@@ -721,8 +817,21 @@ function inspectComposition(composition: Composition) {
     components: composition.components.map((component) => ({
       id: component.id,
       name: component.name,
+      scope: component.scope ?? 'local',
       layerCount: component.layers.length,
       fieldCount: component.dataFields.length,
+      sourceLayers: component.layers.map((layer) => ({
+        id: layer.id,
+        name: layer.name,
+        kind: layer.element.type,
+      })),
+      sourceFields: component.dataFields.map((field) => ({
+        id: field.id,
+        key: field.key,
+        type: field.type,
+      })),
+      assetCount: component.resources?.length ?? 0,
+      patternCount: component.patterns?.length ?? 0,
       linkedInstanceCount: new Set(
         composition.layers
           .filter((layer) => layer.componentLink?.componentId === component.id)
@@ -771,10 +880,14 @@ const PROJECT_INCLUDE_SECTIONS = [
   'elements',
   'tracks',
   'dataFields',
+  'dataConnections',
+  'testRundowns',
+  'review',
   'transitions',
   'layout',
   'patterns',
   'shaders',
+  'plugins',
 ] as const;
 type ProjectIncludeSection = (typeof PROJECT_INCLUDE_SECTIONS)[number];
 type ProjectTracksMode = 'none' | 'animated-only' | 'full';
@@ -807,6 +920,31 @@ function projectSnapshotProjection(
         frameRate: composition.frameRate,
       };
       if (sections.has('patterns')) projectedComposition.patterns = composition.patterns;
+      if (sections.has('plugins')) {
+        projectedComposition.rendererPlugins = (composition.rendererPlugins ?? []).map(
+          (snapshot) => ({
+            manifest: snapshot.manifest,
+            sha256: snapshot.sha256,
+            sourceBytes: Buffer.byteLength(snapshot.source, 'utf8'),
+            licenseBytes: Buffer.byteLength(snapshot.licenseText, 'utf8'),
+          }),
+        );
+        projectedComposition.animationPresetPlugins = (
+          composition.animationPresetPlugins ?? []
+        ).map((snapshot) => ({
+          manifest: snapshot.manifest,
+          sha256: snapshot.sha256,
+          presets: snapshot.presets.map((preset) => ({
+            id: preset.id,
+            name: preset.name,
+            description: preset.description,
+            targetKinds: preset.targetKinds,
+            parameters: preset.parameters,
+            sides: Object.keys(preset.tracks),
+          })),
+          licenseBytes: Buffer.byteLength(snapshot.licenseText, 'utf8'),
+        }));
+      }
       if (sections.has('layers') || sections.has('elements') || sections.has('tracks')) {
         projectedComposition.layers = composition.layers.map((layer) => {
           const projectedLayer: Record<string, unknown> = { id: layer.id, name: layer.name };
@@ -820,17 +958,24 @@ function projectSnapshotProjection(
             projectedLayer.isMaskOnly = layer.isMaskOnly;
             projectedLayer.mask = layer.mask;
             projectedLayer.constraints = layer.constraints;
+            projectedLayer.autoLayout = layer.autoLayout;
+            projectedLayer.motionBlur = layer.motionBlur ?? null;
+            projectedLayer.textPath = layer.textPath ?? null;
             projectedLayer.semantics = layer.semantics;
             projectedLayer.designTokenBindings = layer.designTokenBindings;
-            projectedLayer.componentLink = layer.componentLink;
+            projectedLayer.componentLink = componentLinkSummary(layer.componentLink);
             projectedLayer.bindings = layer.bindings;
             projectedLayer.binding = layer.bindings[0] ?? null;
+            projectedLayer.animationPresets = layer.animationPresets;
+            projectedLayer.animationTrackMode = layer.animationTrackMode;
           }
           if (sections.has('elements')) {
             projectedLayer.element = layer.element;
             projectedLayer.effects = layer.effects;
+            projectedLayer.modifiers = layer.modifiers ?? [];
           }
           if (sections.has('tracks') && tracksMode !== 'none') {
+            projectedLayer.animationTrackMode = layer.animationTrackMode;
             if (tracksMode === 'full') {
               projectedLayer.keyframes = layer.keyframes;
               projectedLayer.animationTracks = layer.animationTracks;
@@ -857,9 +1002,15 @@ function projectSnapshotProjection(
         });
       }
       if (sections.has('dataFields')) {
+        projectedComposition.functions = composition.functions ?? [];
         projectedComposition.dataFields = composition.dataFields;
         projectedComposition.runtimeCollections = composition.runtimeCollections;
       }
+      if (sections.has('dataConnections')) {
+        projectedComposition.dataConnections = composition.dataConnections;
+      }
+      if (sections.has('testRundowns'))
+        projectedComposition.testRundowns = composition.testRundowns ?? [];
       if (sections.has('transitions')) {
         projectedComposition.keyframes = composition.keyframes;
         projectedComposition.transitions = composition.transitions;
@@ -880,14 +1031,33 @@ function projectSnapshotProjection(
         projectedComposition.components = composition.components.map((component) => ({
           id: component.id,
           name: component.name,
+          scope: component.scope ?? 'local',
           layerCount: component.layers.length,
           fieldCount: component.dataFields.length,
+          sourceLayers: component.layers.map((layer) => ({
+            id: layer.id,
+            name: layer.name,
+            kind: layer.element.type,
+          })),
+          sourceFields: component.dataFields.map((field) => ({
+            id: field.id,
+            key: field.key,
+            type: field.type,
+          })),
         }));
       }
       return projectedComposition;
     }),
   };
   if (sections.has('shaders')) projectedProject.shaders = project.shaders;
+  if (sections.has('review'))
+    projectedProject.review = project.review
+      ? {
+          comments: project.review.comments,
+          versions: project.review.versions.map(({ snapshot: _snapshot, ...metadata }) => metadata),
+          approval: project.review.approval ?? null,
+        }
+      : { comments: [], versions: [], approval: null };
   if (sections.has('metadata')) {
     projectedProject.documentVersion = project.documentVersion;
     projectedProject.name = project.name;
@@ -931,6 +1101,11 @@ function generatedOperationResults(
         'runtime-collection',
         'pattern',
         'effect',
+        'modifier',
+        'media-cue',
+        'data-connection',
+        'review-comment',
+        'review-version',
       ].includes(generated.kind)
     ) {
       return [];
@@ -942,6 +1117,25 @@ function generatedOperationResults(
       type: operation?.type ?? generated.kind,
       id: generated.id,
     };
+    if (generated.kind === 'review-comment' || generated.kind === 'review-version') return [base];
+    if (generated.kind === 'modifier') {
+      const layer = project.compositions
+        .flatMap((composition) => composition.layers)
+        .find((candidate) =>
+          getLayerModifiers(candidate).some((entry) => entry.id === generated.id),
+        );
+      const modifier = layer && getLayerModifiers(layer).find((entry) => entry.id === generated.id);
+      return [
+        {
+          ...base,
+          layerId: layer?.id,
+          name: modifier?.name,
+          properties: layer
+            ? numericModifierProperties({ modifiers: modifier ? [modifier] : [] })
+            : [],
+        },
+      ];
+    }
     if (generated.kind === 'effect') {
       const layer = project.compositions
         .flatMap((c) => c.layers)
@@ -975,11 +1169,25 @@ function generatedOperationResults(
         .find((candidate) => candidate.id === generated.id);
       return [{ ...base, ...(field ? { key: field.key } : {}) }];
     }
+    if (generated.kind === 'data-connection') {
+      const connection = project.compositions
+        .flatMap((composition) => composition.dataConnections ?? [])
+        .find((candidate) => candidate.id === generated.id);
+      return [
+        { ...base, connectionId: generated.id, ...(connection ? { name: connection.name } : {}) },
+      ];
+    }
     if (generated.kind === 'asset') {
       const asset = project.compositions
         .flatMap((composition) => composition.assets)
         .find((candidate) => candidate.id === generated.id);
       return [{ ...base, ...(asset ? { name: asset.name, mimeType: asset.mimeType } : {}) }];
+    }
+    if (generated.kind === 'media-cue') {
+      const cue = project.compositions
+        .flatMap((composition) => composition.mediaCues)
+        .find((candidate) => candidate.id === generated.id);
+      return [{ ...base, ...(cue ? { name: cue.name } : {}) }];
     }
     if (generated.kind === 'timeline-group') {
       const group = project.compositions
@@ -1088,12 +1296,73 @@ function generatedOperationResults(
   });
 }
 
+/** Compact scene reads expose inheritance controls without repeating cached layer snapshots. */
+function componentLinkSummary(link: Composition['layers'][number]['componentLink']) {
+  if (!link) return null;
+  return {
+    componentId: link.componentId,
+    instanceId: link.instanceId,
+    sourceLayerId: link.sourceLayerId,
+    overridePaths: link.overridePaths ?? [],
+    fieldIds: link.fieldIds ?? {},
+    fieldOverridePaths: link.fieldOverridePaths ?? {},
+    ...(link.offset ? { offset: link.offset } : {}),
+  };
+}
+
 function wildcardNameMatcher(pattern: string): RegExp {
   const escaped = pattern
     .split('*')
     .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('.*');
   return new RegExp(`^${escaped}$`);
+}
+
+function reserveComponentInstanceIdentity(definition: Composition['components'][number]) {
+  const fieldIds: Record<string, string> = {};
+  const reserveField = (field: Composition['dataFields'][number]) => {
+    fieldIds[field.id] ??= createId('field');
+    for (const property of field.properties) reserveField(property);
+    if (field.items) reserveField(field.items);
+  };
+  for (const field of definition.dataFields) reserveField(field);
+  return {
+    instanceId: createId('component-instance'),
+    groupId: createId('group'),
+    layerIds: Object.fromEntries(definition.layers.map((layer) => [layer.id, createId('layer')])),
+    fieldIds,
+    keyIds: Object.fromEntries(
+      definition.layers.map((layer) => {
+        const keys: Record<string, string> = {};
+        for (const key of layer.keyframes) keys[key.id] ??= createId('layer-key');
+        const tracks = getResolvedLayerAnimationTracks(layer);
+        for (const track of Object.values(tracks))
+          for (const key of track ?? []) keys[key.id] ??= createId('property-key');
+        for (const property of [
+          'x',
+          'y',
+          'width',
+          'height',
+          'rotation',
+          'opacity',
+          'transformOriginX',
+          'transformOriginY',
+        ] as const)
+          for (const key of tracks[property] ?? [])
+            if (!layer.keyframes.some((pose) => pose.frame === key.frame))
+              keys[`__aggregate:${key.frame}`] ??= createId('layer-key');
+        if (layer.loop) {
+          keys[layer.loop.id] ??= createId('layer-loop');
+          for (const track of Object.values(layer.loop.tracks))
+            for (const key of track ?? []) keys[key.id] ??= createId('loop-property-key');
+        }
+        for (const rule of layer.visualRules ?? []) keys[rule.id] ??= createId('visual-rule');
+        for (const cue of definition.context?.mediaCues ?? [])
+          keys[`__cue:${cue.id}`] ??= createId('media-cue');
+        return [layer.id, keys];
+      }),
+    ),
+  };
 }
 
 function normalizeOperationSelectors(
@@ -1111,6 +1380,30 @@ function normalizeOperationSelectors(
     const composition = projected.compositions.find((candidate) => candidate.id === compositionId);
     if (!composition)
       throw new Error(`Operation ${index}: composition not found: ${compositionId}`);
+
+    if (operation.type === 'add_review_comment' || operation.type === 'save_review_version') {
+      operation.id ??= createId(operation.type === 'add_review_comment' ? 'comment' : 'version');
+      operation.createdAt = new Date().toISOString();
+    }
+    if (operation.type === 'set_review_approval') operation.at = new Date().toISOString();
+
+    if (
+      [
+        'create_lower_third',
+        'create_bug',
+        'create_ticker',
+        'create_scoreboard',
+        'create_clock',
+        'create_countdown',
+        'create_repeater',
+      ].includes(String(operation.type))
+    ) {
+      // Recipes create a graph of layers, fields, keys and groups. Reserve a unique seed
+      // so selectors resolved against this projection target the identical final graph.
+      operation.identitySeed = createId('recipe');
+      if (operation.type === 'create_clock' || operation.type === 'create_countdown')
+        operation.referenceTimeMs = Date.now();
+    }
 
     if (operation.type === 'set_tiling_pattern') {
       if (operation.patternName) {
@@ -1134,11 +1427,58 @@ function normalizeOperationSelectors(
     }
     if (operation.type === 'add_effect' || operation.type === 'duplicate_effect')
       operation.id = createId('fx');
-    if (operation.type === 'add_layer') operation.id = createId('layer');
+    if (operation.type === 'add_modifier' || operation.type === 'duplicate_modifier')
+      operation.id = createId('modifier');
+    if (operation.type === 'add_layer') {
+      operation.id = createId('layer');
+      const element = (operation.element ?? {}) as Record<string, unknown>;
+      if (operation.kind === 'clock' || element.clock) {
+        operation.element = {
+          ...element,
+          clock: {
+            referenceTimeMs: Date.now(),
+            ...(element.clock as Record<string, unknown> | undefined),
+          },
+        };
+      }
+    }
+    if (operation.type === 'add_media_cue') {
+      const cue = operation.cue as Record<string, unknown>;
+      if (!cue.id) cue.id = createId('media-cue');
+    }
     if (operation.type === 'add_data_field') operation.id = createId('field');
+    if (operation.type === 'add_data_connection') operation.id = createId('data-connection');
     if (operation.type === 'create_timeline_group') operation.id = createId('timeline-group');
     if (operation.type === 'group_layers') operation.id = createId('group');
     if (operation.type === 'save_component') operation.id = createId('component');
+    if (operation.type === 'make_component_unique') operation.id = createId('component');
+    if (operation.type === 'instantiate_component') {
+      const definition = composition.components.find(
+        (component) => component.id === operation.componentId,
+      );
+      if (!definition)
+        throw new Error(`Operation ${index}: component not found: ${operation.componentId}`);
+      const identity = reserveComponentInstanceIdentity(definition);
+      if (operation.instanceId !== undefined) {
+        if (operation.linked === false)
+          throw new Error(`Operation ${index}: instanceId requires linked:true.`);
+        const instanceId = operation.instanceId;
+        if (
+          typeof instanceId !== 'string' ||
+          instanceId.length > 256 ||
+          !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(instanceId) ||
+          ['__proto__', 'constructor', 'prototype'].includes(instanceId)
+        )
+          throw new Error(`Operation ${index}: use a safe component instance ID.`);
+        if (composition.layers.some((layer) => layer.componentLink?.instanceId === instanceId))
+          throw new Error(
+            `Operation ${index}: component instance already exists in this composition: ${instanceId}`,
+          );
+        identity.instanceId = instanceId;
+        delete operation.instanceId;
+      }
+      operation.identity = identity;
+    }
     if (operation.type === 'add_custom_action') operation.id = createId('action');
     if (operation.type === 'set_layer_loop') operation.id = createId('layer-loop');
     if (operation.type === 'create_runtime_collection')
@@ -1179,6 +1519,14 @@ function normalizeOperationSelectors(
         operation.layerId = matches[0]!.id;
       }
       delete operation.layerName;
+    }
+
+    if (operation.type === 'update_element') {
+      const patch = operation.patch as Record<string, unknown>;
+      const layer = composition.layers.find((candidate) => candidate.id === operation.layerId);
+      if (patch.clock && layer?.element.type === 'text' && !layer.element.clock) {
+        patch.clock = { referenceTimeMs: Date.now(), ...(patch.clock as Record<string, unknown>) };
+      }
     }
 
     if (operation.type === 'set_layer_mask') {
@@ -1607,13 +1955,51 @@ export function createOGrafToolRecords(
   workspace: AuthoringWorkspacePort,
   bridge: EditorBridgePort,
 ): AgentToolRecord[] {
+  const exportCoordinated = coordinatedExportFile(workspace, bridge);
   const records: AgentToolRecord[] = [];
   const server: ToolRegistrar = {
     registerTool(name, config, handler) {
       records.push({
         name,
         config: config as AgentToolConfig,
-        handler: handler as unknown as AgentToolHandler,
+        handler: async (args) => {
+          try {
+            return await (handler as unknown as AgentToolHandler)(args);
+          } catch (cause) {
+            // Only pre-admission readiness failures have an explicit retry contract.
+            // Execution failures and uncertain command outcomes keep their original handling.
+            if (
+              cause instanceof Error &&
+              'code' in cause &&
+              cause.code === 'EDITOR_NOT_READY' &&
+              'admitted' in cause &&
+              cause.admitted === false
+            ) {
+              const error = cause as unknown as Error & {
+                code: string;
+                operation: string;
+                health: unknown;
+                retryAfterMs: number;
+              };
+              return {
+                isError: true,
+                content: [{ type: 'text', text: error.message }],
+                structuredContent: {
+                  error: {
+                    code: error.code,
+                    message: error.message,
+                    operation: error.operation,
+                    retryable: true,
+                    admitted: false,
+                    retryAfterMs: error.retryAfterMs,
+                    health: error.health,
+                  },
+                },
+              };
+            }
+            throw cause;
+          }
+        },
       });
     },
   };
@@ -1622,7 +2008,7 @@ export function createOGrafToolRecords(
     'ograf_get_capabilities',
     {
       title: 'Get OGraf authoring capabilities',
-      description: 'Discover section contracts and browser-editor readiness.',
+      description: 'Discover section contracts and editor readiness.',
       inputSchema: {
         sections: z.array(z.enum(CAPABILITY_SECTIONS)).min(1).optional(),
       },
@@ -1638,6 +2024,12 @@ export function createOGrafToolRecords(
         liveEditorConnectedDeprecated:
           'Deprecated alias for editor.connected && editor.responsive. Use the editor object.',
         requiresBrowser: [
+          'ograf_get_template_set',
+          'ograf_update_template_set',
+          'ograf_save_template_set',
+          'ograf_export_coordinated_package',
+          'ograf_get_playout',
+          'ograf_control_playout',
           'ograf_capture',
           'ograf_render_strip',
           'ograf_apply_operations when mode=preview or mode=propose',
@@ -1647,9 +2039,192 @@ export function createOGrafToolRecords(
           'ograf_export_package',
           'ograf_validate_project when browserTextOverflow=true',
         ],
+        templateSets: {
+          available: bridge.health.templateSetsReady === true,
+          read: 'ograf_get_template_set',
+          update: 'ograf_update_template_set',
+          save: 'ograf_save_template_set',
+          format: '.ogs',
+          legacyFormat: '.ogp',
+          storage: {
+            defaultArchiveMode: 'compact',
+            archiveSchemaVersion: 6,
+            compatibleArchiveSchemaVersion: 5,
+            contract:
+              'Compact set archives store identical font/resource bytes and set component sources once, with validated member references. Opening hydrates ordinary editable projects with original IDs, bindings, animation and overrides. Compatible mode retains the v5 archive layout for older set readers. Readers retain v1–v5 and legacy .ogp support; JSON-only readers cannot open any set ZIP. Single-template saves/exports always embed resolved dependencies and never contain compact archive references.',
+            mcpSave:
+              'ograf_save_template_set saves a revision-checked snapshot copy of the connected editor set to a workspace-confined .ogs path. archiveMode compact (default) or compatible; confirm:true and explicit overwrite permission. Compressed MCP transfer limit 64 MiB; larger sets use Studio Save Template Set. Saving preserves open editor names, revisions and unsaved edits.',
+          },
+          sharedResources: {
+            ui: 'Resources offers Template and Template Set views in a set. Template Set shows shared components, asset slots, per-template usage and inheritance/local override indicators; the existing Scene Outliner shared controls and asset slots editor remains available. Replacing a shared asset is reviewed in Studio before applying, including other slots using the same source.',
+            model:
+              'Asset slots explicitly link compatible template assets to a set-level source. Inherited bindings resolve the shared source; local bindings retain the template fallback. A slot currently maps at most one asset per template. Shared components have their own source and instance overrides. Compact storage deduplication alone does not create an editable shared link.',
+            mcp: 'Read assetSlots, bindings and asset metadata from ograf_get_template_set; data URI payloads are omitted. Optional resourceUsage {slotIds?,componentIds?} returns bounded per-template usage for the selected template page plus shared-source slot impact counts and related-reference flags; inspect all pages for a complete set. Related references require review and do not imply all will change. With the returned set revision, bind_asset links or unlinks a template asset and set_asset_slot_source selects an existing set asset or fallback. Creating a slot, importing or replacing its file, and changing a slot binding inheritance remain Studio UI operations. The replacement impact review is a Studio UI flow, not a new MCP mutation. Resolve templates before standalone or coordinated export; published packages remain snapshots.',
+          },
+          tutorialWebPlayer: {
+            module: 'packages/ograf-web-player/ograf-player.js',
+            demo: 'packages/ograf-web-player/demo.html',
+            contract:
+              'The reusable browser module mounts a hosted, extracted OGraf package by manifest URL; it does not open .ogs sources, extract ZIPs or require Studio at playback. Use mountOGrafGraphic, then its play/next/stop/update/action/dispose methods. A coordinated export is one OGraf graphic; discover lane commands from its declared customActions and schema. Same-origin manifest/main is the default; cross-origin loading is explicit and needs CORS. Packages execute JavaScript and must be trusted or hosted in a separately isolated origin; this module is not a sandbox. Browser WebGL, media permissions and external-data policy still apply. This is a website integration module, not an MCP playback tool.',
+            offlinePreview:
+              'Studio and MCP single/coordinated OGraf ZIP exports include a self-contained HTML preview named after the template or template set. Extract the archive before opening that HTML file in a browser; it loads the included graphic and builds controls from its manifest, without a URL or server. Playout Controls dock left/right beside the fitted graphic. Selecting a template immediately shows only its data fields; edits to a selected off-air state stay staged until Take. Studio dropdown/listbox selection keeps all controls visible instead of isolating its row. Preview-only settings select solid/checkerboard, local image/video or webcam backgrounds and EBU R95 action/title guides. The certified OGraf manifest, module and assets remain intact. Embedded preview data increases package size; a resource colliding with the preview filename blocks export instead of being overwritten. Graphics are executable code: use trusted packages. Browser permissions, WebGL, audio and external live feeds can still limit offline operation. Package certification does not replace testing the extracted page in the target browser.',
+          },
+          transitionLogic: {
+            definitionVersion: TRANSITION_LOGIC_VERSION,
+            readableDefinitionVersions: [1, 2, 3, 4, 5, 6],
+            slotUpdateMode: {
+              minimumDefinitionVersion: 6,
+              field: 'slot.updateMode',
+              values: ['transition', 'in-place'],
+              contract:
+                'Studio labels it When its content changes. Omitted or transition mounts the template again and plays the lane update recipe. in-place keeps the mounted template for updateAction, same-state transition.take and Rule Update: no second host or WebGL context, unchanged layers stay at full alpha, and requestId stays the same, so detect updates by comparing data. Changed layers use layer updateTransition, then composition updateTransitionFrames, then the update recipe durationFrames. One data change, and its data Rules, happen when the slowest changed layer has left. A plain image source is staged first and a failed image returns an error with the old image on air. Other resources (video, Lottie, sequence, audio, shader source, image with a fill) use the normal Take. A state change, an Off lane, a pending request or a leaving lane also use the normal Take.',
+            },
+            authoring:
+              'ograf_update_template_set operation set_transition_logic accepts a complete definition object or null. Uses the opaque set revision, validates graph/template/component references, and applies one undoable edit. JSON payload is bounded to 1 MiB, 32768 values and 32 levels. Unapplied UI drafts must be Applied or Reverted first. Removing the graph or replacing its ID requires confirm:true; editing the same ID does not. Loaded playout is unchanged until explicitly reloaded.',
+            source:
+              'Optional transitionLogic in the template-set snapshot. Definition v6 adds slot.updateMode; v5 adds independent incoming/outgoing content animations; v4 adds Take admission and named-state data presets. Definitions v1–v5 remain readable. New selectors require v5 so older runtimes reject unsupported motion. Source archive schema 6 and compatible schema 5 preserve the graph; archive compatibility does not down-convert graph features.',
+            contentAnimations: {
+              minimumDefinitionVersion: 5,
+              fields: ['recipe.incomingAnimation', 'recipe.outgoingAnimation'],
+              choices: ['template', 'builtin', 'plugin'],
+              scope: 'whole-nonshared-template-content',
+              contract:
+                'Omit a side to preserve its existing transition style. type:template plays that side of the template authored tracks without an extra wrapper fade. type:builtin takes motion {style,direction?,distance?,easing?}; type:plugin takes exact reference {id,version,sha256}, presetId and numeric parameters from definition.animationPresetPlugins. Recipe incomingFrames/outgoingFrames own duration. Native/plugin overrides move one full-canvas content wrapper without rewriting source tracks or double-playing their entrance/exit. Shared objects retain morph and make-room behavior. Same-instance data updates do not replay these animations. Plugin presets must support that side and rectangle wrappers; catalog pins stay editable and exports bake ordinary tracks without executable plugin dependencies.',
+            },
+            layoutRules:
+              'Optional layoutRules {id,name,slotId,whenSlotId,sharedOffsets}. The owning slot adds numeric x/y/width/height offsets while another slot enters/on-air/exits. Contributions from independent observed lanes add together; releasing one preserves the others. Updates preserve reserved space. Targets require baseline values and cannot create negative combined dimensions.',
+            layoutTiming:
+              'Recipe layoutPhase {startFrame,durationFrames} requires v3 and nonnegative integer frames within the transition duration. It times observed-slot occupancy for other slots responsive offsets using recipe easing: entry reserves, exit releases, replacements retain. Omit for legacy content-opacity timing. Separate from sharedFrames. Prepare changes no layout; phases start on Take/Out; Clear releases immediately.',
+            slotDependencies:
+              'Optional slot.parentSlotId is an existing parent slot ID; no self references or cycles. Studio labels it Take out with. Parent Out animates its active descendants Out using their own routes; parent Clear removes descendants immediately. Descendant active/prepared intent resets, while per-state editorial data remains. A parent Take does not revive descendants. A fresh dependent Take while its parent cascade is leaving is rejected. Omit parentSlotId for independent lanes. Drawing order and make-room layout remain separate.',
+            slotAdmission: {
+              minimumDefinitionVersion: 4,
+              field: 'slot.admission',
+              fields: ['requireOnSlotIds', 'blockWhileActiveSlotIds'],
+              requireOn: 'settled-on',
+              blockingPhases: ['preparing', 'entering', 'on', 'leaving'],
+              rejectedTakeQueued: false,
+              contract:
+                'Require On lanes must have finished entering and must not be leaving. Blocking lanes include explicit prepared resources and pending activation intent until fully Off. Individual Take/Prepare reject before changing controls, occupancy or preparation and recheck before entry. They do not activate parents or queue a later revival. Batch Play may sequence explicitly selected parents and children; unselected prerequisites remain an error. Out/Clear remain available. Unknown/self references, repeated IDs, require-On cycles and the same lane required On and Off are invalid. Separate from Take out with; old dependencies keep their meaning.',
+            },
+            exportStartup: {
+              defaults: 'compatible-baseline-in-stable-lane-order',
+              dependentLanes: 'off',
+              conflictingStates: 'excluded',
+              takeSuggestions: 'independent-first-valid-state',
+              playPlanning: 'whole-selection-preflight-and-resource-preparation-before-output',
+              playTiming:
+                'prerequisite-entry-and-blocker-exit-barriers-in-realtime-and-non-realtime',
+              loadPreparation:
+                'Realtime Load privately prepares only valid selected startup resources while lanes remain Off; no public Prepare, occupancy or activation. First matching Play reuses successful preparation after normal admission. State/data changes and superseding commands invalidate it; failures release it for ordinary Play-time retry. Non-real-time behavior is unchanged.',
+              skipAnimation:
+                'Skips authored transition waits, while finite resource/render/GPU readiness still applies. Measure both the Devtool detached-element check sequence (Load, unchanged full Update, empty Update, first skipped Play) and the complete visibly mounted multilane export. Await success, capture ready output after timing, and report first Play separately from warm replay. A response-time warning alone is not a frame-drop measurement; no template- or hardware-independent latency bound.',
+              textFittingPerformance:
+                'Shrink-to-fit retains its minimum-size/degenerate check. When authored size already fits, the fast path avoids repeated DOM layout probes while reproducing the original 16-step numeric result; overflowing text still searches and fit-to-width is unchanged. Preserve font-ready invalidation, glyph coverage/shader masks, Rules, transition/dependency timing and exact-frame readiness. Never bypass readiness or alter checker thresholds to improve a benchmark.',
+              skipStageReadiness: 'coherent-frame-per-dependency-stage',
+              skipStageOrdering:
+                'Realtime skip batch Play shares final presentation for prepared independent lanes in one stage, outside nested Rules dispatch. Preserve each request/ready/advance event; release ordered Rules after stage readiness and check cancellation before the next stage. Direct Take, animated and non-real-time paths are unchanged.',
+              rejectedSelection: 'status-550-with-on-air-selections-unchanged',
+              supersession: 'newer-playout-commands-cancel-uncommitted-stages',
+            },
+            preparationCache: {
+              scope: 'realtime-pristine-dormant-template-instances-and-shared-probes',
+              maximumInstances: 4,
+              maximumEstimatedBytes: 67_108_864,
+              admission: 'unchanged-take-conditions-and-transition-timing',
+              nonRealtime: 'fresh-deterministic-replay-without-instance-cache',
+              diagnostics:
+                'Optional runtime getPreparationCacheSnapshot() reports cache counts, estimated bytes, hits/misses/evictions, limits and preparation activity. This is not an OGraf lifecycle method or operator state.',
+              contract:
+                'One bounded pool retains unused prepared template instances and reusable shared resource probes, never previously on-air mutable state. Idle preparation may warm likely alternatives without firing Rules, lifecycle events, timer alarms or occupancy changes. A matching Take adopts a pristine template instance once; unactivated shared probes may return after readiness. Current data, admission, dependencies and authored transition timing still apply. Canonical on-air shared renderers retain their separate lifecycle. Load, disposal and owner-document changes invalidate the pool. Mismatched entries are not adopted; least-recently prepared entries are disposed when space is needed. The memory limit is an estimate, not a browser GPU-memory guarantee. Cache misses follow ordinary preparation and do not alter correctness.',
+            },
+            statePresets: {
+              minimumDefinitionVersion: 4,
+              field: 'state.dataDefaults',
+              precedenceLowToHigh: [
+                'template-defaults',
+                'state-defaults',
+                'retained-state-data',
+                'explicit-data',
+              ],
+              contract:
+                'Named states may share one template while supplying different editorial defaults. Use declared field keys and JSON-safe values, at most 64 KiB/4096 values/16 levels. Export validates field types, nested values and constraints; asset/image presets are packaged and resolved with their template namespace. A state name alone never changes its text or style. Preserve defaults in complete definition updates; caller data overrides only when deliberately supplied.',
+            },
+            scope:
+              'Rules has a searchable list and resizable editor. + New rule creates undoable Rule #N. Target above When changes ownership; explicit action targets remain. Active/Duplicate/Delete live in the list. Then → Playout offers Take/Update/Out/Clear with Lane/Template targets. Window → Transitions authors lanes, matrix moments, styles, timing and make-room behavior. Preview & Export owns playback; Window → Playout Controls shares its transport, lane choices, actions and data in a dockable/detachable pane, including operation of fullscreen on another monitor. Keep the output pane open. Studio Preferences → Workspace & windows → Sync editor and preview mirrors the actual editor output for scrubbing/playback, uses editor test data and transport, and parks independent coordinated playout until disabled. This user preference is outside .ogs and exported OGraf. Canvas Try is an overflow action.',
+            behavior:
+              'The active transition finishes before the latest pending ready request; Clear is immediate. Preparation failures keep current output. Editor selection is separate from playout state.',
+            limits:
+              'Rules can issue Take/Update/Out/Clear; transition definitions remain in Transitions or set_transition_logic. Coordinated Rules supports data/change, pointer/entry hover, key-down/key-up, play/first-step/stop/custom-action, local set-data, animated properties and delayed commands. Shader/media Rule side effects and later-step behavior remain unsupported. Playout rules require coordinated set output; standalone exports reject them. Preview snapshots unsaved edits; failed replacement preparation preserves working output and details remain expandable. Only older unapplied drafts need Apply/Discard. Save Template Set writes .ogs; coordinated export certifies exact artifacts. MCP live output loads the applied set separately. ograf_export_coordinated_package exports a certified revision-checked set with operationId recovery; ograf_export_package exports the active composition. Legacy .ogp cannot preserve the coordinator.',
+            livePlayout: {
+              available: editor.playoutReady === true,
+              read: 'ograf_get_playout',
+              tickerUpdates:
+                'Read-only runtime ticker queue status: policy, pendingCount, updatedCount, addedCount, removedCount, preparingCount and preparation errors. Counts describe source items awaiting their next appearance, not repeated pass copies.',
+              control: 'ograf_control_playout',
+              operations: [
+                'load',
+                'prepare',
+                'take',
+                'update',
+                'out',
+                'clear',
+                'loop',
+                'template-action',
+                'unload',
+              ],
+              contract:
+                'Read playout for its sessionId, opaque revision, states, per-slot readiness/current/pending/errors. Every command requires that revision and a unique requestId. A repeated requestId is idempotent only for the exact original command; reuse it after an uncertain response, never for a different command. Re-read after conflicts or timeouts; never automatically repeat with a fresh ID. Playout revision is distinct from authoring/set revisions.',
+              behavior:
+                'Load snapshots the open applied set explicitly. Prepare loads state/data without changing output; Take omitting stateId uses that slot prepared state and rechecks Take conditions. Guard rejection does not queue a Take or activate required lanes. Named-state defaults and retained operator data apply when data is omitted. Update addresses the on-air instance; optional stateId guards its active state. Update mode:"in-place" sends transition.patch without replaying lane transitions, retaining Rules, leaf text effects, scrolling and paused state. Omitted mode or mode:"transition" retains authored update transitions. target:"preview" still accepts Update only, for graphics already taken in Studio controls. Out follows routing; Clear is immediate and may target one slot or all slots. Unload explicitly disposes the session. Commands return admission snapshots; poll read for readiness/completion. Editor selection and on-air state remain independent.',
+              payload:
+                'JSON-safe data, at most 64 KiB, 4096 values and 16 nested levels. Commands expire before admission after the bridge deadline. Browser must stay connected and responsive.',
+            },
+            exportControl:
+              'Exported data is {slots:{[slotId]:{stateId,data}}}; empty stateId is Off. Standard play/stop control selected states/all slots. Custom actions: transition.take {slotId,stateId,data?}, transition.patch {slotId,stateId?,data}, transition.out {slotId}, transition.clear {slotId?}, template.action {slotId,actionId,data?}, loop.pause/resume/next {slotId,groupId}. transition.patch merges feed values into an existing on-air/entering instance; optional stateId guards it, and Off/leaving targets reject. It preserves transition deadlines, loops and Rules while allowing configured leaf text effects. Standard updateAction and transition.take retain authored update transitions. Labeled GDD selects have matching defaults; allOf if/then narrows stateId to that lane plus Off. Target selects union executable authored actions, generated clock/timer commands or timed loop groups across relevant states; lane lists exclude lanes without targets. Commands/durations are omitted when no targets exist. Runtime validates the current on-air template. Filtering/reset requires a conditional-aware host; other controllers show flat unions and must select matching IDs. Clear defaults to one lane; API omission still clears all. Non-real-time packages accept scheduled actions and goToTime; the operator guide lists IDs. A standard manifest PNG thumbnail is generated before exact-artifact certification.',
+            exportLimits:
+              'Recipe contentMotion fade/slide/wipe uses first on-air poses; authored samples each template layer lifecycle motion across its incoming/outgoing phase. Independent layoutPhase controls reservation timing, with additive layout rules. Live loops/text/clock effects supported; matching output dimensions/frame rates required. Coordinated Rules supports data/change, pointer/once-per-entry hover, key-down/key-up, play/first-step/stop/custom-action, local set-data, animated properties and delayed commands. Authored template actions, Text FX and generated clock:<encodedLayerId>:start/pause/reset/restart commands use template.action {slotId,actionId,data?} on the active lane. Automatic count-up/down timers use the shared playout clock and deterministic non-real-time event replay; system clocks ignore commands; manual Reset/Restart rearm alarms without replacing the feed. Pointer and keyboard input require real time. Audio/media cues, shader/media Rule side effects, custom-action loop activation and later-step loops are rejected. Preserve .ogs source: coordinated packages cannot be reverse-imported as editable sets.',
+          },
+          revision:
+            'Opaque editor-session token, distinct from numeric project revisions; re-read after conflicts.',
+          defaults:
+            'Main canvas size/rate/background, render modes, data transitions, guides display, snapping and bounds. Each property can inherit or be explicitly overridden; set_setting_override pins/resets a property independently. Editing inherited controls creates a local override. set_inheritance retains whole-template opt-out. Media/audio retain real-time-only support.',
+          brandKit:
+            'Optional set-owned master Brand Kit: typed palette/font/number/text tokens with stable IDs and per-template token overrides. set_brand_kit adopts a kit, upsert_brand_token/remove_brand_token manage tokens, set_brand_token_override pins/resets a token. Compatible semantic keys map on explicit adoption, never display names. Object token bindings retain overridden flags for local edits/reset. Shared font files and resolved values are embedded in standalone children; generated CSS is a safe custom-property view, not an external stylesheet runtime dependency.',
+          typography: {
+            shape:
+              'TypographyPreset {id,name,properties:{fontFamily,fontSize,fontWeight,lineHeight,letterSpacing,textAlign,textTransform}}',
+            operations:
+              'upsert_brand_style/remove_brand_style kind:typography; apply_typography layerIds,presetId (null detaches); reset_typography_property layerId,property; set_brand_style_override templateId,styleId,override.',
+            inheritance:
+              'Combined presets resolve into native text values. Object typographyBinding.overrides pins individual properties; palette, content, rich runs, layout and tracks remain independent. Runtime data keeps its normal precedence.',
+          },
+          backgrounds: {
+            shape:
+              'BackgroundStyle {id,name,paint:Paint}; brandKit.defaultBackgroundStyleId string|null selects the set default. Composition backgroundStyleId/backgroundPaint and backgroundPaintOverridden record the resolved value and local override.',
+            operations:
+              'upsert_brand_style/remove_brand_style kind:background; set_background_style styleId,asDefault; set_background_paint paint (null removes rich paint); reset_background; set_brand_style_override.',
+            rendering:
+              'Render-only full-canvas rectangle below authored layers; never a selectable authoring layer. Gradients/shaders reuse native paint clocks. Media backgrounds are muted and real-time-only; live tags require ZeroDensityHTML and an explicitly started local source for webcam preview. Shared imported assets are copied into standalone exports and stored once in set .ogs archives.',
+          },
+          copies:
+            'Independent template/project/composition identities. Same-set copies preserve parent control and shared-asset bindings. Cross-set paste materializes resolved local values.',
+          files:
+            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact schema 6 .ogs; compatible mode writes schema 5. Export Legacy Template Set (.ogp) flattens component links in a copy. Newer features are not down-converted. MCP project open/save remain standalone JSON; ograf_save_template_set writes a whole-set snapshot copy without file dialogs.',
+        },
+        cropping: {
+          layer:
+            'set_layer_crop: crop {x,y,width,height} in normalized layer coordinates (0..1); null resets. All visual layers, including shaders/patterns. coordinateSpace:composition uses canvas pixels at frame; repeat one rectangle across grouped layer IDs.',
+          source:
+            'update_element.patch.crop for image/image-sequence: normalized fractions, optional positive sourceAspectRatio; fit contain/cover/fill. Media Cue visual.crop uses the same source units.',
+          canvas:
+            'set_composition.crop: whole canvas pixels, non-empty and inside the authored canvas; null resets. Output dimensions change; authored layer coordinates and animation stay intact.',
+        },
         elementTypes: [
+          'ticker',
           'rectangle',
           'ellipse',
+          'chart',
           'text',
           'image',
           'path',
@@ -1657,8 +2232,144 @@ export function createOGrafToolRecords(
           'image-sequence',
           'lottie',
         ],
-        paintSchemas: { shader: SHADER_PAINT_CAPABILITIES },
+        paintSchemas: {
+          shader: SHADER_PAINT_CAPABILITIES,
+          media: MEDIA_PAINT_CAPABILITIES,
+        },
         elementSchemas: {
+          ticker: {
+            authoring:
+              'Native mixed-content ticker. add_layer kind:"ticker" and create_ticker use the same ticker element; update_element.patch edits its feed, direction, edge fades and update policy.',
+            speedPixelsPerSecond:
+              '0..2000; absolute elapsed-time movement, independent of composition FPS; fractional positions preserved.',
+            direction:
+              'left | right; defaults to left (right-to-left travel). Scroll direction is independent of Unicode text direction; explicitly saved directions are retained.',
+            textDirection:
+              'auto | ltr | rtl; native browser bidi shaping preserves Arabic/Hebrew and mixed-script text.',
+            updatePolicy:
+              'next-appearance | immediate; defaults to next-appearance. Visible item copies retain their text, artwork, width, effects and animation until they leave. New content is prepared offscreen; safe insertion/removal preserves travel and the preceding visible gap. Pending updates report items waiting for their next appearance.',
+            gap: '0..16384 pixels between prepared items.',
+            entryFade:
+              '0..16384 pixels, stationary transparent entry mask; follows scroll direction.',
+            exitFade:
+              '0..16384 pixels, stationary transparent exit mask; follows scroll direction.',
+            fadeSoftness: '0..1; fade curve softness.',
+            background: 'Optional native Paint behind content; independent of edge fades.',
+            items:
+              '0..128 entries {id,name?,width:1..16384,height?:1..16384,element,effects?,animation?}. Stable IDs match [-A-Za-z0-9_]{1,100}; explicit widths preserve prepared layout. height defaults to ticker viewport. effects uses the standard LayerEffects stack.',
+            itemElements: [
+              'text',
+              'image',
+              'image-sequence',
+              'lottie',
+              'rectangle',
+              'ellipse',
+              'path',
+              'pattern',
+              'shader',
+            ],
+            itemAnimation:
+              '{type:"none"|"fade"|"rise"|"scale",durationMs:0..60000,delayMs:0..60000}; Take animation shares the absolute OGraf content clock and does not restart each time the item enters the viewport.',
+            assets:
+              'Use normal asset:<id> sources for images/sequence frames; self-contained Lottie JSON and inline ShaderPaint retain native rendering. Nested tickers, chart and audio items are not supported.',
+            bounds:
+              'Ticker transform owns clipping/masking and ordinary lifecycle transitions; scrolling is independent of outer-layer entrance/exit animation.',
+            binding:
+              'items binds a complete array or JSON text feed and validates unique stable IDs and widths. items.<itemId>.width/height controls item geometry; items.<itemId>.<childProperty> targets ordinary child controls (for example content, src, fill.parameters.gain). Settings speedPixelsPerSecond, gap, entryFade, exitFade, fadeSoftness, direction, textDirection and updatePolicy are also bindable. Next-appearance snapshots preserve visible copies while additions/removals queue safely.',
+            shaderResources:
+              'Resources > Shaders includes ticker background, item fill/outline and item effect paints. Edit shader opens the normal shared shader editor; each usage remains independent.',
+          },
+          chart: {
+            renderer: 'Pinned chart renderer plugin (HTML Canvas)',
+            provider:
+              'Required {id,version,sha256} reference to a matching snapshot in composition.rendererPlugins. Chart creation has no integrated renderer or implicit default.',
+            fill: {
+              optional: true,
+              type: 'Paint',
+              supported: ['solid', 'linear', 'radial', 'conic', 'shader', 'media'],
+              requiredFeature: 'mark-paint-v1',
+              requires: 'Pinned provider declares mark-paint-v1 (Chart.js 1.2.0+).',
+              coverage:
+                'Provider mark coverage only; native paint does not recolor axes, grid, text, outlines or value labels.',
+              frameConsistency:
+                'Publish base, mark coverage and foreground from one complete frame. Shader output must match canvas alpha association: premultiply final RGB only after straight-alpha effect math and masking, so zero coverage gives RGBA(0,0,0,0). Check moving marks live/replay/stills, tile boundaries, clear gaps on light/dark mattes, backward/repeated non-real-time seeks and data updates in Studio, standalone and coordinated exports.',
+              fallback: 'Omitted fill preserves dataset colors and legacy presentation.gradient.',
+              reset:
+                'update_element.patch.fill:null removes the override and restores dataset colors.',
+              media:
+                'Standard MediaPaint clip/live sources; real-time-only with existing readiness, source and engine requirements.',
+              trust:
+                'Select a reviewed exact provider snapshot; never rewrite or silently upgrade an old provider digest.',
+            },
+            preset: [
+              'bar',
+              'horizontal-bar',
+              'stacked-bar',
+              'line',
+              'area',
+              'pie',
+              'doughnut',
+              'radar',
+              'polar-area',
+            ],
+            data: {
+              metrics:
+                '{ labels: string[], datasets: [{ label, data: number[], backgroundColor, borderColor }] } — legacy independent metrics; totals are not constrained.',
+              canonical:
+                '{ mode:"counts"|"percentages", rows:[{id,label,value,color?}], seriesLabel?,color? } — 1–100 unique stable IDs; labels and geometry derive from these rows.',
+              counts:
+                'Finite non-negative counts with positive finite total; share=value/total*100. Preserve full precision; displayed rounding may total 99.99%.',
+              percentages:
+                'Direct distribution values 0–100 and total 100 within 1e-6. Reject missing/excess totals atomically; never normalize direct percentages.',
+              scale: 'Canonical modes use a fixed 0–100 percentage value axis and % ticks.',
+            },
+            binding: 'Bind data to a textarea GDD field containing validated JSON.',
+            fontSize: { type: 'number', default: 28, minimum: 8, maximum: 96 },
+            textColor: { type: 'hex-color', default: '#e5e7eb' },
+            showLegend: { type: 'boolean', default: false },
+            showGrid: { type: 'boolean', default: true },
+            presentation: {
+              requires:
+                'Pinned renderer manifest chartFeatures includes presentation-v1 (Chart.js 1.1.0+); legacy provider bytes and pins remain unchanged.',
+              valueAxis:
+                '{min?:-1e12..1e12,max?:-1e12..1e12,step?:positive,format?:"number"|"percent",decimals?:integer0..6}; max>min. Canonical data overrides min/max/format to0/100/percent.',
+              fontFamily: { type: 'string', maximumLength: 200 },
+              fontWeight: { type: 'integer', minimum: 100, maximum: 900 },
+              maxBarThickness: { type: 'number', minimum: 1, maximum: 500 },
+              valueLabels:
+                '{show:boolean,decimals?:integer0..6,suffix?:string<=12}; labels use the sampled plotted value and follow the bar tip.',
+              gradient: '{from:"#RRGGBB",to:"#RRGGBB"}; constrained gradient along the value axis.',
+            },
+            animation: {
+              type: ['none', 'grow', 'reveal', 'fade'],
+              default: 'grow',
+              durationFrames: { type: 'integer', default: 25, minimum: 1, maximum: 1500 },
+              delayFrames: { type: 'integer', default: 0, minimum: 0, maximum: 1500 },
+              staggerFrames: { type: 'integer', default: 2, minimum: 0, maximum: 100 },
+              easing: { type: 'EasingPreset', default: 'cubic-out' },
+              curve:
+                'Optional {x1,y1,x2,y2}, each 0..1, overrides easing; omit when selecting a named easing.',
+              replayOnUpdate: { type: 'boolean', default: true },
+              updateMode: {
+                values: ['replay', 'morph'],
+                default: 'replay',
+                requires: 'morph-update-v1',
+                description:
+                  'Morph changes existing bars from their current sampled geometry without recreating the Chart instance. Stable canonical row IDs preserve identity across reorder.',
+              },
+            },
+            markAnimations: {
+              requiredFeature: 'mark-animation-v1',
+              requires:
+                'Chart.js renderer 1.3.0+; bars, stacked bars, pie, doughnut and polar area.',
+              apply:
+                'apply_animation_preset with target:chart-marks, side:in|out, pinned reference, presetId, durationFrames, optional delayFrames/staggerFrames/parameters. Each mark moves independently in dataset-major order; axes/grid/legend stay still. In replaces the built-in chart entrance; updates retain their normal behavior. Whole-layer motion is separate.',
+              storage:
+                'Source pins composition.animationPresetPlugins. Export bakes numeric mark curves; no installed animation pack needed. Timing must fit lifecycle In/Out. Clear with update_element patch.markAnimations:{}.',
+            },
+            timing:
+              'Frame-sampled animation from lifecycle Start; deterministic under OGraf seeks.',
+          },
           rectangle: {
             defaultTransform: { width: 200, height: 200, shape: 'square' },
             fill: {
@@ -1669,6 +2380,7 @@ export function createOGrafToolRecords(
                 'radial-gradient',
                 'conic-gradient',
                 'shader',
+                'media',
               ],
               default: '#3b3f4a',
               gradientShape: {
@@ -1697,6 +2409,7 @@ export function createOGrafToolRecords(
                 'radial-gradient',
                 'conic-gradient',
                 'shader',
+                'media',
               ],
               default: '#3b3f4a',
               gradientShape: {
@@ -1709,14 +2422,61 @@ export function createOGrafToolRecords(
             strokeWidth: { type: 'number', default: 0, minimum: 0 },
           },
           text: {
+            clock: {
+              description:
+                'Optional generated clock/timer text. Create with add_layer kind:"clock", stored as type:"text"; update via update_element.patch.clock. Null returns to ordinary text. Normal text paint, outline, typography and effects apply. Content/runs bindings are not supported on a generated clock.',
+              shape: {
+                mode: 'clock | count-up | count-down',
+                source: 'automatic | manual; automatic reads the system clock or runs a timer',
+                manualValue:
+                  'manual fallback: milliseconds number/numeric string; clock HH:mm[:ss[.SSS]] or ISO with Z/offset; timer signed mm:ss or hh:mm:ss[.SSS]',
+                format:
+                  'hh:mm:ss by default; hh/h, mm/m, ss/s, SSS milliseconds, dd/d days, A/a meridiem; [literal text]',
+                hourCycle: '12 | 24 (string)',
+                timeZone: 'local | UTC | IANA zone, e.g. Europe/Istanbul',
+                padHours: 'boolean; hh leading zero',
+                padMinutes: 'boolean; mm leading zero',
+                padSeconds: 'boolean; ss leading zero',
+                showAmPm: 'boolean; append meridiem in 12-hour clock mode',
+                uppercaseAmPm: 'boolean; appended AM/PM casing',
+                initialValueMs:
+                  'non-negative number; timers start here; new count-down defaults to 60000',
+                limitMs: 'optional count-up limit in milliseconds, or null',
+                endBehavior: 'stop | continue | loop',
+                autoStart: 'boolean; start timers on Take In',
+                pauseWhenOffAir: 'boolean; pause timers when taken off air',
+                referenceTimeMs:
+                  'epoch milliseconds captured for deterministic non-realtime rendering',
+                prefix: 'text before the formatted time',
+                suffix: 'text after the formatted time',
+              },
+              playback:
+                'Clock uses the system clock in realtime and referenceTimeMs plus sampled time for offline frames. Timers measure elapsed monotonic time; count-down displays rounded-up seconds until zero. Timers retain total hours, or total minutes/seconds when higher units are omitted.',
+              manual:
+                'Manual source displays the supplied value without advancing. Bind clock.manualValue to a numeric or text field for external data; invalid feeds retain the authored fallback. Switching to automatic ignores but preserves the binding.',
+              dataBindable:
+                'Bind clock.timeZone, clock.hourCycle, clock.showAmPm, clock.format, clock.initialValueMs or clock.endBehavior to drive them on air; invalid values keep the authored setting. Use valueMap for choices.',
+              alarms: {
+                operation: 'set_layer_visual_rules',
+                trigger: 'timer-alarm',
+                configuration: 'rule.timerAlarm: {sourceLayerId,thresholdMs,direction:"up"|"down"}',
+                behavior:
+                  'Multiple alarm Rules may reference one count-up/count-down clock. Each fires once per run on a raw-value crossing, independently of text formatting. Reset/Restart rearm alarms; Pause/Resume retain fired state. Manual feed jumps are supported; Reset/Restart rearm without replacing the feed value. The Alarms property list and Rules edit the same records. Preserve existing rules when replacing the array.',
+              },
+              actions:
+                'Generated custom action IDs: clock:<encodeURIComponent(layerId)>:start, :pause, :reset, :restart. Start resumes; Pause holds; Reset restores the automatic timer and pauses; Restart restores it and runs. Reset/Restart rearm alarms; manual values stay externally controlled. System clocks ignore commands. Coordinated exports use standard template.action {slotId,actionId} on the active template; offline schedules replay on the shared clock. Do not add duplicate definitions.',
+              updateFx:
+                'Set textAnimation.replayOnUpdate:true and a non-none textAnimation.type to replay the text effect when the displayed value changes.',
+            },
             strokePaint: {
-              type: 'shader-or-omitted',
+              type: 'shader-or-media-or-omitted',
               description:
                 'Independent shader outline on editable text, using strokeWidth and glyph stroke alpha. Omitted uses strokeColor.',
             },
             fill: {
               type: 'paint-or-omitted',
-              description: 'Solid, gradient, or shader clipped by glyph alpha; omitted uses color.',
+              description:
+                'Solid, gradient, shader, or media clipped by glyph alpha; omitted uses color.',
             },
             content: { type: 'string', default: 'Text' },
             color: { type: 'color', default: '#ffffff' },
@@ -1754,9 +2514,46 @@ export function createOGrafToolRecords(
               values: ['auto-size', 'shrink-to-fit', 'fit-to-width', 'squeeze', 'fixed'],
               default: 'auto-size',
             },
+            textAnimation: {
+              type: 'object',
+              description:
+                'Deterministic text reveal sampled from the OGraf frame clock. Patch through update_element.patch.textAnimation.',
+              shape: {
+                type: 'none | typewriter | fade | rise | pop | word-reveal | flip | blur | rotate | stretch | count-up | count-down | roll-up | roll-down',
+                split: 'grapheme | word',
+                durationFrames: 'positive integer',
+                cursor: 'none | bar | block (Typewriter only)',
+                cursorBlinkFrames: 'positive integer (Typewriter only)',
+                replayOnUpdate: 'boolean',
+                customActionId: 'existing custom action id or null',
+                countFrom:
+                  'number or null for automatic start; counting finishes at the single formatted number in Content',
+                countRoll: 'none | up | down; optional digit rolling for count-up/count-down',
+                animators:
+                  'Array (max 32) of {id,enabled?,unit?,start?,end?,offset?,offsetKeyframes?:[{frame,value}],shape?,easing?,order?,seed?,durationFrames?,properties?}. Unit character|word|line; range 0..1; offset -1..1; shape square|ramp|triangle|round; easing linear|ease-in|ease-out|ease-in-out; order forward|reverse|center-out|random. Properties opacity,x,y,scale,rotation,blur,color,tracking. Color supports solids and gradients with parseable stops, not shader/media; per-glyph gradient repaint can be expensive. Count and roll presets may combine with animators.',
+              },
+              example: {
+                type: 'update_element',
+                layerName: 'Headline',
+                patch: {
+                  textAnimation: {
+                    animators: [
+                      {
+                        id: 'rise',
+                        unit: 'character',
+                        order: 'random',
+                        seed: 42,
+                        durationFrames: 25,
+                        properties: { y: 25, opacity: 0 },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
           },
           image: {
-            fill: { type: 'shader-or-omitted' },
+            fill: { type: 'shader-or-media-or-omitted' },
             src: {
               type: 'string-or-null',
               default: null,
@@ -1807,6 +2604,7 @@ export function createOGrafToolRecords(
                 'radial-gradient',
                 'conic-gradient',
                 'shader',
+                'media',
               ],
               gradientShape: {
                 type: 'linear | radial | conic',
@@ -1821,7 +2619,7 @@ export function createOGrafToolRecords(
             viewBoxHeight: { type: 'number', default: 100, exclusiveMinimum: 0 },
           },
           'image-sequence': {
-            fill: { type: 'shader-or-omitted' },
+            fill: { type: 'shader-or-media-or-omitted' },
             frames: {
               type: 'string-array',
               default: [],
@@ -1832,7 +2630,7 @@ export function createOGrafToolRecords(
           },
           lottie: {
             fill: {
-              type: 'shader-or-omitted',
+              type: 'shader-or-media-or-omitted',
               description:
                 'Shader paint replaces color through source alpha; omitted preserves original pixels.',
             },
@@ -1882,6 +2680,22 @@ export function createOGrafToolRecords(
             'Normalized 0..1 position of gradient stop N (zero-based) on rectangle/ellipse layers. Each stop owns an independent numeric track with incoming easing.',
         },
         easingPresets: [...EASING_PRESETS],
+        layerMotion: {
+          operation: 'set_layer_motion',
+          sides: ['in', 'out'],
+          styles: [...LAYER_MOTION_STYLES],
+          directions: ['left', 'right', 'up', 'down', 'center'],
+          specFields: [
+            'style',
+            'durationFrames',
+            'direction?',
+            'distance?',
+            'easing?',
+            'offsetFrames?',
+          ],
+          semantics:
+            'Bakes an entrance or exit into ordinary keys in the Start-to-first-Step or last-Step-to-End window. Needs a Step; focus needs built-in blur; grow is not for text; center is wipe/grow only; spin turns right (clockwise) or left. offsetFrames ends the motion early, for stagger. null holds the on-air pose. Duration plus offset must fit the window.',
+        },
         blendModes: [...BLEND_MODES],
         semantics: {
           layerPaintOrder: 'ascending-index-paints-later',
@@ -1901,7 +2715,7 @@ export function createOGrafToolRecords(
           runtimeCollections:
             'A runtime collection expands one contiguous grouped prototype from an object-item GDD array. Capacity is bounded to 1..100, overflow truncates, index offsets are explicit, updates replace snapshots atomically, and realtime/non-realtime sampling never depends on arrival order or item count.',
           localLoops:
-            'A layer may own one local loop clip with independent numeric property tracks on a 0..durationFrames ruler. set_layer_loop configures lifecycle or Step activation; set_loop_property_track authors incoming-eased keys without creating composition keys or OGraf Steps. Null repeatCount means infinite. All loop phase is sampled from the shared OGraf timestamp/action schedule; loops never invoke lifecycle actions.',
+            'One layer-local property clip may use lifecycle, Step, or customAction activation. Custom-action clips require finite repeats, apply the payload as a partial data update, and settle afterward. Other clips may repeat infinitely. Phase follows the OGraf timestamp/action schedule; clips never invoke lifecycle actions.',
           semanticAuthoring:
             'Layer roles, tags, and descriptions are authoring-only intent used by recipes, queries, QA, and review. They never enter the compiled OGraf runtime.',
           textStroke:
@@ -1933,20 +2747,29 @@ export function createOGrafToolRecords(
             'create_ticker',
             'create_scoreboard',
             'create_clock',
+            'create_countdown',
             'create_repeater',
           ],
           recipes: {
+            layout:
+              'Default starters reserve separate areas: scoreboard top-left; bug, clock and countdown down the right; lower third above the bottom ticker. Explicit placements and Brand Kit values win. Compact labels/scores use fixed shrink-to-fit boxes rather than geometry-hugging Max Text Width. Editable child tracks follow panel translation while retaining wipe clipping, independent motion, Text FX and Rules.',
+            materials:
+              'New recipe panels use one native animated shader fill: News signal grid, Sports velocity diagonals, Entertainment studio ribbons or Documentary contours. Kit surface/accent colors bind to ink/accent and their generated field defaults; strength/speed stay editable. Applying kits switches untouched built-in motifs across linked sources/instances while preserving real overrides, exposure choices and custom paints. Inherited paint/field baselines stay aligned through repeated kit switches. The reflection lives in this background; new accents use native gradient/glow to limit GPU contexts. Post-process effects remain available for input-image processing. Preserve ticker travel and review continuous motion.',
+            typography:
+              'News/Sports defaults embed Roboto Condensed variable 100–900 with its license before component creation: 900 headline/display, 600 body/ticker. Existing custom Brand Kit families and same-family project fonts are preserved. No online font dependency; component sources and exports carry the font.',
             lowerThird:
-              'Creates a grouped four-layer/two-field lower third with semantic roles. The default wipe uses a deterministic clipChildren mask, cubic-out entrance, and cubic-in exit; stagger, slide, and none remain explicit alternatives. The result remains ordinary editable OGraf layers.',
+              'Creates an editable lower third with semantic roles, Brand Kit paints, dynamic text, a clipped lifecycle reveal and coordinated motion. Recipes become linked reusable component assets by default; asComponent:false retains independent layers. Entrance/exit keys and component source remain editable.',
             repeater:
               'Materializes a horizontal or vertical data collection as grouped ordinary layers with independent field mappings and semantic item/index tags.',
-            bug: 'Creates a compact grouped bug/DOG with one editable label and style-pack-aware motion.',
+            bug: 'Creates a linked reusable bug/DOG with an editable identity field, Brand Kit material styling and lifecycle motion.',
             ticker:
-              'Creates a clipped ticker window, editable label/crawl fields, and a deterministic layer-local crawl loop rather than a lifecycle-long translation.',
+              'Creates a native mixed-content ticker with editable label/headline fields. Defaults to right-to-left travel, Next appearance updates and transparent edge fades; visible copies retain their payload/geometry until exit. Supports items, RTL text, images, animations and shaders through the native ticker fields. result.layers.crawl is retained as the ticker layer ID alias; the headline binding targets items.headline.content, not legacy text crawl.',
             scoreboard:
-              'Creates a grouped two-team/four-field scoreboard with outlined score values and portable semantic layers.',
+              'Creates a linked two-team scoreboard with constrained score fields, rolling update text effects, Brand Kit paints and editable lifecycle motion.',
             clock:
-              'Creates a grouped two-field 24-hour clock with static punctuation and validated hour/minute controls.',
+              'Creates a live system clock or timer with configurable format, time zone, 12/24-hour display and automatic/manual source. count-up/count-down use durationSeconds; alarms creates linked Rules. Explicit legacy content.hours/minutes or fieldKeys.hours/minutes retain the two-field compatibility path. New live recipes expose fieldKeys.value for external manual values.',
+            countdown:
+              'Creates a native countdown timer with a duration, rolling text updates and editable Rules at five seconds and zero. Start/Pause/Reset/Restart use the existing clock commands; resets/restarts rearm alarms. Change Rule actions normally; coordinated exports retain timer commands and alarms.',
           },
           motionPresets: [...MOTION_PRESET_NAMES],
         },
@@ -2002,15 +2825,192 @@ export function createOGrafToolRecords(
           operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
           activations: ['lifecycle', 'step'],
           repeatCount: 'null means infinite; positive integers play a finite number of cycles',
+          transport:
+            'set_layer_loop.timing links groupId, numeric holdFieldId and ordered holdRanges to independent Pause/Resume/Next controls. Only holds stretch; changes keep their authored duration. See loop-controls.md.',
           clock:
             'Layer-local editing timelines share the deterministic composition/OGraf clock; they are not autonomous timers.',
           easing:
             'Each loop property key owns its incoming easing and optional cubic-bezier curve independently.',
         },
+        rendererPlugins: {
+          apiVersion: 1,
+          loadWarnings:
+            'On template/set load Studio checks exact chart renderer requirements across all templates, including inactive ones. Blocking missing/disabled/untrusted builds open a mismatch dialog; a persistent Review plugins bar remains until resolved. Trusted compatible replacements require an explicit undoable source update; unfamiliar code still requires review and trust. A working older renderer does not trigger a blocking warning just because an update exists.',
+          kinds: ['chart'],
+          packageFiles: ['manifest.json', 'renderer.js', 'LICENSE.txt'],
+          installation:
+            'File > Preferences > OGraf Studio > Plugins manages installation, review, enabled state, removal and new-chart defaults. The Plugins pane browses templates; Add, gear and Manage plugin route to the same preferences page. Imported or unfamiliar saved code requires human Review saved bundle > Trust & Install. MCP cannot install or grant trust.',
+          includedWithStudio: {
+            ids: [
+              'ograf.zd-news-shaders',
+              'ograf.zd-news-shaders-2',
+              'ograf.broadcast-motion',
+              'ograf.chartjs',
+            ],
+            behavior:
+              'The four offline bundles are installed and enabled on fresh profiles; Chart.js is the initial new-chart default. Only exact bundle and snapshot hashes compiled into the application grant included trust. Names or version labels never grant trust. Included versions cannot be removed; disabling and explicit defaults persist. Older installed versions and document pins remain intact. Template Set/Template > Plugins lists exact requirements and usage without automatic migration. Retry loading plugins recovers failed archives while verified packs remain available.',
+          },
+          components:
+            'Top-level author/version/license describe the Studio adapter; optional library metadata describes the upstream engine separately. Declarations are not legal or identity verification. Bundled code contains both; independent vendor-file updates/BYOL are unsupported.',
+          updates:
+            'Same adapter ID/API/kind required. Review compares adapter/library versions and bytes, warns about downgrades and preset changes, then installs alongside old pins. Use for new charts changes only the default when explicitly chosen; existing templates never auto-upgrade.',
+          toolbar:
+            'The Plugins toolbar opens the dockable template browser. Select Charts, a provider and exact version to pin a gallery chart independently of the global new-chart default. Its gear or Manage plugin opens Studio Plugins in Settings & Preferences.',
+          icons:
+            'Optional manifest.icon is an embedded PNG/WebP data URL with matching signature and at most 32 KiB decoded bytes. Remote URLs and executable toolbar UI are unsupported; absent icons use a standard chart glyph.',
+          selection:
+            'Chart element.provider must be {id,version,sha256} for a renderer snapshot already pinned in composition.rendererPlugins. Missing providers are unconfigured, never a built-in fallback. add_layer and update_element use explicit existing pins; they cannot install or trust code.',
+          catalogRemoval:
+            'remove_renderer_plugin removes an exact unused composition snapshot by reference {id,version,sha256}. Layers, guides, prototypes and saved component definitions cannot still reference it. This never changes local installation or trust.',
+          portability:
+            'Templates pin manifest, source and license bytes. Exports keep the selected exact versions; installed updates do not alter prior packages. Studio blocks disabled or untrusted providers before preview, capture and certification.',
+          clock:
+            'After asynchronous create, provider renderAtFrame/update/dispose are synchronous; core supplies absolute frame timing and animation helpers.',
+        },
+        animationPresetPlugins: {
+          apiVersion: 1,
+          kinds: ['animation-presets'],
+          packageFiles: ['manifest.json', 'presets.json', 'LICENSE.txt'],
+          operation: 'apply_animation_preset',
+          catalogRemoval:
+            'remove_animation_preset_plugin removes an exact unused source snapshot by reference; refuses references from layers, guides, prototypes and saved components. It never changes local installation or baked tracks.',
+          selection:
+            'Requires an exact {id,version,sha256} pack already in composition.animationPresetPlugins, presetId, side in/out, durationFrames and optional numeric parameters/offsetFrames. MCP cannot install plugins.',
+          behavior:
+            'Declarative presets bake supported numeric channels into editable timeline keys; preserve the on-air anchor, loops and keys outside the selected lifecycle window. Duration plus offset must fit; keys that collide after frame rounding reject atomically.',
+          safety:
+            'No JavaScript, CSS, timers, arbitrary expressions or new renderer code. Only bounded validated JSON keyframes and parameter references are accepted.',
+          portability:
+            'Source keeps exact preset definitions and last-applied metadata. Export uses ordinary tracks, not an animation plugin engine. Removing or disabling a local pack does not stop already baked animation.',
+        },
+        shaderPacks: {
+          apiVersion: 1,
+          kinds: ['shader-pack'],
+          packageFiles: ['manifest.json', 'shaders.json', 'LICENSE.txt'],
+          targets: ['fill', 'outline', 'effect'],
+          installation:
+            'File > Preferences > OGraf Studio > Plugins manages shader packs. Both ZD News packs ship enabled with exact build-pinned trust; unfamiliar packs still require human review. GLSL is GPU code, not JavaScript; parsing and review never compile or preview it. MCP cannot install or grant trust.',
+          application:
+            'The Plugins toolbar gallery applies independent editable ShaderPaint copies or imports a compatible fill preset into Resources > Shaders. Shader controls retain normal #pragma ograf fields, bindings and tracks. Effects reserve iChannel0 for the incoming layer; effect-only presets cannot become fill resources without an image.',
+          portability:
+            'Copied paints include packProvenance: original exact reference, preset id, pack name and declared notices. This is attribution, not an execution pin or proof edited source still matches the original. Removing/updating the pack never rewrites existing copies. Exports include used shader-pack notices without a plugin engine dependency.',
+          mcp: 'Read copied Resources shaders using get_project include:["shaders"], or applied element/effect paints, then use normal update_element/add_effect operations. MCP cannot install or trust a shader pack. No extra channels, multipass, feedback or raw JavaScript are added.',
+          preview:
+            'Explicit selected-shader preview only after local review/enable; one preview renderer at a time. GPU load and compiler failures remain possible; a source/hash declaration is not a safety guarantee.',
+        },
         bindings: {
           operations: ['set_layer_bindings', 'set_layer_binding (legacy single-binding replace)'],
+          dataConnections: {
+            operations: ['add_data_connection', 'update_data_connection', 'remove_data_connection'],
+            read: 'ograf_get_project include:["dataConnections","dataFields"]',
+            configuration:
+              'Connections belong to a composition and persist in standalone/set .ogs. Map sourcePath strings to existing local field IDs. URL and embedded JSON/CSV remain supported; public-markets uses Coinbase USD spot products plus dated ECB FX references without an API key.',
+            targets:
+              'editor-preview, coordinated-preview, or both. Omitted targets on older connections retain editor-only behavior. New public-market connections default to both.',
+            lifecycle:
+              'Enabled connections run at Studio application scope while the panel is closed or preview is fullscreen. Matching sources share requests. Native feed delivery uses in-place transition.patch for active template lanes without Take/Out, whole-lane update fades, source edits or a new runtime; Rules and configured leaf text effects still respond. Paused/transitioning lanes receive the latest values when ready. Explicit authored Update commands and standard updateAction retain transition behavior.',
+            threading:
+              'Public-market sources use persistent module Workers for fetching and normalization when supported, retaining source caches, freshness timing, cancellation and last-consumer disposal. Unsupported or blocked Worker startup falls back to the same provider. A running Worker failure remains visible and preserves last received output.',
+            performance:
+              'Feed changes must not recompile an unchanged editor composition or restart loop timing. Unrelated layer bindings and Rule results retain identity. Obscured editor painting yields only in its own document, preserving Sync mode and visible editors on other monitors. Hidden realtime visuals can defer paint only when dependencies permit; Rules, clocks, alarms and reveal/readiness correctness remain active. Settled realtime chart history may be checkpointed with morph/stagger-aware bounds; interrupted chains and non-realtime replay stay intact. Profile repeated live refreshes rather than assuming Worker use removes DOM or chart work.',
+            publicMarkets:
+              'Optional publicMarkets.symbols contains 1..16 unique Coinbase USD product IDs such as BTC-USD. Quotes use provider timestamps and 24-hour opening reference; triangles/colors follow that comparison. Stable per-symbol PriceValue, ChangeValue, OpenValue, HighValue, LowValue and Available fields support numeric comparisons. changeChartData and per-symbol RangeChartData contain validated chart JSON text for signed 24-hour changes and low/latest/high price levels, never fabricated history. Unavailable observations omit numeric/chart fields. FX is a dated daily reference, never presented as streaming FX. Source errors and stale values remain visible.',
+            export:
+              'Studio manages connections. Exported OGraf graphics still receive ordinary GDD updates from their controller; exports do not embed Studio polling or credentials.',
+          },
+          designerEdits:
+            'Properties, inline text, update_element and effect edits synchronize the bound default or active mapping while preserving the binding. Nested edits preserve sibling values. Runtime data still overrides authored defaults.',
           semantics:
-            'A layer may bind multiple independent element properties. Bindings are applied in order and a target property may appear only once. sourcePath is a segment array for nested object leaves; array paths are item-relative inside a registered runtime collection prototype.',
+            'A layer may bind multiple independent content, effect and transform properties. Bindings are applied in order and a target property may appear only once. sourcePath is a segment array for nested object leaves; array paths are item-relative inside a registered runtime collection prototype.',
+          transformBindings: {
+            targets: [
+              'layer.x',
+              'layer.y',
+              'layer.width',
+              'layer.height',
+              'layer.rotation',
+              'layer.opacity',
+            ],
+            semantics:
+              'Numeric geometry bindings replace sampled animation/loop channels before Rules, layout, modifiers and clipping. layer.opacity is a0..1 multiplier on authored animated opacity, preserving Take/Out fades. Width/height allow zero and reject negatives; all channels require finite numbers. Nested numeric field paths and runtime collection item paths work. Invalid live values fall back to authored sampling rather than poisoning geometry. Transforms remain actual layer poses, not a CSS-only visual adjustment.',
+          },
+          visualRules: {
+            operation: 'set_layer_visual_rules',
+            triggers: [
+              'data',
+              'hover',
+              'click',
+              'double-click',
+              'pointer-enter',
+              'pointer-leave',
+              'pointer-down',
+              'pointer-up',
+              'key-down',
+              'key-up',
+              'play',
+              'step',
+              'stop',
+              'custom-action',
+              'timer-alarm',
+            ],
+            operators: [
+              'equals',
+              'not-equals',
+              'greater-than',
+              'greater-or-equal',
+              'less-than',
+              'less-or-equal',
+              'between',
+              'contains',
+              'not-contains',
+              'starts-with',
+              'ends-with',
+              'one-of',
+              'not-one-of',
+              'empty',
+              'not-empty',
+              'changed',
+              'increased',
+              'decreased',
+            ],
+            semantics:
+              'data and hover rules are states: their show/hide and property actions hold while the conditions (or the pointer) hold and revert afterwards. Every other trigger, and data rules using changed/increased/decreased, is an event whose show/hide/property results persist until a later rule replaces them; a state rule that starts matching takes its properties back. Data rules require fieldId; conditions[] add more comparisons combined by match all/any, and on non-data triggers act as a guard. compareFieldId compares with another field instead of value; equality coerces numbers and booleans. Inside a runtime collection prototype the collection field reads the current row item.',
+            timerAlarms:
+              'Use trigger:"timer-alarm" and timerAlarm:{sourceLayerId,thresholdMs,direction:"up"|"down"}. The source is a non-guide text clock layer; thresholdMs is finite and nonnegative. Alarm Rule IDs are stable, actions use the ordinary Rules targets and conditions are optional guards. The owner can differ from the timer source. Empty-action alarm drafts are retained for authoring and omitted from executable output. Copies/components remap source references; removing the source prunes its alarm rules.',
+            keyboard:
+              'Use trigger:"key-down"|"key-up" with keyboard:{key,ctrl?,alt?,shift?,meta?,repeat?}. The key uses DOM event.key (Enter, Escape, Space, ArrowLeft, a); letters match without case, Space/Spacebar/literal space and Esc/Escape are aliases. Modifiers match exactly; omitted flags mean false. Repeated key-down fires only with repeat:true; key-up ignores repeat. IME composition is ignored. Optional data conditions, delays, targets and ordinary actions remain available. Keyboard input is interactive realtime only, not a remote OGraf action or scheduled non-realtime event.',
+            mouseOperands: {
+              fieldIds: ['$mouse.x', '$mouse.y'],
+              units: 'Composition pixels from the top-left corner.',
+              behavior:
+                'Virtual inputs accepted in primary/extra conditions and compareFieldId with empty sourcePath. Updated by real pointer movement in Preview & Export and interactive packages; never real data fields or GDD controls, never writable by set-data/editorial data. Comparisons are false until pointer coordinates are known and after leaving; changed/increased/decreased require previous and current known positions. Non-real-time schedules have no live mouse.',
+            },
+            targets:
+              'Top-level hostGroupId optionally owns a rule on an editor group; store it once on an editable member. Data/lifecycle evaluation runs once, while pointer/hover scopes include every member. Omit for object ownership. visibility, toggle-visibility and property actions accept targetLayerId or targetGroupId; omit both for the owner object/group. Explicit action targets survive owner changes. A collection prototype target resolves to the same row. Group/component copies remap group references. toggle-visibility needs an event trigger.',
+            geometry: {
+              properties: ['layer.x', 'layer.y', 'layer.width', 'layer.height'],
+              labels: ['Position X', 'Position Y', 'Width', 'Height'],
+              units: 'Absolute composition pixels; actual pose geometry, not CSS scaling.',
+              legacyAliases: ['x', 'y', 'width', 'height'],
+              validation:
+                'Finite numeric coordinates; finite nonnegative dimensions. Numeric legacy strings remain readable.',
+              precedence:
+                'Active rule geometry replaces sampled animation channels. Existing layer.offsetX/layer.offsetY stay additive. Ordinary layout, modifiers, masks and crops consume the resulting pose; explicit coordinated shared-element pins retain priority. Data/hover state output reverts when no longer matching; event output persists until replaced.',
+            },
+            timing:
+              'play fires when the first step is reached, step when a step keyframe is reached (eventId = step keyframe id, omit for any), stop when the graphic starts leaving, custom-action when the named custom actionId runs. delayFrames delays event actions; transitionFrames fades visibility or animates numeric/colour property values. Scheduled events replay deterministically in non-real-time schedules. Pointer and keyboard triggers need interactive real-time HTML playback; use a custom action for remote playout.',
+            playout: {
+              action:
+                '{type:"playout",operation:"take"|"update"|"out"|"clear",slotId,stateId?,data?}',
+              targets:
+                'Read transitionLogic slots/states from ograf_get_template_set for stable IDs. Every command requires slotId. Take requires stateId in that lane. Update changes only the on-air state; optional stateId is a guard, never a template switch. Out/Clear accept neither stateId nor data. Composition validation checks shape; set validation and coordinated compilation resolve references.',
+              data: 'Take without data keeps target retained/default values. Update without data copies effective triggering-template data using known field keys. Explicit {} adds no patch; literal values merge with retained target data. JSON object limit: 64 KiB, 4096 values, depth 16.',
+              behavior:
+                'Uses existing transition timing, readiness, pending policy, shared-element and make-room phases. Out animates dependent lanes via their own routes; Clear removes them immediately. Both reset descendant activation intent and preserve editorial data; parent Take never revives dependents. State/hover commands fire once on matching entry, without automatic reversal. Event delayFrames can delay commands. Test in Preview & Export, not canvas simulation.',
+              output:
+                'Enabled playout rules require coordinated set output. Coordinated triggers: data/change, pointer/once-per-entry hover, key-down/key-up, play, first-step step, stop and custom-action. Delayed playout commands, local set-data and animated properties supported. Shader/media side effects and later-step behavior unsupported. Pointer and keyboard input are real-time only.',
+            },
+          },
           fieldTypes: [
             'text',
             'textarea',
@@ -2028,7 +3028,25 @@ export function createOGrafToolRecords(
             'object',
             'array',
           ],
-          gdd: 'Every compiled field emits gddType plus operator description, select labels, file extensions, JSON Schema constraints, recursive object properties, and array item schemas when authored.',
+          gdd: 'Every publicly exposed compiled field emits gddType plus operator description, select labels, file extensions, JSON Schema constraints, recursive object properties, and array item schemas when authored.',
+          testRundowns:
+            'set_test_rundowns stores named authoring-only rows keyed by stable field ID. They are saved in editable sources and excluded from OGraf manifests and exported runtime packages.',
+          review:
+            'Local-only review supports add_review_comment, set_review_comment_resolved, save_review_version and set_review_approval. Read include:["review"] for comments and version metadata. Only record an explicitly authorized human approval; review does not imply multi-user sync or cryptographic signing.',
+          playoutExposure: {
+            property: 'exposeToOgraf',
+            default: true,
+            operations: ['add_data_field', 'update_data_field', 'update_component_field'],
+            ui: 'Data > Expose: searchable tree of current-template controls grouped by scene objects, with nested object properties/array items and exposure checkboxes. Object/group checkboxes show all, none or mixed exposure; clicking mixed exposes all. Bulk changes include collapsed/filtered-out descendants and recursively update properties/items. Effective status accounts for internal parents/items; Data > Fields edits definitions and values.',
+            semantics:
+              'New and legacy fields are public unless explicitly disabled. true exposes a field; false keeps its default, local authoring controls, bindings and Rules available inside the graphic, but removes it from public OGraf schema and external playout updates. Omitting the flag in an update preserves its current value. Applies recursively to object properties; an internal parent hides its subtree and an explicitly internal item schema makes its array internal. Required only affects publicly exposed schema; it never forces an internal field into playout.',
+            authoring:
+              'Use exposeToOgraf:false for internal state or shader/effect controls the operator should not receive. get_project retains the complete field definition; revision-checked authoring operations may still change its default or exposure. Individual parent-field toggles retain child choices. For bulk MCP edits, batch the existing field operations and include the intended nested properties/items.',
+            coordinatedForms:
+              'Mixed per-state exposure uses standard conditional schemas. A conditional-aware controller shows the fields for the selected state; the exported runtime enforces each state policy independently of form support.',
+            verification:
+              'After save/reopen, check standalone and coordinated public schemas, defaults and README examples omit internal keys while internal descriptor defaults remain. Test public updates, blocked external writes to internal fields, internal Rule/custom-action writes, shader animation and replay in the actual renderer. Partial object updates must preserve omitted internal descendants; vector object-key ordering must not change shader validation, and merged color schemas must retain their GDD pattern.',
+          },
           runtimeCollections: {
             operations: [
               'create_runtime_collection',
@@ -2039,6 +3057,34 @@ export function createOGrafToolRecords(
             capacity: '1..100; default 12; emitted as maxItems',
             overflow: ['truncate'],
             identity: 'stable array index; no inferred keyed move animation',
+          },
+          functions: {
+            operation: 'set_logic_functions',
+            version: 1,
+            configuration:
+              '{type:"javascript",version:1,id,name,enabled,pointer?:boolean,source,inputs:{alias:fieldId},outputs:{alias:fieldId},actions:[customActionId],emits?:{alias:customActionId},media?:{alias:mediaCueId},initialState?,timeoutMs?}',
+            source:
+              'A synchronous JavaScript function expression (context)=>result, or an IIFE returning it. Context has state,data mapped input aliases,event,nowMs. Events:load,play,out,data,blur,tick,custom-action; pointer-enabled Functions additionally receive focus when interaction returns. No source is evaluated on Studio or renderer main threads; execution is isolated from DOM, project access and network.',
+            result:
+              '{state?,data?:{outputAlias:value},actions?:[{name:emitAlias,payload?}],media?:[{name:mediaAlias,command:"play"|"restart"|"pause"|"resume"|"stop"|"controls",gain?,muted?}],wakeAt?:number|null}. Omitted state preserves prior state. wakeAt is absolute nowMs time; null cancels; omission preserves a scheduled wake except when tick consumes it. Actions/media require declared aliases; ordinary data bindings and Rules consume output patches.',
+            performance:
+              'One active invocation and at most one unused prepared Worker per function; executed realms are never reused. Native parsing never evaluates user source and has a separate2s startup limit; background preparation wall-time is not charged to the later authored execution deadline. Stale unused workers are discarded without a retry loop; a consumed stale preparation can be replaced once before user code, within the original request startup deadline. The user expression, function call and result serialization retain the16..1000ms execution limit. Immutable script bytes may be reused; origin/CSP isolation and JSON caps remain unchanged. The16ms wake floor starts at the invocation that explicitly requested the deadline, not after its completion; unrelated events omitting wakeAt keep the existing deadline. Emit only changed output aliases, with complete values for emitted object/array aliases. Keep state and change signatures compact; do not echo static geometry every tick. Measure execution elapsed time, transport latency and visible foreground rendering separately.',
+            transport:
+              'An opaque-origin trusted supervisor owns the fresh user workers and communicates with the parent over a private MessagePort; the iframe is bootstrap-only. The frame transfers its private ports to its actual owner window, authenticated by frame identity and token, so detached previews do not depend on the calling JavaScript realm. The user worker never receives those ports. The supervisor terminates each child before forwarding a completion, including any queued async work. A delayed parent deadline check can retrieve the retained verified completion without executing source again, or terminates an unfinished invocation; it does not increase the user-code budget. Disposal terminates active and idle children before acknowledgment. Startup and completion-delivery checks are separately bounded.',
+            windowVerification:
+              'Test standalone realtime Functions in embedded, fullscreen and detached Preview & Export, including initial load in a detached window, detach/dock-back and reopen. Verify custom actions, input, state preservation, blur, Out and cleanup in the current output document. Verify audio separately: clocks advance, mute/gain and pause/resume work, and Out releases players even when they were created in another window or adopted back. Loaded/unmuted audio alone does not prove playback. A supervisor connection failure is a runtime startup fault, not a template calculation timeout; do not repair it by weakening origin checks, raising execution limits or rewriting game state.',
+            windowClose:
+              'Closing a detached output window synchronously invalidates its pending Function work and pauses owned audio before disposing sandboxes. Returning the pane recreates the runtime from committed state through blur; explicit resume is required. Test this separately from Dock back. Owner shutdown must not become a permanent source failure, and genuine source failures must not be cleared.',
+            pointer:
+              'Opt in with pointer:true or Functions > Bindings > Mouse input. ctx.pointer is the latest {x,y} in authored composition pixels, accounting for crop and preview scaling, or null outside/on blur/off-air. Only opted-in Functions receive deduplicated on-air focus events after window/surface focus returns; typing remains blurred and focus never automatically resumes gameplay or music. Legacy Functions keep their existing events/tick behavior. Only the graphic surface is tracked; moving the mouse updates a snapshot and never enqueues a function call. Sample it in scheduled ticks/actions; capture-phase click coordinates are available to click-triggered Rules.',
+            rendering:
+              'Mouse-enabled ticks follow actual output-document frames. Rendering stalls suspend their sandboxes and pause owned media; unfinished output/effects are discarded. After healthy visible frames, recovery uses committed state and delivers blur, deferred Out/Play, latest coalesced data changes and focus. Rebase source time on blur/Out before simulation and require explicit gameplay resume. Nonpointer Functions keep their existing timer scheduling; real execution deadlines remain enforced.',
+            references:
+              'Create referenced fields/custom actions/media cues first. Each output field has one writer. Inputs and outputs may use the same field. Keep private state/output fields internal to OGraf. Remove or reconfigure functions before deleting their references. All visible objects remain native editable layers.',
+            limits:
+              'At most8 functions; unique IDs/names; source128KiB UTF8; initialState256KiB finite JSON; safe identifier aliases exclude __proto__/constructor/prototype; timeout16..1000ms (default250). Configuration validation never executes source; runtime reports parse/execution/time-limit errors.',
+            export:
+              'Version1 supports standalone realtime only. set_logic_functions sets supportsRealTime:true/supportsNonRealTime:false. Coordinated and non-realtime export reject Functions explicitly instead of omitting behavior.',
           },
           gradient:
             'Gradient fields bind the complete rectangle/ellipse/path/pattern fill. Color fields bind fill.stops[N].color for existing zero-based stops, preserving transparency and offsets. strokeColor and dropShadowColor accept colors. Runtime updateAction recolors without restarting motion.',
@@ -2087,9 +3133,191 @@ export function createOGrafToolRecords(
             ],
             'image-sequence': ['fill.parameters.NAME', 'dropShadowColor'],
             lottie: ['fill.parameters.NAME', 'dropShadowColor'],
+            ticker: [
+              'items',
+              'speedPixelsPerSecond',
+              'gap',
+              'entryFade',
+              'exitFade',
+              'fadeSoftness',
+              'direction',
+              'textDirection',
+              'updatePolicy',
+              'items.ID.width',
+              'items.ID.height',
+              'items.ID.content',
+              'items.ID.src',
+              'items.ID.fill.parameters.NAME',
+              'items.ID.dropShadowColor',
+            ],
           },
         },
         editorParity: {
+          timelineAuthoring: {
+            resetChannel: {
+              operation: 'reset_property_animation',
+              ui: 'Reset [channel] animation in the selected channel editor; channel name/track/key right-click menus; Properties diamond right-click or Shift+F10 menu.',
+              semantics:
+                'Clear only the selected main/local-loop channel at an explicit frame, freezing its authored sampled static value. Other channels, bindings, Rules and modifiers remain. Virtual scale/wipe channels return to neutral; shared-lighting-owned channel resets require unlinking first. One Undo restores the reset.',
+              timing:
+                'Context menu Reset samples the current playhead rather than the clicked frame; Studio uses the displayed phase of an active editor loop. MCP requires frame; optional loopElapsedFrames supplies a held/custom-action loop phase.',
+            },
+            manualKeys:
+              'Explicit property diamonds, key/track/loop insertion and lifecycle Steps do not require Auto-keyframe. The primary key action targets the selected property; Key transform explicitly captures all transform properties.',
+            editScope:
+              'Properties Edit defaults to At playhead: enabled property tracks record changes at the current time, while static properties remain static unless Auto-keyframe starts their animation. Whole animation explicitly offsets existing values without retiming keys.',
+            newLayers:
+              'New UI-created layers have one static base pose and independent opt-in property tracks. OGraf lifecycle markers remain separate. animationTrackMode:independent is authoring metadata; exported static channels use ordinary constant tracks. Legacy source tracks remain readable.',
+            navigation:
+              'Editable Current time accepts seconds, milliseconds, frames and timecode. Plain key selection pauses and seeks; modifier multi-selection stays available.',
+            playback:
+              'Continuous authoring playback is the default. Stop at Steps is optional playout rehearsal and does not change exported OGraf lifecycle semantics.',
+            views:
+              'Keys and Graph are exclusive views. Selecting an animated property replaces the keyframe rows with its Graph; Keys returns to keyframe editing, and Graph opens the curve manually. Both views share the ruler, zoom, horizontal scroll, left channel navigator and right Keyframe editor. Frame positions and lifecycle boundaries match Timeline. SVG pointer mapping and axes remain fixed for one drag, with one undoable time/value commit on release. Right-click empty Graph space for Add keyframe here: click X rounds to a whole frame clamped to the timeline, click Y supplies a property-constrained value. Insertion selects the new key without seeking, is one undoable edit, and is disabled for locked layers or an existing key at that frame; it never overwrites. Right-click a graph point or nearby curve for Delete keyframe; without a nearby point, a single visible selected key is used, otherwise Delete is disabled. Shift+F10/ContextMenu on a focused key opens the same menu. Deletion does not seek. Graph and channel selection remain active after deletion, including the last key; returning to Keys is explicit.',
+            mcpBoundary:
+              'MCP operations retain explicit authored/frame scope and property-track contracts; browser Auto-keyframe and Edit scope do not select a tool mutation scope. Graph last-key deletion does not change the MCP remove_property_key minimum-one-key contract.',
+          },
+          assistantContext: {
+            preferences: 'Settings & Preferences > OGraf Studio > AI assistant',
+            scope: 'Studio user preferences; never saved into template source or exports.',
+            contract:
+              'Automatic model-aware context uses available model metadata or a labelled conservative fallback, with optional user context-window, conversation and tool-page token overrides. Large tool outputs are retained as immutable snapshots and exposed through complete JSON pages, not cut serialized strings. Earlier conversation turns remain retrievable through history references. Estimates retain output/headroom reserves and do not override actual provider limits.',
+            paging:
+              'ograf_read_result_page reads a retained resultId by path and offset, or explicitly pages a read-only sourceTool/input. Existing MCP tools keep full responses by default. Snapshots are workspace/conversation scoped, retained for up to 30 minutes subject to a 64-entry/128-MiB estimated-memory cache; expiry is explicit and does not authorize repeating a mutation.',
+            informationalOnly: true,
+          },
+          nodosPresetExport: {
+            entryPoint: 'File → Preferences → OGraf Studio → Nodos',
+            scope: 'selected-templates-of-open-document',
+            format: 'Nodos node preset set through the Nodos Editor API',
+            profiles: ['realtime', 'dual'],
+            directHtmlPlayback:
+              'Ordinary single/coordinated exported preview HTML also declares nodos-inputs and connects exposed native data and live textures when loaded directly in a compatible ElectroNode. No preset registration is required. In Nodos it loads and plays transparently without browser preview controls; ordinary browser playback retains those controls. Requires a Real-time or Dual export and existing case-sensitive matching input slots.',
+            liveInputRouting:
+              'Select one unlocked visual object, then Resources > Media > Use input here beside the webcam controls, or Fill > Live input. Routing writes the object fill with Undo and does not create a playback cue. Start webcam is an explicit local permission action; selecting or routing an input does not start capture.',
+            contract:
+              'Studio UI keeps ticked templates set as ElectroNode presets in Nodos and updates them as edits pause; the Studio server serves each exact certified OGraf package with nodos.html. Presets contain only URL and Resolution settings. The page declares exposed field names/types and live-media texture tags in nodos-inputs; the host matches pre-existing manually created slots by name, without creating missing slots. Uses effective cropped output dimensions, real-time playback and public defaults. Object/array defaults and incoming values omit internal descendants while internal descriptor values, bindings and Rules remain inside the graphic. URL, Resolution, ShowPreview, Output and Audio are reserved names. No dedicated MCP Nodos export tool or coordinated Nodos controller.',
+            targetRequirements:
+              'Nodos must run on the same machine as the Studio server, which serves the files while it runs. Protocol and serialization use Nodos Editor SDK 5.1; Studio retains bounded request/cancellation handling. Requires a companion ElectroNode host that reads nodos-inputs declarations, matches names/types to existing slots, forwards native typed values through window.nodos.onData and supplies texture canvases through nodos-input. Process SDK 21.5 supports the typed-data bridge but an SDK version alone does not establish this complete host contract. OGraf certification does not verify Nodos engine, live data or texture changes; test installed targets separately.',
+            fieldTypes:
+              'Scalars retain their native type; object/gradient use nos.Dict, select-multiple [string], arrays [T]. Arrays of arrays use Dict items wrappers decoded before graphic updates. Data offers eligible engine structs/tables/enums from the current connected engine; saved ordinary field schemas and nodosType remain usable offline. Oversized, recursive, resource, union and dynamic shapes are unavailable. Invalid numeric ranges are rejected, not wrapped; 64-bit integers use the JavaScript safe range.',
+            authoringMetadata:
+              'add_data_field, nested field inputs and update_data_field preserve known nodosType names with an explicit ordinary schema. Values belong at operation top level. update_data_field nodosType:null clears the assignment; a plain fieldType change clears it unless replaced. These tools do not connect to or discover engine types. nodosType is source metadata, not an OGraf manifest extension or an exposed value.',
+            synchronization:
+              'Stable template IDs determine new preset classes; existing unique names survive renames and re-selection. Shared controls/assets invalidate selected inactive templates too. Configuration, selection, document or connection changes cancel stale preparation before publication; already dispatched registrations may finish.',
+            publication:
+              'Files use immutable version URLs. Failed registrations preserve accepted files; uncertain outcomes retain staged files for 60 seconds. Current and previous accepted versions remain protected. Limits: 256 MiB total, 64 MiB/package, 128 versions, eight pending updates. Reject new staging at capacity rather than evict protected graphics. Handshake failures close their stream so later requests reconnect.',
+            informationalOnly: true,
+          },
+          dialogWindows: {
+            movement:
+              'Studio-owned standalone dialogs move within the current browser window by dragging an empty header area. Header buttons and form controls remain interactive. This covers Settings & Preferences, save/export, resource, plugin details, camera, workspace, keyboard shortcuts and import dialogs.',
+            keyboard:
+              'Focus the header; arrow keys move 10 pixels and Shift+arrows move 50 pixels. Home or an empty-header double-click restores the initial position. Viewport changes keep moved dialogs reachable.',
+            lifetime:
+              'Position belongs to the open dialog and resets when it is closed and reopened. It is not template data, Undo history or saved workspace geometry.',
+            boundary:
+              'Dialogs are movable, not dockable. Existing dockable/detached panes, embedded plugin regions and native operating-system file pickers keep their existing behavior. No authoring operation is created for dialog movement.',
+            informationalOnly: true,
+            exported: false,
+          },
+          settingsScopes: {
+            window: 'Settings & Preferences',
+            search:
+              'One settings window; search filters the scope/category list by names and setting keywords. Choosing a category opens its existing controls.',
+            entryPoints: {
+              filePreferences: { scope: 'studio', section: 'workspace' },
+              templateSetGear: { scope: 'template-set', section: 'output' },
+              templateContextSettings: { scope: 'template', section: 'output' },
+              propertiesSettings: { scope: 'template', section: 'output' },
+            },
+            scopes: {
+              studio: {
+                label: 'OGraf Studio',
+                sections: ['workspace', 'assistant', 'plugins', 'nodos'],
+                changes: 'immediate-user-preferences',
+                storage: 'browser-origin-profile-or-standalone-user-workspace-profile',
+                detail:
+                  'Existing workspace startup, preset and detached-window reopening preferences save automatically for this user. They do not enter .ogs source, template undo history or rendered output. Opening Preferences does not create a template set.',
+              },
+              'template-set': {
+                label: 'Template Set',
+                sections: ['output', 'timing', 'canvas', 'inheritance', 'plugins'],
+                changes: 'staged-until-apply-or-ok',
+                storage: 'template-set-.ogs',
+                detail:
+                  'Output, render modes, data transitions, canvas aids/snapping and inheritance edit shared defaults. Apply updates the open set and keeps the window open; OK applies and closes. Save the .ogs file to persist them. Per-property overrides and whole-template inheritance choices remain explicit; local guides and animation identities stay with each template.',
+                mcp: {
+                  tool: 'ograf_update_template_set',
+                  operations: ['set_defaults', 'set_inheritance', 'set_setting_override'],
+                  concurrency:
+                    'Use the current opaque set revision; re-read after conflicts or uncertain responses.',
+                },
+              },
+              template: {
+                label: 'Template',
+                sections: ['output', 'background', 'canvas', 'guides', 'plugins'],
+                changes: 'immediate-undoable-authoring',
+                storage: 'canonical-project-and-composition-in-.ogs',
+                detail:
+                  'Uses the same composition controls as Properties. Template edits apply immediately and are undoable; save the template or set to persist them. Editing an inherited supported property creates a local override for that property; Reset restores inheritance. Standalone source and graphic exports contain resolved ordinary values and resources.',
+                mcp: {
+                  tool: 'ograf_apply_operations',
+                  operations: [
+                    'set_composition',
+                    'set_composition_layout',
+                    'set_project_metadata',
+                    'add_canvas_guide',
+                    'update_canvas_guide',
+                    'remove_canvas_guide',
+                  ],
+                  inheritance:
+                    'Use the existing template-set set_setting_override operation to pin/reset independent setting keys; preserve canonical background/style operations and numeric project revisions for authoring batches.',
+                },
+              },
+            },
+            exportBoundary:
+              'Studio preferences are local UI state. Set defaults, inheritance and template values are saved authoring data; canvas guides/backdrops remain editor-only where already defined. Coordinated exports require matching effective output dimensions (including canvas crop) and frame rate across states; local overrides remain available and compatibility is checked before export.',
+            informationalOnly: true,
+          },
+          fullscreenPreview: {
+            surfaces: ['single-template', 'coordinated-set'],
+            fpsOverlay: {
+              label: 'Preview FPS',
+              defaultVisible: true,
+              metric: 'Browser animation-frame cadence, not authored frame rate or GPU throughput.',
+              controls: 'Show FPS overlay; session-only preview preference.',
+              offlineHtml:
+                'Same preview badge; non-real-time pages also count completed Render FPS samples.',
+              graphicOutput: false,
+            },
+            contextMenu:
+              'Suppress the default browser context menu throughout Studio, including inputs, blank areas, detached panes and fullscreen output. Studio context menus and fullscreen right-click preview controls still work; controls open at the pointer and stay clamped to the viewport. Native operating-system picker/popover menus and browser chrome are outside this DOM boundary.',
+            controls: {
+              normalBackgroundTransparency: 0.6,
+              defaultRowTransparency: 0.6,
+              hoveredRowTransparency: 0.5,
+              editingRowTransparency: 0.8,
+              inactiveEditingTransparency: 1,
+              editingBackgroundTransparency: 1,
+              transparentEditorRetainsFocus: true,
+              activeField:
+                'Make the focused data/value DOM row or composite color picker row fully opaque while retaining focus and editability. While it is being edited, every other control and the pane background are 100% transparent. Restore the normal 60% default or 15% hovered appearance when editing ends through focus leave, commit or cancel. Do not compound opacity through nested row containers.',
+              opening:
+                'Right-click opens or repositions the controls at the pointer, clamped within the viewport. D shows or hides the controls outside an editor. Exit fullscreen in the popup header and Escape leave the owning preview window fullscreen without stopping playback. There is no duplicate Show/Hide Controls toolbar.',
+              navigation:
+                'Left/Right buttons and keys share Steps-first navigation, then adjacent templates. With no adjacent template, Right from the last Step plays Out and Left from the first Step returns to Start; Right from Off takes In. Native data inputs and the popup drag handle keep their own arrow keys. Synced editor mode retains frame navigation.',
+              restoreOn: [
+                'focus-leave',
+                'edit-commit',
+                'edit-cancel',
+                'panel-hidden',
+                'fullscreen-exit',
+              ],
+            },
+            informationalOnly: true,
+            exported: false,
+          },
           lifecycle: [
             'add_lifecycle_step',
             'rename_lifecycle_keyframe',
@@ -2101,19 +3329,93 @@ export function createOGrafToolRecords(
             'save_component',
             'instantiate_component',
             'update_component_from_layers',
+            'update_component_layer',
+            'update_component_field',
+            'reset_component_overrides',
+            'make_component_unique',
             'refresh_component_instances',
             'rename_component',
             'remove_component',
           ],
           customActions: ['add_custom_action', 'update_custom_action', 'remove_custom_action'],
           assets: ['add_asset', 'remove_asset', 'ograf_import_asset', 'ograf_import_svg_bundle'],
+          mediaCues: ['add_media_cue', 'update_media_cue', 'remove_media_cue'],
           detail:
-            'Lifecycle retiming shares the browser editor planner and therefore returns the same duration bounds and warnings. Structural canvas groups, reusable-component snapshots, custom actions, and asset removal use the same canonical project mutations as OGraf Studio.',
+            'Lifecycle retiming and component inheritance share the browser editor mutation rules. Live component assets retain stable instance IDs and per-property overrides; exports contain ordinary materialized layers.',
+        },
+        modifiers: {
+          types: MODIFIER_TYPES,
+          parameters: MODIFIER_CATALOG,
+          staticParameters: {
+            'max-text-width': { mode: ['squeeze', 'shrink'] },
+            'auto-size': { source: 'geometry-reference', width: 'boolean', height: 'boolean' },
+            'auto-follow': { source: 'geometry-reference', axisX: 'boolean', axisY: 'boolean' },
+            'hide-empty': {
+              source: 'value-reference',
+              target: 'optional geometry-reference; omitted targets owner',
+              trimWhitespace: 'boolean',
+              invert: 'boolean',
+            },
+            'grid-arrange': {
+              startCorner: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
+              direction: ['horizontal', 'vertical'],
+            },
+            'radial-arrange': {
+              arrangement: ['equal', 'radiate'],
+              startFromOuter: 'boolean',
+              orient: 'boolean',
+            },
+            justify: {
+              horizontal: ['none', 'left', 'center', 'right'],
+              vertical: ['none', 'top', 'center', 'bottom'],
+            },
+            'look-at': { source: 'geometry-reference', axis: ['x', 'y'], flip: 'boolean' },
+          },
+          motionBlur: {
+            operation: 'set_layer_layout',
+            property: 'motionBlur',
+            shape: '{enabled:boolean, shutterAngle:number 0..360} or null',
+            status: 'Experimental velocity-based blur of animated x/y.',
+          },
+          textPath: {
+            operation: 'set_layer_layout',
+            shape: '{sourceLayerId, startOffset, alignment: start|center|end} or null',
+            source: 'Single-contour editable path in the same composition.',
+            restrictions:
+              'Single-line text with nonnegative tracking; simple Arabic RTL and Devanagari Word Reveal are supported under strict shaping restrictions. Color animators require solid fill. Clocks, crawls, squeeze/shrink-to-fit/fit-to-width, unsupported animator properties, shader strokes and nine-slice sources are rejected.',
+          },
+          splinePath: {
+            operation: 'set_layer_layout',
+            storage: 'motionPath',
+            sourceLayerId: 'path layer in the same composition',
+            progress: { min: 0, max: 1, property: 'motionPathProgress' },
+            orientToPath: 'boolean',
+            offsetX: 'finite composition pixels',
+            offsetY: 'finite composition pixels',
+            rotationOffset: { min: -360, max: 360, default: 0 },
+            animation:
+              'Animate motionPathProgress on lifecycle or local-loop tracks. Progress is not an element-data binding target. Source, orientation, offsets and rotationOffset are static layout controls. Set motionPath:null to detach.',
+          },
+          operations: [
+            'add_modifier',
+            'update_modifier',
+            'duplicate_modifier',
+            'remove_modifier',
+            'reorder_modifiers',
+          ],
+          owner:
+            "One layer. Auto Size/Follow/Look At references and Hide on Empty targets also accept groups. Grid Arrange, Radial Arrange and Justify arrange the owner's visible direct children (parentId); descendants move with each child. Spline Path is the layer motionPath (set_layer_layout) with optional rotationOffset.",
+          references:
+            '{kind:layer,layerId} or {kind:group,groupId}. Hide source is {kind:layer,layerId,property:content|src} or {kind:field,fieldId,sourcePath:[]}. Use stable IDs.',
+          animation:
+            'Numeric parameters use modifiers.ID.PARAM tracks or bindings. update_modifier uses authored lifecycle or explicit frame scope. Names/reorder/bypass preserve keys; duplicate starts disabled and copies links; remove clears owned keys/links.',
+          evaluation:
+            'Resolved data and animation feed a shared dependency-ordered frame evaluator. Authored transforms stay unchanged; cycles and conflicting geometry drivers are rejected. Max Text Width supports horizontal squeeze or proportional shrink.',
         },
         composableEffects: {
           blendModes: EFFECT_BLEND_MODES,
           blending:
-            'Normal preserves legacy filtering. Other modes combine each effect with its input; glow/shadow blend their generated contribution only. blendOpacity mixes the result with the input. Blend settings are static; numeric effect params retain their tracks. All bypassed skips filters; normal/full-strength uses CSS, mixed effects use an sRGB SVG filter graph shared with masks and captures.',
+            'Normal preserves legacy foreground filtering. Other modes combine each foreground effect with its input; glow/shadow blend their generated contribution only. blendOpacity mixes the foreground result with its input. Blend settings are static; numeric effect params retain their tracks. All bypassed skips filters; normal/full-strength uses CSS, mixed foreground effects use an sRGB SVG filter graph shared with masks and captures.',
           operations: [
             'add_effect',
             'update_effect',
@@ -2125,12 +3427,25 @@ export function createOGrafToolRecords(
             'Top to bottom. Repeated types are allowed; each effect has a stable ID. Reorder supplies every ID exactly once. Maximum 16 effects including compatibility slots.',
           editing:
             'New effects start bypassed; blendMode enables them. update_effect accepts name, enabled, blendMode, blendOpacity, params and a complete paint for shader. Numeric catalog params use authored or frame scope. Rename/bypass/reorder preserve keys. Duplicate copies owned tracks, bindings and shader; remove clears owned links.',
+          groups:
+            'The same effect operations accept groupId instead of layerId/layerName. They materialize one synchronized effect ID on every unlocked member layer. Member-only effects remain independent; group reorder changes only shared entries. Export uses ordinary per-layer OGraf effects.',
           compatibility:
             'Old blur and shadow remain reorderable base-blur/base-shadow slots backed by existing numeric tracks and dropShadowColor bindings. inspect_scene resolves virtual slots on old documents. Existing appearance and data keys are preserved.',
           animation:
             'Use effects.ID.PARAM for new numeric tracks/local loops, color/number Brand Kit tokens and OGraf data bindings. Runtime data overrides the sampled parameter. Effect IDs are scoped to a layer and survive reorder. Legacy slots keep their original property names.',
           rendering:
-            'One ordered chain powers Studio and export. Shader is a WebGL2 post-process: iChannel0 receives preceding output; GPU Blend/Opacity feeds later effects. inputImage and alpha-mask sourcing are rejected. SVG projections omit GLSL pixels; use browser certification. Path masks ignore effects. Catalog values clamp overshoot.',
+            'One ordered foreground chain powers Studio and export. Shader is a WebGL2 post-process: iChannel0 receives preceding output; GPU Blend/Opacity feeds later effects. inputImage and alpha-mask sourcing are rejected. SVG projections omit GLSL pixels; use browser certification. Path masks ignore effects. Catalog values clamp overshoot.',
+          backdropBlur: {
+            contract:
+              'Use add_effect effectType:"backdrop-blur", patch.blendMode:"normal" and params.radius on rectangle or ellipse layers. It blurs earlier layers inside the same composition, clipped to the object geometry; it does not sample external video or the editor checkerboard.',
+            fill: 'UI Fill None stores the canonical fill string "transparent"; use update_element.patch.fill:"transparent" for shape fills. Gradient stops use opacity 0..1, displayed as Alpha % 0..100. Fade to transparent replaces the gradient stops with first-stop color/alpha at 0 and that color at opacity 0 at 1.',
+            strength:
+              'blendOpacity scales the backdrop radius: effective radius = params.radius * blendOpacity. Only Normal blending is supported. Animate radius through the returned effects.ID.radius path.',
+            limits:
+              'Rectangles and ellipses only. Shader fills are supported; active backdrop blur and an active shader effect cannot share a layer. Backdrop-blurred alpha-mask sources are unsupported; geometric path masks remain available.',
+            verification:
+              'Pure SVG diagnostics omit backdrop blur. Inspect the actual browser viewport; PNG capture through serialized SVG foreignObject has not established backdrop-filter parity.',
+          },
           shaderEffect: {
             contract:
               'Use add_effect with effectType:"shader" or update_effect with the returned effectId. patch.shader is a complete ShaderPaint: type, fragmentSource, speed, resolutionScale and parameters. Do not set inputImage.',
@@ -2238,8 +3553,8 @@ export function createOGrafToolRecords(
           dependencies:
             'Same composition. No self/cycles, guide sources or cross-runtime-collection references. Source tracks/loops are sampled independently. Include sources when saving components; duplication remaps internal references. Detach consumers before deleting a source.',
           unsupportedSources: ['text', 'image-sequence', 'lottie', 'shader'],
-          shaderPaint:
-            'Shader-painted layers may receive masks and provide geometric path masks; alpha-mask sourcing is unsupported.',
+          dynamicPaint:
+            'Shader- or media-painted layers, and layers with active backdrop blur, may receive masks and provide geometric path masks; alpha-mask sourcing is unsupported.',
           conicAlpha:
             'SVG alpha masks tessellate conic paint at half-degree intervals; visible path paint uses native CSS gradients.',
         },
@@ -2266,13 +3581,26 @@ export function createOGrafToolRecords(
             authoringOnly: true,
           },
           presentationBackgrounds: {
-            values: ['none', 'big-buck-bunny', 'still-image'],
+            values: ['none', 'big-buck-bunny', 'still-image', 'webcam'],
+            ui: 'Playout Controls > Background, also shared by preview controls. Choose None, looping Big Buck Bunny video, Still image or Webcam. Canvas Layout provides Open Playout Controls instead of duplicate background controls.',
             property: 'presentationBackground',
+            propertyScope:
+              'Legacy composition.layout initial default only. Current presentation preferences belong to the local presentation background store.',
             stillImage: {
               urlProperty: 'presentationBackgroundImageSource',
-              localFileSelection: 'Available in the visible Studio Canvas Layout settings.',
-              localFilesAreEmbeddedInProject: true,
+              localFileSelection:
+                'Background > Still image accepts an image URL or a local image up to 10 MB.',
+              localFilesAreEmbeddedInProject: false,
+              storage:
+                'The selected image and background preferences are stored locally in IndexedDB.',
             },
+            output:
+              'One background is shared across the editor and independent single/combined preview output, including embedded, fullscreen and detached windows. Sync mode mirrors the editor once. Changes apply without rebuilding the graphic or requiring Replay; opaque authored output can cover the presentation background.',
+            persistence:
+              'Preferences initialize once per set/project from the active composition legacy layout, then persist locally in IndexedDB. Current edits do not change project source, .ogs, exported packages or workspace presets. Existing legacy layout settings remain readable as initial defaults; no file-format migration is required.',
+            webcam:
+              'Background > Webcam exposes Start webcam and Camera Settings. Selecting or restoring Webcam never starts capture; Start is explicit. Same-set template changes and Take/Update/Out/Clear retain capture. Stop or selecting another background releases only the presentation consumer. Opaque authored artwork occludes the camera; use transparent output. Camera capture settings and footage are session-only and never exported.',
+            webcamSettings: WEBCAM_PREVIEW_CAPABILITIES,
             authoringOnly: true,
             exported: false,
           },
@@ -2308,17 +3636,50 @@ export function createOGrafToolRecords(
           semantics:
             'Assets persist once in composition.assets; editor/capture resolve references and certified package export writes each registry entry once. remove_asset refuses referenced image sources unless force=true, which clears those references; removing an in-use font reports a fallback warning.',
         },
+        mediaCues: {
+          operations: ['add_media_cue', 'update_media_cue', 'remove_media_cue'],
+          sources: ['audio clip', 'video clip', 'renderer live input'],
+          triggers: ['timeline frame', 'lifecycle state', 'customAction', 'manual preview'],
+          retrigger: ['restart', 'resume', 'ignore'],
+          transitions: ['cut', 'crossfade'],
+          customActionPayload:
+            '{source: SOURCE_ID_OR_NAME} selects a named cue source before triggering playback.',
+          semantics:
+            'Media Cues are composition-level Timeline tracks, not canvas objects. Audio is nonvisual. Video/live cues optionally paint one target layer while sharing trim, speed, loop, volume, mute, trigger and source-transition controls.',
+          audioCustomAction:
+            'For action-triggered sound, add_media_cue with an audio clip source and trigger:{type:"customAction",actionId}. In Studio, Audio -> Create Playback Cue creates a Manual advanced cue; Add at Playhead creates a timeline Sound Event.',
+          runtime:
+            'Initial profile is real-time-only. Crossfade double-buffers audio/video sources; live inputs require the zd-ograf-media renderer hook and target readiness verification.',
+        },
         reusableComponents: {
           operations: [
             'save_component',
             'instantiate_component',
             'update_component_from_layers',
+            'update_component_layer',
+            'update_component_field',
+            'reset_component_overrides',
+            'make_component_unique',
             'refresh_component_instances',
             'rename_component',
             'remove_component',
           ],
           semantics:
-            'A saved component snapshots selected layers and their bound fields. Independent instances remain detached; linked instances carry authoring-only source metadata and refresh explicitly with complete replacement mappings. Every instance is still ordinary grouped OGraf layers, and component/link metadata never enters compiled output.',
+            'save_component creates an asset and links selected layers without changing IDs. scope defaults local; set shares it. instantiate_component defaults linked:true; false copies independently. Parent edits and refresh preserve IDs, placement and overrides. Used assets cannot be removed. Export contains ordinary layers.',
+          sharedIdentity:
+            'Optional instanceId selects linked continuity across templates; duplicates within a composition fail. Use 1–256 ASCII letters/digits/._:-, starting alphanumeric; prototype keys are reserved. Other identities remain generated.',
+          editing: {
+            selection:
+              'update_component_from_layers componentId,layerIds promotes members of one linked instance plus new independent layers. New layers join that source instance in place; canonical layer/field IDs, bindings and animation remain stable. Other instances receive one corresponding child while retaining overrides. An independent-only selection becomes a new linked source instance. Locked selected layers, foreign component members and multiple source instances are rejected atomically. Query the updated project for child mappings; this operation does not return an insertion result for the existing source instance.',
+            asset:
+              'update_component_layer componentId,sourceLayerId,patch edits canonical authored fields (not id/componentLink). Element/effects patches merge; animationTracks merges channels. update_component_field componentId,fieldId,patch uses type/defaultValue and the ordinary field schema inputs.',
+            instance:
+              'Ordinary layer/data-field edits create overrides. reset_component_overrides layerIds,paths? clears selected JSON Pointer overrides or all selected-member overrides. make_component_unique instanceId,name? creates a separate asset and relinks only that instance.',
+            persistence:
+              'Editable .ogs stores resolved layers and inheritance metadata; template sets share set-scoped definitions and portable dependencies. Legacy linked differences become overrides when migrated; existing independent copies remain detached. Remove a set-scoped asset through Studio, which can check inactive templates.',
+            transitionReferences:
+              'Connected Studio checks the prospective shared component library against the current Transitions graph before publishing project, set or Undo history, including MCP edits and Undo/Redo. Removal of a source used by a shared instance, state or resize target is rejected; retarget those graph references first. Standalone project sessions have no external set graph to validate.',
+          },
         },
         aiReview: {
           query: 'ograf_query_scene',
@@ -2348,7 +3709,7 @@ export function createOGrafToolRecords(
     'ograf_get_changes',
     {
       title: 'Get OGraf revision changes',
-      description: 'Read up to 100 revisions after sinceRevision, with source/layer summaries.',
+      description: 'Read up to 100 changes after sinceRevision.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         sinceRevision: z.number().int().nonnegative(),
@@ -2371,7 +3732,7 @@ export function createOGrafToolRecords(
     'ograf_get_project',
     {
       title: 'Get editable OGraf project',
-      description: 'Read project/revision; include/tracks narrow the result. Preserve IDs.',
+      description: 'Read project/revision; include/tracks filter output.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         include: z.array(z.enum(PROJECT_INCLUDE_SECTIONS)).min(1).optional(),
@@ -2387,7 +3748,7 @@ export function createOGrafToolRecords(
     'ograf_inspect_scene',
     {
       title: 'Inspect OGraf scene',
-      description: 'Inspect scene layers, authoring links, motion, warnings, IDs and revision.',
+      description: 'Inspect scene links/motion/warnings/revision.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2413,7 +3774,7 @@ export function createOGrafToolRecords(
     'ograf_query_scene',
     {
       title: 'Query OGraf scene by semantic intent',
-      description: 'Query layers by semantics, name, type, bindings, visibility or motion.',
+      description: 'Query layer semantics/names/bindings/motion.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2424,6 +3785,7 @@ export function createOGrafToolRecords(
         elementTypes: z
           .array(
             z.enum([
+              'ticker',
               'rectangle',
               'ellipse',
               'text',
@@ -2432,6 +3794,7 @@ export function createOGrafToolRecords(
               'pattern',
               'image-sequence',
               'lottie',
+              'chart',
             ]),
           )
           .min(1)
@@ -2501,7 +3864,9 @@ export function createOGrafToolRecords(
           if (visible !== undefined && layer.isVisible !== visible) return null;
           if (
             animated !== undefined &&
-            (animatedProperties.length > 0 || layer.element.type === 'pattern') !== animated
+            (animatedProperties.length > 0 ||
+              layer.element.type === 'pattern' ||
+              layer.element.type === 'ticker') !== animated
           )
             return null;
           if (
@@ -2554,9 +3919,12 @@ export function createOGrafToolRecords(
               };
             }),
             animatedProperties,
-            hasLoop: Boolean(layer.loop) || layer.element.type === 'pattern',
+            hasLoop:
+              Boolean(layer.loop) ||
+              layer.element.type === 'pattern' ||
+              layer.element.type === 'ticker',
             patternId: layer.element.type === 'pattern' ? layer.element.patternId : null,
-            componentLink: layer.componentLink,
+            componentLink: componentLinkSummary(layer.componentLink),
             runtimeCollectionId:
               composition.runtimeCollections.find((collection) =>
                 collection.prototypeLayerIds.includes(layer.id),
@@ -2588,8 +3956,7 @@ export function createOGrafToolRecords(
     'ograf_get_timeline',
     {
       title: 'Get OGraf property timeline',
-      description:
-        'Read property tracks, lifecycle and local loops, optionally filtered by layerIds. Easing applies to the incoming segment.',
+      description: 'Read layer tracks/lifecycle/loops. Easing applies to the incoming segment.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2626,7 +3993,7 @@ export function createOGrafToolRecords(
     {
       title: 'Sample resolved OGraf layer geometry',
       description:
-        'Sample tracks, bounds, shared lighting and pattern rows without a browser. loopElapsedFrame is absolute on-air time.',
+        'Sample geometry/lights/patterns; loopElapsedFrame is absolute on-air time. No browser.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2703,6 +4070,21 @@ export function createOGrafToolRecords(
                 bottom: pose.y + pose.height,
               },
               opacity: pose.opacity,
+              ...(layer.element.type === 'ticker'
+                ? {
+                    ticker: {
+                      ...sampleTicker(
+                        layer.element,
+                        pose.width,
+                        ((loopElapsedFrame ?? frame) / composition.frameRate) * 1000,
+                      ),
+                      layout: getTickerLayout(layer.element, pose.height),
+                      speedPixelsPerSecond: layer.element.speedPixelsPerSecond,
+                      direction: layer.element.direction,
+                      textDirection: layer.element.textDirection,
+                    },
+                  }
+                : {}),
               ...(layer.lighting
                 ? {
                     lighting: {
@@ -2749,8 +4131,7 @@ export function createOGrafToolRecords(
     'ograf_render_frame',
     {
       title: 'Render OGraf frame',
-      description:
-        'Renders a deterministic SVG snapshot for visual inspection without changing the project.',
+      description: 'Render a deterministic SVG without mutation.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -2791,7 +4172,7 @@ export function createOGrafToolRecords(
     {
       title: 'Capture browser-rendered OGraf PNG',
       description:
-        'Browser PNG; default first Step. Matte/dataOverrides: composition only. URL lasts 5 min; inline PNG opt-in. Not certification.',
+        'PNG; first Step default. Matte/dataOverrides: composition only. URL 5 min; base64 opt-in. Not certification.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         target: z.enum(['composition', 'viewport']).default('composition'),
@@ -2869,7 +4250,7 @@ export function createOGrafToolRecords(
     {
       title: 'Render OGraf PNG frame strip',
       description:
-        'Browser strip, up to 12 frames; default lifecycle/midpoints. maxDimension per tile. URL lasts 5 min; inline PNG opt-in.',
+        'Browser strip: max12 frames, lifecycle/midpoints default; maxDimension/tile. URL 5 min; base64 opt-in.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -3212,10 +4593,11 @@ export function createOGrafToolRecords(
     'ograf_validate_project',
     {
       title: 'Validate editable OGraf project',
-      description: 'Validate semantics, browser text stress and broadcast lint; not certification.',
+      description: 'Advisory semantic/field/text/broadcast checks; not certification.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         browserTextOverflow: z.boolean().default(false),
+        dataFieldUsage: z.boolean().default(false),
         broadcastLint: z.boolean().default(false),
         interlacedOutput: z.boolean().default(false),
         detail: z.enum(['summary', 'full']).default('summary'),
@@ -3236,25 +4618,29 @@ export function createOGrafToolRecords(
     async ({
       sessionId,
       browserTextOverflow,
+      dataFieldUsage,
       broadcastLint,
       interlacedOutput,
       detail,
       testValues,
     }) => {
       const snapshot = workspace.get(sessionId).snapshot();
-      if (!browserTextOverflow && !broadcastLint) {
+      if (!browserTextOverflow && !broadcastLint && !dataFieldUsage) {
         return textResult({
           sessionId,
           revision: snapshot.revision,
           validation: snapshot.validation,
           availableChecks: {
-            hint: 'Broadcast lint was not run. Set broadcastLint=true for non-gating safe-area, font-size, contrast, and optional interlaced-stroke checks; set browserTextOverflow=true for live-font overflow checks.',
+            hint: 'Optional checks were not run. Set dataFieldUsage=true for advisory field-reference checks; broadcastLint=true for non-gating safe-area, font-size, contrast, and optional interlaced-stroke checks; browserTextOverflow=true for live-font overflow checks.',
+            dataFieldUsage: false,
             broadcastLint: false,
             browserTextOverflow: false,
           },
         });
       }
       const warnings = [...snapshot.validation.warnings];
+      const fieldUsage = dataFieldUsage ? inspectDataFieldUsage(snapshot.project) : undefined;
+      warnings.push(...(fieldUsage?.warnings ?? []));
       const lintWarnings = broadcastLint
         ? broadcastLintWarnings(snapshot.project, interlacedOutput)
         : [];
@@ -3361,6 +4747,25 @@ export function createOGrafToolRecords(
           degenerate: overflowChecks.filter((check) => check.degenerate).length,
         },
         broadcastLint: { enabled: broadcastLint, interlacedOutput, warnings: lintWarnings },
+        ...(fieldUsage
+          ? {
+              dataFieldUsage: {
+                enabled: true,
+                checked: fieldUsage.fields.length,
+                reported:
+                  detail === 'full'
+                    ? fieldUsage.fields.length
+                    : fieldUsage.fields.filter((field) => field.status !== 'referenced').length,
+                fields:
+                  detail === 'full'
+                    ? fieldUsage.fields
+                    : fieldUsage.fields.filter((field) => field.status !== 'referenced'),
+                warnings: fieldUsage.warnings,
+                limitation:
+                  'Static references and authored visibility only; not a proof of visible output or runtime reachability. Connections and set-data actions count as references, not as visible consumers.',
+              },
+            }
+          : {}),
       });
     },
   );
@@ -3369,8 +4774,7 @@ export function createOGrafToolRecords(
     'ograf_review_design',
     {
       title: 'Review OGraf design and motion',
-      description:
-        'Advisory layout/type/color/motion QA with layer IDs. includeStrip captures browser frames. Does not certify export.',
+      description: 'Advisory QA with IDs; includeStrip adds frames. Not certification.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -3441,8 +4845,7 @@ export function createOGrafToolRecords(
     'ograf_measure_text',
     {
       title: 'Measure OGraf text in the browser',
-      description:
-        'Measure browser text fit and overflow at a frame; reports failed fitting and clipping.',
+      description: 'Browser text fit/overflow/clipping at frame.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         compositionId: z.string().optional(),
@@ -3487,7 +4890,7 @@ export function createOGrafToolRecords(
     'ograf_create_project',
     {
       title: 'Create OGraf project session',
-      description: 'Create an in-memory project session; editor is the live browser session.',
+      description: 'Create a memory session; editor is the browser session.',
       inputSchema: { sessionId: z.string(), name: z.string().optional() },
       annotations: mutation,
     },
@@ -3506,8 +4909,7 @@ export function createOGrafToolRecords(
     'ograf_reset_project',
     {
       title: 'Reset an OGraf project session',
-      description:
-        'Undoable reset with confirm=true and expectedRevision. keepDataFields retains main fields only.',
+      description: 'Reset with confirm/expectedRevision; keepDataFields retains main fields.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3538,8 +4940,7 @@ export function createOGrafToolRecords(
     'ograf_delete_session',
     {
       title: 'Delete temporary OGraf authoring session',
-      description:
-        'Delete one non-editor in-memory session and history with confirm=true. Saved files remain.',
+      description: 'Delete a non-editor session with confirm; saved files remain.',
       inputSchema: {
         sessionId: z.string(),
         confirm: z.literal(true),
@@ -3557,7 +4958,7 @@ export function createOGrafToolRecords(
     {
       title: 'Open OGraf editable project',
       description:
-        'Opens a .ogs file (or legacy .ogeproj source) inside the configured workspace into a new authoring session.',
+        'Open workspace JSON .ogs/.ogeproj in a new session. ZIP .ogs/.ogp: open in Studio and activate a template.',
       inputSchema: { sessionId: z.string(), path: z.string() },
       annotations: mutation,
     },
@@ -3571,8 +4972,7 @@ export function createOGrafToolRecords(
     'ograf_import_asset',
     {
       title: 'Import a workspace asset into OGraf',
-      description:
-        'Embed workspace image/font/CSS/text (32 MiB max). Returns asset:<id> for sources/defaults.',
+      description: 'Embed workspace image/video/audio/font/text (32 MiB max); returns asset:<id>.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3586,6 +4986,11 @@ export function createOGrafToolRecords(
             'image/gif',
             'image/webp',
             'image/svg+xml',
+            'video/mp4',
+            'video/webm',
+            'audio/mpeg',
+            'audio/wav',
+            'audio/ogg',
             'font/ttf',
             'font/otf',
             'font/woff',
@@ -3667,8 +5072,7 @@ export function createOGrafToolRecords(
     'ograf_import_svg_bundle',
     {
       title: 'Import a portable Photoshop SVG bundle',
-      description:
-        'Import workspace SVG + CSS/images/fonts atomically; embed references/register fonts. Limits: 32 MiB/file, 64 MiB total.',
+      description: 'Embed workspace SVG/CSS/images/fonts atomically: 32 MiB/file, 64 MiB total.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
@@ -3789,16 +5193,21 @@ export function createOGrafToolRecords(
           type: 'duplicate_group',
           copies: group.copies,
         }));
-        const componentResults = result.summary.componentInstances.map((instance) => ({
-          index: instance.operationIndex,
-          type: typedOperations[instance.operationIndex]?.type ?? 'instantiate_component',
-          componentId: instance.componentId,
-          instanceId: instance.instanceId,
-          groupId: instance.groupId,
-          linked: instance.linked,
-          layers: instance.layers,
-          fields: instance.fields,
-        }));
+        const recipeOperationIndices = new Set(
+          result.summary.semanticBlocks.map((block) => block.operationIndex),
+        );
+        const componentResults = result.summary.componentInstances
+          .filter((instance) => !recipeOperationIndices.has(instance.operationIndex))
+          .map((instance) => ({
+            index: instance.operationIndex,
+            type: typedOperations[instance.operationIndex]?.type ?? 'instantiate_component',
+            componentId: instance.componentId,
+            instanceId: instance.instanceId,
+            groupId: instance.groupId,
+            linked: instance.linked,
+            layers: instance.layers,
+            fields: instance.fields,
+          }));
         const repeaterResults = result.summary.repeaters.map((repeater) => ({
           index: repeater.operationIndex,
           type: 'create_repeater',
@@ -3817,6 +5226,8 @@ export function createOGrafToolRecords(
           layers: block.layers,
           fields: block.fields,
           ...(block.stylePack ? { stylePack: block.stylePack } : {}),
+          ...(block.componentId ? { componentId: block.componentId } : {}),
+          ...(block.instanceId ? { instanceId: block.instanceId } : {}),
         }));
         const stylePackResults = result.summary.stylePacks.map((pack) => ({
           index: pack.operationIndex,
@@ -3991,7 +5402,8 @@ export function createOGrafToolRecords(
     'ograf_export_package',
     {
       title: 'Export OGraf ZIP and PNG',
-      description: 'Export certified .ograf.zip + thumbnail.',
+      description:
+        'Export certified .ograf.zip + thumbnail and a self-contained HTML preview named after the template.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         path: z.string(),
@@ -4016,15 +5428,303 @@ export function createOGrafToolRecords(
       for (const resource of artifacts.resources) {
         zip.file(resource.path, resource.data, { base64: resource.base64 });
       }
+      const previewFileName = getOfflinePreviewFileName(artifacts);
+      assertOfflinePreviewFileAvailable(Object.keys(zip.files), previewFileName);
+      zip.file(previewFileName, buildOfflinePreviewHtml(artifacts));
       const output = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
       const target = workspace.resolveAllowedPath(path);
       await atomicWrite(target, output, overwrite);
       return textResult(
-        { sessionId, path: target, profile, certification, thumbnailFrame: renderedFrame },
+        {
+          sessionId,
+          path: target,
+          profile,
+          certification,
+          thumbnailFrame: renderedFrame,
+          previewFileName,
+        },
         `Certified and exported ${target}`,
       );
     },
   );
 
-  return consolidateOperationTools(records, workspace, bridge);
+  server.registerTool(
+    'ograf_export_coordinated_package',
+    {
+      title: 'Export certified coordinated OGraf package',
+      description:
+        'Export frozen graph/artwork with a standard PNG thumbnail and a self-contained HTML preview named after the template set. Lane-dependent state/action/loop selects have defaults. Template actions include generated clock/timer Start/Pause/Reset/Restart; commands without targets are omitted. Filtering/reset needs a conditional-aware form host; runtime still validates the current on-air template. Certifies the graphic artifacts including its thumbnail; test the extracted offline page separately. Rejects stale revisions, unapplied drafts and source changes. Explicit workspace path; no picker. Reuse operationId with identical arguments to recover uncertain results or retry the same certified bytes. IDs live for this server process (32 operations); success rechecks output hash. Reports included states/templates and unreferenced templates.',
+      inputSchema: {
+        path: z.string().min(1),
+        expectedRevision: z.string().min(1).max(256),
+        operationId: z.string().min(1).max(128),
+        confirm: z.literal(true),
+        overwrite: z.boolean().default(false),
+        profile: z.enum(['realtime', 'non-realtime', 'dual']),
+      },
+      annotations: mutation,
+    },
+    async (input) => {
+      const result = await exportCoordinated(input);
+      return {
+        ...textResult(
+          result,
+          result.outcome === 'saved'
+            ? `Certified, saved and verified ${result.path}`
+            : String(result.message ?? result.outcome),
+        ),
+        ...(result.outcome !== 'saved' ? { isError: true } : {}),
+      };
+    },
+  );
+
+  server.registerTool(
+    'ograf_save_template_set',
+    {
+      title: 'Save the open template set',
+      description:
+        'Save a revision-checked whole-set .ogs snapshot copy. Compact stores shared payloads once; compatible writes schema 5 for older set readers. Workspace paths only, up to 64 MiB compressed. Does not certify playout or rename the open document.',
+      inputSchema: {
+        expectedRevision: z.string().min(1).max(256),
+        path: z.string().min(1),
+        archiveMode: z.enum(['compact', 'compatible']).default('compact'),
+        confirm: z.literal(true),
+        overwrite: z.boolean().default(false),
+      },
+      annotations: mutation,
+    },
+    async ({ expectedRevision, path, archiveMode, overwrite }) => {
+      if (extname(path).toLowerCase() !== PROJECT_SOURCE_EXTENSION)
+        throw new Error(`Template-set path must end in ${PROJECT_SOURCE_EXTENSION}.`);
+      const target = workspace.resolveAllowedPath(path);
+      if (!overwrite && (await exists(target)))
+        throw new Error(
+          'Target already exists. Set overwrite=true only after confirming replacement.',
+        );
+      if (!bridge.requestTemplateSet)
+        throw new Error('Template-set saves require an updated, connected editor bridge.');
+      const result = await bridge.requestTemplateSet(
+        { action: 'archive', expectedRevision, archiveMode },
+        120_000,
+      );
+      const { data, metadata } = await decodeTemplateSetArchive(
+        result,
+        expectedRevision,
+        archiveMode,
+      );
+      await writeTemplateFiles([{ path: target, data }], overwrite);
+      return textResult(
+        { path: target, ...metadata },
+        `Saved ${target} (${archiveMode}, ${metadata.archiveBytes} bytes)`,
+      );
+    },
+  );
+  server.registerTool(
+    'ograf_get_template_set',
+    {
+      title: 'Inspect the open template set',
+      description:
+        'Read set/revision/defaults; projects and selected resourceUsage opt-in. Filter templateIds or page offset/limit.',
+      inputSchema: {
+        includeProjects: z.boolean().default(false),
+        resourceUsage: z
+          .object({
+            slotIds: z.array(z.string().min(1).max(256)).max(16).optional(),
+            componentIds: z.array(z.string().min(1).max(256)).max(16).optional(),
+          })
+          .strict()
+          .optional(),
+        templateIds: z.array(z.string().min(1).max(256)).max(256).optional(),
+        offset: z.number().int().min(0).optional(),
+        limit: z.number().int().min(1).max(256).optional(),
+      },
+      annotations: readOnly,
+    },
+    async ({ includeProjects, resourceUsage, templateIds, offset, limit }) => {
+      if (!bridge.requestTemplateSet)
+        throw new Error('Template-set tools require an updated, connected editor bridge.');
+      return textResult(
+        await bridge.requestTemplateSet({
+          action: 'read',
+          includeProjects,
+          ...(resourceUsage ? { resourceUsage } : {}),
+          templateIds,
+          offset,
+          limit,
+        }),
+      );
+    },
+  );
+  server.registerTool(
+    'ograf_update_template_set',
+    {
+      title: 'Manage templates and shared set defaults',
+      description:
+        'Apply set command using get_template_set revision. Confirm removal/replacement; file pickers use UI.',
+      inputSchema: {
+        expectedRevision: z.string().min(1),
+        operation: templateSetOperationSchema,
+        confirm: z.boolean().default(false),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    },
+    async ({ expectedRevision, operation, confirm }) => {
+      if (!bridge.requestTemplateSet)
+        throw new Error('Template-set tools require an updated, connected editor bridge.');
+      return textResult(
+        await bridge.requestTemplateSet({
+          action: 'command',
+          expectedRevision,
+          operation,
+          confirm,
+        }),
+      );
+    },
+  );
+  server.registerTool(
+    'ograf_get_playout',
+    {
+      title: 'Inspect Studio live playout',
+      description:
+        'Read playout revision, states, lane readiness/current/pending/errors and tickerUpdates. target:preview reads the visible combined Preview & Export session; omitted/live reads the separate live/MCP session.',
+      inputSchema: { target: z.enum(['live', 'preview']).optional() },
+      annotations: readOnly,
+    },
+    async ({ target }) => {
+      if (!bridge.requestLivePlayout)
+        throw new Error('Live playout tools require an updated, connected Studio bridge.');
+      return textResult(
+        await bridge.requestLivePlayout({ action: 'read', ...(target ? { target } : {}) }),
+      );
+    },
+  );
+  server.registerTool(
+    'ograf_control_playout',
+    {
+      title: 'Control Studio live playout',
+      description:
+        'Use matching-target revision + unique requestId; poll completion and retry uncertain results with the same requestId. Update mode:in-place patches on-air data without a lane transition; omitted/transition mode keeps authored update transitions. target:preview accepts Update only for graphics already taken in Studio controls. Omitted/live target: Take uses prepared state when stateId omitted; Update guards active state; parent Out/Clear cascades without restore; template-action runs on-air actions including clocks.',
+      inputSchema: {
+        target: z.enum(['live', 'preview']).optional(),
+        expectedRevision: z.string().min(1).max(256),
+        requestId: z.string().min(1).max(256),
+        operation: livePlayoutOperationSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ expectedRevision, requestId, operation, target }) => {
+      if (!bridge.requestLivePlayout)
+        throw new Error('Live playout tools require an updated, connected Studio bridge.');
+      return textResult(
+        await bridge.requestLivePlayout({
+          action: 'command',
+          ...(target ? { target } : {}),
+          expectedRevision,
+          requestId,
+          operation,
+        }),
+      );
+    },
+  );
+  const consolidated = consolidateOperationTools(records, workspace, bridge);
+  const pager = toolResultPagerForWorkspace(workspace);
+  const pageSchema = {
+    resultId: z.string().min(1).max(128).optional(),
+    sourceTool: z.string().min(1).max(128).optional(),
+    input: z.record(z.string(), z.unknown()).optional(),
+    sessionId: z.string().min(1).max(256).optional(),
+    path: z
+      .array(z.union([z.string().max(1024), z.number().int().nonnegative()]))
+      .max(64)
+      .optional(),
+    offset: z.number().int().nonnegative().optional(),
+    limit: z.number().int().min(1).max(65_536).optional(),
+    maxTokens: z.number().int().min(128).max(65_536).optional(),
+  } satisfies z.ZodRawShape;
+  const readableSources = new Set([
+    'ograf_list_sessions',
+    'ograf_get_capabilities',
+    'ograf_query_scene',
+    'ograf_inspect_scene',
+    'ograf_get_project',
+    'ograf_get_template_set',
+    'ograf_get_changes',
+    'ograf_get_playout',
+    'ograf_get_timeline',
+    'ograf_sample_tracks',
+    'ograf_render_frame',
+    'ograf_capture',
+    'ograf_render_strip',
+    'ograf_measure_text',
+    'ograf_review_design',
+    'ograf_validate_project',
+  ]);
+  consolidated.push({
+    name: 'ograf_read_result_page',
+    config: {
+      title: 'Read a retained tool result',
+      description:
+        'Read complete JSON pages by resultId/path/offset, or page a read-only sourceTool/input. Never reruns a mutation.',
+      inputSchema: pageSchema,
+      annotations: readOnly,
+    },
+    async handler(raw) {
+      const request = z.object(pageSchema).strict().parse(raw);
+      try {
+        let resultId = request.resultId;
+        if (!!resultId === !!request.sourceTool || (resultId && request.input !== undefined))
+          throw new ToolResultPagingError(
+            'invalid-page',
+            'Provide resultId, or sourceTool/input, but not both.',
+          );
+        if (request.sourceTool) {
+          const source = consolidated.find((tool) => tool.name === request.sourceTool);
+          if (
+            !source ||
+            !readableSources.has(request.sourceTool) ||
+            source.config.annotations?.readOnlyHint !== true
+          )
+            throw new ToolResultPagingError(
+              'invalid-page',
+              'Only an existing read-only source tool may start a paged read. Mutations, imports, certification and exports are not admitted.',
+            );
+          const args = z.object(source.config.inputSchema).parse(request.input ?? {});
+          const response = await source.handler(args);
+          const value =
+            response && typeof response === 'object' && 'structuredContent' in response
+              ? response.structuredContent
+              : response;
+          resultId = pager.store(value, {
+            toolName: source.name,
+            sessionId: request.sessionId,
+            ...(response &&
+            typeof response === 'object' &&
+            'isError' in response &&
+            response.isError === true
+              ? { isError: true }
+              : {}),
+          });
+        }
+        const page = pager.read({ ...request, resultId: resultId! });
+        return { ...textResult({ ...page }), ...(page.source.isError ? { isError: true } : {}) };
+      } catch (error) {
+        if (!(error instanceof ToolResultPagingError)) throw error;
+        return {
+          ...textResult({
+            error: { code: error.code, message: error.message },
+            guidance:
+              'Refresh a read-only source if needed; never repeat a mutation to recover a result.',
+          }),
+          isError: true,
+        };
+      }
+    },
+  });
+  registerToolResultPager(consolidated, pager);
+  return consolidated;
 }

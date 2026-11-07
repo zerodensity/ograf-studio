@@ -17,11 +17,11 @@ function record(name: string): AgentToolRecord {
 }
 
 describe('in-app agent tool surface', () => {
-  it('filters canonical records without cloning handlers and keeps exactly fourteen tools', () => {
+  it('filters canonical records without cloning handlers and includes the result page reader', () => {
     const admitted = IN_APP_AGENT_TOOL_NAMES.map(record);
     const dropped = record('ograf_save_project');
     const filtered = filterInAppToolRecords([...admitted, dropped]);
-    expect(filtered).toHaveLength(14);
+    expect(filtered).toHaveLength(19);
     expect(filtered.map((tool) => tool.name)).toEqual(IN_APP_AGENT_TOOL_NAMES);
     expect(filtered[0]?.handler).toBe(admitted[0]?.handler);
     expect(filtered).not.toContain(dropped);
@@ -40,5 +40,9 @@ describe('in-app agent tool surface', () => {
     expect(withInAppToolDefaults('ograf_apply_operations', { mode: 'propose' })).toEqual({
       mode: 'propose',
     });
+    const playout = definitions.find((tool) => tool.name === 'ograf_control_playout')!;
+    expect(playout.description).toContain('target:preview');
+    expect(playout.description).toContain('requestId');
+    expect(playout.description).toContain('without restore');
   });
 });

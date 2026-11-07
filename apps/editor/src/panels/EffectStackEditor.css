@@ -11,12 +11,20 @@
   line-height: 15px;
 }
 
+.effect-stack-list {
+  margin-left: 10px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border-strong);
+}
+
 .effect-stack-add {
-  min-height: 30px;
+  height: var(--ui-row-height);
+  min-height: var(--ui-row-height);
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 6px;
+  gap: 4px;
+  padding: 0 4px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
 }
@@ -28,7 +36,22 @@
 
 .effect-stack-add button {
   flex: none;
-  padding: 3px 10px;
+  padding: 1px 6px;
+}
+
+.effect-stack-editor.is-shader-drag-over {
+  outline: 2px solid var(--accent, #4da3ff);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent, #4da3ff) 12%, transparent);
+}
+
+.effect-stack-drop-hint {
+  margin: 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted, #929eab);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .effect-stack-error {
@@ -41,11 +64,13 @@
 }
 
 .effect-stack-item > summary {
-  min-height: 30px;
+  height: var(--ui-row-height);
+  min-height: var(--ui-row-height);
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 4px;
+  gap: 4px;
+  padding: 0 4px;
   border-bottom: 1px solid var(--border);
   background: #252525;
   cursor: default;
@@ -147,10 +172,11 @@
 
 .effect-stack-blend-controls {
   min-width: 0;
+  min-height: var(--ui-control-height);
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 3px 6px;
+  margin: 1px 4px;
 }
 
 .effect-stack-blend-controls select {
@@ -166,5 +192,16 @@
 /* The row grid styles a lone control; this cell holds two, so reset its inherited sizing. */
 .effect-stack-blend > .effect-stack-blend-controls > :is(select, input) {
   width: auto;
+  height: var(--ui-control-height);
+  box-sizing: border-box;
   margin: 0;
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.effect-stack-builtins {
+  justify-self: start;
+  padding: 1px 6px;
+  color: var(--text-dim);
+  font-size: 10px;
 }

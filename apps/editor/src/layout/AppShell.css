@@ -10,5 +10,19 @@
 .app-shell > .menubar {
   flex: none;
   position: relative;
-  z-index: 3;
+  /* Keep menus above dock dividers (5), floating panes (20) and drag hints (100),
+     but below portaled galleries/dialogs (650/1000+) and browser top-layer dialogs. */
+  z-index: 200;
+}
+.app-first-use-notice {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 9000;
+  padding: 10px 14px;
+  max-width: 360px;
+  background: #242a30;
+  color: #eef5fa;
+  border: 1px solid #4a657a;
+  box-shadow: 0 4px 16px #0008;
 }

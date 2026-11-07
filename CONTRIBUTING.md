@@ -131,6 +131,8 @@ npm run verify
 
 Update the relevant public guide or release notes when user-facing behavior changes.
 
+See [frame playback](docs/PLAYBACK.md) when working on animation timing, seeking, or the shared editor/export renderer.
+
 Describe both the change and its verification in the pull request.
 
 Keep internal planning, handover notes, and company documents outside the repository.

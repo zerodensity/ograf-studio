@@ -66,4 +66,29 @@ describe('layer selection', () => {
     expect(useSelectionStore.getState().selectedLayerIds).toEqual(['background-copy', 'text-copy']);
     expect(useSelectionStore.getState().selectedLayerId).toBe('text-copy');
   });
+
+  it('restores the complete layer and keyframe selection after an explicit deselect', () => {
+    useSelectionStore.getState().selectLayerKeyframes(
+      [
+        { layerId: 'headline', keyframeId: 'key-1', property: 'x' },
+        { layerId: 'headline', keyframeId: 'key-2', property: 'x' },
+      ],
+      { layerId: 'headline', keyframeId: 'key-1', property: 'x' },
+    );
+
+    useSelectionStore.getState().deselectAll();
+    expect(useSelectionStore.getState().selectedLayerIds).toEqual([]);
+    expect(useSelectionStore.getState().undoDeselectAll()).toBe(true);
+    expect(useSelectionStore.getState()).toMatchObject({
+      selectedLayerId: 'headline',
+      selectedLayerIds: ['headline'],
+      selectedLayerKeyframeId: 'key-1',
+      selectedLayerProperty: 'x',
+      selectedLayerKeyframes: [
+        { layerId: 'headline', keyframeId: 'key-1', property: 'x' },
+        { layerId: 'headline', keyframeId: 'key-2', property: 'x' },
+      ],
+    });
+    expect(useSelectionStore.getState().undoDeselectAll()).toBe(false);
+  });
 });

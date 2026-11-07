@@ -6,6 +6,7 @@ import {
 } from '@ograf-editor/agent-tools/chat-references';
 import { AreaReferenceCapture } from '../components/AreaReferenceCapture';
 import { VoiceDictationButton } from '../components/VoiceDictationButton';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 import { appendDictatedText, useDictationState } from '../state/speechDictation';
 import {
   cancelAgentChat,
@@ -204,40 +205,46 @@ export function AgentChatPanel() {
           <span>The next prompt will target this layer explicitly.</span>
         </div>
       ) : null}
-      <div className="agent-chat-status">
-        <span className={enabled ? 'online' : ''} />
-        {chat.configured
-          ? `${chat.provider} · ${chat.model}`
-          : chat.configured === false
-            ? 'Agent not configured'
-            : 'Checking agent configuration…'}
-      </div>
+      <CollapsibleSection
+        sectionId="assistant.connection"
+        title="Connection & concurrency"
+        defaultOpen={false}
+      >
+        <div className="agent-chat-status">
+          <span className={enabled ? 'online' : ''} />
+          {chat.configured
+            ? `${chat.provider} · ${chat.model}`
+            : chat.configured === false
+              ? 'Agent not configured'
+              : 'Checking agent configuration…'}
+        </div>
+        <div className="agent-chat-concurrency">
+          <span>
+            {chat.externalAgentActive ? 'External MCP agent active' : 'No external MCP activity'}
+          </span>
+          <label>
+            <input
+              type="checkbox"
+              checked={chat.exclusive}
+              onChange={(event) => setAgentChatExclusive(event.target.checked)}
+              disabled={!connected || !authoritative}
+            />
+            Exclusive while chatting
+          </label>
+        </div>
+        {!authoritative ? (
+          <div className="agent-chat-notice error">
+            This tab is not the active editor session. Reload it to make this tab authoritative.
+          </div>
+        ) : !connected ? (
+          <div className="agent-chat-notice">The local OGraf Studio server is offline.</div>
+        ) : chat.configured === false ? (
+          <div className="agent-chat-notice">
+            {chat.configMessage ?? 'Configure a provider on the local server and restart it.'}
+          </div>
+        ) : null}
+      </CollapsibleSection>
       <AgentReviewPanel />
-      <div className="agent-chat-concurrency">
-        <span>
-          {chat.externalAgentActive ? 'External MCP agent active' : 'No external MCP activity'}
-        </span>
-        <label>
-          <input
-            type="checkbox"
-            checked={chat.exclusive}
-            onChange={(event) => setAgentChatExclusive(event.target.checked)}
-            disabled={!connected || !authoritative}
-          />
-          Exclusive while chatting
-        </label>
-      </div>
-      {!authoritative ? (
-        <div className="agent-chat-notice error">
-          This tab is not the active editor session. Reload it to make this tab authoritative.
-        </div>
-      ) : !connected ? (
-        <div className="agent-chat-notice">The local OGraf Studio server is offline.</div>
-      ) : chat.configured === false ? (
-        <div className="agent-chat-notice">
-          {chat.configMessage ?? 'Configure a provider on the local server and restart it.'}
-        </div>
-      ) : null}
       <div
         className={`agent-chat-progress${busy && elapsedSeconds >= 60 ? ' delayed' : ''}${chat.progress?.phase === 'error' ? ' error' : ''}`}
         role="status"
@@ -257,6 +264,11 @@ export function AgentChatPanel() {
           {busy ? elapsedLabel(elapsedSeconds) : ''}
         </span>
       </div>
+      {chat.context ? (
+        <p className="agent-chat-context" role="status" aria-label="Estimated assistant context">
+          {chat.context.message}
+        </p>
+      ) : null}
       <div className="agent-chat-transcript" ref={scrollRef} aria-live="polite">
         {transcriptEntries.length === 0 ? (
           <div className="agent-chat-empty">

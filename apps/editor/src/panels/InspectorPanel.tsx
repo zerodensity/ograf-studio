@@ -1,20 +1,51 @@
+import { isGradientPaint as isAnimatorGradient } from '@ograf-editor/scene-model';
+import { supportsTextAnimatorColor, textAnimationCarriesUpdate } from '@ograf-editor/scene-model';
+import { canvasFrame, useCanvasViewStore } from '../state/canvasViewStore';
+import { FontLibraryDialog } from './FontLibraryDialog';
+import { FrameDurationControl } from './FrameDurationControl';
+import { MillisecondDurationInput } from './MillisecondDurationControl';
+import { ColorInput } from '../components/ColorInput';
 import { useEditorWindow } from '../layout/EditorWindow';
 import { TRANSFORM_HELP } from './propertyHelp';
+import { WithWarning } from '../components/WarningBadge';
 import { PropertyRow } from '../components/PropertyRow';
+import { PropertyKeyframeButton } from '../components/PropertyKeyframeButton';
+import { runDiscreteHistoryStep } from '../state/historyStore';
+import { resetTimelineChannelAnimation } from './timelineChannelActions';
+import { InheritanceIcon, ResetInheritanceIcon } from '../components/InheritanceIcons';
+import { LayerMotionEditor } from './LayerMotionEditor';
+import { LayerMotionBlurEditor } from './LayerMotionBlurEditor';
+import { componentOverrideLabel } from './componentOverrideLabel';
+import { TextPathEditor } from './TextPathEditor';
+import { usePaneRequestStore } from '../state/paneRequestStore';
+import { modifierDrivenProperties } from '../state/modifiersEditing';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 import { EffectStackEditor } from './EffectStackEditor';
+import { MultiSelectionProperties } from './MultiSelectionProperties';
+import { openComponentEditor } from './ComponentEditorDialog';
 import { ImageSourceEditor } from './ImageSourceEditor';
+import { SourceCropEditor } from './SourceCropEditor';
+import { LayerCropEditor } from './LayerCropEditor';
 import { LayerLightingEditor } from './LayerLightingEditor';
 import {
   getEffectStack,
   EFFECT_CATALOG,
   effectProperty,
   effectParameterValue,
+  modifierParameterValue,
 } from '@ograf-editor/scene-model';
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { LayerMaskEditor } from './LayerMaskEditor';
 import { TilingPatternEditor } from './TilingPatternEditor';
 import { PatternInstanceActions } from './PatternResources';
 import { usePathEditStore } from '../state/pathEditStore';
+import { useProjectSetStore } from '../state/projectSetStore';
+import { getBrandBindingOrigin, setBrandBindingOverride } from '../state/templateSetBrandKit';
+import {
+  applyTypographyToLayers,
+  resetTypographyProperty,
+  getTypographyOrigin,
+} from '../state/brandKitStyles';
 import { pathConversionError } from '@ograf-editor/scene-model';
 import {
   getLayerTransformAtFrame,
@@ -24,8 +55,17 @@ import {
 } from '../state/projectStore';
 import { useSelectionStore } from '../state/selectionStore';
 import { useShaderParameterPreviewStore } from '../state/shaderParameterPreviewStore';
-import { bindableProperties } from '../state/dataBinding';
+import { openShaderResourceEditor } from '../state/shaderEditorRequest';
+import {
+  bindableProperties,
+  resolveDesignerElement,
+  resolveDesignerEffects,
+  resolveDesignerTransform,
+} from '../state/dataBinding';
+import { useTestDataStore } from '../state/testDataStore';
+import { nextBindingProperty, playoutProperty } from '../state/bindingFieldCreation';
 import type {
+  AnimatableLayerProperty,
   BlendMode,
   CornerRadii,
   DesignTokenTargetProperty,
@@ -35,44 +75,224 @@ import type {
   ShaderPaintSlot,
   ShaderParameterValue,
   TextElement,
+  TypographyProperty,
+  VisualRuleTrigger,
 } from '@ograf-editor/scene-model';
 import {
   BLEND_MODES,
   createCornerRadii,
+  createLayerPropertyKeyframe,
   findLayerKeyframeAtFrame,
   getLayerPropertyValueAtFrame,
   getElementFill,
   getElementShaderPaint,
   sampleShaderAnimationTracks,
   parseShaderAnimationProperty,
+  shaderAnimationPropertySpec,
   isGradientPaint,
   isShaderPaint,
   shaderPaintConflictsWithBinding,
   getPaintAtFrame,
   listFieldLeafPaths,
   getResolvedLayerAnimationTracks,
+  isLayerPropertyAnimated,
   inspectLottieAnimationData,
   isPixelTransformKey,
   parseLottieJson,
-  type EasingPreset,
+  normalizeLayerAutoLayout,
+  normalizeTextAnimation,
+  formatClockTimerValue,
+  parseClockTimerManualValue,
+  segmentTextAnimationUnits,
+  isAnimatedTextSegment,
+  textAnimationSplit,
   type SemanticLayerRole,
 } from '@ograf-editor/scene-model';
 import { useTimelineStore } from '../state/timelineStore';
 import { CompositionSettings } from './CompositionSettings';
 import { Panel } from './Panel';
 import { alphaPercentToOpacity, opacityToAlphaPercent } from './alphaControl';
-import { EASING_OPTION_GROUPS } from './easingOptions';
+import { EasingPicker } from './EasingPicker';
 import { FONT_OPTIONS } from './fontOptions';
 import { measureAutoSizedText } from './textAutoSize';
 import { PaintEditor } from './PaintEditor';
 import { moveLayerToZOrder } from '../state/layerZOrder';
+import { PropertiesFilter } from './PropertiesFilter';
+import { usePropertiesFilter } from './propertiesFilterLogic';
+import { audioFileImportError } from './mediaFileImport';
+import { TextAnimationEditor } from './TextAnimationEditor';
+import { ClockTimerEditor } from './ClockTimerEditor';
+import { TickerEditor } from './TickerEditor';
+import { ChartEditor } from './ChartEditor';
 import './InspectorPanel.css';
+
+function ComponentInstanceControls({
+  layer,
+  composition,
+}: {
+  layer: Layer;
+  composition: ReturnType<typeof useActiveComposition>;
+}) {
+  const { document } = useEditorWindow();
+  const selectMany = useSelectionStore((state) => state.selectMany);
+  const reset = useProjectStore((state) => state.resetComponentOverrides);
+  const makeUnique = useProjectStore((state) => state.makeComponentInstanceUnique);
+  const [error, setError] = useState('');
+  const link = layer.componentLink;
+  if (!link) return null;
+  const source = composition.components.find((component) => component.id === link.componentId);
+  const sourceLayer = source?.layers.find((child) => child.id === link.sourceLayerId);
+  const memberIds = composition.layers
+    .filter(
+      (child) =>
+        child.componentLink?.instanceId === link.instanceId &&
+        child.componentLink.componentId === link.componentId,
+    )
+    .map((child) => child.id);
+  const paths = link.overridePaths ?? [];
+  const fieldOverrideCount = Object.values(link.fieldOverridePaths ?? {}).reduce(
+    (total, values) => total + values.length,
+    0,
+  );
+  const labelFor = (path: string) =>
+    componentOverrideLabel(path, getEffectStack(sourceLayer?.effects ?? layer.effects));
+  const run = (action: () => void) => {
+    try {
+      action();
+      setError('');
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'The component instance could not be changed.',
+      );
+    }
+  };
+  return (
+    <section className="inspector-component-instance" aria-label="Component instance">
+      <header>
+        <span
+          className={`inspector-component-link${paths.length || fieldOverrideCount ? ' is-overridden' : ''}`}
+          title={
+            paths.length || fieldOverrideCount
+              ? `${paths.length + fieldOverrideCount} local overrides`
+              : 'Inherits the component source'
+          }
+          aria-label={
+            paths.length || fieldOverrideCount
+              ? 'Component has local overrides'
+              : 'Inherited component'
+          }
+        >
+          <InheritanceIcon overridden={Boolean(paths.length || fieldOverrideCount)} />
+        </span>
+        <strong
+          title={`Component source: ${source?.name ?? 'Missing source'} · ${sourceLayer?.name ?? layer.name}`}
+        >
+          {source?.name ?? 'Missing source'}
+        </strong>
+        {paths.length || fieldOverrideCount ? (
+          <small title={`${paths.length} layer overrides · ${fieldOverrideCount} field overrides`}>
+            {paths.length + fieldOverrideCount}
+          </small>
+        ) : null}
+      </header>
+      <div className="inspector-component-actions">
+        <button
+          type="button"
+          disabled={!source}
+          aria-label="Edit Component"
+          title="Edit the component source; linked instances inherit its changes"
+          onClick={() =>
+            openComponentEditor(
+              {
+                compositionId: composition.id,
+                componentId: link.componentId,
+                sourceLayerId: link.sourceLayerId,
+              },
+              document,
+            )
+          }
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          aria-label="Select Instance"
+          title="Select all children of this instance"
+          onClick={() => selectMany(memberIds)}
+        >
+          Select
+        </button>
+        <button
+          type="button"
+          title="Create a private component source for this instance"
+          aria-label="Make Unique"
+          disabled={!source}
+          onClick={() =>
+            run(() => {
+              if (!makeUnique(link.instanceId))
+                throw new Error('A private source could not be created for this instance.');
+            })
+          }
+        >
+          Unique
+        </button>
+        {paths.length || fieldOverrideCount ? (
+          <>
+            <button
+              type="button"
+              className="inspector-component-icon"
+              title="Reset this layer to the component source"
+              aria-label="Reset Layer"
+              onClick={() => run(() => reset([layer.id]))}
+            >
+              <ResetInheritanceIcon />
+            </button>
+            <button
+              type="button"
+              className="inspector-component-icon"
+              title="Reset all overrides in this instance"
+              aria-label="Reset Instance"
+              onClick={() => run(() => reset(memberIds))}
+            >
+              <ResetInheritanceIcon />
+            </button>
+          </>
+        ) : null}
+      </div>
+      {paths.length || fieldOverrideCount ? (
+        <>
+          <div className="inspector-component-overrides">
+            {paths.map((path) => (
+              <div key={path}>
+                <span title={labelFor(path)}>{labelFor(path)}</span>
+                <button
+                  type="button"
+                  aria-label={`Reset ${labelFor(path)} to component source`}
+                  title={`Reset ${labelFor(path)} to its source value`}
+                  className="inspector-component-icon"
+                  onClick={() => run(() => reset([layer.id], [path]))}
+                >
+                  <ResetInheritanceIcon />
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+      {error && (
+        <p className="inspector-component-error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
 
 const TRANSFORM_FIELDS: { key: keyof LayerTransform; label: string; step?: number }[] = [
   { key: 'x', label: 'X' },
   { key: 'y', label: 'Y' },
-  { key: 'width', label: 'W' },
-  { key: 'height', label: 'H' },
+  { key: 'width', label: 'Width' },
+  { key: 'height', label: 'Height' },
   { key: 'rotation', label: 'Rotation' },
 ];
 
@@ -127,18 +347,14 @@ function isColorMappingProperty(property: string): boolean {
   );
 }
 
-function colorInputValue(value: string): string {
-  return /^#[0-9a-f]{6}$/i.test(value) ? value : '#000000';
-}
-
 function selectOptionConstantValueMap(
   field: { type: string; options?: Array<{ value: string }> },
   value: unknown,
-): Record<string, string> | undefined {
+): Record<string, string | number | boolean> | undefined {
   if (field.type !== 'select' || !field.options) return undefined;
   const mappedValue =
     typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-      ? String(value)
+      ? value
       : '';
   return Object.fromEntries(field.options.map((option) => [option.value, mappedValue]));
 }
@@ -147,6 +363,8 @@ function layerBindingPropertyValue(layer: Layer, property: string): unknown {
   if (property === 'dropShadowColor') return layer.effects.dropShadowColor;
   const effectValue = effectParameterValue(layer.effects, property);
   if (effectValue !== undefined) return effectValue;
+  const modifierValue = modifierParameterValue(layer, property);
+  if (modifierValue !== undefined) return modifierValue;
 
   const segments = property.replaceAll(/\[(\d+)\]/g, '.$1').split('.');
   let value: unknown = layer.element;
@@ -341,38 +559,247 @@ function CornerRadiusEditor({
   );
 }
 
+const VISUAL_RULE_TRIGGER_LABELS: Record<VisualRuleTrigger, string> = {
+  data: 'Data',
+  hover: 'While hovered',
+  click: 'Clicked',
+  'double-click': 'Double-clicked',
+  'pointer-enter': 'Mouse enters',
+  'pointer-leave': 'Mouse leaves',
+  'pointer-down': 'Mouse pressed',
+  'pointer-up': 'Mouse released',
+  'key-down': 'Key pressed',
+  'key-up': 'Key released',
+  play: 'Played in',
+  step: 'Step reached',
+  stop: 'Taken out',
+  'custom-action': 'Custom action',
+  'timer-alarm': 'Timer alarm',
+};
+
+function BrandBindingOrigin({
+  layer,
+  property,
+}: {
+  layer: Layer;
+  property: DesignTokenTargetProperty;
+}) {
+  const projectSet = useProjectSetStore((state) => state.projectSet);
+  const [error, setError] = useState<string | null>(null);
+  if (layer.typographyBinding && ['fontFamily', 'fontSize', 'fontWeight'].includes(property)) {
+    return <TypographyPropertyOrigin layer={layer} property={property as TypographyProperty} />;
+  }
+  const binding = layer.designTokenBindings.find((item) => item.targetProperty === property);
+  if (!binding) return null;
+  const origin = getBrandBindingOrigin(layer.id, property);
+  const objectOverride = binding.overridden === true;
+  const title =
+    origin.origin === 'inherited'
+      ? `Inherited from ${origin.sourceName ?? 'Brand Kit'}. Editing this property creates an object override.`
+      : origin.origin === 'overridden'
+        ? `Object override. Reset to use ${origin.sourceName ?? 'the linked Brand Kit token'} again.`
+        : `Linked to this template’s Brand Kit${projectSet ? '; not inherited from the set' : ''}.`;
+  return (
+    <small className={`inspector-brand-origin is-${origin.origin}`} title={error ?? title}>
+      {!objectOverride && (
+        <span className="inspector-origin-icon" role="img" aria-label={title}>
+          <InheritanceIcon overridden={origin.origin === 'overridden'} />
+        </span>
+      )}
+      {objectOverride && (
+        <button
+          type="button"
+          aria-label={`Reset ${property} to inherited Brand Kit value`}
+          title={error ?? `Reset ${property} to its inherited Brand Kit value`}
+          disabled={layer.isLocked}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            try {
+              setBrandBindingOverride(layer.id, property, false);
+              setError(null);
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : 'The override could not be reset.');
+            }
+          }}
+        >
+          <ResetInheritanceIcon />
+        </button>
+      )}
+      {error && <span role="alert">!</span>}
+    </small>
+  );
+}
+
+function TypographyPropertyOrigin({
+  layer,
+  property,
+}: {
+  layer: Layer;
+  property: TypographyProperty;
+}) {
+  const projectSet = useProjectSetStore((state) => state.projectSet);
+  const [error, setError] = useState('');
+  const binding = layer.typographyBinding;
+  if (!binding) return null;
+  const overridden = binding.overrides?.includes(property) ?? false;
+  const origin = getTypographyOrigin(binding.presetId);
+  const source =
+    origin.origin === 'overridden'
+      ? `this template’s typography override`
+      : (origin.sourceName ?? 'this template’s typography style');
+  return (
+    <small
+      className={`inspector-brand-origin is-${overridden ? 'overridden' : 'inherited'}`}
+      title={
+        error ||
+        (overridden
+          ? `Object override. Reset ${property} to the typography style.`
+          : `Inherited from ${source}${projectSet ? ` in ${projectSet.name}` : ''}. Editing creates an object override.`)
+      }
+    >
+      {!overridden && (
+        <span className="inspector-origin-icon" role="img" aria-label={`Inherited from ${source}`}>
+          <InheritanceIcon />
+        </span>
+      )}
+      {overridden && (
+        <button
+          type="button"
+          disabled={layer.isLocked}
+          aria-label={`Reset ${property} to typography style`}
+          title={error || `Reset ${property} to its typography style`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            try {
+              resetTypographyProperty(layer.id, property);
+              setError('');
+            } catch (cause) {
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : 'The typography property could not be reset.',
+              );
+            }
+          }}
+        >
+          <ResetInheritanceIcon />
+        </button>
+      )}
+      {error && <span role="alert">!</span>}
+    </small>
+  );
+}
+
 export function InspectorPanel() {
   const { window } = useEditorWindow();
   const composition = useActiveComposition();
-  const currentFrame = useTimelineStore((s) => s.currentFrame);
+  const testValues = useTestDataStore((state) => state.values);
+  const playheadFrame = useTimelineStore((s) => s.currentFrame);
+  const viewMode = useCanvasViewStore((s) => s.mode);
+  const currentFrame = canvasFrame(composition, playheadFrame, viewMode);
+  const timelineAutoKeyframe = useTimelineStore((s) => s.autoKeyframe);
+  const editScope = useTimelineStore((s) => s.editScope);
+  const setEditScope = useTimelineStore((s) => s.setEditScope);
+  const autoKeyframe = viewMode === 'animate' && timelineAutoKeyframe;
   const selectedLayerId = useSelectionStore((s) => s.selectedLayerId);
+  const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
+  const selectedProperty = useSelectionStore((s) => s.selectedLayerProperty);
   const liveTransform = useSelectionStore((s) => s.liveTransform);
   const previewShaderParameter = useShaderParameterPreviewStore((s) => s.previewParameter);
   const clearShaderParameterPreview = useShaderParameterPreviewStore((s) => s.clearPreview);
   const renameLayer = useProjectStore((s) => s.renameLayer);
   const reorderLayers = useProjectStore((s) => s.reorderLayers);
-  const updateLayerTransform = useProjectStore((s) => s.updateLayerTransform);
-  const updateLayerKeyframeEasing = useProjectStore((s) => s.updateLayerKeyframeEasing);
+  const writeLayerTransform = useProjectStore((s) => s.updateLayerTransform);
+  const updateLayerPropertyKeyframeEasing = useProjectStore(
+    (s) => s.updateLayerPropertyKeyframeEasing,
+  );
+  const updateLayerPropertyKeyframeCurve = useProjectStore(
+    (s) => s.updateLayerPropertyKeyframeCurve,
+  );
+  const toggleLayerPropertyKeyframe = useProjectStore((s) => s.toggleLayerPropertyKeyframe);
   const updateLayerElement = useProjectStore((s) => s.updateLayerElement);
+  const importAsset = useProjectStore((s) => s.importAsset);
   const updateLayerTextStroke = useProjectStore((s) => s.updateLayerTextStroke);
   const updateLayerPaint = useProjectStore((s) => s.updateLayerPaint);
   const updateLayerShaderParameter = useProjectStore((s) => s.updateLayerShaderParameter);
   const setLayerBindings = useProjectStore((s) => s.setLayerBindings);
+  const addLayerBinding = useProjectStore((s) => s.addLayerBinding);
   const toggleLayerLock = useProjectStore((s) => s.toggleLayerLock);
-  const setLayerParent = useProjectStore((s) => s.setLayerParent);
+  const writeLayerParent = useProjectStore((s) => s.setLayerParent);
   const setLayerClipChildren = useProjectStore((s) => s.setLayerClipChildren);
   const setLayerConstraints = useProjectStore((s) => s.setLayerConstraints);
+  const writeLayerAutoLayout = useProjectStore((s) => s.setLayerAutoLayout);
+  const setLayerUpdateTransition = useProjectStore((s) => s.setLayerUpdateTransition);
+  const writeLayerMotionPath = useProjectStore((s) => s.setLayerMotionPath);
+  const [fontLibraryOpen, setFontLibraryOpen] = useState(false);
+  useEffect(() => setFontLibraryOpen(false), [selectedLayerId]);
+  const [layoutError, setLayoutError] = useState('');
+  const [elementEditError, setElementEditError] = useState('');
+  const updateLayerTransform = useCallback(
+    (...args: Parameters<typeof writeLayerTransform>) => {
+      try {
+        writeLayerTransform(...args);
+        setLayoutError('');
+      } catch (cause) {
+        setLayoutError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [writeLayerTransform],
+  );
+  const applyLayoutChange = (mutation: () => void) => {
+    try {
+      mutation();
+      setLayoutError('');
+    } catch (cause) {
+      setLayoutError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const setLayerParent = (...args: Parameters<typeof writeLayerParent>) =>
+    applyLayoutChange(() => writeLayerParent(...args));
+  const setLayerAutoLayout = (...args: Parameters<typeof writeLayerAutoLayout>) =>
+    applyLayoutChange(() => writeLayerAutoLayout(...args));
+  const setLayerMotionPath = (layerId: string, link: Layer['motionPath']) => {
+    applyLayoutChange(() => writeLayerMotionPath(layerId, link));
+  };
+  useEffect(() => setLayoutError(''), [selectedLayerId]);
+  const addLayerVisualRule = useProjectStore((s) => s.addLayerVisualRule);
+  const revealPane = usePaneRequestStore((s) => s.reveal);
+  const setLayerPlayoutEditable = useProjectStore((s) => s.setLayerPlayoutEditable);
   const setLayerSemantics = useProjectStore((s) => s.setLayerSemantics);
   const setLayerBlendMode = useProjectStore((s) => s.setLayerBlendMode);
   const bindDesignToken = useProjectStore((s) => s.bindDesignToken);
   const unbindDesignToken = useProjectStore((s) => s.unbindDesignToken);
+  const [propertyFilter, setPropertyFilter] = useState('');
+  const [audioImportError, setAudioImportError] = useState<string | null>(null);
+  const [brandStyleError, setBrandStyleError] = useState('');
+  const inspectorRef = useRef<HTMLDivElement>(null);
+  usePropertiesFilter(inspectorRef, propertyFilter);
 
   useEffect(
     () => () => clearShaderParameterPreview(),
     [clearShaderParameterPreview, selectedLayerId],
   );
 
-  const layer = composition.layers.find((l) => l.id === selectedLayerId);
+  const authoredLayer = composition.layers.find((l) => l.id === selectedLayerId);
+  const layer = useMemo(() => {
+    if (!authoredLayer || authoredLayer.bindings.length === 0) return authoredLayer;
+    try {
+      return {
+        ...authoredLayer,
+        element: resolveDesignerElement(authoredLayer, testValues, composition.dataFields),
+        effects: resolveDesignerEffects(
+          authoredLayer,
+          authoredLayer.effects,
+          testValues,
+          composition.dataFields,
+        ),
+      };
+    } catch {
+      return authoredLayer;
+    }
+  }, [authoredLayer, testValues, composition.dataFields]);
   const lottieInspection = useMemo(
     () =>
       layer?.element.type === 'lottie' && layer.element.animationData
@@ -386,12 +813,121 @@ export function InspectorPanel() {
   if (!layer) {
     return (
       <Panel title="Properties">
-        <CompositionSettings />
+        <CompositionSettings filter={propertyFilter} onFilterChange={setPropertyFilter} />
       </Panel>
     );
   }
+  const autoLayout = normalizeLayerAutoLayout(layer.autoLayout);
+  const selectedEffectLayers = composition.layers.filter((candidate) =>
+    selectedLayerIds.includes(candidate.id),
+  );
+  if (selectedEffectLayers.length > 1) {
+    return (
+      <MultiSelectionProperties
+        layers={selectedEffectLayers}
+        frame={Math.round(currentFrame)}
+        composition={composition}
+      />
+    );
+  }
+  const effectGroupLayers = selectedEffectLayers.length > 1 ? selectedEffectLayers : [layer];
+  const visualRules = layer.visualRules ?? [];
+  const playoutTarget =
+    layer.element.type === 'text' && layer.element.clock ? null : playoutProperty(layer);
+  const playoutFieldId = playoutTarget
+    ? layer.bindings.find((binding) => binding.targetProperty === playoutTarget.value)?.fieldId
+    : undefined;
+  const playoutField = composition.dataFields.find((field) => field.id === playoutFieldId) ?? null;
+  const pathStretchInsets = layer.element.type === 'path' ? layer.element.stretchInsets : undefined;
+  const selectedTextElement = layer.element.type === 'text' ? layer.element : null;
+  const textAnimationOwnsUpdate =
+    selectedTextElement !== null && textAnimationCarriesUpdate(selectedTextElement.textAnimation);
+  const selectedTextAnimation = selectedTextElement
+    ? normalizeTextAnimation(selectedTextElement.textAnimation)
+    : null;
+  const selectedTextAnimationUnitCount =
+    selectedTextElement && selectedTextAnimation
+      ? segmentTextAnimationUnits(
+          selectedTextElement.clock
+            ? formatClockTimerValue(
+                selectedTextElement.clock,
+                selectedTextElement.clock.source === 'manual'
+                  ? (parseClockTimerManualValue(
+                      selectedTextElement.clock,
+                      selectedTextElement.clock.manualValue,
+                    ) ?? 0)
+                  : selectedTextElement.clock.mode === 'clock'
+                    ? selectedTextElement.clock.referenceTimeMs
+                    : selectedTextElement.clock.initialValueMs,
+              )
+            : selectedTextElement.runs.length
+              ? selectedTextElement.runs.map((run) => run.text).join('')
+              : selectedTextElement.content,
+          textAnimationSplit(selectedTextAnimation),
+          selectedTextElement.language,
+        ).filter((segment) =>
+          isAnimatedTextSegment(segment, textAnimationSplit(selectedTextAnimation)),
+        ).length
+      : 0;
+  const selectedAudioElement = layer.element.type === 'audio' ? layer.element : null;
 
   const roundedFrame = Math.round(currentFrame);
+  const editTimeLabel = `${(roundedFrame / composition.frameRate).toFixed(2)}s · frame ${roundedFrame}`;
+  const propertyTracks = getResolvedLayerAnimationTracks(layer);
+  const hasAnimatedTransform = [...TRANSFORM_FIELDS.map(({ key }) => key), 'opacity'].some(
+    (property) => isLayerPropertyAnimated(layer, property as AnimatableLayerProperty),
+  );
+  const propertyKeyControl = (property: keyof LayerTransform, label: string) => {
+    const animated = isLayerPropertyAnimated(layer, property);
+    const keyed =
+      animated && Boolean(propertyTracks[property]?.some((key) => key.frame === roundedFrame));
+    return (
+      <PropertyKeyframeButton
+        key={`${layer.id}:${property}`}
+        label={label}
+        timeLabel={editTimeLabel}
+        animated={animated}
+        keyed={keyed}
+        disabled={layer.isLocked || viewMode !== 'animate'}
+        canReset={animated || Boolean(layer.loop?.tracks[property]?.length)}
+        onReset={() => {
+          try {
+            resetTimelineChannelAnimation(layer.id, property);
+            setLayoutError('');
+          } catch (cause) {
+            setLayoutError(
+              cause instanceof Error ? cause.message : 'The channel animation could not be reset.',
+            );
+          }
+        }}
+        onToggle={() => {
+          try {
+            const timeline = useTimelineStore.getState();
+            timeline.controller?.pause();
+            timeline.setPlaying(false);
+            timeline.controller?.seek(roundedFrame);
+            timeline.setCurrentFrame(roundedFrame);
+            runDiscreteHistoryStep(
+              () => {
+                const keyId = toggleLayerPropertyKeyframe(layer.id, property, roundedFrame);
+                const selection = useSelectionStore.getState();
+                if (keyId) selection.selectLayerKeyframe(layer.id, keyId, property);
+                else selection.selectLayerProperty(layer.id, property);
+              },
+              `${keyed ? 'Remove' : 'Add'} ${label} keyframe`,
+            );
+            setLayoutError('');
+          } catch (cause) {
+            setLayoutError(
+              cause instanceof Error ? cause.message : 'The keyframe could not be changed.',
+            );
+          }
+        }}
+      />
+    );
+  };
+  const editLayerShader = (slot: ShaderPaintSlot) =>
+    openShaderResourceEditor({ compositionId: composition.id, layerId: layer.id, slot }, window);
   const previewLayerShaderParameter = (
     slot: ShaderPaintSlot,
     name: string,
@@ -406,11 +942,20 @@ export function InspectorPanel() {
     clearShaderParameterPreview();
   };
   const activeLayerKeyframe = findLayerKeyframeAtFrame(layer, roundedFrame);
+  const transformProperties: string[] = [...TRANSFORM_FIELDS.map(({ key }) => key), 'opacity'];
+  const selectedTransformProperty =
+    selectedProperty && transformProperties.includes(selectedProperty) ? selectedProperty : null;
+  const activePropertyKey =
+    selectedTransformProperty && isLayerPropertyAnimated(layer, selectedTransformProperty)
+      ? propertyTracks[selectedTransformProperty]?.find((key) => key.frame === roundedFrame)
+      : null;
   const authoredPose = getLayerTransformAtFrame(layer, currentFrame);
+  const boundPose = {
+    ...resolveDesignerTransform(layer, authoredPose, testValues, composition.dataFields),
+    opacity: authoredPose.opacity,
+  };
   const pose =
-    liveTransform?.layerId === layer.id
-      ? { ...authoredPose, ...liveTransform.patch }
-      : authoredPose;
+    liveTransform?.layerId === layer.id ? { ...boundPose, ...liveTransform.patch } : boundPose;
   const isLiveTransform = liveTransform?.layerId === layer.id;
   const alphaPercent = opacityToAlphaPercent(pose.opacity);
   const sampledShaderElement = sampleShaderAnimationTracks(
@@ -437,27 +982,57 @@ export function InspectorPanel() {
       : 0;
   const transformInputValue = (key: keyof LayerTransform): number => {
     if (isLiveTransform) return pose[key];
-    const value = activeLayerKeyframe?.transform[key] ?? pose[key];
+    const value =
+      layer.animationTrackMode === 'independent'
+        ? pose[key]
+        : (activeLayerKeyframe?.transform[key] ?? pose[key]);
     return isPixelTransformKey(key) ? Math.round(value) : value;
   };
 
-  const evaluatedPixelSummary = `X ${authoredPose.x.toFixed(3)} · Y ${authoredPose.y.toFixed(3)} · W ${authoredPose.width.toFixed(3)} · H ${authoredPose.height.toFixed(3)}`;
+  const evaluatedPixelSummary = `X ${boundPose.x.toFixed(3)} · Y ${boundPose.y.toFixed(3)} · Width ${boundPose.width.toFixed(3)} · Height ${boundPose.height.toFixed(3)}`;
 
   const setTransform = (key: keyof LayerTransform, value: number) => {
     updateLayerTransform(layer.id, roundedFrame, { [key]: value });
+    if (editScope !== 'playhead' || viewMode !== 'animate') return;
+    const latest = useProjectStore
+      .getState()
+      .project.compositions.find((candidate) => candidate.id === composition.id)
+      ?.layers.find((candidate) => candidate.id === layer.id);
+    if (!latest || !isLayerPropertyAnimated(latest, key)) return;
+    const editedKey = getResolvedLayerAnimationTracks(latest)[key]?.find(
+      (candidate) => candidate.frame === roundedFrame,
+    );
+    if (editedKey) useSelectionStore.getState().selectLayerKeyframe(layer.id, editedKey.id, key);
   };
 
   const setElement = (patch: Partial<ElementFields>) => {
-    updateLayerElement(layer.id, patch);
+    try {
+      updateLayerElement(layer.id, patch);
+      setElementEditError('');
+      return true;
+    } catch (error) {
+      setElementEditError(error instanceof Error ? error.message : String(error));
+      return false;
+    }
   };
 
   const setTextElement = (patch: Partial<TextElement>) => {
     if (layer.element.type !== 'text') return;
     const next = { ...layer.element, ...patch };
-    setElement(patch);
+    if (!setElement(patch)) return;
     if (next.autoFit === 'auto-size') {
       updateLayerTransform(layer.id, roundedFrame, measureAutoSizedText(next));
     }
+  };
+
+  const setTextAnimation = (patch: Partial<TextElement['textAnimation']>) => {
+    if (layer.element.type !== 'text') return;
+    setTextElement({
+      textAnimation: normalizeTextAnimation({
+        ...layer.element.textAnimation,
+        ...patch,
+      }),
+    });
   };
 
   const setTextStroke = (
@@ -477,6 +1052,10 @@ export function InspectorPanel() {
   // Narrowed to a local so it survives into the `.find()` closure below — TS discards narrowing
   // from `layer.element.type === 'image'` once `layer.element` is re-read inside a nested function.
   const sequenceFrames = layer.element.type === 'image-sequence' ? layer.element.frames : [];
+  const sequencePreview = sequenceFrames[0]?.startsWith('asset:')
+    ? composition.assets.find((asset) => asset.id === sequenceFrames[0]!.slice('asset:'.length))
+        ?.dataUri
+    : sequenceFrames[0];
   const selectedFontFamily = layer.element.type === 'text' ? layer.element.fontFamily : '';
   const selectedFontSize = layer.element.type === 'text' ? layer.element.fontSize : 1;
   const importedFontOptions = composition.assets
@@ -486,6 +1065,7 @@ export function InspectorPanel() {
       value: asset.fontFamily || asset.name.replace(/\.[^.]+$/, ''),
     }));
   const availableFontOptions = [...importedFontOptions, ...FONT_OPTIONS];
+  const audioAssets = composition.assets.filter((asset) => asset.kind === 'audio');
   const tokenTargets: Array<{
     property: DesignTokenTargetProperty;
     label: string;
@@ -518,7 +1098,16 @@ export function InspectorPanel() {
 
   return (
     <Panel title="Properties">
-      <div className="inspector">
+      <div className="inspector" ref={inspectorRef}>
+        <PropertiesFilter value={propertyFilter} onChange={setPropertyFilter} />
+        {elementEditError && (
+          <p className="inspector-error" role="alert">
+            {elementEditError}
+          </p>
+        )}
+        {authoredLayer?.componentLink && (
+          <ComponentInstanceControls layer={authoredLayer} composition={composition} />
+        )}
         <PropertyRow
           help={
             "Name used to identify this layer in the editor and by authoring tools. Rename it here; edit a text layer's visible wording under Content."
@@ -546,1340 +1135,2320 @@ export function InspectorPanel() {
           }
         />
         <p className="inspector-hint">1 is back; {composition.layers.length} is front.</p>
-        <h3 className="inspector-section">Transform — frame {roundedFrame}</h3>
-        {!activeLayerKeyframe && (
-          <div className="inspector-evaluated-pose">
-            <span>Evaluated between keys</span>
-            <output>{evaluatedPixelSummary}</output>
-            <small>Editing creates an integer-pixel keyframe only for this layer.</small>
-          </div>
+        {playoutTarget ? (
+          <PropertyRow
+            help={`Let playout replace this layer's ${playoutTarget.label.toLowerCase()}. Switching on creates a data field named after the layer, starting with the current ${playoutTarget.label.toLowerCase()}; switching off removes it unless something else uses it.`}
+            className="inspector-row inspector-checkbox-row"
+          >
+            <span>Editable in playout</span>
+            <input
+              type="checkbox"
+              checked={playoutField !== null}
+              disabled={layer.isLocked}
+              onChange={(event) => setLayerPlayoutEditable(layer.id, event.target.checked)}
+            />
+          </PropertyRow>
+        ) : null}
+        {playoutField ? (
+          <p className="inspector-hint">
+            Playout fills this from <strong>{playoutField.label || playoutField.key}</strong> (
+            <code>{playoutField.key}</code>). Rename or describe it under Data → Fields.
+          </p>
+        ) : null}
+        {(layer.modifiers ?? []).some((modifier) => modifier.enabled) && (
+          <p className="inspector-hint">
+            Smart layout drives {modifierDrivenProperties(layer.modifiers ?? []).join(', ')}. These
+            controls retain the authored base values.{' '}
+            <button type="button" onClick={() => revealPane('modifiers')}>
+              Edit Smart layout
+            </button>
+          </p>
         )}
-        <div className="inspector-grid">
-          {TRANSFORM_FIELDS.map(({ key, label, step }) => (
-            <PropertyRow help={TRANSFORM_HELP[key]!} className="inspector-row" key={key}>
-              <span>{label}</span>
+        <CollapsibleSection
+          sectionId="properties.transform"
+          title={
+            editScope === 'whole-animation'
+              ? 'Transform — whole animation'
+              : `Transform — ${editTimeLabel}`
+          }
+        >
+          {layoutError && (
+            <p className="inspector-hint" role="alert">
+              {layoutError}
+            </p>
+          )}
+          <PropertyRow
+            as="div"
+            className="inspector-row"
+            help="At playhead edits animated properties at this time. Whole animation moves existing keys together without changing their timing."
+          >
+            <span>Edit</span>
+            <select
+              aria-label="Transform edit scope"
+              value={editScope}
+              disabled={viewMode !== 'animate'}
+              onChange={(event) =>
+                setEditScope(event.currentTarget.value as 'playhead' | 'whole-animation')
+              }
+            >
+              <option value="playhead">At playhead</option>
+              <option value="whole-animation">Whole animation</option>
+            </select>
+          </PropertyRow>
+          <p className="inspector-hint">
+            {editScope === 'whole-animation'
+              ? 'Edits move the existing animation together; key times stay the same.'
+              : autoKeyframe
+                ? 'Auto-keyframe records changes at this time, including static properties.'
+                : 'Keyed properties record at this time. Use the diamond to animate a property.'}
+          </p>
+          {editScope === 'playhead' &&
+            (autoKeyframe || hasAnimatedTransform) &&
+            !activeLayerKeyframe && (
+              <div className="inspector-evaluated-pose">
+                <span>Evaluated pose at playhead</span>
+                <output>{evaluatedPixelSummary}</output>
+                <small>Keyed properties record changes at the playhead.</small>
+              </div>
+            )}
+          <div className="inspector-grid">
+            {TRANSFORM_FIELDS.map(({ key, label, step }) => (
+              <PropertyRow as="div" help={TRANSFORM_HELP[key]!} className="inspector-row" key={key}>
+                <span>{label}</span>
+                <div className="inspector-animated-value">
+                  <input
+                    aria-label={label}
+                    type="number"
+                    step={step ?? 1}
+                    value={transformInputValue(key)}
+                    disabled={layer.isLocked}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                      setTransform(key, Number(e.target.value))
+                    }
+                  />
+                  {propertyKeyControl(key, label)}
+                </div>
+              </PropertyRow>
+            ))}
+          </div>
+
+          <PropertyRow
+            help={
+              'Layer opacity at the current timeline frame. 0% is fully transparent and 100% is fully opaque; lower values let the background show through.'
+            }
+            as="div"
+            className="inspector-row"
+          >
+            <span className="inspector-alpha-label">Alpha</span>
+            <div className="inspector-animated-value inspector-alpha-value">
               <input
-                type="number"
-                step={step ?? 1}
-                value={transformInputValue(key)}
+                type="range"
+                min={0}
+                max={100}
+                step={0.1}
+                value={alphaPercent}
                 disabled={layer.isLocked}
-                onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                  setTransform(key, Number(e.target.value))
+                aria-label="Object alpha"
+                onInput={(event) =>
+                  setTransform('opacity', alphaPercentToOpacity(Number(event.currentTarget.value)))
+                }
+              />
+              <label className="inspector-alpha-number">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={alphaPercent}
+                  disabled={layer.isLocked}
+                  aria-label="Object alpha percentage"
+                  onChange={(event) =>
+                    setTransform('opacity', alphaPercentToOpacity(Number(event.target.value)))
+                  }
+                />
+                <span>%</span>
+              </label>
+              {propertyKeyControl('opacity', 'Alpha')}
+            </div>
+          </PropertyRow>
+
+          {activePropertyKey && selectedTransformProperty && (
+            <PropertyRow
+              as="div"
+              help={
+                'Easing used when the animation arrives at this layer keyframe. It changes the acceleration of the incoming transition without changing its duration.'
+              }
+              className="inspector-row"
+            >
+              <span>Ease into property key</span>
+              <EasingPicker
+                label="Property key easing"
+                disabled={layer.isLocked}
+                value={activePropertyKey.easing}
+                curve={activePropertyKey.curve}
+                onChange={(easing) =>
+                  updateLayerPropertyKeyframeEasing(
+                    layer.id,
+                    selectedTransformProperty,
+                    activePropertyKey.id,
+                    easing,
+                  )
+                }
+                onCurveChange={(curve) =>
+                  updateLayerPropertyKeyframeCurve(
+                    layer.id,
+                    selectedTransformProperty,
+                    activePropertyKey.id,
+                    curve,
+                  )
                 }
               />
             </PropertyRow>
-          ))}
-        </div>
+          )}
+        </CollapsibleSection>
 
-        <PropertyRow
-          help={
-            'Layer opacity at the current timeline frame. 0% is fully transparent and 100% is fully opaque; lower values let the background show through.'
-          }
-          as="div"
-          className="inspector-alpha-control"
-        >
-          <span className="inspector-alpha-label">Alpha</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={0.1}
-            value={alphaPercent}
-            aria-label="Object alpha"
-            onInput={(event) =>
-              setTransform('opacity', alphaPercentToOpacity(Number(event.currentTarget.value)))
-            }
+        {layer.element.type !== 'audio' ? (
+          <CollapsibleSection sectionId="properties.crop" title="Crop">
+            <LayerCropEditor
+              layerIds={selectedLayerIds.includes(layer.id) ? selectedLayerIds : [layer.id]}
+            />
+          </CollapsibleSection>
+        ) : null}
+        <CollapsibleSection sectionId="properties.motion" title="Animate In / Out">
+          <LayerMotionEditor
+            composition={composition}
+            layer={layer}
+            layerIds={selectedLayerIds.includes(layer.id) ? selectedLayerIds : [layer.id]}
           />
-          <label className="inspector-alpha-number">
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              value={alphaPercent}
-              aria-label="Object alpha percentage"
-              onChange={(event) =>
-                setTransform('opacity', alphaPercentToOpacity(Number(event.target.value)))
+          <LayerMotionBlurEditor layer={layer} />
+        </CollapsibleSection>
+
+        {layer.element.type === 'text' && (
+          <CollapsibleSection sectionId="properties.textPath" title="Text on a path">
+            <TextPathEditor key={layer.id} layer={layer} composition={composition} />
+          </CollapsibleSection>
+        )}
+
+        {layer.element.type === 'text' && layer.element.clock ? (
+          <ClockTimerEditor
+            key={layer.id}
+            value={
+              authoredLayer?.element.type === 'text' && authoredLayer.element.clock
+                ? authoredLayer.element.clock
+                : layer.element.clock
+            }
+            layerId={layer.id}
+            disabled={layer.isLocked}
+            onChange={(clock) => setTextElement({ clock, runs: [] })}
+            externalBinding={{
+              fieldId:
+                layer.bindings.find((binding) => binding.targetProperty === 'clock.manualValue')
+                  ?.fieldId ?? null,
+              fields: composition.dataFields
+                .filter((field) =>
+                  ['text', 'textarea', 'number', 'integer', 'select'].includes(field.type),
+                )
+                .map((field) => ({ id: field.id, label: field.label || field.key })),
+              onChange: (fieldId) =>
+                setLayerBindings(layer.id, [
+                  ...layer.bindings.filter(
+                    (binding) => binding.targetProperty !== 'clock.manualValue',
+                  ),
+                  ...(fieldId ? [{ fieldId, targetProperty: 'clock.manualValue' }] : []),
+                ]),
+              onCreate: () => setLayerPlayoutEditable(layer.id, true),
+            }}
+          />
+        ) : null}
+        <CollapsibleSection
+          sectionId="properties.element"
+          title={
+            layer.element.type === 'text' && layer.element.clock
+              ? 'Text appearance'
+              : elementSectionLabel(layer.element.type)
+          }
+        >
+          {layer.element.type === 'ticker' && (
+            <TickerEditor
+              layerId={layer.id}
+              value={layer.element}
+              composition={composition}
+              disabled={layer.isLocked}
+              onChange={setElement}
+            />
+          )}
+          {layer.designTokenBindings.some(
+            (binding) =>
+              !['fontFamily', 'fontSize', 'fontWeight', 'strokeColor', 'strokeWidth'].includes(
+                binding.targetProperty,
+              ),
+          ) && (
+            <div className="inspector-brand-linked-summary" aria-label="Brand Kit property origins">
+              {layer.designTokenBindings
+                .filter(
+                  (binding) =>
+                    ![
+                      'fontFamily',
+                      'fontSize',
+                      'fontWeight',
+                      'strokeColor',
+                      'strokeWidth',
+                    ].includes(binding.targetProperty),
+                )
+                .map((binding) => (
+                  <span key={binding.targetProperty}>
+                    {tokenTargets.find((target) => target.property === binding.targetProperty)
+                      ?.label ?? binding.targetProperty}
+                    <BrandBindingOrigin layer={layer} property={binding.targetProperty} />
+                  </span>
+                ))}
+            </div>
+          )}
+          {layer.element.type === 'image' && (
+            <ImageSourceEditor
+              key={`image-${layer.id}`}
+              layer={layer}
+              assets={composition.assets}
+            />
+          )}
+          {(layer.element.type === 'image' ||
+            layer.element.type === 'image-sequence' ||
+            layer.element.type === 'lottie') && (
+            <PaintEditor
+              layerId={layer.id}
+              media
+              onEditShader={() => editLayerShader('fill')}
+              disabled={layer.isLocked}
+              value={evaluatedPaint ?? layer.element.fill}
+              shaderAnimationActive={animatedShaderSlots.has('fill')}
+              onShaderParameterPreview={(name, value) =>
+                previewLayerShaderParameter('fill', name, value)
+              }
+              onShaderParameterChange={(name, value) =>
+                commitLayerShaderParameter('fill', name, value)
+              }
+              onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+            />
+          )}
+          {layer.element.type !== 'image' && layer.bindings.length > 0 && (
+            <p className="inspector-hint">
+              {layer.bindings
+                .map(
+                  (binding) =>
+                    bindableProperties(layer.element, layer.effects, layer.modifiers).find(
+                      (property) => property.value === binding.targetProperty,
+                    )?.label ?? binding.targetProperty,
+                )
+                .join(', ')}{' '}
+              {layer.bindings.length === 1 ? 'is' : 'are'} data-driven. Edit here to update the
+              bound default while keeping the binding.
+            </p>
+          )}
+          {layer.element.type === 'rectangle' && (
+            <>
+              <PaintEditor
+                layerId={layer.id}
+                onEditShader={() => editLayerShader('fill')}
+                disabled={layer.isLocked}
+                value={evaluatedPaint ?? layer.element.fill}
+                shaderAnimationActive={animatedShaderSlots.has('fill')}
+                onShaderParameterPreview={(name, value) =>
+                  previewLayerShaderParameter('fill', name, value)
+                }
+                onShaderParameterChange={(name, value) =>
+                  commitLayerShaderParameter('fill', name, value)
+                }
+                onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+              />
+              <CornerRadiusEditor
+                value={layer.element.borderRadius}
+                onChange={(borderRadius) => setElement({ borderRadius })}
+              />
+            </>
+          )}
+
+          {layer.element.type === 'ellipse' && (
+            <>
+              <PaintEditor
+                layerId={layer.id}
+                onEditShader={() => editLayerShader('fill')}
+                disabled={layer.isLocked}
+                value={evaluatedPaint ?? layer.element.fill}
+                shaderAnimationActive={animatedShaderSlots.has('fill')}
+                onShaderParameterPreview={(name, value) =>
+                  previewLayerShaderParameter('fill', name, value)
+                }
+                onShaderParameterChange={(name, value) =>
+                  commitLayerShaderParameter('fill', name, value)
+                }
+                onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+              />
+              <PropertyRow
+                help={
+                  'Color of the shape outline. The outline is visible when Stroke Width is greater than zero.'
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Stroke Color <BrandBindingOrigin layer={layer} property="strokeColor" />
+                </span>
+                <ColorInput
+                  label="Stroke color"
+                  value={layer.element.strokeColor}
+                  onChange={(color) => setElement({ strokeColor: color })}
+                  onTokenSelect={(id) => bindDesignToken(layer.id, id, 'strokeColor')}
+                />
+              </PropertyRow>
+              <PropertyRow
+                help={'Thickness of the shape outline in pixels. Zero removes the outline.'}
+                className="inspector-row"
+              >
+                <span>
+                  Stroke Width <BrandBindingOrigin layer={layer} property="strokeWidth" />
+                </span>
+                <input
+                  type="number"
+                  value={layer.element.strokeWidth}
+                  onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
+                />
+              </PropertyRow>
+            </>
+          )}
+
+          {layer.element.type === 'chart' && (
+            <ChartEditor
+              layerId={layer.id}
+              element={layer.element}
+              onChange={setElement}
+              fillEditor={
+                <PaintEditor
+                  layerId={layer.id}
+                  originalLabel="Dataset colors"
+                  onEditShader={() => editLayerShader('fill')}
+                  disabled={layer.isLocked}
+                  value={evaluatedPaint ?? layer.element.fill}
+                  shaderAnimationActive={animatedShaderSlots.has('fill')}
+                  onShaderParameterPreview={(name, value) =>
+                    previewLayerShaderParameter('fill', name, value)
+                  }
+                  onShaderParameterChange={(name, value) =>
+                    commitLayerShaderParameter('fill', name, value)
+                  }
+                  onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+                />
               }
             />
-            <span>%</span>
-          </label>
-        </PropertyRow>
+          )}
 
-        {activeLayerKeyframe && (
-          <PropertyRow
-            help={
-              'Easing used when the animation arrives at this layer keyframe. It changes the acceleration of the incoming transition without changing its duration.'
-            }
-            className="inspector-row"
-          >
-            <span>Incoming easing (this key)</span>
-            <select
-              aria-label="Selected keyframe easing"
-              value={activeLayerKeyframe.easing}
-              onChange={(event) =>
-                updateLayerKeyframeEasing(
-                  layer.id,
-                  activeLayerKeyframe.id,
-                  event.target.value as EasingPreset,
-                )
-              }
-            >
-              {EASING_OPTION_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.options.map((option) => (
+          {layer.element.type === 'text' && (
+            <>
+              <PropertyRow
+                help="Apply a named Brand Kit typography style. Its seven text properties stay editable; editing creates a local override and Reset restores the style. Unlinked keeps the current text formatting."
+                className="inspector-row"
+              >
+                <span>Typography</span>
+                <select
+                  aria-label="Text typography style"
+                  value={layer.typographyBinding?.presetId ?? ''}
+                  disabled={layer.isLocked}
+                  onChange={(event) => {
+                    try {
+                      const ids = selectedLayerIds.includes(layer.id)
+                        ? selectedLayerIds
+                        : [layer.id];
+                      const textIds = composition.layers
+                        .filter(
+                          (candidate) =>
+                            ids.includes(candidate.id) &&
+                            candidate.element.type === 'text' &&
+                            !candidate.isLocked,
+                        )
+                        .map((candidate) => candidate.id);
+                      applyTypographyToLayers(textIds, event.target.value || null);
+                      setBrandStyleError('');
+                    } catch (cause) {
+                      setBrandStyleError(
+                        cause instanceof Error
+                          ? cause.message
+                          : 'The typography style could not be applied.',
+                      );
+                    }
+                  }}
+                >
+                  <option value="">Unlinked / custom</option>
+                  {(composition.designSystem.typography ?? []).map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </select>
+              </PropertyRow>
+              {brandStyleError && (
+                <p className="inspector-error" role="alert">
+                  {brandStyleError}
+                </p>
+              )}
+              {!layer.element.clock ? (
+                <PropertyRow
+                  help={
+                    'Text displayed by this layer. A connected playback data field can replace this content at runtime.'
+                  }
+                  className="inspector-row inspector-row-stacked"
+                >
+                  <span>Content</span>
+                  <textarea
+                    rows={3}
+                    value={layer.element.content}
+                    onChange={(e) => setTextElement({ content: e.target.value, runs: [] })}
+                  />
+                </PropertyRow>
+              ) : null}
+              <PropertyRow
+                help="Unicode bidirectional base direction for this text box."
+                className="inspector-row"
+              >
+                <span>Direction</span>
+                <select
+                  value={layer.element.direction}
+                  onChange={(event) =>
+                    setTextElement({ direction: event.target.value as TextElement['direction'] })
+                  }
+                >
+                  <option value="auto">Automatic</option>
+                  <option value="ltr">Left to right</option>
+                  <option value="rtl">Right to left</option>
+                </select>
+              </PropertyRow>
+              <PropertyRow
+                help="BCP 47 language tag used by browser text shaping and accessibility."
+                className="inspector-row"
+              >
+                <span>Language</span>
+                <input
+                  value={layer.element.language}
+                  placeholder="en, ar, tr…"
+                  onChange={(event) => setTextElement({ language: event.target.value })}
+                />
+              </PropertyRow>
+              {!layer.element.clock ? (
+                <>
+                  <div className="inspector-button-row">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const runs =
+                          layer.element.type === 'text' && layer.element.runs.length
+                            ? [...layer.element.runs, { text: '' }]
+                            : [
+                                {
+                                  text: layer.element.type === 'text' ? layer.element.content : '',
+                                },
+                              ];
+                        setTextElement({ runs, content: runs.map((run) => run.text).join('') });
+                      }}
+                    >
+                      {layer.element.runs.length ? '+ Add styled run' : 'Enable mixed styles'}
+                    </button>
+                    {layer.element.runs.length ? (
+                      <button type="button" onClick={() => setTextElement({ runs: [] })}>
+                        Use one style
+                      </button>
+                    ) : null}
+                  </div>
+                  {layer.element.runs.map((run, index) => {
+                    const updateRun = (patch: Partial<typeof run>) => {
+                      const runs =
+                        layer.element.type === 'text'
+                          ? layer.element.runs.map((candidate, candidateIndex) =>
+                              candidateIndex === index ? { ...candidate, ...patch } : candidate,
+                            )
+                          : [];
+                      setTextElement({
+                        runs,
+                        content: runs.map((candidate) => candidate.text).join(''),
+                      });
+                    };
+                    return (
+                      <div className="inspector-binding" key={index}>
+                        <input
+                          aria-label={`Styled run ${index + 1} text`}
+                          value={run.text}
+                          onChange={(event) => updateRun({ text: event.target.value })}
+                        />
+                        <label>
+                          Color
+                          <ColorInput
+                            label={`Styled run ${index + 1} color`}
+                            value={run.color ?? selectedTextElement!.color}
+                            onChange={(color) => updateRun({ color })}
+                          />
+                        </label>
+                        <label>
+                          Weight
+                          <input
+                            type="number"
+                            min={100}
+                            max={900}
+                            step={100}
+                            value={run.fontWeight ?? selectedTextElement!.fontWeight}
+                            onChange={(event) =>
+                              updateRun({ fontWeight: Number(event.target.value) })
+                            }
+                          />
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={run.fontStyle === 'italic'}
+                            onChange={(event) =>
+                              updateRun({ fontStyle: event.target.checked ? 'italic' : 'normal' })
+                            }
+                          />
+                          Italic
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (layer.element.type !== 'text') return;
+                            const runs = layer.element.runs.filter(
+                              (_, candidateIndex) => candidateIndex !== index,
+                            );
+                            setTextElement({
+                              runs,
+                              content: runs.map((candidate) => candidate.text).join(''),
+                            });
+                          }}
+                        >
+                          Remove run
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              ) : null}
+              <PaintEditor
+                layerId={layer.id}
+                disabled={layer.isLocked}
+                value={evaluatedPaint ?? layer.element.color}
+                onEditShader={() => editLayerShader('fill')}
+                shaderAnimationActive={animatedShaderSlots.has('fill')}
+                onShaderParameterPreview={(name, value) =>
+                  previewLayerShaderParameter('fill', name, value)
+                }
+                onShaderParameterChange={(name, value) =>
+                  commitLayerShaderParameter('fill', name, value)
+                }
+                onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+              />
+              <PaintEditor
+                layerId={layer.id}
+                label="Outline"
+                onEditShader={() => editLayerShader('stroke')}
+                allowMedia={false}
+                disabled={layer.isLocked}
+                allowGradient={false}
+                value={
+                  getElementShaderPaint(sampledShaderElement, 'stroke') ?? layer.element.strokeColor
+                }
+                shaderAnimationActive={animatedShaderSlots.has('stroke')}
+                onShaderParameterPreview={(name, value) =>
+                  previewLayerShaderParameter('stroke', name, value)
+                }
+                onShaderParameterChange={(name, value) =>
+                  commitLayerShaderParameter('stroke', name, value)
+                }
+                onChange={(paint) => {
+                  if (isShaderPaint(paint)) setTextStroke({ strokePaint: paint });
+                  else if (typeof paint === 'string') setTextStroke({ strokeColor: paint });
+                }}
+              />
+              <PropertyRow
+                help={
+                  'Thickness of the text outline in pixels. Zero removes the outline; larger values can improve separation from the background.'
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Stroke Width <BrandBindingOrigin layer={layer} property="strokeWidth" />
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={evaluatedTextStrokeWidth}
+                  onChange={(event) =>
+                    setTextStroke({ strokeWidth: Math.max(0, Number(event.target.value)) })
+                  }
+                />
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Authored font size in pixels. Text sizing modes may scale or reduce the displayed text to fit its box.'
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Size <BrandBindingOrigin layer={layer} property="fontSize" />
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={layer.element.fontSize}
+                  onChange={(e) =>
+                    setTextElement({ fontSize: Math.max(1, Number(e.target.value)) })
+                  }
+                />
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Font weight from 100 (thin) to 900 (heavy). The available visual weights depend on the chosen font.'
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Weight <BrandBindingOrigin layer={layer} property="fontWeight" />
+                </span>
+                <input
+                  type="number"
+                  min={100}
+                  max={900}
+                  step={100}
+                  value={layer.element.fontWeight}
+                  onChange={(e) =>
+                    setTextElement({
+                      fontWeight: Math.max(100, Math.min(900, Number(e.target.value))),
+                    })
+                  }
+                />
+              </PropertyRow>
+              <PropertyRow
+                help={'Horizontal alignment of the text within its box: left, centered or right.'}
+                className="inspector-row"
+              >
+                <span>
+                  Align <TypographyPropertyOrigin layer={layer} property="textAlign" />
+                </span>
+                <select
+                  value={layer.element.textAlign}
+                  onChange={(e) =>
+                    setTextElement({ textAlign: e.target.value as 'left' | 'center' | 'right' })
+                  }
+                >
+                  <option value="left">Left</option>
+                  <option value="center">Center</option>
+                  <option value="right">Right</option>
+                </select>
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Typeface used by the graphic. Imported font resources and built-in choices are listed here.'
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Font <BrandBindingOrigin layer={layer} property="fontFamily" />
+                </span>
+                <select
+                  className="inspector-font-select"
+                  value={selectedFontFamily}
+                  onChange={(e) => setTextElement({ fontFamily: e.target.value })}
+                >
+                  {!availableFontOptions.some((option) => option.value === selectedFontFamily) && (
+                    <option value={selectedFontFamily}>Current custom font</option>
+                  )}
+                  {availableFontOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
-                </optgroup>
+                </select>
+              </PropertyRow>
+              <button
+                type="button"
+                disabled={layer.isLocked}
+                onClick={() => setFontLibraryOpen(true)}
+              >
+                Browse fonts…
+              </button>
+              {fontLibraryOpen && (
+                <FontLibraryDialog
+                  layerId={layer.id}
+                  compositionId={composition.id}
+                  text={
+                    layer.element.runs.length
+                      ? layer.element.runs.map((run) => run.text).join('')
+                      : layer.element.content
+                  }
+                  onApply={(fontFamily) => setTextElement({ fontFamily })}
+                  onClose={() => setFontLibraryOpen(false)}
+                />
+              )}
+              <div
+                className="inspector-font-preview"
+                title={`Selected template font: ${layer.element.fontFamily}`}
+              >
+                Template font: {selectedFontFamily}
+              </div>
+              <div className="inspector-grid">
+                <PropertyRow
+                  help={
+                    'Distance between text baselines as a multiplier of font size. Larger values add more space between lines.'
+                  }
+                  className="inspector-row"
+                >
+                  <span>
+                    Line height <TypographyPropertyOrigin layer={layer} property="lineHeight" />
+                  </span>
+                  <input
+                    type="number"
+                    min={0.5}
+                    step={0.05}
+                    value={layer.element.lineHeight}
+                    onChange={(e) =>
+                      setTextElement({ lineHeight: Math.max(0.5, Number(e.target.value)) })
+                    }
+                  />
+                </PropertyRow>
+                <PropertyRow
+                  help={
+                    'Additional spacing between characters in pixels. Positive values spread characters out; negative values bring them closer.'
+                  }
+                  className="inspector-row"
+                >
+                  <span>
+                    Tracking <TypographyPropertyOrigin layer={layer} property="letterSpacing" />
+                  </span>
+                  <input
+                    type="number"
+                    step={0.1}
+                    value={layer.element.letterSpacing}
+                    onChange={(e) => setTextElement({ letterSpacing: Number(e.target.value) })}
+                  />
+                </PropertyRow>
+              </div>
+              <div className="inspector-grid">
+                <PropertyRow
+                  help={
+                    'Vertical shift of the text baseline in pixels, for fine alignment with neighboring text or symbols.'
+                  }
+                  className="inspector-row"
+                >
+                  <span>Baseline</span>
+                  <input
+                    type="number"
+                    step={0.5}
+                    value={layer.element.baselineShift}
+                    onChange={(e) => setTextElement({ baselineShift: Number(e.target.value) })}
+                  />
+                </PropertyRow>
+                <PropertyRow
+                  help={
+                    'Smallest font size allowed by Shrink text to box. The text will not shrink below this size.'
+                  }
+                  className="inspector-row"
+                >
+                  <span>Minimum size</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={selectedFontSize}
+                    value={layer.element.minFontSize}
+                    disabled={layer.element.autoFit !== 'shrink-to-fit'}
+                    onChange={(e) =>
+                      setTextElement({
+                        minFontSize: Math.max(
+                          1,
+                          Math.min(selectedFontSize, Number(e.target.value)),
+                        ),
+                      })
+                    }
+                  />
+                </PropertyRow>
+              </div>
+              <PropertyRow
+                help={'Vertical alignment of text inside its box: top, middle or bottom.'}
+                className="inspector-row"
+              >
+                <span>Vertical</span>
+                <select
+                  value={layer.element.verticalAlign}
+                  onChange={(event) =>
+                    setTextElement({
+                      verticalAlign: event.target.value as TextElement['verticalAlign'],
+                    })
+                  }
+                >
+                  <option value="top">Top</option>
+                  <option value="middle">Middle</option>
+                  <option value="bottom">Bottom</option>
+                </select>
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Change how letter case is displayed: unchanged, uppercase, lowercase or capitalized. This does not require rewriting the source wording.'
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Transform <TypographyPropertyOrigin layer={layer} property="textTransform" />
+                </span>
+                <select
+                  value={layer.element.textTransform}
+                  onChange={(event) =>
+                    setTextElement({
+                      textTransform: event.target.value as TextElement['textTransform'],
+                    })
+                  }
+                >
+                  <option value="none">None</option>
+                  <option value="uppercase">Uppercase</option>
+                  <option value="lowercase">Lowercase</option>
+                  <option value="capitalize">Capitalize</option>
+                </select>
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Choose how text fits its box. Auto size changes the box; Shrink reduces the font; Fit to width scales proportionally; Squeeze stretches characters; Fixed keeps the box.'
+                }
+                className="inspector-row"
+              >
+                <span>Text sizing</span>
+                <select
+                  value={layer.element.autoFit}
+                  onChange={(event) =>
+                    setTextElement({ autoFit: event.target.value as TextElement['autoFit'] })
+                  }
+                >
+                  <option value="auto-size">Auto size box</option>
+                  <option value="shrink-to-fit">Shrink text to box</option>
+                  <option value="fit-to-width">Fit to width</option>
+                  <option value="squeeze">Squeeze</option>
+                  <option value="fixed">Fixed box</option>
+                </select>
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Choose how text that exceeds the box is shown: visible outside it, clipped, or shortened with an ellipsis.'
+                }
+                className="inspector-row"
+              >
+                <span>Overflow</span>
+                <select
+                  value={layer.element.overflowPolicy}
+                  onChange={(event) =>
+                    setTextElement({
+                      overflowPolicy: event.target.value as TextElement['overflowPolicy'],
+                    })
+                  }
+                >
+                  <option value="visible">Visible</option>
+                  <option value="clip">Clip</option>
+                  <option value="ellipsis">Ellipsis</option>
+                </select>
+              </PropertyRow>
+              <p className="inspector-hint">
+                Auto size changes the authored box. Shrink only reduces text to its minimum-size
+                floor. Fit to width scales proportionally. Squeeze fills the box by deforming glyph
+                width and height independently.
+              </p>
+            </>
+          )}
+
+          {['rectangle', 'ellipse', 'path'].includes(layer.element.type) && (
+            <div className="inspector-row" data-property-filter-row>
+              <button
+                type="button"
+                disabled={Boolean(pathConversionError(layer))}
+                title={
+                  pathConversionError(layer) ??
+                  'Convert to editable points and curves. Shape edits apply across the animation; conversion uses the current frame dimensions.'
+                }
+                onClick={() => usePathEditStore.getState().start(layer.id)}
+              >
+                Edit as path
+              </button>
+            </div>
+          )}
+          {layer.element.type === 'path' && (
+            <>
+              <p className="inspector-hint">
+                Edit points on the canvas with Edit as path, or enter SVG commands below.
+              </p>
+              <PropertyRow
+                help={
+                  "SVG path commands from a path's d attribute. These commands define the vector shape; paste path data rather than a complete SVG document."
+                }
+                className="inspector-row inspector-row-stacked"
+              >
+                <span>Path Data (d)</span>
+                <textarea
+                  rows={3}
+                  value={layer.element.d}
+                  onChange={(e) => setElement({ d: e.target.value })}
+                />
+              </PropertyRow>
+              <PaintEditor
+                layerId={layer.id}
+                onEditShader={() => editLayerShader('fill')}
+                disabled={layer.isLocked}
+                value={evaluatedPaint ?? layer.element.fill}
+                shaderAnimationActive={animatedShaderSlots.has('fill')}
+                onShaderParameterPreview={(name, value) =>
+                  previewLayerShaderParameter('fill', name, value)
+                }
+                onShaderParameterChange={(name, value) =>
+                  commitLayerShaderParameter('fill', name, value)
+                }
+                onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+              />
+              <PropertyRow
+                help={
+                  'Rule for filling overlapping path contours. Even-odd commonly creates holes; Nonzero uses contour direction to decide which regions are filled.'
+                }
+                className="inspector-row"
+              >
+                <span>Fill rule</span>
+                <select
+                  aria-label="Path fill rule"
+                  value={layer.element.fillRule}
+                  onChange={(e) =>
+                    setElement({ fillRule: e.target.value as 'nonzero' | 'evenodd' })
+                  }
+                >
+                  <option value="nonzero">Nonzero winding</option>
+                  <option value="evenodd">Even-odd holes</option>
+                </select>
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Color of the vector path outline. Stroke Width determines whether and how strongly it is drawn.'
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Stroke Color <BrandBindingOrigin layer={layer} property="strokeColor" />
+                </span>
+                <ColorInput
+                  label="Stroke color"
+                  value={layer.element.strokeColor}
+                  onChange={(color) => setElement({ strokeColor: color })}
+                  onTokenSelect={(id) => bindDesignToken(layer.id, id, 'strokeColor')}
+                />
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Thickness of the vector path outline in pixels. Zero draws the fill without an outline.'
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Stroke Width <BrandBindingOrigin layer={layer} property="strokeWidth" />
+                </span>
+                <input
+                  type="number"
+                  value={layer.element.strokeWidth}
+                  onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
+                />
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  "Width of the path's internal SVG coordinate system. It maps the path coordinates into the layer's displayed width."
+                }
+                className="inspector-row"
+              >
+                <span>ViewBox Width</span>
+                <input
+                  type="number"
+                  value={layer.element.viewBoxWidth}
+                  onChange={(e) => setElement({ viewBoxWidth: Number(e.target.value) })}
+                />
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  "Height of the path's internal SVG coordinate system. It maps the path coordinates into the layer's displayed height."
+                }
+                className="inspector-row"
+              >
+                <span>ViewBox Height</span>
+                <input
+                  type="number"
+                  value={layer.element.viewBoxHeight}
+                  onChange={(e) => setElement({ viewBoxHeight: Number(e.target.value) })}
+                />
+              </PropertyRow>
+              <PropertyRow
+                help="Preserve fixed edge bands while stretching the path center, useful for bars with angled ends or fixed corners."
+                className="inspector-row inspector-checkbox-row"
+              >
+                <span>Preserve design</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(layer.element.stretchInsets)}
+                  onChange={(event) =>
+                    setElement({
+                      stretchInsets: event.target.checked
+                        ? { left: 20, right: 20, top: 0, bottom: 0 }
+                        : undefined,
+                    })
+                  }
+                />
+              </PropertyRow>
+              {pathStretchInsets
+                ? (
+                    [
+                      ['left', 'Fixed left'],
+                      ['right', 'Fixed right'],
+                      ['top', 'Fixed top'],
+                      ['bottom', 'Fixed bottom'],
+                    ] as const
+                  ).map(([property, label]) => (
+                    <PropertyRow
+                      help={`${label} source region and destination size in pixels.`}
+                      className="inspector-row"
+                      key={property}
+                    >
+                      <span>{label}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={pathStretchInsets[property]}
+                        onChange={(event) =>
+                          setElement({
+                            stretchInsets: {
+                              ...pathStretchInsets,
+                              [property]: Math.max(0, Number(event.target.value)),
+                            },
+                          })
+                        }
+                      />
+                    </PropertyRow>
+                  ))
+                : null}
+            </>
+          )}
+          {layer.element.type === 'pattern' && (
+            <>
+              <PatternInstanceActions
+                layerId={layer.id}
+                patternId={layer.element.patternId}
+                locked={layer.isLocked}
+              />
+              <PropertyRow
+                help={
+                  'Shared procedural pattern used by this layer. Editing that pattern updates all linked fills, outlines and masks.'
+                }
+                className="inspector-row"
+              >
+                <span>Shared pattern</span>
+                <select
+                  aria-label="Shared pattern"
+                  value={layer.element.patternId}
+                  onChange={(e) => setElement({ patternId: e.target.value })}
+                >
+                  {composition.patterns.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </PropertyRow>
+              <PaintEditor
+                layerId={layer.id}
+                onEditShader={() => editLayerShader('fill')}
+                disabled={layer.isLocked}
+                value={evaluatedPaint ?? layer.element.fill}
+                shaderAnimationActive={animatedShaderSlots.has('fill')}
+                onShaderParameterPreview={(name, value) =>
+                  previewLayerShaderParameter('fill', name, value)
+                }
+                onShaderParameterChange={(name, value) =>
+                  commitLayerShaderParameter('fill', name, value)
+                }
+                onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+              />
+              <PropertyRow
+                help={
+                  'Color of the outlines around the repeated symbols. Outline width controls their thickness.'
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Outline color <BrandBindingOrigin layer={layer} property="strokeColor" />
+                </span>
+                <ColorInput
+                  label="Stroke color"
+                  value={layer.element.strokeColor}
+                  onChange={(color) => setElement({ strokeColor: color })}
+                  onTokenSelect={(id) => bindDesignToken(layer.id, id, 'strokeColor')}
+                />
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  "Thickness of the repeated symbols' outlines in pixels. Zero hides the outlines."
+                }
+                className="inspector-row"
+              >
+                <span>
+                  Outline width <BrandBindingOrigin layer={layer} property="strokeWidth" />
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  value={layer.element.strokeWidth}
+                  onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
+                />
+              </PropertyRow>
+              {composition.patterns
+                .filter((p) => layer.element.type === 'pattern' && p.id === layer.element.patternId)
+                .map((p) => (
+                  <TilingPatternEditor key={p.id} pattern={p} frameRate={composition.frameRate} />
+                ))}
+            </>
+          )}
+
+          {layer.element.type === 'image-sequence' && (
+            <>
+              <SourceCropEditor
+                layerId={layer.id}
+                value={layer.element.crop}
+                src={sequencePreview}
+                disabled={layer.isLocked}
+                onChange={(crop) => updateLayerElement(layer.id, { crop })}
+              />
+              {composition.assets.length > 0 && (
+                <PropertyRow
+                  help={
+                    'Add an image resource as the next frame in this image sequence. Frame order determines the playback order.'
+                  }
+                  className="inspector-row"
+                >
+                  <span>Add Frame</span>
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const asset = composition.assets.find((a) => a.id === e.target.value);
+                      if (asset) setElement({ frames: [...sequenceFrames, asset.dataUri] });
+                    }}
+                  >
+                    <option value="">Choose from Resources…</option>
+                    {composition.assets.map((asset) => (
+                      <option key={asset.id} value={asset.id}>
+                        {asset.name}
+                      </option>
+                    ))}
+                  </select>
+                </PropertyRow>
+              )}
+              {sequenceFrames.length === 0 ? (
+                <p className="inspector-hint">
+                  No frames yet — add images from Resources, in order.
+                </p>
+              ) : (
+                <ul className="inspector-frame-list">
+                  {sequenceFrames.map((frameSrc, index) => (
+                    <li key={index} className="inspector-frame-row">
+                      <img src={frameSrc} alt="" className="inspector-frame-thumb" />
+                      <span>{index + 1}</span>
+                      <button
+                        type="button"
+                        className="data-table-delete"
+                        onClick={() =>
+                          setElement({ frames: sequenceFrames.filter((_, i) => i !== index) })
+                        }
+                      >
+                        {'✕'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <PropertyRow
+                help={
+                  'Playback rate of the image sequence in frames per second. This is independent of the composition frame rate.'
+                }
+                className="inspector-row"
+              >
+                <span>FPS</span>
+                <input
+                  type="number"
+                  value={layer.element.fps}
+                  onChange={(e) => setElement({ fps: Number(e.target.value) })}
+                />
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  'Repeat the image sequence when it reaches its last frame. Disable to play the sequence without repetition.'
+                }
+                className="inspector-row"
+              >
+                <span>Loop</span>
+                <input
+                  type="checkbox"
+                  checked={layer.element.loop}
+                  onChange={(e) => setElement({ loop: e.target.checked })}
+                />
+              </PropertyRow>
+            </>
+          )}
+
+          {layer.element.type === 'lottie' && (
+            <>
+              <PropertyRow
+                help={
+                  "Load or replace this layer's Lottie animation from a JSON file. Its existing layer placement remains editable."
+                }
+                className="inspector-row inspector-row-stacked"
+              >
+                <span>
+                  {layer.element.animationData ? 'Replace Lottie JSON' : 'Choose Lottie JSON'}
+                </span>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (!file) return;
+                    void file
+                      .text()
+                      .then((source) => setElement({ animationData: parseLottieJson(source) }))
+                      .catch((error) =>
+                        window.alert(error instanceof Error ? error.message : String(error)),
+                      );
+                  }}
+                />
+              </PropertyRow>
+              {layer.element.animationData ? (
+                <p className="inspector-hint">
+                  {layer.element.animationData.w} × {layer.element.animationData.h} ·{' '}
+                  {layer.element.animationData.fr} fps ·{' '}
+                  {Math.max(0, layer.element.animationData.op - layer.element.animationData.ip)}{' '}
+                  frames
+                </p>
+              ) : (
+                <p className="inspector-hint">
+                  Import a self-contained Bodymovin/Lottie JSON file.
+                </p>
+              )}
+              <PropertyRow
+                help={
+                  'Playback speed multiplier for this Lottie animation. 1 uses its original timing; larger values play it faster.'
+                }
+                className="inspector-row"
+              >
+                <span>Speed</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={layer.element.speed}
+                  onChange={(event) =>
+                    setElement({ speed: Math.max(0, Number(event.target.value)) })
+                  }
+                />
+              </PropertyRow>
+              <p className="inspector-hint">
+                Light Canvas playback loops continuously. External image/font paths are rejected.
+              </p>
+              {lottieInspection?.warnings.map((warning) => (
+                <p className="inspector-hint" key={warning}>
+                  Warning: {warning}
+                </p>
               ))}
-            </select>
-          </PropertyRow>
-        )}
-
-        {layer.element.type === 'image' && (
-          <ImageSourceEditor key={`image-${layer.id}`} layer={layer} assets={composition.assets} />
-        )}
-        {(layer.element.type === 'image' ||
-          layer.element.type === 'image-sequence' ||
-          layer.element.type === 'lottie') && (
-          <PaintEditor
-            media
-            disabled={layer.isLocked}
-            value={evaluatedPaint ?? layer.element.fill}
-            shaderAnimationActive={animatedShaderSlots.has('fill')}
-            onShaderParameterPreview={(name, value) =>
-              previewLayerShaderParameter('fill', name, value)
-            }
-            onShaderParameterChange={(name, value) =>
-              commitLayerShaderParameter('fill', name, value)
-            }
-            onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
+            </>
+          )}
+          {selectedAudioElement && (
+            <>
+              <PropertyRow help="Packaged audio clip used by this layer." className="inspector-row">
+                <span>Audio source</span>
+                <WithWarning message="Audio is real-time-only and may require an operator interaction in ordinary browsers.">
+                  <select
+                    value={selectedAudioElement.src ?? ''}
+                    onChange={(event) => setElement({ src: event.target.value || null })}
+                  >
+                    <option value="">None</option>
+                    {audioAssets.map((asset) => (
+                      <option key={asset.id} value={`asset:${asset.id}`}>
+                        {asset.name}
+                      </option>
+                    ))}
+                  </select>
+                </WithWarning>
+              </PropertyRow>
+              <div className="inspector-button-row">
+                <label>
+                  Import audio…
+                  <input
+                    type="file"
+                    accept="audio/mpeg,audio/wav,audio/ogg,.mp3,.wav,.ogg"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = '';
+                      if (!file) return;
+                      const problem = audioFileImportError(file);
+                      if (problem) {
+                        setAudioImportError(problem);
+                        return;
+                      }
+                      setAudioImportError(null);
+                      void importAsset(file)
+                        .then((assetId) => setElement({ src: `asset:${assetId}` }))
+                        .catch((cause: unknown) =>
+                          setAudioImportError(
+                            cause instanceof Error ? cause.message : 'Audio import failed.',
+                          ),
+                        );
+                    }}
+                  />
+                </label>
+              </div>
+              {audioImportError && (
+                <p className="inspector-error" role="alert">
+                  {audioImportError}
+                </p>
+              )}
+              <PropertyRow help="Audio gain from 0 to 1." className="inspector-row">
+                <span>Volume</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={selectedAudioElement.volume}
+                  onChange={(event) =>
+                    setElement({ volume: Math.max(0, Math.min(1, Number(event.target.value))) })
+                  }
+                />
+              </PropertyRow>
+              <PropertyRow
+                help="Repeat inside the authored trim range."
+                className="inspector-row inspector-checkbox-row"
+              >
+                <span>Loop</span>
+                <input
+                  type="checkbox"
+                  checked={selectedAudioElement.loop}
+                  onChange={(event) => setElement({ loop: event.target.checked })}
+                />
+              </PropertyRow>
+              {(
+                [
+                  ['trimStartMs', 'Trim start'],
+                  ['timelineStartMs', 'Timeline start'],
+                ] as const
+              ).map(([property, label]) => (
+                <PropertyRow
+                  help={`${label} in milliseconds.`}
+                  className="inspector-row"
+                  key={property}
+                >
+                  <span>{label}</span>
+                  <MillisecondDurationInput
+                    label={`Audio ${label.toLowerCase()}`}
+                    value={selectedAudioElement[property]}
+                    frameRate={composition.frameRate}
+                    onChange={(next) =>
+                      setElement({ [property]: next ?? selectedAudioElement[property] })
+                    }
+                  />
+                </PropertyRow>
+              ))}
+              <PropertyRow
+                help="Optional trim end in milliseconds; blank uses the full clip."
+                className="inspector-row"
+              >
+                <span>Trim end</span>
+                <MillisecondDurationInput
+                  label="Audio trim end"
+                  value={selectedAudioElement.trimEndMs}
+                  frameRate={composition.frameRate}
+                  allowNull
+                  onChange={(trimEndMs) => setElement({ trimEndMs })}
+                />
+              </PropertyRow>
+            </>
+          )}
+        </CollapsibleSection>
+        {layer.element.type === 'text' && selectedTextAnimation ? (
+          <TextAnimationEditor
+            animation={selectedTextAnimation}
+            clock={!!layer.element.clock}
+            unitCount={selectedTextAnimationUnitCount}
+            frameRate={composition.frameRate}
+            currentFrame={roundedFrame}
+            colorAllowed={supportsTextAnimatorColor(layer.element)}
+            gradientColor={isAnimatorGradient(layer.element.fill)}
+            customActions={composition.customActions}
+            onChange={setTextAnimation}
           />
-        )}
-        {layer.element.type !== 'image' && (
-          <h3 className="inspector-section">{elementSectionLabel(layer.element.type)}</h3>
-        )}
-        {layer.element.type !== 'image' && layer.bindings.length > 0 && (
-          <p className="inspector-hint">
-            {layer.bindings
-              .map(
-                (binding) =>
-                  bindableProperties(layer.element, layer.effects).find(
-                    (property) => property.value === binding.targetProperty,
-                  )?.label ?? binding.targetProperty,
-              )
-              .join(', ')}{' '}
-            {layer.bindings.length === 1 ? 'is' : 'are'} data-driven — values below are design-time
-            defaults.
-          </p>
-        )}
-        {layer.element.type === 'rectangle' && (
-          <>
-            <PaintEditor
-              disabled={layer.isLocked}
-              value={evaluatedPaint ?? layer.element.fill}
-              shaderAnimationActive={animatedShaderSlots.has('fill')}
-              onShaderParameterPreview={(name, value) =>
-                previewLayerShaderParameter('fill', name, value)
-              }
-              onShaderParameterChange={(name, value) =>
-                commitLayerShaderParameter('fill', name, value)
-              }
-              onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
-            />
-            <CornerRadiusEditor
-              value={layer.element.borderRadius}
-              onChange={(borderRadius) => setElement({ borderRadius })}
-            />
-          </>
-        )}
+        ) : null}
 
-        {layer.element.type === 'ellipse' && (
-          <>
-            <PaintEditor
-              disabled={layer.isLocked}
-              value={evaluatedPaint ?? layer.element.fill}
-              shaderAnimationActive={animatedShaderSlots.has('fill')}
-              onShaderParameterPreview={(name, value) =>
-                previewLayerShaderParameter('fill', name, value)
-              }
-              onShaderParameterChange={(name, value) =>
-                commitLayerShaderParameter('fill', name, value)
-              }
-              onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
-            />
-            <PropertyRow
-              help={
-                'Color of the shape outline. The outline is visible when Stroke Width is greater than zero.'
-              }
-              className="inspector-row"
+        <CollapsibleSection sectionId="properties.data-bindings" title="Data Bindings">
+          <div className="inspector-binding-list">
+            {layer.bindings.map((binding, index) => {
+              const field = composition.dataFields.find(
+                (candidate) => candidate.id === binding.fieldId,
+              );
+              const sourcePaths = field
+                ? listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })
+                : [];
+              return (
+                <div className="inspector-binding" key={`${binding.targetProperty}:${index}`}>
+                  <PropertyRow
+                    help={
+                      'Data field that supplies a value during playback. Its default is used unless runtime data overrides it.'
+                    }
+                    className="inspector-row"
+                  >
+                    <span>Field</span>
+                    <select
+                      aria-label={`Binding ${index + 1} field`}
+                      value={binding.fieldId}
+                      onChange={(event) => {
+                        const nextField = composition.dataFields.find(
+                          (candidate) => candidate.id === event.target.value,
+                        );
+                        const nextPath = nextField
+                          ? (listFieldLeafPaths(nextField, {
+                              fromArrayItem: nextField.type === 'array',
+                            })[0]?.path ?? [])
+                          : [];
+                        const bindings = layer.bindings.map((candidate, candidateIndex) =>
+                          candidateIndex === index
+                            ? {
+                                ...candidate,
+                                fieldId: event.target.value,
+                                sourcePath: nextPath,
+                                valueMap:
+                                  candidate.valueMap && nextField
+                                    ? selectOptionConstantValueMap(
+                                        nextField,
+                                        layerBindingPropertyValue(layer, candidate.targetProperty),
+                                      )
+                                    : undefined,
+                              }
+                            : candidate,
+                        );
+                        setLayerBindings(layer.id, bindings);
+                      }}
+                    >
+                      {composition.dataFields.map((field) => (
+                        <option key={field.id} value={field.id}>
+                          {field.label || field.key}
+                        </option>
+                      ))}
+                    </select>
+                  </PropertyRow>
+                  {(field?.type === 'object' || field?.type === 'array') && (
+                    <PropertyRow
+                      help={
+                        'Choose the nested value inside an object or collection item that this binding reads.'
+                      }
+                      className="inspector-row"
+                    >
+                      <span>Value path</span>
+                      <select
+                        aria-label={`Binding ${index + 1} value path`}
+                        value={JSON.stringify(binding.sourcePath ?? [])}
+                        onChange={(event) => {
+                          const sourcePath = JSON.parse(event.target.value) as string[];
+                          setLayerBindings(
+                            layer.id,
+                            layer.bindings.map((candidate, candidateIndex) =>
+                              candidateIndex === index ? { ...candidate, sourcePath } : candidate,
+                            ),
+                          );
+                        }}
+                      >
+                        {sourcePaths.map((path) => (
+                          <option key={JSON.stringify(path.path)} value={JSON.stringify(path.path)}>
+                            {path.label}
+                          </option>
+                        ))}
+                      </select>
+                    </PropertyRow>
+                  )}
+                  <PropertyRow
+                    help={
+                      'Layer property controlled by the chosen data field, such as text, position or a gradient-stop color. Incoming playback data updates this property.'
+                    }
+                    className="inspector-row"
+                  >
+                    <span>Property</span>
+                    <select
+                      aria-label={`Binding ${index + 1} property`}
+                      value={binding.targetProperty}
+                      onChange={(event) => {
+                        const targetProperty = event.target.value;
+                        const nextValueMap =
+                          binding.valueMap && field?.type === 'select'
+                            ? selectOptionConstantValueMap(
+                                field,
+                                layerBindingPropertyValue(layer, targetProperty),
+                              )
+                            : undefined;
+                        const bindings = layer.bindings.map((candidate, candidateIndex) =>
+                          candidateIndex === index
+                            ? { ...candidate, targetProperty, valueMap: nextValueMap }
+                            : candidate,
+                        );
+                        setLayerBindings(layer.id, bindings);
+                      }}
+                    >
+                      {bindableProperties(layer.element, layer.effects, layer.modifiers)
+                        .filter(
+                          (property) =>
+                            property.value === binding.targetProperty ||
+                            !layer.bindings.some(
+                              (candidate, candidateIndex) =>
+                                candidateIndex !== index &&
+                                candidate.targetProperty === property.value,
+                            ),
+                        )
+                        .map((property) => (
+                          <option key={property.value} value={property.value}>
+                            {property.label}
+                          </option>
+                        ))}
+                    </select>
+                  </PropertyRow>
+                  {field?.type === 'select' &&
+                    binding.valueMap &&
+                    field.options.map((option) => {
+                      const mappedValue = binding.valueMap?.[option.value];
+                      const mappingValue =
+                        typeof mappedValue === 'string' ||
+                        typeof mappedValue === 'number' ||
+                        typeof mappedValue === 'boolean'
+                          ? String(mappedValue)
+                          : option.value;
+                      const enumOptions = ENUM_MAPPING_OPTIONS[binding.targetProperty];
+                      const booleanMapping =
+                        shaderAnimationPropertySpec(layer.element, binding.targetProperty)
+                          ?.glslType === 'bool';
+                      const updateMapping = (value: string | boolean) => {
+                        const valueMap = { ...binding.valueMap, [option.value]: value };
+                        setLayerBindings(
+                          layer.id,
+                          layer.bindings.map((candidate, candidateIndex) =>
+                            candidateIndex === index ? { ...candidate, valueMap } : candidate,
+                          ),
+                        );
+                      };
+                      return (
+                        <PropertyRow
+                          key={option.value}
+                          help={`Value assigned to ${binding.targetProperty} when ${field.label || field.key} is ${option.label}.`}
+                          className="inspector-row"
+                        >
+                          <span>{option.label}</span>
+                          {booleanMapping ? (
+                            <input
+                              type="checkbox"
+                              aria-label={`Binding ${index + 1} map ${option.label}`}
+                              checked={mappingValue === 'true'}
+                              onChange={(event) => updateMapping(event.currentTarget.checked)}
+                            />
+                          ) : binding.targetProperty === 'fontFamily' ? (
+                            <select
+                              aria-label={`Binding ${index + 1} map ${option.label}`}
+                              value={mappingValue}
+                              onChange={(event) => updateMapping(event.target.value)}
+                            >
+                              {availableFontOptions.map((font) => (
+                                <option key={font.value} value={font.value}>
+                                  {font.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : isColorMappingProperty(binding.targetProperty) ? (
+                            <ColorInput
+                              label={`Binding ${index + 1} map ${option.label}`}
+                              value={mappingValue}
+                              alpha={false}
+                              onChange={updateMapping}
+                            />
+                          ) : NUMERIC_MAPPING_PROPERTIES.has(binding.targetProperty) ? (
+                            <input
+                              type="number"
+                              step="any"
+                              aria-label={`Binding ${index + 1} map ${option.label}`}
+                              value={mappingValue}
+                              onChange={(event) => updateMapping(event.target.value)}
+                            />
+                          ) : enumOptions ? (
+                            <select
+                              aria-label={`Binding ${index + 1} map ${option.label}`}
+                              value={mappingValue}
+                              onChange={(event) => updateMapping(event.target.value)}
+                            >
+                              {enumOptions.map((value) => (
+                                <option key={value.value} value={value.value}>
+                                  {value.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              aria-label={`Binding ${index + 1} map ${option.label}`}
+                              value={mappingValue}
+                              onChange={(event) => updateMapping(event.target.value)}
+                            />
+                          )}
+                        </PropertyRow>
+                      );
+                    })}
+                  <div className="inspector-binding-actions">
+                    {field?.type === 'select' && (
+                      <label className="inspector-binding-mode">
+                        <input
+                          type="checkbox"
+                          aria-label={`Binding ${index + 1} advanced mapping`}
+                          checked={Boolean(binding.valueMap)}
+                          onChange={(event) =>
+                            setLayerBindings(
+                              layer.id,
+                              layer.bindings.map((candidate, candidateIndex) =>
+                                candidateIndex === index
+                                  ? {
+                                      ...candidate,
+                                      valueMap: event.target.checked
+                                        ? selectOptionConstantValueMap(
+                                            field,
+                                            layerBindingPropertyValue(
+                                              layer,
+                                              candidate.targetProperty,
+                                            ),
+                                          )
+                                        : undefined,
+                                    }
+                                  : candidate,
+                              ),
+                            )
+                          }
+                        />
+                        Advanced mapping
+                      </label>
+                    )}
+                    <button
+                      type="button"
+                      className="inspector-binding-remove"
+                      aria-label={`Remove binding ${index + 1}`}
+                      onClick={() =>
+                        setLayerBindings(
+                          layer.id,
+                          layer.bindings.filter((_, candidateIndex) => candidateIndex !== index),
+                        )
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              disabled={layer.isLocked || !nextBindingProperty(layer)}
+              title="Create a data field from the next unbound property and bind it to this layer"
+              onClick={() => addLayerBinding(layer.id)}
             >
-              <span>Stroke Color</span>
-              <input
-                type="color"
-                value={
-                  layer.element.strokeColor === 'transparent'
-                    ? '#000000'
-                    : layer.element.strokeColor
-                }
-                onChange={(e) => setElement({ strokeColor: e.target.value })}
-              />
-            </PropertyRow>
-            <PropertyRow
-              help={'Thickness of the shape outline in pixels. Zero removes the outline.'}
-              className="inspector-row"
-            >
-              <span>Stroke Width</span>
-              <input
-                type="number"
-                value={layer.element.strokeWidth}
-                onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
-              />
-            </PropertyRow>
-          </>
-        )}
+              + Add Binding
+            </button>
+          </div>
+        </CollapsibleSection>
 
-        {layer.element.type === 'text' && (
-          <>
-            <PropertyRow
-              help={
-                'Text displayed by this layer. A connected playback data field can replace this content at runtime.'
-              }
-              className="inspector-row inspector-row-stacked"
-            >
-              <span>Content</span>
-              <textarea
-                rows={3}
-                value={layer.element.content}
-                onChange={(e) => setTextElement({ content: e.target.value })}
-              />
-            </PropertyRow>
-            <PaintEditor
+        <EffectStackEditor layer={layer} frame={roundedFrame} groupLayers={effectGroupLayers} />
+        <LayerLightingEditor key={`lighting-${layer.id}`} layer={layer} composition={composition} />
+
+        <CollapsibleSection
+          sectionId="properties.visual-rules"
+          title={visualRules.length ? `Visual rules · ${visualRules.length}` : 'Visual rules'}
+          actions={
+            <button type="button" onClick={() => revealPane('rules')}>
+              Open Rules
+            </button>
+          }
+        >
+          {visualRules.length === 0 ? (
+            <p className="inspector-hint">
+              No rules on this layer. Rules react to data, clicks and playout.
+            </p>
+          ) : (
+            <ul className="inspector-rule-summary">
+              {visualRules.map((rule) => (
+                <li key={rule.id} className={rule.enabled ? '' : 'is-disabled'}>
+                  <span>{rule.name}</span>
+                  <small>{VISUAL_RULE_TRIGGER_LABELS[rule.trigger ?? 'data']}</small>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="inspector-button-row">
+            <button
+              type="button"
               disabled={layer.isLocked}
-              value={evaluatedPaint ?? layer.element.color}
-              shaderAnimationActive={animatedShaderSlots.has('fill')}
-              onShaderParameterPreview={(name, value) =>
-                previewLayerShaderParameter('fill', name, value)
-              }
-              onShaderParameterChange={(name, value) =>
-                commitLayerShaderParameter('fill', name, value)
-              }
-              onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
-            />
-            <PaintEditor
-              label="Outline"
-              disabled={layer.isLocked}
-              allowGradient={false}
-              value={
-                getElementShaderPaint(sampledShaderElement, 'stroke') ?? layer.element.strokeColor
-              }
-              shaderAnimationActive={animatedShaderSlots.has('stroke')}
-              onShaderParameterPreview={(name, value) =>
-                previewLayerShaderParameter('stroke', name, value)
-              }
-              onShaderParameterChange={(name, value) =>
-                commitLayerShaderParameter('stroke', name, value)
-              }
-              onChange={(paint) => {
-                if (isShaderPaint(paint)) setTextStroke({ strokePaint: paint });
-                else if (typeof paint === 'string') setTextStroke({ strokeColor: paint });
+              onClick={() => {
+                addLayerVisualRule(layer.id, 'data');
+                revealPane('rules');
               }}
-            />
+            >
+              + Add Rule
+            </button>
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          sectionId="properties.advanced"
+          title="Advanced"
+          defaultOpen={false}
+          className="inspector-advanced"
+        >
+          {tokenTargets.length > 0 &&
+            (composition.designSystem.tokens.length > 0 ||
+              layer.designTokenBindings.length > 0) && (
+              <CollapsibleSection sectionId="properties.brand-tokens" title="Brand tokens">
+                {tokenTargets.map((target) => {
+                  const binding = layer.designTokenBindings.find(
+                    (candidate) => candidate.targetProperty === target.property,
+                  );
+                  const compatibleTokens = composition.designSystem.tokens.filter(
+                    (token) => token.type === target.tokenType,
+                  );
+                  return (
+                    <PropertyRow
+                      help={`Link ${target.label.toLowerCase()} to a shared Brand Kit token. Inherited properties stay editable; editing creates an object override. Reset restores the token value. Unlinked removes the connection while keeping the current value.`}
+                      className="inspector-row"
+                      key={target.property}
+                    >
+                      <span>
+                        {target.label}{' '}
+                        <BrandBindingOrigin layer={layer} property={target.property} />
+                      </span>
+                      <select
+                        value={binding?.tokenId ?? ''}
+                        onChange={(event) => {
+                          if (event.target.value) {
+                            bindDesignToken(layer.id, event.target.value, target.property);
+                          } else {
+                            unbindDesignToken(layer.id, target.property);
+                          }
+                        }}
+                      >
+                        <option value="">Unlinked</option>
+                        {compatibleTokens.map((token) => (
+                          <option key={token.id} value={token.id}>
+                            {token.name} ({token.key})
+                          </option>
+                        ))}
+                      </select>
+                    </PropertyRow>
+                  );
+                })}
+                {composition.designSystem.tokens.length === 0 && (
+                  <p className="inspector-hint">Create brand tokens in Brand Kit first.</p>
+                )}
+              </CollapsibleSection>
+            )}
+          <CollapsibleSection sectionId="properties.compositing" title="Compositing">
             <PropertyRow
               help={
-                'Thickness of the text outline in pixels. Zero removes the outline; larger values can improve separation from the background.'
+                "Choose how this layer's colors combine with layers behind it. Normal draws it normally; other modes can lighten, darken or mix the result."
               }
               className="inspector-row"
             >
-              <span>Stroke Width</span>
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                value={evaluatedTextStrokeWidth}
+              <span>Blend mode</span>
+              <select
+                value={layer.blendMode}
+                disabled={layer.isLocked}
+                onChange={(event) => setLayerBlendMode(layer.id, event.target.value as BlendMode)}
+              >
+                {BLEND_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode.replace('-', ' ')}
+                  </option>
+                ))}
+              </select>
+            </PropertyRow>
+
+            <LayerMaskEditor composition={composition} layer={layer} key={layer.id} />
+          </CollapsibleSection>
+          <CollapsibleSection sectionId="properties.layout" title="Layout relationships">
+            {layoutError && (
+              <p role="alert" className="inspector-error">
+                {layoutError}
+              </p>
+            )}
+            <PropertyRow
+              help="Arrange this layer's direct children automatically in paint order."
+              className="inspector-row"
+            >
+              <span>Auto layout</span>
+              <select
+                value={autoLayout.direction}
                 onChange={(event) =>
-                  setTextStroke({ strokeWidth: Math.max(0, Number(event.target.value)) })
-                }
-              />
-            </PropertyRow>
-            <PropertyRow
-              help={
-                'Authored font size in pixels. Text sizing modes may scale or reduce the displayed text to fit its box.'
-              }
-              className="inspector-row"
-            >
-              <span>Size</span>
-              <input
-                type="number"
-                min={1}
-                value={layer.element.fontSize}
-                onChange={(e) => setTextElement({ fontSize: Math.max(1, Number(e.target.value)) })}
-              />
-            </PropertyRow>
-            <PropertyRow
-              help={
-                'Font weight from 100 (thin) to 900 (heavy). The available visual weights depend on the chosen font.'
-              }
-              className="inspector-row"
-            >
-              <span>Weight</span>
-              <input
-                type="number"
-                min={100}
-                max={900}
-                step={100}
-                value={layer.element.fontWeight}
-                onChange={(e) =>
-                  setTextElement({
-                    fontWeight: Math.max(100, Math.min(900, Number(e.target.value))),
+                  setLayerAutoLayout(layer.id, {
+                    direction: event.target.value as typeof autoLayout.direction,
                   })
                 }
+              >
+                <option value="none">Off</option>
+                <option value="horizontal">Horizontal</option>
+                <option value="vertical">Vertical</option>
+              </select>
+            </PropertyRow>
+            {autoLayout.direction !== 'none' ? (
+              <>
+                <PropertyRow help="Space between each direct child." className="inspector-row">
+                  <span>Gap</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={autoLayout.gap}
+                    onChange={(event) =>
+                      setLayerAutoLayout(layer.id, { gap: Number(event.target.value) })
+                    }
+                  />
+                </PropertyRow>
+                <PropertyRow help="Alignment across the flow direction." className="inspector-row">
+                  <span>Alignment</span>
+                  <select
+                    value={autoLayout.align}
+                    onChange={(event) =>
+                      setLayerAutoLayout(layer.id, {
+                        align: event.target.value as typeof autoLayout.align,
+                      })
+                    }
+                  >
+                    <option value="start">Start</option>
+                    <option value="center">Center</option>
+                    <option value="end">End</option>
+                    <option value="stretch">Stretch</option>
+                  </select>
+                </PropertyRow>
+                {(
+                  [
+                    ['paddingTop', 'Padding top'],
+                    ['paddingRight', 'Padding right'],
+                    ['paddingBottom', 'Padding bottom'],
+                    ['paddingLeft', 'Padding left'],
+                  ] as const
+                ).map(([property, label]) => (
+                  <PropertyRow
+                    help={`${label} in pixels.`}
+                    className="inspector-row"
+                    key={property}
+                  >
+                    <span>{label}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={autoLayout[property]}
+                      onChange={(event) =>
+                        setLayerAutoLayout(layer.id, { [property]: Number(event.target.value) })
+                      }
+                    />
+                  </PropertyRow>
+                ))}
+                <PropertyRow
+                  help="Resize this container's width to its laid-out children."
+                  className="inspector-row inspector-checkbox-row"
+                >
+                  <span>Hug width</span>
+                  <input
+                    type="checkbox"
+                    checked={autoLayout.hugWidth}
+                    onChange={(event) =>
+                      setLayerAutoLayout(layer.id, { hugWidth: event.target.checked })
+                    }
+                  />
+                </PropertyRow>
+                <PropertyRow
+                  help="Resize this container's height to its laid-out children."
+                  className="inspector-row inspector-checkbox-row"
+                >
+                  <span>Hug height</span>
+                  <input
+                    type="checkbox"
+                    checked={autoLayout.hugHeight}
+                    onChange={(event) =>
+                      setLayerAutoLayout(layer.id, { hugHeight: event.target.checked })
+                    }
+                  />
+                </PropertyRow>
+                {autoLayout.hugWidth ? (
+                  <>
+                    <PropertyRow
+                      help="Minimum hugged background width; zero disables the minimum."
+                      className="inspector-row"
+                    >
+                      <span>Minimum width</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={autoLayout.minWidth}
+                        onChange={(event) =>
+                          setLayerAutoLayout(layer.id, { minWidth: Number(event.target.value) })
+                        }
+                      />
+                    </PropertyRow>
+                    <PropertyRow
+                      help="Maximum hugged background width; zero leaves it unlimited."
+                      className="inspector-row"
+                    >
+                      <span>Maximum width</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={autoLayout.maxWidth}
+                        onChange={(event) =>
+                          setLayerAutoLayout(layer.id, { maxWidth: Number(event.target.value) })
+                        }
+                      />
+                    </PropertyRow>
+                  </>
+                ) : null}
+                <PropertyRow
+                  help="Remove hidden direct children from spacing instead of reserving their slot."
+                  className="inspector-row inspector-checkbox-row"
+                >
+                  <span>Collapse hidden</span>
+                  <input
+                    type="checkbox"
+                    checked={autoLayout.collapseHidden}
+                    onChange={(event) =>
+                      setLayerAutoLayout(layer.id, { collapseHidden: event.target.checked })
+                    }
+                  />
+                </PropertyRow>
+              </>
+            ) : null}
+            <PropertyRow
+              help={
+                "Clip child layers at this parent layer's bounds. Use it to keep moving content inside a panel or lower-third background."
+              }
+              className="inspector-row inspector-checkbox-row"
+            >
+              <span>Clip children</span>
+              <input
+                type="checkbox"
+                checked={layer.clipChildren}
+                onChange={(event) => setLayerClipChildren(layer.id, event.target.checked)}
+              />
+            </PropertyRow>
+
+            <PropertyRow
+              help={
+                'Lock this layer to protect it from selection-based edits and accidental moves. Unlock it before editing its transform or protected properties.'
+              }
+              className="inspector-row inspector-checkbox-row"
+            >
+              <span>Locked</span>
+              <input
+                type="checkbox"
+                checked={layer.isLocked}
+                onChange={() => toggleLayerLock(layer.id)}
               />
             </PropertyRow>
             <PropertyRow
-              help={'Horizontal alignment of the text within its box: left, centered or right.'}
+              help={
+                'Choose a parent layer to establish a layout relationship. Parent movement and resizing can move or resize this layer according to its constraints.'
+              }
               className="inspector-row"
             >
-              <span>Align</span>
+              <span>Parent</span>
               <select
-                value={layer.element.textAlign}
-                onChange={(e) =>
-                  setTextElement({ textAlign: e.target.value as 'left' | 'center' | 'right' })
-                }
+                value={layer.parentId ?? ''}
+                onChange={(event) => setLayerParent(layer.id, event.target.value || null)}
               >
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
+                <option value="">None</option>
+                {composition.layers
+                  .filter((candidate) => candidate.id !== layer.id)
+                  .map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name}
+                    </option>
+                  ))}
               </select>
             </PropertyRow>
             <PropertyRow
+              help="Attach this layer to an editable path. Animate Motion Path Progress from 0 to 1, or use a ping-pong local loop."
+              className="inspector-row"
+            >
+              <span>Motion path</span>
+              <select
+                value={layer.motionPath?.sourceLayerId ?? ''}
+                onChange={(event) =>
+                  setLayerMotionPath(
+                    layer.id,
+                    event.target.value
+                      ? {
+                          sourceLayerId: event.target.value,
+                          progress: layer.motionPath?.progress ?? 0,
+                          orientToPath: layer.motionPath?.orientToPath ?? true,
+                          offsetX: layer.motionPath?.offsetX ?? 0,
+                          offsetY: layer.motionPath?.offsetY ?? 0,
+                          rotationOffset: layer.motionPath?.rotationOffset ?? 0,
+                        }
+                      : null,
+                  )
+                }
+              >
+                <option value="">None</option>
+                {composition.layers
+                  .filter(
+                    (candidate) => candidate.id !== layer.id && candidate.element.type === 'path',
+                  )
+                  .map((candidate) => (
+                    <option value={candidate.id} key={candidate.id}>
+                      {candidate.name}
+                    </option>
+                  ))}
+              </select>
+            </PropertyRow>
+            {layer.motionPath ? (
+              <>
+                <PropertyRow help="Position along the path from 0 to 1." className="inspector-row">
+                  <span>Path progress</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={layer.motionPath.progress}
+                    onChange={(event) =>
+                      setLayerMotionPath(layer.id, {
+                        ...layer.motionPath!,
+                        progress: Math.max(0, Math.min(1, Number(event.target.value))),
+                      })
+                    }
+                  />
+                </PropertyRow>
+                <PropertyRow
+                  help="Rotate the attached layer to match the path tangent."
+                  className="inspector-row inspector-checkbox-row"
+                >
+                  <span>Orient to path</span>
+                  <input
+                    type="checkbox"
+                    checked={layer.motionPath.orientToPath}
+                    onChange={(event) =>
+                      setLayerMotionPath(layer.id, {
+                        ...layer.motionPath!,
+                        orientToPath: event.target.checked,
+                      })
+                    }
+                  />
+                </PropertyRow>
+                {(['offsetX', 'offsetY'] as const).map((property) => (
+                  <PropertyRow
+                    help="Pixel offset from the sampled path point."
+                    className="inspector-row"
+                    key={property}
+                  >
+                    <span>{property === 'offsetX' ? 'Path offset X' : 'Path offset Y'}</span>
+                    <input
+                      type="number"
+                      value={layer.motionPath![property]}
+                      onChange={(event) =>
+                        setLayerMotionPath(layer.id, {
+                          ...layer.motionPath!,
+                          [property]: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </PropertyRow>
+                ))}
+                <div className="inspector-button-row">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const store = useProjectStore.getState();
+                      store.setLayerLoop(layer.id, {
+                        name: 'Path ping-pong',
+                        activation: { type: 'lifecycle' },
+                        durationFrames: 50,
+                        repeatCount: null,
+                      });
+                      store.setLayerLoopPropertyTrack(layer.id, 'motionPathProgress', [
+                        createLayerPropertyKeyframe(0, 0),
+                        createLayerPropertyKeyframe(25, 1, { easing: 'sine-in-out' }),
+                        createLayerPropertyKeyframe(50, 0, { easing: 'sine-in-out' }),
+                      ]);
+                    }}
+                  >
+                    Add ping-pong loop
+                  </button>
+                </div>
+              </>
+            ) : null}
+            <div className="inspector-grid">
+              <PropertyRow
+                help={
+                  "Choose how the layer's horizontal position and width respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
+                }
+                className="inspector-row"
+              >
+                <span>Horizontal</span>
+                <select
+                  value={layer.constraints.horizontal}
+                  onChange={(event) =>
+                    setLayerConstraints(layer.id, {
+                      horizontal: event.target.value as typeof layer.constraints.horizontal,
+                    })
+                  }
+                >
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                  <option value="left-right">Left + Right</option>
+                  <option value="center">Center</option>
+                  <option value="scale">Scale</option>
+                </select>
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  "Choose how the layer's vertical position and height respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
+                }
+                className="inspector-row"
+              >
+                <span>Vertical</span>
+                <select
+                  value={layer.constraints.vertical}
+                  onChange={(event) =>
+                    setLayerConstraints(layer.id, {
+                      vertical: event.target.value as typeof layer.constraints.vertical,
+                    })
+                  }
+                >
+                  <option value="top">Top</option>
+                  <option value="bottom">Bottom</option>
+                  <option value="top-bottom">Top + Bottom</option>
+                  <option value="center">Center</option>
+                  <option value="scale">Scale</option>
+                </select>
+              </PropertyRow>
+            </div>
+            {layer.groupId && <p className="inspector-hint">Persistent group: {layer.groupId}</p>}
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            sectionId="properties.update-transition"
+            title="Data change transition"
+          >
+            <PropertyRow
+              help="How this layer changes when bound data updates."
+              className="inspector-row"
+            >
+              <span>Style</span>
+              <select
+                value={layer.updateTransition?.style ?? 'inherit'}
+                onChange={(event) =>
+                  setLayerUpdateTransition(layer.id, {
+                    style: event.target.value as typeof layer.updateTransition.style,
+                  })
+                }
+              >
+                <option value="inherit">
+                  {textAnimationOwnsUpdate && !layer.updateTransition?.durationFrames
+                    ? 'Text animation only'
+                    : 'Crossfade · composition duration'}
+                </option>
+                <option value="none">No transition</option>
+                <option value="crossfade">Crossfade</option>
+                <option value="slide-left">Slide left</option>
+                <option value="slide-right">Slide right</option>
+                <option value="slide-up">Slide up</option>
+                <option value="slide-down">Slide down</option>
+              </select>
+            </PropertyRow>
+            <FrameDurationControl
+              label="Update duration"
+              frames={layer.updateTransition?.durationFrames ?? 0}
+              frameRate={composition.frameRate}
+              minFrames={0}
+              disabled={layer.isLocked}
+              propertyColumns
+              labelSuffix={
+                <span>
+                  {textAnimationOwnsUpdate
+                    ? 'Zero plays only the text animation.'
+                    : 'Zero uses the composition update animation.'}
+                </span>
+              }
+              onChange={(durationFrames) => setLayerUpdateTransition(layer.id, { durationFrames })}
+            />
+            {(layer.updateTransition?.style ?? 'inherit').startsWith('slide') ? (
+              <PropertyRow help="Slide travel distance in pixels." className="inspector-row">
+                <span>Distance</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={layer.updateTransition?.distance ?? 24}
+                  onChange={(event) =>
+                    setLayerUpdateTransition(layer.id, { distance: Number(event.target.value) })
+                  }
+                />
+              </PropertyRow>
+            ) : null}
+          </CollapsibleSection>
+
+          <CollapsibleSection sectionId="properties.semantic-intent" title="Semantic intent">
+            <PropertyRow
               help={
-                'Typeface used by the graphic. Imported font resources and built-in choices are listed here.'
+                "Describe the layer's purpose, such as headline, background or container. Style packs and design checks use this semantic role when styling or reviewing the scene."
               }
               className="inspector-row"
             >
-              <span>Font</span>
+              <span>Role</span>
               <select
-                className="inspector-font-select"
-                value={selectedFontFamily}
-                onChange={(e) => setTextElement({ fontFamily: e.target.value })}
+                value={layer.semantics.role}
+                onChange={(event) =>
+                  setLayerSemantics(layer.id, { role: event.target.value as SemanticLayerRole })
+                }
               >
-                {!availableFontOptions.some((option) => option.value === selectedFontFamily) && (
-                  <option value={selectedFontFamily}>Current custom font</option>
-                )}
-                {availableFontOptions.map((option) => (
+                {SEMANTIC_ROLES.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
             </PropertyRow>
-            <div
-              className="inspector-font-preview"
-              title={`Selected template font: ${layer.element.fontFamily}`}
-            >
-              Template font: {selectedFontFamily}
-            </div>
-            <div className="inspector-grid">
-              <PropertyRow
-                help={
-                  'Distance between text baselines as a multiplier of font size. Larger values add more space between lines.'
-                }
-                className="inspector-row"
-              >
-                <span>Line height</span>
-                <input
-                  type="number"
-                  min={0.5}
-                  step={0.05}
-                  value={layer.element.lineHeight}
-                  onChange={(e) =>
-                    setTextElement({ lineHeight: Math.max(0.5, Number(e.target.value)) })
-                  }
-                />
-              </PropertyRow>
-              <PropertyRow
-                help={
-                  'Additional spacing between characters in pixels. Positive values spread characters out; negative values bring them closer.'
-                }
-                className="inspector-row"
-              >
-                <span>Tracking</span>
-                <input
-                  type="number"
-                  step={0.1}
-                  value={layer.element.letterSpacing}
-                  onChange={(e) => setTextElement({ letterSpacing: Number(e.target.value) })}
-                />
-              </PropertyRow>
-            </div>
-            <div className="inspector-grid">
-              <PropertyRow
-                help={
-                  'Vertical shift of the text baseline in pixels, for fine alignment with neighboring text or symbols.'
-                }
-                className="inspector-row"
-              >
-                <span>Baseline</span>
-                <input
-                  type="number"
-                  step={0.5}
-                  value={layer.element.baselineShift}
-                  onChange={(e) => setTextElement({ baselineShift: Number(e.target.value) })}
-                />
-              </PropertyRow>
-              <PropertyRow
-                help={
-                  'Smallest font size allowed by Shrink text to box. The text will not shrink below this size.'
-                }
-                className="inspector-row"
-              >
-                <span>Minimum size</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={selectedFontSize}
-                  value={layer.element.minFontSize}
-                  disabled={layer.element.autoFit !== 'shrink-to-fit'}
-                  onChange={(e) =>
-                    setTextElement({
-                      minFontSize: Math.max(1, Math.min(selectedFontSize, Number(e.target.value))),
-                    })
-                  }
-                />
-              </PropertyRow>
-            </div>
             <PropertyRow
-              help={'Vertical alignment of text inside its box: top, middle or bottom.'}
+              help={
+                'Comma-separated tags that help organize and find the layer. Authoring tools can use tags to target related layers.'
+              }
               className="inspector-row"
             >
-              <span>Vertical</span>
-              <select
-                value={layer.element.verticalAlign}
+              <span>Tags</span>
+              <input
+                type="text"
+                value={layer.semantics.tags.join(', ')}
+                placeholder="primary, breaking-news"
                 onChange={(event) =>
-                  setTextElement({
-                    verticalAlign: event.target.value as TextElement['verticalAlign'],
+                  setLayerSemantics(layer.id, {
+                    tags: event.target.value.split(',').map((tag) => tag.trim()),
                   })
                 }
-              >
-                <option value="top">Top</option>
-                <option value="middle">Middle</option>
-                <option value="bottom">Bottom</option>
-              </select>
+              />
             </PropertyRow>
             <PropertyRow
               help={
-                'Change how letter case is displayed: unchanged, uppercase, lowercase or capitalized. This does not require rewriting the source wording.'
+                'Describe what this layer is meant to communicate or do. This is design guidance for authors and AI tools; it is not displayed in the graphic.'
               }
               className="inspector-row"
             >
-              <span>Transform</span>
-              <select
-                value={layer.element.textTransform}
-                onChange={(event) =>
-                  setTextElement({
-                    textTransform: event.target.value as TextElement['textTransform'],
-                  })
-                }
-              >
-                <option value="none">None</option>
-                <option value="uppercase">Uppercase</option>
-                <option value="lowercase">Lowercase</option>
-                <option value="capitalize">Capitalize</option>
-              </select>
-            </PropertyRow>
-            <PropertyRow
-              help={
-                'Choose how text fits its box. Auto size changes the box; Shrink reduces the font; Fit to width scales proportionally; Squeeze stretches characters; Fixed keeps the box.'
-              }
-              className="inspector-row"
-            >
-              <span>Text sizing</span>
-              <select
-                value={layer.element.autoFit}
-                onChange={(event) =>
-                  setTextElement({ autoFit: event.target.value as TextElement['autoFit'] })
-                }
-              >
-                <option value="auto-size">Auto size box</option>
-                <option value="shrink-to-fit">Shrink text to box</option>
-                <option value="fit-to-width">Fit to width</option>
-                <option value="squeeze">Squeeze</option>
-                <option value="fixed">Fixed box</option>
-              </select>
-            </PropertyRow>
-            <PropertyRow
-              help={
-                'Choose how text that exceeds the box is shown: visible outside it, clipped, or shortened with an ellipsis.'
-              }
-              className="inspector-row"
-            >
-              <span>Overflow</span>
-              <select
-                value={layer.element.overflowPolicy}
-                onChange={(event) =>
-                  setTextElement({
-                    overflowPolicy: event.target.value as TextElement['overflowPolicy'],
-                  })
-                }
-              >
-                <option value="visible">Visible</option>
-                <option value="clip">Clip</option>
-                <option value="ellipsis">Ellipsis</option>
-              </select>
-            </PropertyRow>
-            <p className="inspector-hint">
-              Auto size changes the authored box. Shrink only reduces text to its minimum-size
-              floor. Fit to width scales proportionally. Squeeze fills the box by deforming glyph
-              width and height independently.
-            </p>
-          </>
-        )}
-
-        {['rectangle', 'ellipse', 'path'].includes(layer.element.type) && (
-          <div className="inspector-row">
-            <button
-              type="button"
-              disabled={Boolean(pathConversionError(layer))}
-              title={
-                pathConversionError(layer) ??
-                'Convert to editable points and curves. Shape edits apply across the animation; conversion uses the current frame dimensions.'
-              }
-              onClick={() => usePathEditStore.getState().start(layer.id)}
-            >
-              Edit as path
-            </button>
-          </div>
-        )}
-        {layer.element.type === 'path' && (
-          <>
-            <p className="inspector-hint">
-              Edit points on the canvas with Edit as path, or enter SVG commands below.
-            </p>
-            <PropertyRow
-              help={
-                "SVG path commands from a path's d attribute. These commands define the vector shape; paste path data rather than a complete SVG document."
-              }
-              className="inspector-row inspector-row-stacked"
-            >
-              <span>Path Data (d)</span>
+              <span>Intent</span>
               <textarea
-                rows={3}
-                value={layer.element.d}
-                onChange={(e) => setElement({ d: e.target.value })}
-              />
-            </PropertyRow>
-            <PaintEditor
-              disabled={layer.isLocked}
-              value={evaluatedPaint ?? layer.element.fill}
-              shaderAnimationActive={animatedShaderSlots.has('fill')}
-              onShaderParameterPreview={(name, value) =>
-                previewLayerShaderParameter('fill', name, value)
-              }
-              onShaderParameterChange={(name, value) =>
-                commitLayerShaderParameter('fill', name, value)
-              }
-              onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
-            />
-            <PropertyRow
-              help={
-                'Rule for filling overlapping path contours. Even-odd commonly creates holes; Nonzero uses contour direction to decide which regions are filled.'
-              }
-              className="inspector-row"
-            >
-              <span>Fill rule</span>
-              <select
-                aria-label="Path fill rule"
-                value={layer.element.fillRule}
-                onChange={(e) => setElement({ fillRule: e.target.value as 'nonzero' | 'evenodd' })}
-              >
-                <option value="nonzero">Nonzero winding</option>
-                <option value="evenodd">Even-odd holes</option>
-              </select>
-            </PropertyRow>
-            <PropertyRow
-              help={
-                'Color of the vector path outline. Stroke Width determines whether and how strongly it is drawn.'
-              }
-              className="inspector-row"
-            >
-              <span>Stroke Color</span>
-              <input
-                type="color"
-                value={
-                  layer.element.strokeColor === 'transparent'
-                    ? '#000000'
-                    : layer.element.strokeColor
+                value={layer.semantics.description}
+                placeholder="What this layer means in the design"
+                onChange={(event) =>
+                  setLayerSemantics(layer.id, { description: event.target.value })
                 }
-                onChange={(e) => setElement({ strokeColor: e.target.value })}
               />
             </PropertyRow>
-            <PropertyRow
-              help={
-                'Thickness of the vector path outline in pixels. Zero draws the fill without an outline.'
-              }
-              className="inspector-row"
-            >
-              <span>Stroke Width</span>
-              <input
-                type="number"
-                value={layer.element.strokeWidth}
-                onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
-              />
-            </PropertyRow>
-            <PropertyRow
-              help={
-                "Width of the path's internal SVG coordinate system. It maps the path coordinates into the layer's displayed width."
-              }
-              className="inspector-row"
-            >
-              <span>ViewBox W</span>
-              <input
-                type="number"
-                value={layer.element.viewBoxWidth}
-                onChange={(e) => setElement({ viewBoxWidth: Number(e.target.value) })}
-              />
-            </PropertyRow>
-            <PropertyRow
-              help={
-                "Height of the path's internal SVG coordinate system. It maps the path coordinates into the layer's displayed height."
-              }
-              className="inspector-row"
-            >
-              <span>ViewBox H</span>
-              <input
-                type="number"
-                value={layer.element.viewBoxHeight}
-                onChange={(e) => setElement({ viewBoxHeight: Number(e.target.value) })}
-              />
-            </PropertyRow>
-          </>
-        )}
-        {layer.element.type === 'pattern' && (
-          <>
-            <PatternInstanceActions
-              layerId={layer.id}
-              patternId={layer.element.patternId}
-              locked={layer.isLocked}
-            />
-            <PropertyRow
-              help={
-                'Shared procedural pattern used by this layer. Editing that pattern updates all linked fills, outlines and masks.'
-              }
-              className="inspector-row"
-            >
-              <span>Shared pattern</span>
-              <select
-                aria-label="Shared pattern"
-                value={layer.element.patternId}
-                onChange={(e) => setElement({ patternId: e.target.value })}
-              >
-                {composition.patterns.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </PropertyRow>
-            <PaintEditor
-              disabled={layer.isLocked}
-              value={evaluatedPaint ?? layer.element.fill}
-              shaderAnimationActive={animatedShaderSlots.has('fill')}
-              onShaderParameterPreview={(name, value) =>
-                previewLayerShaderParameter('fill', name, value)
-              }
-              onShaderParameterChange={(name, value) =>
-                commitLayerShaderParameter('fill', name, value)
-              }
-              onChange={(fill) => updateLayerPaint(layer.id, roundedFrame, fill)}
-            />
-            <PropertyRow
-              help={
-                'Color of the outlines around the repeated symbols. Outline width controls their thickness.'
-              }
-              className="inspector-row"
-            >
-              <span>Outline color</span>
-              <input
-                type="color"
-                value={
-                  layer.element.strokeColor === 'transparent'
-                    ? '#000000'
-                    : layer.element.strokeColor
-                }
-                onChange={(e) => setElement({ strokeColor: e.target.value })}
-              />
-            </PropertyRow>
-            <PropertyRow
-              help={
-                "Thickness of the repeated symbols' outlines in pixels. Zero hides the outlines."
-              }
-              className="inspector-row"
-            >
-              <span>Outline width</span>
-              <input
-                type="number"
-                min={0}
-                value={layer.element.strokeWidth}
-                onChange={(e) => setElement({ strokeWidth: Number(e.target.value) })}
-              />
-            </PropertyRow>
-            {composition.patterns
-              .filter((p) => layer.element.type === 'pattern' && p.id === layer.element.patternId)
-              .map((p) => (
-                <TilingPatternEditor key={p.id} pattern={p} frameRate={composition.frameRate} />
-              ))}
-          </>
-        )}
-
-        {layer.element.type === 'image-sequence' && (
-          <>
-            {composition.assets.length > 0 && (
-              <PropertyRow
-                help={
-                  'Add an image resource as the next frame in this image sequence. Frame order determines the playback order.'
-                }
-                className="inspector-row"
-              >
-                <span>Add Frame</span>
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const asset = composition.assets.find((a) => a.id === e.target.value);
-                    if (asset) setElement({ frames: [...sequenceFrames, asset.dataUri] });
-                  }}
-                >
-                  <option value="">Choose from Resources…</option>
-                  {composition.assets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.name}
-                    </option>
-                  ))}
-                </select>
-              </PropertyRow>
-            )}
-            {sequenceFrames.length === 0 ? (
-              <p className="inspector-hint">No frames yet — add images from Resources, in order.</p>
-            ) : (
-              <ul className="inspector-frame-list">
-                {sequenceFrames.map((frameSrc, index) => (
-                  <li key={index} className="inspector-frame-row">
-                    <img src={frameSrc} alt="" className="inspector-frame-thumb" />
-                    <span>{index + 1}</span>
-                    <button
-                      type="button"
-                      className="data-table-delete"
-                      onClick={() =>
-                        setElement({ frames: sequenceFrames.filter((_, i) => i !== index) })
-                      }
-                    >
-                      {'✕'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <PropertyRow
-              help={
-                'Playback rate of the image sequence in frames per second. This is independent of the composition frame rate.'
-              }
-              className="inspector-row"
-            >
-              <span>FPS</span>
-              <input
-                type="number"
-                value={layer.element.fps}
-                onChange={(e) => setElement({ fps: Number(e.target.value) })}
-              />
-            </PropertyRow>
-            <PropertyRow
-              help={
-                'Repeat the image sequence when it reaches its last frame. Disable to play the sequence without repetition.'
-              }
-              className="inspector-row"
-            >
-              <span>Loop</span>
-              <input
-                type="checkbox"
-                checked={layer.element.loop}
-                onChange={(e) => setElement({ loop: e.target.checked })}
-              />
-            </PropertyRow>
-          </>
-        )}
-
-        {layer.element.type === 'lottie' && (
-          <>
-            <PropertyRow
-              help={
-                "Load or replace this layer's Lottie animation from a JSON file. Its existing layer placement remains editable."
-              }
-              className="inspector-row inspector-row-stacked"
-            >
-              <span>
-                {layer.element.animationData ? 'Replace Lottie JSON' : 'Choose Lottie JSON'}
-              </span>
-              <input
-                type="file"
-                accept=".json,application/json"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = '';
-                  if (!file) return;
-                  void file
-                    .text()
-                    .then((source) => setElement({ animationData: parseLottieJson(source) }))
-                    .catch((error) =>
-                      window.alert(error instanceof Error ? error.message : String(error)),
-                    );
-                }}
-              />
-            </PropertyRow>
-            {layer.element.animationData ? (
-              <p className="inspector-hint">
-                {layer.element.animationData.w} × {layer.element.animationData.h} ·{' '}
-                {layer.element.animationData.fr} fps ·{' '}
-                {Math.max(0, layer.element.animationData.op - layer.element.animationData.ip)}{' '}
-                frames
-              </p>
-            ) : (
-              <p className="inspector-hint">Import a self-contained Bodymovin/Lottie JSON file.</p>
-            )}
-            <PropertyRow
-              help={
-                'Playback speed multiplier for this Lottie animation. 1 uses its original timing; larger values play it faster.'
-              }
-              className="inspector-row"
-            >
-              <span>Speed</span>
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={layer.element.speed}
-                onChange={(event) => setElement({ speed: Math.max(0, Number(event.target.value)) })}
-              />
-            </PropertyRow>
-            <p className="inspector-hint">
-              Light Canvas playback loops continuously. External image/font paths are rejected.
-            </p>
-            {lottieInspection?.warnings.map((warning) => (
-              <p className="inspector-hint" key={warning}>
-                Warning: {warning}
-              </p>
-            ))}
-          </>
-        )}
-        {tokenTargets.length > 0 && (
-          <>
-            <h3 className="inspector-section">Brand tokens</h3>
-            {tokenTargets.map((target) => {
-              const binding = layer.designTokenBindings.find(
-                (candidate) => candidate.targetProperty === target.property,
-              );
-              const compatibleTokens = composition.designSystem.tokens.filter(
-                (token) => token.type === target.tokenType,
-              );
-              return (
-                <PropertyRow
-                  help={`Link ${target.label.toLowerCase()} to a shared Brand Kit token. Editing the token updates this property on linked layers. Unlinked removes the connection while keeping the current value.`}
-                  className="inspector-row"
-                  key={target.property}
-                >
-                  <span>{target.label}</span>
-                  <select
-                    value={binding?.tokenId ?? ''}
-                    onChange={(event) => {
-                      if (event.target.value) {
-                        bindDesignToken(layer.id, event.target.value, target.property);
-                      } else {
-                        unbindDesignToken(layer.id, target.property);
-                      }
-                    }}
-                  >
-                    <option value="">Unlinked</option>
-                    {compatibleTokens.map((token) => (
-                      <option key={token.id} value={token.id}>
-                        {token.name} ({token.key})
-                      </option>
-                    ))}
-                  </select>
-                </PropertyRow>
-              );
-            })}
-            {composition.designSystem.tokens.length === 0 && (
-              <p className="inspector-hint">Create brand tokens in Brand Kit first.</p>
-            )}
-          </>
-        )}
-        <EffectStackEditor layer={layer} frame={roundedFrame} />
-        <LayerLightingEditor key={`lighting-${layer.id}`} layer={layer} composition={composition} />
-
-        <h3 className="inspector-section">Compositing</h3>
-        <PropertyRow
-          help={
-            "Choose how this layer's colors combine with layers behind it. Normal draws it normally; other modes can lighten, darken or mix the result."
-          }
-          className="inspector-row"
-        >
-          <span>Blend mode</span>
-          <select
-            value={layer.blendMode}
-            disabled={layer.isLocked}
-            onChange={(event) => setLayerBlendMode(layer.id, event.target.value as BlendMode)}
-          >
-            {BLEND_MODES.map((mode) => (
-              <option key={mode} value={mode}>
-                {mode.replace('-', ' ')}
-              </option>
-            ))}
-          </select>
-        </PropertyRow>
-
-        <LayerMaskEditor composition={composition} layer={layer} key={layer.id} />
-        <h3 className="inspector-section">Layout relationships</h3>
-        <PropertyRow
-          help={
-            "Clip child layers at this parent layer's bounds. Use it to keep moving content inside a panel or lower-third background."
-          }
-          className="inspector-row inspector-checkbox-row"
-        >
-          <span>Clip children</span>
-          <input
-            type="checkbox"
-            checked={layer.clipChildren}
-            onChange={(event) => setLayerClipChildren(layer.id, event.target.checked)}
-          />
-        </PropertyRow>
-
-        <PropertyRow
-          help={
-            'Lock this layer to protect it from selection-based edits and accidental moves. Unlock it before editing its transform or protected properties.'
-          }
-          className="inspector-row inspector-checkbox-row"
-        >
-          <span>Locked</span>
-          <input
-            type="checkbox"
-            checked={layer.isLocked}
-            onChange={() => toggleLayerLock(layer.id)}
-          />
-        </PropertyRow>
-        <PropertyRow
-          help={
-            'Choose a parent layer to establish a layout relationship. Parent movement and resizing can move or resize this layer according to its constraints.'
-          }
-          className="inspector-row"
-        >
-          <span>Parent</span>
-          <select
-            value={layer.parentId ?? ''}
-            onChange={(event) => setLayerParent(layer.id, event.target.value || null)}
-          >
-            <option value="">None</option>
-            {composition.layers
-              .filter((candidate) => candidate.id !== layer.id)
-              .map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name}
-                </option>
-              ))}
-          </select>
-        </PropertyRow>
-        <div className="inspector-grid">
-          <PropertyRow
-            help={
-              "Choose how the layer's horizontal position and width respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
-            }
-            className="inspector-row"
-          >
-            <span>Horizontal</span>
-            <select
-              value={layer.constraints.horizontal}
-              onChange={(event) =>
-                setLayerConstraints(layer.id, {
-                  horizontal: event.target.value as typeof layer.constraints.horizontal,
-                })
-              }
-            >
-              <option value="left">Left</option>
-              <option value="right">Right</option>
-              <option value="left-right">Left + Right</option>
-              <option value="center">Center</option>
-              <option value="scale">Scale</option>
-            </select>
-          </PropertyRow>
-          <PropertyRow
-            help={
-              "Choose how the layer's vertical position and height respond when its parent or canvas is resized: anchor an edge, stretch, center or scale."
-            }
-            className="inspector-row"
-          >
-            <span>Vertical</span>
-            <select
-              value={layer.constraints.vertical}
-              onChange={(event) =>
-                setLayerConstraints(layer.id, {
-                  vertical: event.target.value as typeof layer.constraints.vertical,
-                })
-              }
-            >
-              <option value="top">Top</option>
-              <option value="bottom">Bottom</option>
-              <option value="top-bottom">Top + Bottom</option>
-              <option value="center">Center</option>
-              <option value="scale">Scale</option>
-            </select>
-          </PropertyRow>
-        </div>
-        {layer.groupId && <p className="inspector-hint">Persistent group: {layer.groupId}</p>}
-
-        <h3 className="inspector-section">Data Bindings</h3>
-        <div className="inspector-binding-list">
-          {layer.bindings.map((binding, index) => {
-            const field = composition.dataFields.find(
-              (candidate) => candidate.id === binding.fieldId,
-            );
-            const sourcePaths = field
-              ? listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })
-              : [];
-            return (
-              <div className="inspector-binding" key={`${binding.targetProperty}:${index}`}>
-                <PropertyRow
-                  help={
-                    'Data field that supplies a value during playback. Its default is used unless runtime data overrides it.'
-                  }
-                  className="inspector-row"
-                >
-                  <span>Field</span>
-                  <select
-                    aria-label={`Binding ${index + 1} field`}
-                    value={binding.fieldId}
-                    onChange={(event) => {
-                      const nextField = composition.dataFields.find(
-                        (candidate) => candidate.id === event.target.value,
-                      );
-                      const nextPath = nextField
-                        ? (listFieldLeafPaths(nextField, {
-                            fromArrayItem: nextField.type === 'array',
-                          })[0]?.path ?? [])
-                        : [];
-                      const bindings = layer.bindings.map((candidate, candidateIndex) =>
-                        candidateIndex === index
-                          ? {
-                              ...candidate,
-                              fieldId: event.target.value,
-                              sourcePath: nextPath,
-                              valueMap:
-                                candidate.valueMap && nextField
-                                  ? selectOptionConstantValueMap(
-                                      nextField,
-                                      layerBindingPropertyValue(layer, candidate.targetProperty),
-                                    )
-                                  : undefined,
-                            }
-                          : candidate,
-                      );
-                      setLayerBindings(layer.id, bindings);
-                    }}
-                  >
-                    {composition.dataFields.map((field) => (
-                      <option key={field.id} value={field.id}>
-                        {field.label || field.key}
-                      </option>
-                    ))}
-                  </select>
-                </PropertyRow>
-                {(field?.type === 'object' || field?.type === 'array') && (
-                  <PropertyRow
-                    help={
-                      'Choose the nested value inside an object or collection item that this binding reads.'
-                    }
-                    className="inspector-row"
-                  >
-                    <span>Value path</span>
-                    <select
-                      aria-label={`Binding ${index + 1} value path`}
-                      value={JSON.stringify(binding.sourcePath ?? [])}
-                      onChange={(event) => {
-                        const sourcePath = JSON.parse(event.target.value) as string[];
-                        setLayerBindings(
-                          layer.id,
-                          layer.bindings.map((candidate, candidateIndex) =>
-                            candidateIndex === index ? { ...candidate, sourcePath } : candidate,
-                          ),
-                        );
-                      }}
-                    >
-                      {sourcePaths.map((path) => (
-                        <option key={JSON.stringify(path.path)} value={JSON.stringify(path.path)}>
-                          {path.label}
-                        </option>
-                      ))}
-                    </select>
-                  </PropertyRow>
-                )}
-                <PropertyRow
-                  help={
-                    'Layer property controlled by the chosen data field, such as text, position or a gradient-stop color. Incoming playback data updates this property.'
-                  }
-                  className="inspector-row"
-                >
-                  <span>Property</span>
-                  <select
-                    aria-label={`Binding ${index + 1} property`}
-                    value={binding.targetProperty}
-                    onChange={(event) => {
-                      const targetProperty = event.target.value;
-                      const nextValueMap =
-                        binding.valueMap && field?.type === 'select'
-                          ? selectOptionConstantValueMap(
-                              field,
-                              layerBindingPropertyValue(layer, targetProperty),
-                            )
-                          : undefined;
-                      const bindings = layer.bindings.map((candidate, candidateIndex) =>
-                        candidateIndex === index
-                          ? { ...candidate, targetProperty, valueMap: nextValueMap }
-                          : candidate,
-                      );
-                      setLayerBindings(layer.id, bindings);
-                    }}
-                  >
-                    {bindableProperties(layer.element, layer.effects)
-                      .filter(
-                        (property) =>
-                          property.value === binding.targetProperty ||
-                          !layer.bindings.some(
-                            (candidate, candidateIndex) =>
-                              candidateIndex !== index &&
-                              candidate.targetProperty === property.value,
-                          ),
-                      )
-                      .map((property) => (
-                        <option key={property.value} value={property.value}>
-                          {property.label}
-                        </option>
-                      ))}
-                  </select>
-                </PropertyRow>
-                {field?.type === 'select' &&
-                  binding.valueMap &&
-                  field.options.map((option) => {
-                    const mappedValue = binding.valueMap?.[option.value];
-                    const mappingValue =
-                      typeof mappedValue === 'string' ||
-                      typeof mappedValue === 'number' ||
-                      typeof mappedValue === 'boolean'
-                        ? String(mappedValue)
-                        : option.value;
-                    const enumOptions = ENUM_MAPPING_OPTIONS[binding.targetProperty];
-                    const updateMapping = (value: string) => {
-                      const valueMap = { ...binding.valueMap };
-                      valueMap[option.value] = value || option.value;
-                      setLayerBindings(
-                        layer.id,
-                        layer.bindings.map((candidate, candidateIndex) =>
-                          candidateIndex === index
-                            ? {
-                                ...candidate,
-                                valueMap: Object.keys(valueMap).length > 0 ? valueMap : undefined,
-                              }
-                            : candidate,
-                        ),
-                      );
-                    };
-                    return (
-                      <PropertyRow
-                        key={option.value}
-                        help={`Value assigned to ${binding.targetProperty} when ${field.label || field.key} is ${option.label}.`}
-                        className="inspector-row"
-                      >
-                        <span>{option.label}</span>
-                        {binding.targetProperty === 'fontFamily' ? (
-                          <select
-                            aria-label={`Binding ${index + 1} map ${option.label}`}
-                            value={mappingValue}
-                            onChange={(event) => updateMapping(event.target.value)}
-                          >
-                            {availableFontOptions.map((font) => (
-                              <option key={font.value} value={font.value}>
-                                {font.label}
-                              </option>
-                            ))}
-                          </select>
-                        ) : isColorMappingProperty(binding.targetProperty) ? (
-                          <input
-                            type="color"
-                            aria-label={`Binding ${index + 1} map ${option.label}`}
-                            value={colorInputValue(mappingValue)}
-                            onChange={(event) => updateMapping(event.target.value)}
-                          />
-                        ) : NUMERIC_MAPPING_PROPERTIES.has(binding.targetProperty) ? (
-                          <input
-                            type="number"
-                            step="any"
-                            aria-label={`Binding ${index + 1} map ${option.label}`}
-                            value={mappingValue}
-                            placeholder={option.value}
-                            onChange={(event) => updateMapping(event.target.value)}
-                          />
-                        ) : enumOptions ? (
-                          <select
-                            aria-label={`Binding ${index + 1} map ${option.label}`}
-                            value={mappingValue}
-                            onChange={(event) => updateMapping(event.target.value)}
-                          >
-                            {enumOptions.map((value) => (
-                              <option key={value.value} value={value.value}>
-                                {value.label}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            aria-label={`Binding ${index + 1} map ${option.label}`}
-                            value={mappingValue}
-                            placeholder={option.value}
-                            onChange={(event) => updateMapping(event.target.value)}
-                          />
-                        )}
-                      </PropertyRow>
-                    );
-                  })}
-                <div className="inspector-binding-actions">
-                  {field?.type === 'select' && (
-                    <label className="inspector-binding-mode">
-                      <input
-                        type="checkbox"
-                        aria-label={`Binding ${index + 1} advanced mapping`}
-                        checked={Boolean(binding.valueMap)}
-                        onChange={(event) =>
-                          setLayerBindings(
-                            layer.id,
-                            layer.bindings.map((candidate, candidateIndex) =>
-                              candidateIndex === index
-                                ? {
-                                    ...candidate,
-                                    valueMap: event.target.checked
-                                      ? selectOptionConstantValueMap(
-                                          field,
-                                          layerBindingPropertyValue(
-                                            layer,
-                                            candidate.targetProperty,
-                                          ),
-                                        )
-                                      : undefined,
-                                  }
-                                : candidate,
-                            ),
-                          )
-                        }
-                      />
-                      Advanced mapping
-                    </label>
-                  )}
-                  <button
-                    type="button"
-                    className="inspector-binding-remove"
-                    aria-label={`Remove binding ${index + 1}`}
-                    onClick={() =>
-                      setLayerBindings(
-                        layer.id,
-                        layer.bindings.filter((_, candidateIndex) => candidateIndex !== index),
-                      )
-                    }
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-          <button
-            type="button"
-            disabled={
-              composition.dataFields.length === 0 ||
-              bindableProperties(layer.element, layer.effects).every((property) =>
-                layer.bindings.some((binding) => binding.targetProperty === property.value),
-              )
-            }
-            onClick={() => {
-              const targetProperty = bindableProperties(layer.element, layer.effects).find(
-                (property) =>
-                  !layer.bindings.some((binding) => binding.targetProperty === property.value),
-              )?.value;
-              const fieldId = composition.dataFields[0]?.id;
-              if (targetProperty && fieldId) {
-                const field = composition.dataFields[0]!;
-                const sourcePath =
-                  listFieldLeafPaths(field, { fromArrayItem: field.type === 'array' })[0]?.path ??
-                  [];
-                setLayerBindings(layer.id, [
-                  ...layer.bindings,
-                  { fieldId, targetProperty, sourcePath },
-                ]);
-              }
-            }}
-          >
-            + Add Binding
-          </button>
-        </div>
-
-        <h3 className="inspector-section">Semantic intent</h3>
-        <PropertyRow
-          help={
-            "Describe the layer's purpose, such as headline, background or container. Style packs and design checks use this semantic role when styling or reviewing the scene."
-          }
-          className="inspector-row"
-        >
-          <span>Role</span>
-          <select
-            value={layer.semantics.role}
-            onChange={(event) =>
-              setLayerSemantics(layer.id, { role: event.target.value as SemanticLayerRole })
-            }
-          >
-            {SEMANTIC_ROLES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </PropertyRow>
-        <PropertyRow
-          help={
-            'Comma-separated tags that help organize and find the layer. Authoring tools can use tags to target related layers.'
-          }
-          className="inspector-row"
-        >
-          <span>Tags</span>
-          <input
-            type="text"
-            value={layer.semantics.tags.join(', ')}
-            placeholder="primary, breaking-news"
-            onChange={(event) =>
-              setLayerSemantics(layer.id, {
-                tags: event.target.value.split(',').map((tag) => tag.trim()),
-              })
-            }
-          />
-        </PropertyRow>
-        <PropertyRow
-          help={
-            'Describe what this layer is meant to communicate or do. This is design guidance for authors and AI tools; it is not displayed in the graphic.'
-          }
-          className="inspector-row"
-        >
-          <span>Intent</span>
-          <textarea
-            value={layer.semantics.description}
-            placeholder="What this layer means in the design"
-            onChange={(event) => setLayerSemantics(layer.id, { description: event.target.value })}
-          />
-        </PropertyRow>
+          </CollapsibleSection>
+        </CollapsibleSection>
       </div>
     </Panel>
   );

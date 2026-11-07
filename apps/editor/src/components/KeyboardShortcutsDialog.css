@@ -1,0 +1,98 @@
+/* Self-contained: this dialog shares no classes with other dialogs, so their styles can't reach it. */
+.shortcuts-dialog {
+  position: fixed;
+  z-index: 1000;
+  top: 56px;
+  left: 50%;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 88px);
+  overflow: auto;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--bg-panel);
+  box-shadow: 0 18px 60px rgb(0 0 0 / 55%);
+  color: var(--text);
+  transform: translateX(-50%);
+}
+
+.shortcuts-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.shortcuts-dialog-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.shortcuts-dialog-header strong {
+  color: var(--text-heading);
+  font-size: 14px;
+}
+
+.shortcuts-dialog-header span {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.shortcuts-dialog-header button {
+  min-width: 28px;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-panel-raised);
+  cursor: pointer;
+}
+
+.shortcuts-dialog-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px 24px;
+}
+
+.shortcuts-dialog-group {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+
+.shortcuts-dialog-group h3 {
+  margin: 0 0 2px;
+  color: var(--text-heading);
+  font-size: 12px;
+}
+
+.shortcuts-dialog-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shortcuts-dialog-keys {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.shortcuts-dialog-keys kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+  font-family: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.shortcuts-dialog-action {
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: right;
+}

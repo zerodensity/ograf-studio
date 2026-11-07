@@ -1,3 +1,4 @@
+import { ColorInput } from '../components/ColorInput';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   inspectShaderSource,
@@ -10,6 +11,7 @@ import {
   type ShaderParameterValue,
 } from '@ograf-editor/scene-model';
 import { PropertyRow } from '../components/PropertyRow';
+import { GlslSourceEditor } from './GlslSourceEditor';
 import './ShaderSourceEditor.css';
 
 interface Props {
@@ -21,6 +23,9 @@ interface Props {
   onParameterChange?: (name: string, value: ShaderParameterValue) => void;
   onParameterPreview?: (name: string, value: ShaderParameterValue) => void;
   allowImageInput?: boolean;
+  showSourceEditor?: boolean;
+  onEditShader?: () => void;
+  editShaderLabel?: string;
   onChange: (patch: Partial<Omit<ShaderPaint, 'type'>>) => void;
 }
 function parameterLabel(name: string): string {
@@ -93,16 +98,29 @@ function ShaderControl({
       <>
         <PropertyRow help={help} className="inspector-row">
           <span>{label}</span>
-          <input
-            aria-label={`${labelPrefix} ${definition.name}`}
-            type="color"
-            value={colorHex(vector)}
-            onChange={(event) => {
-              const hex = event.target.value;
+          <ColorInput
+            label={`${labelPrefix} ${definition.name}`}
+            alpha={definition.glslType === 'vec4'}
+            value={
+              colorHex(vector) +
+              (definition.glslType === 'vec4'
+                ? Math.round(Math.max(0, Math.min(1, vector[3] ?? 1)) * 255)
+                    .toString(16)
+                    .padStart(2, '0')
+                : '')
+            }
+            onChange={(hex) => {
               const rgb = [1, 3, 5].map(
                 (offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255,
               );
-              onChange(definition.glslType === 'vec4' ? [...rgb, vector[3] ?? 1] : rgb);
+              onChange(
+                definition.glslType === 'vec4'
+                  ? [
+                      ...rgb,
+                      hex.length === 9 ? Number.parseInt(hex.slice(7), 16) / 255 : (vector[3] ?? 1),
+                    ]
+                  : rgb,
+              );
             }}
           />
         </PropertyRow>
@@ -195,6 +213,9 @@ export function ShaderSourceEditor({
   onParameterChange,
   onParameterPreview,
   allowImageInput = true,
+  showSourceEditor = true,
+  onEditShader,
+  editShaderLabel = 'Edit shader…',
 }: Props) {
   const [source, setSource] = useState(draftSource ?? element.fragmentSource);
   const [error, setError] = useState<string | null>(null);
@@ -270,8 +291,17 @@ export function ShaderSourceEditor({
       ))}
       {inspection.parameters.length === 0 && (
         <p className="inspector-hint">
-          No exposed parameters. Add #pragma ograf declarations to create controls and OGraf fields.
+          {showSourceEditor
+            ? 'No exposed parameters. Add #pragma ograf declarations to create controls and OGraf fields.'
+            : 'This shader has no exposed parameters. Edit it in Resources → Shaders to add controls.'}
         </p>
+      )}
+      {!showSourceEditor && onEditShader && (
+        <div className="shader-source-actions">
+          <button type="button" onClick={onEditShader}>
+            {editShaderLabel}
+          </button>
+        </div>
       )}
       <details className="shader-render-settings">
         <summary>Rendering</summary>
@@ -369,37 +399,41 @@ export function ShaderSourceEditor({
           />
         </PropertyRow>
       </details>
-      <div className="shader-source-actions">
-        <button type="button" onClick={() => input.current?.click()}>
-          Load GLSL…
-        </button>
-        <button type="button" onClick={apply} disabled={source === element.fragmentSource}>
-          {applyLabel}
-        </button>
-      </div>
-      <input
-        ref={input}
-        type="file"
-        accept=".glsl,.frag,.txt,text/plain"
-        hidden
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = '';
-          if (!file) return;
-          if (file.size > MAX_SHADER_SOURCE_BYTES) {
-            setError('Shader source exceeds the 256 KB limit.');
-            return;
-          }
-          void file.text().then(
-            (text) => {
-              changeSource(text.replace(/^\uFEFF/, ''));
-            },
-            (reason: unknown) => {
-              setError(reason instanceof Error ? reason.message : String(reason));
-            },
-          );
-        }}
-      />
+      {showSourceEditor && (
+        <div className="shader-source-actions">
+          <button type="button" onClick={() => input.current?.click()}>
+            Load GLSL…
+          </button>
+          <button type="button" onClick={apply} disabled={source === element.fragmentSource}>
+            {applyLabel}
+          </button>
+        </div>
+      )}
+      {showSourceEditor && (
+        <input
+          ref={input}
+          type="file"
+          accept=".glsl,.frag,.txt,text/plain"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file) return;
+            if (file.size > MAX_SHADER_SOURCE_BYTES) {
+              setError('Shader source exceeds the 256 KB limit.');
+              return;
+            }
+            void file.text().then(
+              (text) => {
+                changeSource(text.replace(/^\uFEFF/, ''));
+              },
+              (reason: unknown) => {
+                setError(reason instanceof Error ? reason.message : String(reason));
+              },
+            );
+          }}
+        />
+      )}
       {allowImageInput && (
         <input
           ref={imageInput}
@@ -444,18 +478,17 @@ export function ShaderSourceEditor({
           }}
         />
       )}
-      <label className="shader-source-label">
-        Fragment source
-        <textarea
-          aria-label={`${labelPrefix} fragment source`}
-          spellCheck={false}
-          value={source}
-          onChange={(event) => {
-            changeSource(event.target.value);
-          }}
-        />
-      </label>
-      {source !== element.fragmentSource && (
+      {showSourceEditor && (
+        <label className="shader-source-label">
+          Fragment source
+          <GlslSourceEditor
+            label={`${labelPrefix} fragment source`}
+            value={source}
+            onChange={changeSource}
+          />
+        </label>
+      )}
+      {showSourceEditor && source !== element.fragmentSource && (
         <p className="inspector-hint">Source has unapplied changes.</p>
       )}
       {error && (
@@ -468,9 +501,11 @@ export function ShaderSourceEditor({
           {inspection.errors.join('\n')}
         </p>
       )}
-      <p className="inspector-hint">
-        Example: #pragma ograf intensity slider min(0.0) max(5.0) step(0.1)
-      </p>
+      {showSourceEditor && (
+        <p className="inspector-hint">
+          Example: #pragma ograf intensity slider min(0.0) max(5.0) step(0.1)
+        </p>
+      )}
       <p className="inspector-hint">
         Single Image pass with iTime, iResolution, optional iChannel0 and iChannelResolution. Video,
         audio, feedback buffers and additional channels are not supported.

@@ -1,12 +1,12 @@
+import { hasTextAnimation } from '@ograf-editor/scene-model';
 import {
   editablePathBounds,
   getPaintAtFrame,
-  applyElementDataValue,
-  parseEffectProperty,
-  withEffectParameter,
+  pathStretchSlices,
   getTrackValueAtFrame,
   cornerRadiiToCss,
   hasElementShaderPaint,
+  textPathCompatibilityErrors,
   isGradientPaint,
   LOTTIE_READY_TIMEOUT_MS,
   lottiePlayerFrameAtTime,
@@ -14,15 +14,22 @@ import {
   type Element,
   type LayerAnimationTracks,
   type Paint,
+  type CompiledChartMarkAnimations,
   type LayerEffects,
 } from '@ograf-editor/scene-model';
-import { valueAtSourcePath } from '@ograf-editor/scene-model';
 import type { CompiledLayer } from '@ograf-editor/ograf-types';
+import {
+  resolveVisualRuleEffects,
+  resolveVisualRuleElement,
+  type RuntimeVisualRuleEffect,
+} from './runtimeVisualRules';
+import { resolveLayerBindingEffects, resolveLayerBindingElement } from './runtimeBindings';
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light_canvas.js';
 import { mountPattern, applyPatternPaint } from './patternRendering';
 import { disposeLayerEffects, waitForLayerEffectsReady } from './effectCompositing';
 import {
   waitForShadersReady,
+  waitForShadersComplete,
   disposeShader,
   mountShader,
   renderShaderAtTime,
@@ -41,16 +48,79 @@ import {
   forgetShaderAnimationBase,
   rememberShaderAnimationBase,
 } from './shaderAnimationRendering';
+import {
+  disposeMediaPaintContent,
+  mountMediaPaintContent,
+  renderMediaPaintAtTime,
+  updateMediaPaintContent,
+  waitForMediaPaintContentReady,
+} from './mediaPaintRendering';
+import { hasElementMediaPaint } from '@ograf-editor/scene-model';
+import {
+  disposeCroppedImage,
+  mountCroppedImage,
+  refreshCroppedImages,
+} from './sourceCropRendering';
+import { resolveMediaTimelinePosition } from './mediaTimeline';
+import {
+  disposeChart,
+  applyChartPaintTracks,
+  mountChart,
+  renderChartAnimationAtFrame,
+  setChartMarkAnimationFrame,
+  updateMountedChart,
+  waitForChartsReady,
+  type RuntimeRendererPluginSnapshot,
+} from './chartRendering';
+import {
+  applyTextAnimationGradient,
+  measureTextAnimationLayout,
+  mountTextAnimationContent,
+  refreshTextAnimationGradient,
+  renderTextAnimationAtFrame,
+  setTextAnimationPrevious,
+} from './textAnimationRendering';
+import { rememberBackdropElement } from './backdropEffectRendering';
+import { prepareModifierTextElement } from './modifierTextRendering';
+import {
+  disposeTextCrawl,
+  mountTextCrawl,
+  renderTextCrawlAtTime,
+  textCrawlPaintTargets,
+} from './textCrawlRendering';
+import { normalizeClockTimerSettings } from '@ograf-editor/scene-model';
+import {
+  disposeTicker,
+  mountTicker,
+  renderTickerAtTime,
+  updateTicker,
+  waitForTickersReady,
+  setTickerDeterministicRendering,
+  tickerReadinessScope,
+} from './tickerRendering';
+import {
+  clockTimerTextAnimationAtTime,
+  clockTimerStateAtTime,
+  resolveClockTimerText,
+} from './clockTimerRuntime';
 
 interface MountedTextFit {
   observer?: ResizeObserver;
   fontSet?: FontFaceSet;
   onFontsLoaded?: () => void;
   probe?: HTMLElement;
+  inputs?: {
+    width: number;
+    height: number;
+    stroke: number;
+    document: Document;
+    fontStatus: FontFaceSetLoadStatus | undefined;
+  };
 }
 
 const textFits = new WeakMap<HTMLElement, MountedTextFit>();
 const textFitCallbacks = new WeakMap<HTMLElement, () => void>();
+const clockContentOptions = new WeakMap<HTMLElement, ElementContentRenderOptions>();
 interface MountedLottie {
   container: HTMLElement;
   element: Extract<Element, { type: 'lottie' }>;
@@ -90,10 +160,18 @@ interface LottieSizedLayer {
 }
 
 export interface ElementContentRenderOptions {
+  timestampMs?: number;
+  tickerUpdateContext?: 'authoring' | 'playout';
+  tickerAuthoringPaused?: boolean;
   lottieBackingSize?: { width: number; height: number };
   shaderBackingSize?: { width: number; height: number };
   shaderStrokePadding?: number;
   requiresImageAlpha?: boolean;
+  frameRate?: number;
+  rendererPlugins?: readonly RuntimeRendererPluginSnapshot[] | undefined;
+  chartMarkAnimations?: CompiledChartMarkAnimations | undefined;
+  /** An image already loaded and decoded for this source, used instead of fetching it again. */
+  stagedImage?: { src: string; image: HTMLImageElement } | undefined;
 }
 
 function constrainLottieBackingSize(
@@ -296,17 +374,25 @@ function mountedLottiesWithin(root: ParentNode): MountedLottie[] {
 
 /** Waits for embedded assets and surfaces shader compilation, context, and draw failures. */
 export async function waitForElementContentReady(root: ParentNode): Promise<void> {
+  await waitForTickersReady(root);
+  root = tickerReadinessScope(root);
+  refreshCroppedImages(root);
   const mounted = mountedLottiesWithin(root);
   await Promise.all(mounted.map((entry) => entry.readiness));
   const failure = mounted.find((entry) => entry.error)?.error;
   if (failure) throw failure;
+  await waitForChartsReady(root);
   await waitForShaderPaintContentReady(root);
+  await waitForMediaPaintContentReady(root);
   await waitForShadersReady(root);
   await waitForLayerEffectsReady(root);
+  await waitForShadersComplete(root);
+  refreshCroppedImages(root);
 }
 
 /** Rebuilds Canvas state between changed frames for repeatable non-realtime seeks. */
 export function setLottieDeterministicRendering(root: ParentNode, enabled: boolean): void {
+  setTickerDeterministicRendering(root, enabled);
   for (const mounted of mountedLottiesWithin(root)) {
     if (enabled && !mounted.deterministic && mounted.ready) {
       const replacement = remountMountedLottie(mounted);
@@ -377,6 +463,15 @@ export function findFittedFontSize(options: {
     const fontSize = rounded(floor);
     return { fontSize, ratio: fontSize / authored, degenerate: true };
   }
+  // Most live labels and prices already fit at their designed size. Each probe can force
+  // browser layout. Preserve the original 16-step quantization with arithmetic alone when
+  // both bounds fit, including its just-below-authored result at exact decimal boundaries.
+  if (options.mode === 'shrink-to-fit' && authored > floor && options.fits(authored)) {
+    let fitted = floor;
+    for (let iteration = 0; iteration < 16; iteration++) fitted = (fitted + authored) / 2;
+    const fontSize = rounded(fitted);
+    return { fontSize, ratio: fontSize / authored, degenerate: false };
+  }
 
   let lower = floor;
   let upper = Math.max(floor, authored);
@@ -408,9 +503,17 @@ export function findFittedFontSize(options: {
 
 /** Disconnects text-fitting observation before a renderer discards a content host. */
 export function disposeElementContent(container: HTMLElement): void {
+  disposeTicker(container);
+  disposeTextCrawl(container);
+  disposeCroppedImage(container);
+  if (typeof container.querySelectorAll === 'function') {
+    for (const audio of container.querySelectorAll('audio')) audio.pause();
+  }
   disposeLayerEffects(container);
+  disposeChart(container);
   forgetShaderAnimationBase(container);
   disposeShaderPaintContent(container);
+  disposeMediaPaintContent(container);
   disposeShader(container);
   const mountedLottie = lottieAnimations.get(container);
   if (mountedLottie) {
@@ -452,13 +555,29 @@ export function applyAnimatedPaint(
   applyShaderPaintTracks(outerHost, tracks, frame);
   if (applyPatternPaint(container, tracks, frame)) return;
   const renderHost = shaderPaintBaseHost(outerHost) ?? outerHost;
+  if (applyChartPaintTracks(renderHost, tracks, frame)) return;
   const serialized = renderHost.dataset?.ografBasePaint;
   const content = renderHost.firstElementChild as HTMLElement | null;
   if (!content) return;
   if (serialized) {
     const paint = JSON.parse(serialized) as Paint;
-    const fillHost = content.querySelector<HTMLElement>('[data-ograf-path-fill]') ?? content;
-    fillHost.style.background = paintToCss(getPaintAtFrame(paint, tracks, frame));
+    const sampledPaint = getPaintAtFrame(paint, tracks, frame);
+    const background = paintToCss(sampledPaint);
+    for (const fillHost of textCrawlPaintTargets(renderHost) ?? [
+      content.querySelector<HTMLElement>('[data-ograf-path-fill]') ?? content,
+    ]) {
+      // The background shorthand resets background-clip, turning gradient text into a filled box.
+      if (isGradientPaint(paint)) {
+        if (
+          !applyTextAnimationGradient(
+            fillHost,
+            background,
+            isGradientPaint(sampledPaint) ? sampledPaint : undefined,
+          )
+        )
+          fillHost.style.backgroundImage = background;
+      } else fillHost.style.background = background;
+    }
   }
   const strokeTrack = tracks.strokeWidth ?? [];
   if (strokeTrack.length > 0) {
@@ -468,6 +587,10 @@ export function applyAnimatedPaint(
       getTrackValueAtFrame(strokeTrack, frame, fallback),
     )}px`;
     content.style.paintOrder = 'stroke fill';
+    for (const copy of textCrawlPaintTargets(renderHost) ?? []) {
+      copy.style.webkitTextStrokeWidth = content.style.webkitTextStrokeWidth;
+      copy.style.paintOrder = 'stroke fill';
+    }
     textFitCallbacks.get(renderHost)?.();
   }
 }
@@ -501,7 +624,34 @@ export function renderElementContent(
   frameIndex = 0,
   options: ElementContentRenderOptions = {},
 ): void {
+  if (element.type === 'text' && element.clock) {
+    clockContentOptions.set(container, options);
+    element = resolveClockTimerText(
+      element,
+      clockTimerStateAtTime(
+        normalizeClockTimerSettings(element.clock),
+        (frameIndex * 1000) / Math.max(1, options.frameRate ?? 25),
+      ).valueMs,
+    );
+  }
+  rememberBackdropElement(container, element);
+  if (options.frameRate !== undefined) {
+    container.dataset.ografFrameRate = String(Math.max(1, options.frameRate));
+  }
+  if (element.type === 'ticker' && updateTicker(container, element, options)) {
+    container.dataset.ografRenderedElement = JSON.stringify(element);
+    return;
+  }
+  if (element.type === 'chart' && updateMountedChart(container, element, options)) {
+    container.dataset.ografRenderedElement = JSON.stringify(element);
+    return;
+  }
   const shaderFill = element.type !== 'shader' && hasElementShaderPaint(element);
+  const mediaFill = element.type !== 'shader' && hasElementMediaPaint(element);
+  if (mediaFill && updateMediaPaintContent(container, element, options)) {
+    container.dataset.ografRenderedElement = JSON.stringify(element);
+    return;
+  }
   if (shaderFill && updateShaderPaintContent(container, element, options)) {
     rememberShaderAnimationBase(container, element);
     container.dataset.ografRenderedElement = JSON.stringify(element);
@@ -521,11 +671,24 @@ export function renderElementContent(
   const previousContent = [...container.children].find(
     (child) => child.getAttribute('data-ograf-runtime-auxiliary') !== 'true',
   ) as HTMLElement | SVGElement | undefined;
+  // A shader effect keeps the content at opacity 0 while its output stands in. It gives back the
+  // authored value when disposed, and only that may carry over: the next stack would take a copied
+  // 0 as authored and capture an invisible picture.
+  disposeLayerEffects(container);
   const previousContentOpacity = previousContent?.style.opacity ?? '';
   disposeElementContent(container);
   container.dataset.ografRenderedElement = JSON.stringify(element);
   rememberShaderAnimationBase(container, element);
-  if (shaderFill) {
+  if (mediaFill) {
+    mountMediaPaintContent(container, element, options, {
+      render: (host, base, baseOptions) =>
+        renderElementContent(host, base, frameIndex, baseOptions),
+      renderAtTime: renderAnimatedElementAtTime,
+      ready: waitForElementContentReady,
+      refreshLayout: (host) => textFitCallbacks.get(host)?.(),
+      dispose: disposeElementContent,
+    });
+  } else if (shaderFill) {
     mountShaderPaintContent(container, element, options, {
       render: (host, base, baseOptions) =>
         renderElementContent(host, base, frameIndex, baseOptions),
@@ -536,12 +699,27 @@ export function renderElementContent(
     });
   } else
     switch (element.type) {
+      case 'ticker': {
+        mountTicker(container, element, options, {
+          render: (host, item, itemOptions) =>
+            renderElementContent(host, item, frameIndex, itemOptions),
+          renderAtTime: renderAnimatedElementAtTime,
+          ready: waitForElementContentReady,
+          dispose: disposeElementContent,
+          deterministic: setLottieDeterministicRendering,
+        });
+        break;
+      }
       case 'shader': {
         mountShader(container, element, options.shaderBackingSize);
         break;
       }
       case 'pattern': {
         mountPattern(container, element);
+        break;
+      }
+      case 'chart': {
+        mountChart(container, element, options);
         break;
       }
       case 'rectangle': {
@@ -570,6 +748,8 @@ export function renderElementContent(
       }
       case 'text': {
         const content = document.createElement('div');
+        content.dataset.ografModifierText = 'true';
+        content.dataset.ografTextBaseline = String(element.baselineShift);
         applyContentBaseStyle(content);
         const fill = element.fill ?? element.color;
         content.style.color = typeof fill === 'string' ? fill : 'transparent';
@@ -586,7 +766,9 @@ export function renderElementContent(
         content.style.textAlign = element.textAlign;
         content.style.letterSpacing = `${element.letterSpacing}px`;
         content.style.textTransform = element.textTransform;
-        const squeeze = element.autoFit === 'squeeze';
+        content.dir = element.direction;
+        if (element.language.trim()) content.lang = element.language.trim();
+        const squeeze = element.autoFit === 'squeeze' && !element.crawl;
         content.style.display = squeeze ? 'block' : 'flex';
         content.style.flexDirection = squeeze ? '' : 'column';
         content.style.justifyContent = squeeze
@@ -635,17 +817,52 @@ export function renderElementContent(
             overflow: 'visible',
           });
         }
-        content.textContent = element.content;
+        if (hasTextAnimation(element)) {
+          mountTextAnimationContent(content, element);
+        } else if (element.runs.length > 0) {
+          // The outer column flexbox owns vertical alignment. Keep all styled runs in one
+          // inline formatting context so a color/font boundary does not become a new row.
+          const flow = document.createElement('span');
+          flow.dataset.ografRichTextFlow = 'true';
+          flow.style.display = 'block';
+          flow.style.width = '100%';
+          flow.style.flexShrink = '0';
+          for (const run of element.runs) {
+            const span = document.createElement('span');
+            span.textContent = run.text;
+            span.style.fontSize = 'inherit';
+            if (run.color) span.style.color = run.color;
+            if (run.fontWeight !== undefined) span.style.fontWeight = String(run.fontWeight);
+            if (run.fontStyle) span.style.fontStyle = run.fontStyle;
+            if (run.fontFamily) span.style.fontFamily = run.fontFamily;
+            flow.appendChild(span);
+          }
+          content.appendChild(flow);
+        } else content.textContent = element.content;
         container.appendChild(content);
+        if (isGradientPaint(fill)) applyTextAnimationGradient(content, paintToCss(fill), fill);
+        renderTextAnimationAtFrame(container, element, frameIndex);
+        if (element.crawl) {
+          mountTextCrawl(container, content, element);
+          renderTextAnimationAtFrame(container, element, frameIndex);
+        }
         if (
-          element.autoFit === 'shrink-to-fit' ||
-          element.autoFit === 'fit-to-width' ||
-          element.autoFit === 'squeeze'
+          !element.crawl &&
+          (element.autoFit === 'shrink-to-fit' ||
+            element.autoFit === 'fit-to-width' ||
+            element.autoFit === 'squeeze')
         ) {
           const fitMode = element.autoFit;
           const mounted: MountedTextFit = {};
           if (fitMode === 'fit-to-width') {
             const probe = content.cloneNode(true) as HTMLElement;
+            // Font fitting uses the completed layout, independent of the sampled entrance frame.
+            for (const glyph of probe.querySelectorAll<HTMLElement>(
+              '[data-ograf-text-segment], [data-ograf-text-segment-inner]',
+            )) {
+              glyph.style.transform = 'none';
+              glyph.style.filter = 'none';
+            }
             Object.assign(probe.style, {
               position: 'fixed',
               left: '-100000px',
@@ -660,69 +877,98 @@ export function renderElementContent(
           }
           const fit = () => {
             if (textFitCallbacks.get(container) !== fit) return;
-            if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
+            const boxWidth = container.clientWidth,
+              boxHeight = container.clientHeight;
+            if (boxWidth <= 0 || boxHeight <= 0) return;
+            const currentStrokeWidth = Number.parseFloat(content.style.webkitTextStrokeWidth);
+            const strokeExpansion = Math.max(
+              0,
+              Number.isFinite(currentStrokeWidth) ? currentStrokeWidth : element.strokeWidth,
+            );
+            const owner = container.ownerDocument;
+            const inputs = {
+              width: boxWidth,
+              height: boxHeight,
+              stroke: strokeExpansion,
+              document: owner,
+              fontStatus: owner.fonts?.status,
+            };
+            const previous = mounted.inputs;
+            // Compiled text retains a stroke-width track even at a constant zero. Its paint
+            // pass calls this function every frame; only changed geometry, stroke or fonts
+            // can require the binary search and synchronous browser text measurements.
+            if (
+              previous &&
+              previous.width === inputs.width &&
+              previous.height === inputs.height &&
+              previous.stroke === inputs.stroke &&
+              previous.document === inputs.document &&
+              previous.fontStatus === inputs.fontStatus
+            )
+              return;
             if (element.content.length === 0) {
               content.style.fontSize = `${element.fontSize}px`;
               content.style.transform = 'none';
               content.dataset.ografAppliedFontSize = String(element.fontSize);
               content.dataset.ografFitRatio = '1';
               content.dataset.ografFitDegenerate = 'false';
+              mounted.inputs = inputs;
               return;
             }
-            const currentStrokeWidth = Number.parseFloat(content.style.webkitTextStrokeWidth);
-            const strokeExpansion = Math.max(
-              0,
-              Number.isFinite(currentStrokeWidth) ? currentStrokeWidth : element.strokeWidth,
-            );
             if (fitMode === 'squeeze') {
               content.style.transform = 'none';
-              const result = calculateTextSqueezeScale({
-                boxWidth: container.clientWidth,
-                boxHeight: container.clientHeight,
-                naturalWidth: content.scrollWidth + strokeExpansion,
-                naturalHeight: content.scrollHeight + strokeExpansion,
-              });
+              const result = measureTextAnimationLayout(content, () =>
+                calculateTextSqueezeScale({
+                  boxWidth,
+                  boxHeight,
+                  naturalWidth: content.scrollWidth + strokeExpansion,
+                  naturalHeight: content.scrollHeight + strokeExpansion,
+                }),
+              );
               content.style.transform = `scale(${result.scaleX}, ${result.scaleY}) translateY(${element.baselineShift}px)`;
               content.dataset.ografAppliedFontSize = String(element.fontSize);
               content.dataset.ografFitRatio = String(Math.min(result.scaleX, result.scaleY));
               content.dataset.ografFitDegenerate = String(result.degenerate);
               content.dataset.ografSqueezeScaleX = String(result.scaleX);
               content.dataset.ografSqueezeScaleY = String(result.scaleY);
+              mounted.inputs = inputs;
+              refreshTextAnimationGradient(content);
               return;
             }
             const fits = (fontSize: number) => {
               if (fitMode === 'shrink-to-fit') {
                 content.style.fontSize = `${fontSize}px`;
                 return (
-                  content.scrollWidth + strokeExpansion <= container.clientWidth + 0.5 &&
-                  content.scrollHeight + strokeExpansion <= container.clientHeight + 0.5
+                  content.scrollWidth + strokeExpansion <= boxWidth + 0.5 &&
+                  content.scrollHeight + strokeExpansion <= boxHeight + 0.5
                 );
               }
               const probe = mounted.probe;
               if (!probe) return false;
-              probe.style.width = `${container.clientWidth}px`;
-              probe.style.height = `${container.clientHeight}px`;
+              probe.style.width = `${boxWidth}px`;
+              probe.style.height = `${boxHeight}px`;
               probe.style.fontSize = `${fontSize}px`;
               probe.style.webkitTextStrokeWidth = content.style.webkitTextStrokeWidth;
               const range = document.createRange();
-              range.selectNodeContents(probe);
-              const bounds = range.getBoundingClientRect();
+              const bounds = measureTextAnimationLayout(probe, () => {
+                range.selectNodeContents(probe);
+                return range.getBoundingClientRect();
+              });
               range.detach();
-              const availableHeight = Math.max(
-                0,
-                container.clientHeight - Math.abs(element.baselineShift),
-              );
+              const availableHeight = Math.max(0, boxHeight - Math.abs(element.baselineShift));
               return (
-                bounds.width + strokeExpansion <= container.clientWidth + 0.5 &&
+                bounds.width + strokeExpansion <= boxWidth + 0.5 &&
                 bounds.height + strokeExpansion <= availableHeight + 0.5
               );
             };
-            const result = findFittedFontSize({
-              mode: fitMode,
-              authoredFontSize: element.fontSize,
-              minFontSize: element.minFontSize,
-              fits,
-            });
+            const result = measureTextAnimationLayout(content, () =>
+              findFittedFontSize({
+                mode: fitMode,
+                authoredFontSize: element.fontSize,
+                minFontSize: element.minFontSize,
+                fits,
+              }),
+            );
             content.style.fontSize = `${result.fontSize}px`;
             content.dataset.ografAppliedFontSize = String(result.fontSize);
             content.dataset.ografFitRatio = String(result.ratio);
@@ -731,6 +977,8 @@ export function renderElementContent(
               content.dataset.ografShrinkRatio = String(result.ratio);
               content.dataset.ografShrinkDegenerate = String(result.degenerate);
             }
+            mounted.inputs = inputs;
+            refreshTextAnimationGradient(content);
           };
           textFitCallbacks.set(container, fit);
           textFits.set(container, mounted);
@@ -741,9 +989,12 @@ export function renderElementContent(
             mounted.observer = observer;
           }
           if (typeof document !== 'undefined' && document.fonts) {
-            const onFontsLoaded = () => fit();
+            const onFontsLoaded = () => {
+              delete mounted.inputs;
+              fit();
+            };
             document.fonts.addEventListener('loadingdone', onFontsLoaded);
-            void document.fonts.ready.then(fit);
+            void document.fonts.ready.then(onFontsLoaded);
             mounted.fontSet = document.fonts;
             mounted.onFontsLoaded = onFontsLoaded;
           }
@@ -752,19 +1003,75 @@ export function renderElementContent(
       }
       case 'image': {
         if (element.src) {
-          const img = document.createElement('img');
+          const staged =
+            options.stagedImage?.src === element.src ? options.stagedImage.image : undefined;
+          const img = staged ?? document.createElement('img');
           applyContentBaseStyle(img);
-          img.style.objectFit = 'contain';
-          if (options.requiresImageAlpha && /^https?:/i.test(element.src))
-            img.crossOrigin = 'anonymous';
-          img.src = element.src;
+          // Preserve transparent pixels even when the Studio/host document styles generic images.
+          img.style.background = 'transparent';
+          img.style.objectFit = element.fit ?? 'contain';
+          if (!staged) {
+            if (options.requiresImageAlpha && /^https?:/i.test(element.src))
+              img.crossOrigin = 'anonymous';
+            img.src = element.src;
+          }
           img.alt = '';
           img.draggable = false;
           container.appendChild(img);
+          if (element.crop)
+            mountCroppedImage(container, img, element.crop, element.fit ?? 'contain');
+        }
+        break;
+      }
+      case 'audio': {
+        if (element.src) {
+          const audio = document.createElement('audio');
+          audio.src = element.src;
+          audio.preload = 'auto';
+          audio.volume = element.volume;
+          audio.loop = false;
+          audio.dataset.ografAudio = 'true';
+          audio.style.display = 'none';
+          container.appendChild(audio);
         }
         break;
       }
       case 'path': {
+        if (element.stretchInsets && typeof element.fill === 'string') {
+          const slices = pathStretchSlices(element);
+          const root = document.createElement('div');
+          applyContentBaseStyle(root);
+          Object.assign(root.style, {
+            display: 'grid',
+            gridTemplateColumns: `${element.stretchInsets.left}px minmax(0, 1fr) ${element.stretchInsets.right}px`,
+            gridTemplateRows: `${element.stretchInsets.top}px minmax(0, 1fr) ${element.stretchInsets.bottom}px`,
+            overflow: element.overflow === 'visible' ? 'visible' : 'hidden',
+          });
+          const SVG_NS = 'http://www.w3.org/2000/svg';
+          for (const slice of slices) {
+            const svg = document.createElementNS(SVG_NS, 'svg');
+            svg.setAttribute('viewBox', `${slice.x} ${slice.y} ${slice.width} ${slice.height}`);
+            svg.setAttribute('preserveAspectRatio', 'none');
+            Object.assign(svg.style, {
+              width: '100%',
+              height: '100%',
+              gridColumn: String(slice.column),
+              gridRow: String(slice.row),
+              overflow: 'hidden',
+            });
+            const path = document.createElementNS(SVG_NS, 'path');
+            path.setAttribute('d', element.d);
+            path.setAttribute('fill', element.fill);
+            path.setAttribute('fill-rule', element.fillRule ?? 'nonzero');
+            path.setAttribute('stroke', element.strokeWidth > 0 ? element.strokeColor : 'none');
+            path.setAttribute('stroke-width', String(element.strokeWidth));
+            path.setAttribute('vector-effect', 'non-scaling-stroke');
+            svg.appendChild(path);
+            root.appendChild(svg);
+          }
+          container.appendChild(root);
+          break;
+        }
         // Expand only opted-in, point-edited paths. The layer's authored transform stays unchanged.
         let bounds = { x: 0, y: 0, width: element.viewBoxWidth, height: element.viewBoxHeight };
         if (element.overflow === 'visible') {
@@ -830,12 +1137,15 @@ export function renderElementContent(
         if (src) {
           const img = document.createElement('img');
           applyContentBaseStyle(img);
-          img.style.objectFit = 'contain';
+          img.style.background = 'transparent';
+          img.style.objectFit = element.fit ?? 'contain';
           if (options.requiresImageAlpha && /^https?:/i.test(src)) img.crossOrigin = 'anonymous';
           img.src = src;
           img.alt = '';
           img.draggable = false;
           container.appendChild(img);
+          if (element.crop)
+            mountCroppedImage(container, img, element.crop, element.fit ?? 'contain');
         }
         break;
       }
@@ -1004,8 +1314,56 @@ export function renderAnimatedElementAtTime(
   container: HTMLElement,
   element: Element,
   elapsedMs: number,
+  options: { playing?: boolean; chartMarkFrame?: number } = {},
 ): void {
+  if (element.type === 'ticker') {
+    renderTickerAtTime(container, element, elapsedMs, options);
+    return;
+  }
+  if (element.type === 'chart' && options.chartMarkFrame !== undefined)
+    setChartMarkAnimationFrame(container, options.chartMarkFrame);
+  if (element.type === 'text' && element.clock) {
+    const frameRate = Math.max(1, Number(container.dataset.ografFrameRate) || 25);
+    const resolved = resolveClockTimerText(
+      element,
+      clockTimerStateAtTime(normalizeClockTimerSettings(element.clock), elapsedMs).valueMs,
+    );
+    const { frame, previous } = clockTimerTextAnimationAtTime(element, elapsedMs, frameRate);
+    if (container.dataset.ografRenderedElement !== JSON.stringify(resolved))
+      renderElementContent(
+        container,
+        resolved,
+        frame,
+        clockContentOptions.get(container) ?? { frameRate },
+      );
+    container.dataset.ografTextAnimationFrame = String(frame);
+    setTextAnimationPrevious(container, previous);
+    renderTextAnimationAtFrame(container, resolved, frame);
+    renderTextCrawlAtTime(container, elapsedMs);
+    if (renderMediaPaintAtTime(container, elapsedMs, options.playing)) return;
+    renderShaderPaintAtTime(container, elapsedMs);
+    return;
+  }
+  if (renderMediaPaintAtTime(container, elapsedMs, options.playing)) return;
   if (renderShaderPaintAtTime(container, elapsedMs)) return;
+  if (element.type === 'chart') {
+    const frameRate = Math.max(1, Number(container.dataset.ografFrameRate) || 25);
+    renderChartAnimationAtFrame(container, element, (elapsedMs / 1000) * frameRate);
+    return;
+  }
+  if (element.type === 'text') {
+    renderTextCrawlAtTime(container, elapsedMs);
+    const frameRate = Math.max(1, Number(container.dataset.ografFrameRate) || 25);
+    // Data updates/custom actions own Text FX replay time, independently of continuous travel.
+    // Match shader/media text: a crawl tick must not overwrite that explicitly sampled pose.
+    const replayFrame = element.crawl ? Number(container.dataset.ografTextAnimationFrame) : NaN;
+    renderTextAnimationAtFrame(
+      container,
+      element,
+      Number.isFinite(replayFrame) ? replayFrame : (elapsedMs / 1000) * frameRate,
+    );
+    return;
+  }
   if (element.type === 'shader') {
     renderShaderAtTime(container, elapsedMs);
     return;
@@ -1026,6 +1384,27 @@ export function renderAnimatedElementAtTime(
       renderElementContent(container, element, frameIndex, {
         requiresImageAlpha: container.dataset.ografShaderBase === 'true',
       });
+    return;
+  }
+  if (element.type === 'audio') {
+    const audio = container.querySelector<HTMLAudioElement>('audio[data-ograf-audio="true"]');
+    if (!audio) return;
+    audio.volume = element.volume;
+    const position = resolveMediaTimelinePosition(elapsedMs, {
+      timelineStartMs: element.timelineStartMs,
+      trimStartMs: element.trimStartMs,
+      trimEndMs: element.trimEndMs,
+      loop: element.loop,
+      durationMs: Number.isFinite(audio.duration) ? audio.duration * 1000 : null,
+    });
+    if (!position.active) {
+      audio.pause();
+      return;
+    }
+    const seconds = position.positionMs / 1000;
+    if (audio.readyState >= 1 && Math.abs(audio.currentTime - seconds) > 0.08)
+      audio.currentTime = seconds;
+    void audio.play().catch(() => undefined);
     return;
   }
   if (element.type === 'lottie' && element.animationData) {
@@ -1055,56 +1434,56 @@ export function renderAnimatedElementAtTime(
   }
 }
 
-/**
- * The element a compiled layer should render with, given runtime data — mirrors the editor's
- * design-time `resolveEffectiveElement` (apps/editor/src/state/dataBinding.ts), adapted to the
- * compiled descriptor's shape (data keyed by field `key`, not `fieldId`). All current bindable
- * properties are string-typed, so the override always stringifies.
- */
-export function resolveBoundElement(layer: CompiledLayer, data: Record<string, unknown>): Element {
-  const bindings = layer.bindings ?? (layer.binding ? [layer.binding] : []);
-  return bindings.reduce<Element>((element, binding) => {
-    const root = data[binding.dataKey];
-    const itemValue =
-      binding.itemIndex === undefined
-        ? root
-        : Array.isArray(root)
-          ? root[binding.itemIndex]
-          : undefined;
-    const value = valueAtSourcePath(itemValue, binding.sourcePath);
-    if (value === undefined) return element;
-    const mappedValue = binding.valueMap?.[String(value)] ?? value;
-    return applyElementDataValue(element, binding.targetProperty, mappedValue);
-  }, layer.element);
+const validatedPathText = new WeakMap<CompiledLayer, string>();
+
+/** Bindings, then visual rules: the element a compiled layer renders with for `data`. */
+export function resolveBoundElement(
+  layer: CompiledLayer,
+  data: Record<string, unknown>,
+  effect?: RuntimeVisualRuleEffect | null,
+): Element {
+  const resolved = prepareModifierTextElement(
+    resolveVisualRuleElement(layer, data, resolveLayerBindingElement(layer, data), effect),
+    layer.modifiers,
+  );
+  if (layer.textPath && resolved.type === 'text') {
+    const length = resolved.runs.length
+      ? resolved.runs.reduce((sum, run) => sum + run.text.length, 0)
+      : resolved.content.length;
+    if (length > 4096)
+      throw new Error(`Text on a path "${layer.name}" is limited to 4,096 characters.`);
+    const key = JSON.stringify([
+      resolved.content,
+      resolved.runs.map((run) => run.text),
+      resolved.direction,
+      resolved.language,
+      resolved.textTransform,
+      resolved.letterSpacing,
+      resolved.textAnimation,
+      Boolean(resolved.strokePaint),
+      Boolean(resolved.clock),
+      Boolean(resolved.crawl),
+    ]);
+    if (validatedPathText.get(layer) !== key) {
+      const errors = textPathCompatibilityErrors(resolved);
+      if (errors.length) throw new Error(`Text on a path "${layer.name}": ${errors.join(' ')}`);
+      validatedPathText.set(layer, key);
+    }
+  }
+  return resolved;
 }
 
+/** Bindings, then visual rules, for effect parameters and the drop shadow colour. */
 export function resolveBoundEffects(
   layer: CompiledLayer,
   data: Record<string, unknown>,
   effects: LayerEffects = layer.effects,
+  effect?: RuntimeVisualRuleEffect | null,
 ): LayerEffects {
-  let resolved = effects;
-  for (const binding of layer.bindings ?? (layer.binding ? [layer.binding] : [])) {
-    if (
-      binding.targetProperty !== 'dropShadowColor' &&
-      !parseEffectProperty(binding.targetProperty)
-    )
-      continue;
-    const root = data[binding.dataKey];
-    const item =
-      binding.itemIndex === undefined
-        ? root
-        : Array.isArray(root)
-          ? root[binding.itemIndex]
-          : undefined;
-    const value = valueAtSourcePath(item, binding.sourcePath);
-    if (value !== undefined) {
-      const mapped = binding.valueMap?.[String(value)] ?? value;
-      resolved =
-        binding.targetProperty === 'dropShadowColor'
-          ? { ...resolved, dropShadowColor: String(mapped) }
-          : withEffectParameter(resolved, binding.targetProperty, mapped);
-    }
-  }
-  return resolved;
+  return resolveVisualRuleEffects(
+    layer,
+    data,
+    resolveLayerBindingEffects(layer, data, effects),
+    effect,
+  );
 }

@@ -7,6 +7,10 @@ import {
   createCustomActionDefinition,
   createFieldDefinition,
   createKeyframe,
+  createLayerLoopClip,
+  createLayerOfKind,
+  createMediaPaint,
+  createMediaCue,
   createProject,
   createTransition,
   type Composition,
@@ -53,6 +57,27 @@ function build(composition: Composition, project: Project = createProject()) {
   return assembleManifest(project, composition, compileDescriptor(composition));
 }
 
+it('publishes the proven short Out duration while preserving authored fallback and OGraf steps', () => {
+  const composition = createProject().compositions[0]!;
+  composition.transitions[0]!.durationFrames = 13;
+  composition.transitions[1]!.durationFrames = 112;
+  composition.shortOutFrames = 13;
+  const manifest = build(composition);
+  expect(manifest.stepCount).toBe(1);
+  expect(manifest.actionDurations?.find((entry) => entry.type === 'stopAction')?.duration).toBe(
+    520,
+  );
+  composition.layers.push(createLayerOfKind('ticker'));
+  expect(
+    build(composition).actionDurations?.find((entry) => entry.type === 'stopAction')?.duration,
+  ).toBe(4480);
+  delete composition.shortOutFrames;
+  composition.layers = [];
+  expect(
+    build(composition).actionDurations?.find((entry) => entry.type === 'stopAction')?.duration,
+  ).toBe(4480);
+});
+
 /** A realistic template: bound text, an animated outro, a custom action, non-default format. */
 function realisticComposition(): Composition {
   const start = createKeyframe({ name: 'Start', role: 'start' });
@@ -90,6 +115,19 @@ describe('assembleManifest — conformance to the real EBU schema', () => {
     expect(result.valid).toBe(true);
   });
 
+  it('keeps renderer-specific live media schema-valid and declares its engine requirement', () => {
+    const layer = createLayerOfKind('rectangle');
+    if (!('fill' in layer.element)) throw new Error('Expected fill');
+    layer.element.fill = createMediaPaint({ source: { kind: 'live', tag: 'camera.program' } });
+    const composition = createComposition({ layers: [layer] });
+    const project = createProject({ supportsNonRealTime: false });
+    const manifest = build(composition, project);
+    expect(validateAgainstRealSchema(manifest)).toEqual({ valid: true, errors: [] });
+    expect(manifest.renderRequirements?.[0]?.engine).toEqual([
+      { type: 'ZeroDensityHTML', version: { min: '1.0' } },
+    ]);
+  });
+
   it('rejects the pre-Phase-5a raw-number renderRequirements shape', () => {
     // Regression guard: this is exactly what we used to emit, and what ograf-devtool rejected.
     const manifest = build(createComposition()) as unknown as Record<string, unknown>;
@@ -101,6 +139,39 @@ describe('assembleManifest — conformance to the real EBU schema', () => {
 });
 
 describe('assembleManifest — content', () => {
+  it('declares timed loop controls with group targeting and zero scheduling duration', () => {
+    const field = createFieldDefinition('number', {
+      id: 'hold',
+      key: 'holdSeconds',
+      defaultValue: 4,
+    });
+    const layer = createLayerOfKind('rectangle');
+    layer.loop = createLayerLoopClip({
+      durationFrames: 30,
+      timing: {
+        groupId: 'Headlines',
+        holdFieldId: field.id,
+        holdRanges: [{ startFrame: 0, endFrame: 20 }],
+      },
+    });
+    const manifest = build(createComposition({ layers: [layer], dataFields: [field] }));
+    expect(manifest.customActions?.map((action) => action.id)).toEqual([
+      'loop.pause',
+      'loop.resume',
+      'loop.next',
+    ]);
+    expect(manifest.customActions?.[0]?.schema).toMatchObject({
+      properties: { groupId: { enum: ['Headlines'] } },
+      required: ['groupId'],
+    });
+    for (const action of ['pause', 'resume', 'next'])
+      expect(manifest.actionDurations).toContainEqual({
+        type: 'customAction',
+        customActionId: `loop.${action}`,
+        duration: 0,
+      });
+    expect(validateAgainstRealSchema(manifest)).toEqual({ valid: true, errors: [] });
+  });
   it('emits renderRequirements as constraint objects carrying composition settings', () => {
     const manifest = build(realisticComposition());
     expect(manifest.renderRequirements).toEqual([
@@ -110,6 +181,16 @@ describe('assembleManifest — content', () => {
         accessToPublicInternet: { exact: false },
       },
     ]);
+  });
+
+  it('declares public internet access for a remote media clip', () => {
+    const layer = createLayerOfKind('ellipse');
+    if (!('fill' in layer.element)) throw new Error('Expected fill');
+    layer.element.fill = createMediaPaint({
+      source: { kind: 'clip', src: 'https://media.example/clip.mp4' },
+    });
+    const manifest = build(createComposition({ layers: [layer] }));
+    expect(manifest.renderRequirements?.[0]?.accessToPublicInternet).toEqual({ exact: true });
   });
 
   it('sets stepCount from the step count (outro excluded) and points main at main.js', () => {
@@ -133,6 +214,49 @@ describe('assembleManifest — content', () => {
       duration: 0,
     });
     expect(byType.playAction!.type).toBe('playAction');
+  });
+
+  it('publishes the longest per-layer designed update transition', () => {
+    const layer = createLayerOfKind('text');
+    layer.updateTransition = { style: 'slide-left', durationFrames: 30, distance: 48 };
+    const composition = createComposition({
+      frameRate: 25,
+      updateTransitionFrames: 10,
+      updateInterruption: 'replace',
+      layers: [layer],
+    });
+    const manifest = build(composition);
+    expect(manifest.actionDurations?.find((duration) => duration.type === 'updateAction')).toEqual({
+      type: 'updateAction',
+      duration: 1200,
+    });
+    const compiled = compileDescriptor(composition);
+    expect(compiled.updateInterruption).toBe('replace');
+    expect(compiled.layers[0]!.updateTransition).toEqual({
+      style: 'slide-left',
+      durationFrames: 30,
+      distance: 48,
+    });
+  });
+
+  it('publishes the longest custom-action clip duration', () => {
+    const layer = createLayerOfKind('rectangle');
+    layer.loop = createLayerLoopClip({
+      activation: { type: 'customAction', customActionId: 'pulse' },
+      durationFrames: 30,
+      repeatCount: 2,
+    });
+    const composition = createComposition({
+      frameRate: 50,
+      layers: [layer],
+      customActions: [createCustomActionDefinition({ actionId: 'pulse', name: 'Pulse' })],
+    });
+    const manifest = build(composition);
+    expect(
+      manifest.actionDurations?.find(
+        (duration) => duration.type === 'customAction' && duration.customActionId === 'pulse',
+      ),
+    ).toEqual({ type: 'customAction', customActionId: 'pulse', duration: 1200 });
   });
 
   it('gives each playAction step its own duration from the inbound transition', () => {
@@ -168,6 +292,31 @@ describe('assembleManifest — content', () => {
       required: ['headline'],
     });
     expect(manifest.customActions).toEqual([{ id: 'pulse', name: 'Pulse' }]);
+  });
+
+  it('declares live Media Cue renderer requirements and public clip access', () => {
+    const composition = createComposition({
+      mediaCues: [
+        createMediaCue({
+          sources: [
+            {
+              id: 'remote',
+              name: 'Remote',
+              kind: 'clip',
+              mediaType: 'video',
+              src: 'https://cdn.example/intro.mp4',
+            },
+            { id: 'live', name: 'Live', kind: 'live', tag: 'program.live' },
+          ],
+          activeSourceId: 'live',
+        }),
+      ],
+    });
+    const requirement = build(composition).renderRequirements?.[0];
+    expect(requirement).toMatchObject({
+      accessToPublicInternet: { exact: true },
+      engine: [{ type: 'ZeroDensityHTML', version: { min: '1.0' } }],
+    });
   });
 
   it('omits optional fields rather than emitting empty ones', () => {

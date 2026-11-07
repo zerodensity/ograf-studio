@@ -1,4 +1,4 @@
-import type { Project, ShaderPaint } from '@ograf-editor/scene-model';
+import type { EffectPatch, Project, ShaderPaint } from '@ograf-editor/scene-model';
 import {
   resolveShaderResource,
   shaderResourceTarget,
@@ -42,12 +42,25 @@ function validateReference(value: unknown): ShaderResourceDragReference {
   }
   if (
     Object.keys(target).some(
-      (key) => !['compositionId', 'layerId', 'slot', 'componentId'].includes(key),
+      (key) =>
+        ![
+          'compositionId',
+          'layerId',
+          'slot',
+          'componentId',
+          'effectId',
+          'itemId',
+          'tickerBackground',
+        ].includes(key),
     ) ||
     !identifier(target.compositionId) ||
     !identifier(target.layerId) ||
-    (target.slot !== 'fill' && target.slot !== 'stroke') ||
-    ('componentId' in target && !identifier(target.componentId))
+    (target.slot !== 'fill' && target.slot !== 'stroke' && target.slot !== 'effect') ||
+    (target.slot === 'effect' ? !identifier(target.effectId) : 'effectId' in target) ||
+    ('componentId' in target && !identifier(target.componentId)) ||
+    ('itemId' in target && !identifier(target.itemId)) ||
+    ('tickerBackground' in target &&
+      (target.tickerBackground !== true || target.slot !== 'fill' || 'itemId' in target))
   ) {
     throw new Error('Invalid shader resource drag target.');
   }
@@ -57,8 +70,11 @@ function validateReference(value: unknown): ShaderResourceDragReference {
       compositionId: target.compositionId,
       layerId: target.layerId,
       slot: target.slot,
+      ...(target.slot === 'effect' ? { effectId: target.effectId as string } : {}),
       ...(typeof target.componentId === 'string' ? { componentId: target.componentId } : {}),
-    },
+      ...(typeof target.itemId === 'string' ? { itemId: target.itemId } : {}),
+      ...(target.tickerBackground ? { tickerBackground: true } : {}),
+    } as ShaderResourceTarget,
   };
 }
 
@@ -96,4 +112,17 @@ export function shaderPaintFromResourceDrag(project: Project, payload: string): 
   if (reference.projectId !== project.id)
     throw new Error('This shader resource belongs to a different project.');
   return structuredClone(resolveShaderResource(project, reference.target).paint);
+}
+
+/** A stack drop consumes the existing layer result as iChannel0, never the resource's static input. */
+export function shaderEffectPatchFromResourceDrag(project: Project, payload: string): EffectPatch {
+  const paint = shaderPaintFromResourceDrag(project, payload);
+  const { inputImage: _inputImage, ...shader } = paint;
+  return {
+    name: paint.name?.trim() || 'Shader',
+    enabled: true,
+    blendMode: 'normal',
+    blendOpacity: 1,
+    shader,
+  };
 }

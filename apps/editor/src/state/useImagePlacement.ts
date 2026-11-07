@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useProjectStore } from './projectStore';
 import { useSelectionStore } from './selectionStore';
 import type { ImagePlacement } from './imageImport';
+import { runDiscreteHistoryStep } from './historyStore';
 
 export function useImagePlacement() {
   const [busy, setBusy] = useState(false);
@@ -20,9 +21,15 @@ export function useImagePlacement() {
     setBusy(true);
     setError('');
     try {
-      const ids = await useProjectStore
-        .getState()
-        .placeImageSource(source, { ...options, signal: controller.signal });
+      const ids = await useProjectStore.getState().placeImageSource(source, {
+        ...options,
+        signal: controller.signal,
+        commit: (mutation) =>
+          runDiscreteHistoryStep(
+            mutation,
+            options.replaceLayerId ? 'Replace image' : 'Import image',
+          ),
+      });
       if (!ids.length || controller.signal.aborted) return false;
       useSelectionStore.getState().selectMany(ids);
       return true;

@@ -1,10 +1,15 @@
-import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, parse, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { packageAuthoringSkill } from './packageAuthoringSkill.mjs';
+import { verifyBundledStudioPluginDistribution } from './buildBundledStudioPlugins.mjs';
+
+await packageAuthoringSkill();
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const standaloneEntrypoint = resolve(repositoryRoot, 'apps/mcp-server/src/standalone.ts');
 const editorRoot = resolve(repositoryRoot, 'apps/editor/dist');
+await verifyBundledStudioPluginDistribution(editorRoot);
 const runtimeFile = resolve(repositoryRoot, 'packages/ograf-runtime/dist/graphic-runtime.js');
 const windowsIcon = resolve(repositoryRoot, 'assets/ograf-studio.ico');
 const target = process.env.OGRAF_STANDALONE_TARGET ?? 'bun-windows-x64-baseline';
@@ -21,9 +26,17 @@ const outputParts = parse(outfile);
 const stagedOutfile = resolve(outputParts.dir, `${outputParts.name}.next${outputParts.ext}`);
 const previousOutfile = resolve(outputParts.dir, `${outputParts.name}.previous${outputParts.ext}`);
 const generatedEntrypoint = resolve(repositoryRoot, 'release/standalone-entry.ts');
-const version = process.env.OGRAF_STUDIO_BUILD_VERSION ?? '0.22.0.0';
+const packageVersion = JSON.parse(
+  await readFile(resolve(repositoryRoot, 'package.json'), 'utf8'),
+).version;
+const versionParts = /^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/.exec(packageVersion);
+if (!versionParts) throw new Error(`Unsupported standalone version: ${packageVersion}`);
+const version =
+  process.env.OGRAF_STUDIO_BUILD_VERSION ??
+  `${versionParts[1]}.${versionParts[2]}.${versionParts[3]}.${versionParts[4] ?? '0'}`;
 
 await mkdir(dirname(outfile), { recursive: true });
+await mkdir(dirname(generatedEntrypoint), { recursive: true });
 await rm(stagedOutfile, { force: true });
 
 async function listFiles(directory) {

@@ -1,0 +1,81 @@
+.media-cue-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.media-cue-editor > label,
+.media-cue-editor-section > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.media-cue-editor-section {
+  display: grid;
+  gap: 6px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+}
+
+.media-cue-editor-section > strong {
+  color: var(--text-heading);
+  font-size: 10px;
+}
+
+.media-cue-editor-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.media-cue-editor-grid > strong {
+  grid-column: 1 / -1;
+}
+
+.media-cue-duration-summary {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-canvas);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.media-cue-duration-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+}
+
+.media-cue-editor .media-cue-checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+
+.media-cue-editor .media-cue-checkbox input {
+  width: auto;
+}
+
+.media-cue-inline-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.media-cue-inline-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.media-cue-remove {
+  margin-top: 4px;
+  color: #ff8b8b;
+}

@@ -1,10 +1,69 @@
 import {
   compositionWithShaderParameterFields,
+  clockTimerActionId,
   type Composition,
   type CustomActionDefinition,
   type FieldDefinition,
   type FieldType,
+  type FieldValue,
 } from '@ograf-editor/scene-model';
+import type { CompiledDataExposure } from '@ograf-editor/ograf-types';
+
+export function fieldExposedToOgraf(field: FieldDefinition): boolean {
+  return (
+    field.exposeToOgraf !== false &&
+    !(field.type === 'array' && field.items && field.items.exposeToOgraf === false)
+  );
+}
+
+/** Keep public defaults as selective as their property schema. */
+export function publicFieldValueForExport(field: FieldDefinition, value: FieldValue): FieldValue {
+  const result = fieldValueForExport(field, value);
+  if (field.type === 'array' && field.items && Array.isArray(result))
+    return result.map((item) => publicFieldValueForExport(field.items!, item));
+  if (field.type === 'object' && result && typeof result === 'object' && !Array.isArray(result)) {
+    const values = result as Record<string, FieldValue>;
+    for (const child of field.properties) {
+      if (!fieldExposedToOgraf(child)) delete values[child.key];
+      else if (Object.hasOwn(values, child.key))
+        values[child.key] = publicFieldValueForExport(child, values[child.key]!);
+    }
+  }
+  return result;
+}
+
+export function compileDataExposure(
+  fields: readonly FieldDefinition[],
+): Record<string, CompiledDataExposure> | undefined {
+  const policy = (field: FieldDefinition): CompiledDataExposure | undefined => {
+    if (!fieldExposedToOgraf(field))
+      return { exposed: false, defaultValue: fieldValueForExport(field, field.defaultValue) };
+    const properties = field.type === 'object' ? compileDataExposure(field.properties) : undefined;
+    const items = field.type === 'array' && field.items ? policy(field.items) : undefined;
+    return properties || items
+      ? { exposed: true, ...(properties ? { properties } : {}), ...(items ? { items } : {}) }
+      : undefined;
+  };
+  const entries = fields.flatMap((field) => {
+    const value = policy(field);
+    return value ? [[field.key, value] as const] : [];
+  });
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+export function publicDataForExport(
+  composition: Composition,
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  const fields = compositionWithShaderParameterFields(composition).dataFields;
+  const result = structuredClone(data);
+  for (const field of fields) {
+    if (!fieldExposedToOgraf(field)) delete result[field.key];
+    else if (Object.hasOwn(result, field.key))
+      result[field.key] = publicFieldValueForExport(field, result[field.key] as FieldValue);
+  }
+  return result;
+}
 
 export interface JSONSchemaProperty {
   type: 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array';
@@ -99,11 +158,30 @@ function gddTypeFor(type: FieldType): string {
   }
 }
 
+/** GDD color values are canonical lowercase hex; preserve the editable source and other data. */
+export function fieldValueForExport(field: FieldDefinition, value: FieldValue): FieldValue {
+  if (field.type === 'color' && typeof value === 'string') {
+    return /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value) ? value.toLowerCase() : value;
+  }
+  if (field.type === 'array' && field.items && Array.isArray(value)) {
+    return value.map((item) => fieldValueForExport(field.items!, item));
+  }
+  if (field.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) {
+    const result = structuredClone(value) as Record<string, FieldValue>;
+    for (const child of field.properties) {
+      if (Object.hasOwn(result, child.key))
+        result[child.key] = fieldValueForExport(child, result[child.key]!);
+    }
+    return result;
+  }
+  return structuredClone(value);
+}
+
 function propertyFor(field: FieldDefinition): JSONSchemaProperty {
   const property: JSONSchemaProperty = {
     type: schemaTypeFor(field.type),
     title: field.label,
-    default: field.defaultValue,
+    default: publicFieldValueForExport(field, field.defaultValue),
     gddType: gddTypeFor(field.type),
   };
   if (field.description.trim()) property.description = field.description.trim();
@@ -155,10 +233,10 @@ function propertyFor(field: FieldDefinition): JSONSchemaProperty {
   }
   if (field.type === 'object') {
     property.properties = Object.fromEntries(
-      field.properties.map((child) => [child.key, propertyFor(child)]),
+      field.properties.filter(fieldExposedToOgraf).map((child) => [child.key, propertyFor(child)]),
     );
     property.required = field.properties
-      .filter((child) => child.required)
+      .filter((child) => fieldExposedToOgraf(child) && child.required)
       .map((child) => child.key);
   }
   if (field.type === 'array' && field.items) {
@@ -173,6 +251,7 @@ export function compileDataSchema(composition: Composition): DataJSONSchema {
   const properties: Record<string, JSONSchemaProperty> = {};
   const required: string[] = [];
   for (const field of composition.dataFields) {
+    if (!fieldExposedToOgraf(field)) continue;
     properties[field.key] = propertyFor(field);
     if (field.required) required.push(field.key);
   }
@@ -195,5 +274,18 @@ function compileCustomAction(action: CustomActionDefinition): CompiledCustomActi
 
 /** Composition's Custom Action Definitions -> an OGraf manifest's `customActions[]`. */
 export function compileCustomActions(composition: Composition): CompiledCustomAction[] {
-  return composition.customActions.map(compileCustomAction);
+  const actions = composition.customActions.map(compileCustomAction);
+  for (const layer of composition.layers) {
+    if (layer.isGuide || layer.element.type !== 'text' || !layer.element.clock) continue;
+    for (const command of ['start', 'pause', 'reset', 'restart'] as const) {
+      const id = clockTimerActionId(layer.id, command);
+      if (actions.some((action) => action.id === id)) continue;
+      actions.push({
+        id,
+        name: `${layer.name}: ${command[0]!.toUpperCase()}${command.slice(1)}`,
+        description: `${command[0]!.toUpperCase()}${command.slice(1)} the ${layer.name} timer.`,
+      });
+    }
+  }
+  return actions;
 }

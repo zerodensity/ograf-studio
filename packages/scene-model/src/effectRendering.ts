@@ -12,7 +12,12 @@ function colorWithOpacity(color: string, opacity: number): string {
 export function effectStackToCss(effects: LayerEffects): string {
   const filters: string[] = [];
   for (const effect of getEffectStack(effects)) {
-    if (!effectEnabled(effect, effects) || effect.blendOpacity === 0) continue;
+    if (
+      !effectEnabled(effect, effects) ||
+      effect.blendOpacity === 0 ||
+      effect.type === 'backdrop-blur'
+    )
+      continue;
     const p = effectParams(effect, effects);
     switch (effect.type) {
       case 'blur':
@@ -42,6 +47,7 @@ export function effectStackToCss(effects: LayerEffects): string {
 export function effectStackNeedsCompositing(effects: LayerEffects): boolean {
   return getEffectStack(effects).some(
     (effect) =>
+      effect.type !== 'backdrop-blur' &&
       effectEnabled(effect, effects) &&
       effect.blendOpacity !== 0 &&
       ((effect.blendMode ?? 'normal') !== 'normal' || (effect.blendOpacity ?? 1) !== 1),
@@ -51,7 +57,8 @@ export function effectStackNeedsCompositing(effects: LayerEffects): boolean {
 export function effectStackPadding(effects: LayerEffects): number {
   return Math.ceil(
     getEffectStack(effects).reduce((padding, e) => {
-      if (!effectEnabled(e, effects) || e.blendOpacity === 0) return padding;
+      if (!effectEnabled(e, effects) || e.blendOpacity === 0 || e.type === 'backdrop-blur')
+        return padding;
       const p = effectParams(e, effects);
       return (
         padding +
@@ -67,7 +74,12 @@ export function effectStackToSvg(effects: LayerEffects): string {
   const nodes: string[] = [];
   let previous = 'SourceGraphic';
   for (const effect of getEffectStack(effects)) {
-    if (!effectEnabled(effect, effects) || effect.blendOpacity === 0) continue;
+    if (
+      !effectEnabled(effect, effects) ||
+      effect.blendOpacity === 0 ||
+      effect.type === 'backdrop-blur'
+    )
+      continue;
     const p = effectParams(effect, effects),
       result = `fx-${nodes.length}`,
       input = `in="${previous}" result="${result}"`;

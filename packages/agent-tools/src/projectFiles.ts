@@ -1,4 +1,4 @@
-import { access, lstat, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { access, link, lstat, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -15,6 +15,7 @@ async function exists(path: string): Promise<boolean> {
 export async function writeTemplateFiles(
   files: Array<{ path: string; data: string | Uint8Array }>,
   overwrite: boolean,
+  verify?: () => Promise<void>,
 ): Promise<void> {
   const transaction = randomUUID();
   const staged = files.map((file) => ({
@@ -42,9 +43,12 @@ export async function writeTemplateFiles(
         await rename(file.path, file.backup);
         backups.push(file);
       }
-      await rename(file.temporary, file.path);
+      if (overwrite) await rename(file.temporary, file.path);
+      else await link(file.temporary, file.path); // Atomically refuse a target created after preflight.
       committed.push(file);
+      if (!overwrite) await unlink(file.temporary);
     }
+    await verify?.();
   } catch (error) {
     const failures: unknown[] = [];
     for (const file of [...committed].reverse())

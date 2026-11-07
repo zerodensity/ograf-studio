@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseCssTransform } from './transformGeometry';
 
 describe('parseCssTransform', () => {
-  it('reads the translate3d format emitted by GSAP', () => {
+  it('reads a translate3d transform', () => {
     expect(parseCssTransform('translate3d(100px, 42.5px, 0px) rotate(15deg)')).toEqual({
       x: 100,
       y: 42.5,

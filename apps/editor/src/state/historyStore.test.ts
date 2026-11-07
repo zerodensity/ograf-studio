@@ -1,5 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useProjectStore } from './projectStore';
+import { useSelectionStore } from './selectionStore';
+import { useProjectSetStore } from './projectSetStore';
 import { createProject, createRectangleLayer } from '@ograf-editor/scene-model';
 
 vi.useFakeTimers();
@@ -22,7 +24,7 @@ describe('editor history store', () => {
     });
     expect(history.getHistorySnapshot().past.map((item) => item.label)).toEqual([
       'Rename project to “Manual name”',
-      'AI Assistant: Four area corrections (10 actions)',
+      'AI: Four area corrections (10 actions)',
     ]);
     history.undo();
     expect(useProjectStore.getState().project).toEqual(before);
@@ -59,7 +61,7 @@ describe('editor history store', () => {
     expect(history.getHistorySnapshot()).toMatchObject({ past: [], canRedo: true });
     history.applyRemoteProjectUpdate(structuredClone(after), { source: 'redo' });
     expect(history.getHistorySnapshot()).toMatchObject({
-      past: [{ label: 'AI Assistant: Rename' }],
+      past: [{ label: 'AI: Rename' }],
       future: [],
     });
   });
@@ -112,6 +114,52 @@ describe('editor history store', () => {
     expect(history.getHistorySnapshot()).toMatchObject({ canUndo: true, canRedo: false });
   });
 
+  it('undoes explicit property enabling and playhead edits without restoring implicit lifecycle keys', () => {
+    const id = useProjectStore.getState().addLayer('rectangle');
+    const layer = () =>
+      useProjectStore.getState().project.compositions[0]!.layers.find((item) => item.id === id)!;
+    history.resetHistory();
+    history.runDiscreteHistoryStep(
+      () => useProjectStore.getState().enableLayerPropertyAnimation(id, 'x', 0),
+      'Animate Position X',
+    );
+    history.runDiscreteHistoryStep(
+      () => useProjectStore.getState().updateLayerTransform(id, 8, { x: 500 }),
+      'Key Position X',
+    );
+    expect(layer().animationTracks.x?.map((key) => key.frame)).toEqual([0, 8]);
+    history.undo();
+    expect(layer().animationTracks.x?.map((key) => key.frame)).toEqual([0]);
+    history.undo();
+    expect(layer().animationTracks).toEqual({});
+    expect(layer().keyframes.map((key) => key.frame)).toEqual([0]);
+    history.redo(2);
+    expect(layer().animationTracks.x?.map(({ frame, value }) => ({ frame, value }))).toEqual([
+      { frame: 0, value: 100 },
+      { frame: 8, value: 500 },
+    ]);
+  });
+
+  it('restores the original selection in one undo after repeating', () => {
+    const source = useProjectStore.getState().addLayer('rectangle');
+    useSelectionStore.getState().select(source);
+    history.resetHistory();
+    history.runDiscreteHistoryStep(() => {
+      const result = useProjectStore.getState().addRepeater([source], 3, 'horizontal', 24)!;
+      useSelectionStore
+        .getState()
+        .selectMany(result.items.flatMap((item) => Object.values(item.layers)));
+    }, 'Repeat selection');
+    expect(useProjectStore.getState().project.compositions[0]!.layers).toHaveLength(3);
+    expect(history.getHistorySnapshot().past.at(-1)?.label).toBe('Repeat selection');
+    history.undo();
+    expect(useProjectStore.getState().project.compositions[0]!.layers).toHaveLength(1);
+    expect(useSelectionStore.getState().selectedLayerIds).toEqual([source]);
+    history.redo();
+    expect(useProjectStore.getState().project.compositions[0]!.layers).toHaveLength(3);
+    expect(useSelectionStore.getState().selectedLayerIds).toHaveLength(3);
+  });
+
   it('jumps across multiple displayed actions', () => {
     useProjectStore.getState().setProjectMeta({ name: 'First name' });
     vi.advanceTimersByTime(600);
@@ -126,6 +174,52 @@ describe('editor history store', () => {
     history.redo(2);
     expect(useProjectStore.getState().project.name).toBe('Second name');
     expect(history.getHistorySnapshot().past).toHaveLength(2);
+  });
+
+  it('jumps to the state after a named action and forward again, even with selection undo pending', () => {
+    const original = useProjectStore.getState().project;
+    let id = '';
+    history.runDiscreteHistoryStep(() => {
+      id = useProjectStore.getState().addLayer('text');
+    }, 'Add Text');
+    history.runDiscreteHistoryStep(
+      () => useProjectStore.getState().updateLayerTransform(id, 0, { x: 345, y: 234 }),
+      'Move Text',
+    );
+    useSelectionStore.getState().select(id);
+    history.runDiscreteHistoryStep(() => {
+      const result = useProjectStore.getState().addRepeater([id], 3, 'horizontal', 24)!;
+      useSelectionStore
+        .getState()
+        .selectMany(result.items.flatMap((item) => Object.values(item.layers)));
+    }, 'Repeat selection');
+    expect(history.getHistorySnapshot().past.map((item) => item.label)).toEqual([
+      'Add Text',
+      'Move Text',
+      'Repeat selection',
+    ]);
+    history.jumpToHistoryPosition(1);
+    expect(useProjectStore.getState().project.compositions[0]!.layers).toHaveLength(1);
+    expect(history.getHistorySnapshot()).toMatchObject({
+      past: [{ label: 'Add Text' }],
+      future: [{ label: 'Move Text' }, { label: 'Repeat selection' }],
+    });
+    history.jumpToHistoryPosition(3);
+    expect(useProjectStore.getState().project.compositions[0]!.layers).toHaveLength(3);
+    history.jumpToHistoryPosition(0);
+    expect(useProjectStore.getState().project).toEqual(original);
+  });
+
+  it('records the next project edit after jumping over a set-only change', () => {
+    useProjectSetStore.getState().setActiveTemplateId('test-template');
+    history.jumpToHistoryPosition(0);
+    expect(useProjectSetStore.getState().activeTemplateId).toBeNull();
+    useProjectStore.getState().setProjectMeta({ name: 'After set change' });
+    expect(history.getHistorySnapshot().past.at(-1)?.label).toBe(
+      'Rename project to “After set change”',
+    );
+    expect(history.getHistorySnapshot().future).toHaveLength(0);
+    useProjectSetStore.getState().clearProjectSet();
   });
 
   it('reconciles the active composition when undo restores another project snapshot', () => {

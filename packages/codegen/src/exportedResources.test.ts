@@ -3,6 +3,9 @@ import {
   createAsset,
   createComposition,
   createImageLayer,
+  createLayerOfKind,
+  createMediaPaint,
+  createMediaCue,
   createProject,
 } from '@ograf-editor/scene-model';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
@@ -37,6 +40,11 @@ function descriptor() {
       capacity: 2,
       overflow: 'truncate',
       offsetPerItem: { x: 0, y: 0 },
+      itemKeyPath: [],
+      sortPath: [],
+      sortDirection: 'none',
+      pageSize: 0,
+      page: 0,
       prototypeLayers: [
         {
           ...structuredClone(image),
@@ -199,5 +207,148 @@ describe('exported package resource resolution', () => {
       mimeType: 'image/svg+xml',
     });
     expect(artifacts.mainJs).toContain('artwork/custom.resource');
+  });
+
+  it('packages media paint clips once and resolves them relative to normal and blob modules', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const clip = createAsset({
+      id: 'clip',
+      name: 'Clip',
+      kind: 'media',
+      mimeType: 'video/mp4',
+      dataUri: 'data:video/mp4;base64,AAAA',
+    });
+    composition.assets.push(clip);
+    const layer = createLayerOfKind('rectangle');
+    if (!('fill' in layer.element)) throw new Error('Expected fill');
+    layer.element.fill = createMediaPaint({ source: { kind: 'clip', src: `asset:${clip.id}` } });
+    composition.layers.push(layer);
+    const artifacts = buildExportArtifactsWithRuntime(project, composition, runtime);
+    expect(artifacts.resources).toContainEqual({
+      path: 'assets/clip.mp4',
+      data: 'AAAA',
+      base64: true,
+      mimeType: 'video/mp4',
+    });
+    const compiled = compileDescriptor(composition);
+    const mediaFill = compiled.layers[0]!.element;
+    expect('fill' in mediaFill && mediaFill.fill).toMatchObject({
+      source: { kind: 'clip', src: 'data:video/mp4;base64,AAAA' },
+    });
+    const packaged = structuredClone(compiled);
+    const packagedElement = packaged.layers[0]!.element;
+    if (
+      !('fill' in packagedElement) ||
+      !packagedElement.fill ||
+      typeof packagedElement.fill !== 'object'
+    )
+      throw new Error('Expected media fill');
+    (packagedElement.fill as ReturnType<typeof createMediaPaint>).source = {
+      kind: 'clip',
+      src: 'assets/clip.mp4',
+    };
+    const Graphic = evaluate('https://renderer.example/package/main.js', packaged, [
+      'assets/clip.mp4',
+    ]);
+    expect(Graphic.descriptor.layers[0]!.element).toMatchObject({
+      fill: {
+        type: 'media',
+        source: { kind: 'clip', src: 'https://renderer.example/package/assets/clip.mp4' },
+      },
+    });
+  });
+
+  it('packages first-class audio and resolves its runtime source', () => {
+    const project = createProject({ supportsNonRealTime: false });
+    const composition = project.compositions[0]!;
+    const audioAsset = createAsset({
+      id: 'theme',
+      name: 'Theme',
+      kind: 'audio',
+      mimeType: 'audio/mpeg',
+      dataUri: 'data:audio/mpeg;base64,AAAA',
+    });
+    const layer = createLayerOfKind('audio');
+    if (layer.element.type !== 'audio') throw new Error('Expected audio');
+    layer.element.src = `asset:${audioAsset.id}`;
+    layer.element.trimStartMs = 500;
+    layer.element.timelineStartMs = 1_000;
+    composition.assets.push(audioAsset);
+    composition.layers.push(layer);
+
+    const artifacts = buildExportArtifactsWithRuntime(project, composition, runtime);
+    expect(artifacts.resources).toContainEqual({
+      path: 'assets/theme.mp3',
+      data: 'AAAA',
+      base64: true,
+      mimeType: 'audio/mpeg',
+    });
+    const compiled = compileDescriptor(composition);
+    const packaged = structuredClone(compiled);
+    const packagedAudio = packaged.layers[0]!.element;
+    if (packagedAudio.type !== 'audio') throw new Error('Expected audio');
+    packagedAudio.src = 'assets/theme.mp3';
+    const Graphic = evaluate('https://renderer.example/package/main.js', packaged, [
+      'assets/theme.mp3',
+    ]);
+    expect(Graphic.descriptor.layers[0]!.element).toMatchObject({
+      type: 'audio',
+      src: 'https://renderer.example/package/assets/theme.mp3',
+      trimStartMs: 500,
+      timelineStartMs: 1_000,
+    });
+  });
+
+  it('packages Media Cue sources once and resolves them in the exported descriptor', () => {
+    const project = createProject({ supportsNonRealTime: false });
+    const composition = project.compositions[0]!;
+    composition.assets.push(
+      createAsset({
+        id: 'cue-audio',
+        name: 'Cue Audio',
+        kind: 'audio',
+        mimeType: 'audio/ogg',
+        dataUri: 'data:audio/ogg;base64,AAAA',
+      }),
+    );
+    composition.mediaCues.push(
+      createMediaCue({
+        id: 'cue',
+        sources: [
+          {
+            id: 'source',
+            name: 'Audio',
+            kind: 'clip',
+            mediaType: 'audio',
+            src: 'asset:cue-audio',
+          },
+        ],
+        activeSourceId: 'source',
+      }),
+    );
+    const artifacts = buildExportArtifactsWithRuntime(project, composition, runtime);
+    expect(artifacts.resources).toContainEqual({
+      path: 'assets/cue-audio.ogg',
+      data: 'AAAA',
+      base64: true,
+      mimeType: 'audio/ogg',
+    });
+    const descriptor = compileDescriptor(composition);
+    descriptor.mediaCues![0]!.sources = [
+      {
+        id: 'source',
+        name: 'Audio',
+        kind: 'clip',
+        mediaType: 'audio',
+        src: 'assets/cue-audio.ogg',
+      },
+    ];
+    const Graphic = evaluate('https://renderer.example/package/main.js', descriptor, [
+      'assets/cue-audio.ogg',
+    ]);
+    expect(Graphic.descriptor.mediaCues?.[0]?.sources[0]).toMatchObject({
+      src: 'https://renderer.example/package/assets/cue-audio.ogg',
+    });
   });
 });

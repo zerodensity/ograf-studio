@@ -9,3 +9,7 @@
 *.woff binary
 *.woff2 binary
 *.zip binary
+
+# scripts/updateFontLibrary.mjs pins the exact upstream bytes of this snapshot by hash, and
+# upstream line endings vary by family.
+apps/editor/src/assets/font-library/** -text

@@ -1,4 +1,5 @@
 import { clipPathSvgForParentBounds } from './clipping';
+import { layerCropPolygon } from './layerCrop';
 import { effectStackToSvg, effectStackPadding } from './effectRendering';
 import { getPaintAtFrame } from './layerAnimation';
 import { relativeTransformMatrix } from './masking';
@@ -9,6 +10,7 @@ import type {
   LayerAnimationTracks,
   LayerEffects,
   LayerMask,
+  LayerCrop,
   LayerTransform,
 } from './types';
 
@@ -18,6 +20,7 @@ export interface MaskRenderLayer {
   isVisible: boolean;
   mask?: LayerMask | null;
   clipParentId?: string | null;
+  crop?: LayerCrop;
 }
 export interface MaskRenderState {
   transform: LayerTransform;
@@ -88,6 +91,11 @@ export function layerMaskSvg(
             content = `<g clip-path="url(#${maskId}-clip)">${content}</g>`;
           }
         }
+      }
+      if (source.crop) {
+        const points = layerCropPolygon(source.crop);
+        defs += `<clipPath id="${maskId}-crop"><polygon points="${points.map((point) => `${point.x * state.transform.width},${point.y * state.transform.height}`).join(' ')}"/></clipPath>`;
+        content = `<g clip-path="url(#${maskId}-crop)">${content}</g>`;
       }
       content = `<g transform="matrix(${relativeTransformMatrix(state.transform, targetState.transform).join(' ')})" opacity="${mask.mode === 'path' ? 1 : state.transform.opacity}">${content}</g>`;
     }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
 import { createProject } from '@ograf-editor/scene-model';
-import { saveProjectToFile } from './fileIO';
+import { downloadProjectSource, saveProjectSourceToFile, saveProjectToFile } from './fileIO';
 import { certifyProject } from './ografCompatibility';
 import { createTemplateThumbnail } from './templateThumbnail';
 
@@ -18,6 +18,120 @@ describe('saving a template with its thumbnail', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('uses the filename selected in the native dialog for both source and editor state', async () => {
+    const events: string[] = [];
+    let output: Blob | undefined;
+    const folderPicker = vi.fn();
+    const writable = {
+      write: vi.fn(async (blob: Blob) => {
+        output = blob;
+        events.push('write');
+      }),
+      close: vi.fn(async () => {
+        events.push('close');
+      }),
+      abort: vi.fn(async () => {}),
+    };
+    const filePicker = vi.fn(async () => {
+      events.push('picker');
+      return { name: 'Morning Update.ogs', createWritable: async () => writable };
+    });
+    vi.stubGlobal('window', { showSaveFilePicker: filePicker, showDirectoryPicker: folderPicker });
+    vi.mocked(certifyProject).mockImplementation(async () => {
+      events.push('certify');
+      return { valid: true, errors: [], checks: [] } as never;
+    });
+    const project = createProject({ name: 'News Bulletin' });
+
+    const saving = saveProjectSourceToFile(project);
+    expect(events).toEqual(['picker']);
+    expect(await saving).toMatchObject({
+      status: 'saved',
+      fileName: 'Morning Update.ogs',
+      project: { id: project.id, name: 'Morning Update' },
+    });
+    expect(filePicker).toHaveBeenCalledWith({
+      suggestedName: 'News Bulletin.ogs',
+      types: [
+        {
+          description: 'OGS template files',
+          accept: { 'application/x-ograf-studio-project': ['.ogs'] },
+        },
+      ],
+    });
+    expect(events).toEqual(['picker', 'certify', 'write', 'close']);
+    expect(folderPicker).not.toHaveBeenCalled();
+    expect(JSON.parse(await output!.text())).toMatchObject({
+      id: project.id,
+      name: 'Morning Update',
+    });
+    expect(certifyProject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Morning Update' }),
+    );
+    expect(project.name).toBe('News Bulletin');
+  });
+
+  it('leaves the project untouched when the file save dialog is cancelled', async () => {
+    vi.stubGlobal('window', {
+      showSaveFilePicker: async () => {
+        throw new DOMException('Cancelled', 'AbortError');
+      },
+    });
+    const certify = vi.mocked(certifyProject);
+    certify.mockClear();
+    expect(await saveProjectSourceToFile(createProject())).toEqual({ status: 'cancelled' });
+    expect(certify).not.toHaveBeenCalled();
+  });
+
+  it('reports a write failure and aborts without silently downloading elsewhere', async () => {
+    const writeError = new Error('Disk full');
+    const writable = {
+      write: vi.fn(async () => {
+        throw writeError;
+      }),
+      close: vi.fn(),
+      abort: vi.fn(async () => {}),
+    };
+    vi.stubGlobal('window', {
+      showSaveFilePicker: async () => ({ name: 'News.ogs', createWritable: async () => writable }),
+    });
+    await expect(saveProjectSourceToFile(createProject())).rejects.toBe(writeError);
+    expect(writable.abort).toHaveBeenCalledOnce();
+    expect(writable.close).not.toHaveBeenCalled();
+  });
+
+  it('downloads renamed .ogs source without opening a folder or file picker', async () => {
+    let output: Blob | undefined;
+    const picker = vi.fn();
+    const anchor = { href: '', download: '', click: vi.fn() };
+    vi.stubGlobal('window', {
+      document: { createElement: () => anchor },
+      showDirectoryPicker: picker,
+      showSaveFilePicker: picker,
+      setTimeout: (fn: () => void) => {
+        fn();
+        return 0;
+      },
+    });
+    vi.stubGlobal('document', { createElement: () => anchor });
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      output = blob as Blob;
+      return 'blob:source';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const project = createProject({ name: 'News Bulletin', thumbnailFrame: 7 });
+
+    expect(await downloadProjectSource(project)).toBe('downloaded');
+    expect(picker).not.toHaveBeenCalled();
+    expect(anchor.download).toBe('News Bulletin.ogs');
+    expect(anchor.click).toHaveBeenCalledOnce();
+    expect(JSON.parse(await output!.text())).toMatchObject({
+      id: project.id,
+      name: 'News Bulletin',
+      thumbnailFrame: 7,
+    });
   });
 
   it('picks a folder during the click and saves both matching files after certification', async () => {
@@ -77,6 +191,7 @@ describe('saving a template with its thumbnail', () => {
     let output: Blob | undefined;
     const anchor = { href: '', download: '', click: vi.fn() };
     vi.stubGlobal('window', {
+      document: { createElement: () => anchor },
       setTimeout: (fn: () => void) => {
         fn();
         return 0;

@@ -2,10 +2,14 @@
 
 [Back to overview](../README.md) · [Using Studio](USER_GUIDE.md) · [AI authoring](AI_AUTHORING.md)
 
+These instructions describe the 0.30.0 source line. See [What's new in 0.30](releases/0.30.0.md)
+for current authoring and integration capabilities.
+
 ## Requirements
 
 - Node.js 22 or newer
 - npm
+- [Bun 1.3.11](https://bun.sh/) to build the included first-party plugins from their sources
 - A modern Chromium-based browser is recommended for the File System Access API; other browsers use
   download/upload fallbacks.
 
@@ -20,12 +24,30 @@ npm run dev
 
 Open `http://localhost:5173/`.
 
+Editor development and production builds regenerate the included shader packs, Broadcast Motion
+and Chart.js bundles. Their exact hashes are compiled into the application, and their archives
+are served locally, including in the offline standalone executable. `npm run plugins:bundle`
+regenerates these assets explicitly; `npm run plugins:check` verifies their source and byte pins.
+
 The root development command builds the runtime bundle before starting Vite. If you change
 `packages/ograf-runtime/src` while the editor is already running, rebuild it explicitly:
 
 ```powershell
 npm run build --workspace @ograf-editor/ograf-runtime
 ```
+
+### Build version
+
+Studio's displayed version and standalone executable metadata come from the root `package.json`.
+For this source line, check it with:
+
+```powershell
+npm pkg get version
+# Expected: "0.30.0"
+```
+
+Restart the development server or rebuild after changing the version. Packaging creates local
+artifacts; it does not create a Git tag or publish a GitHub release.
 
 ## Run the MCP server
 
@@ -139,6 +161,29 @@ npm run verify
 It checks generated MCP contract drift, formatting, lint, every workspace typecheck, all tests, the
 OGraf runtime bundle, and the editor production build. `npm test` also prebuilds the ignored runtime
 bundle so tests work in a fresh clone.
+
+## Authoring skill bundle freshness
+
+Build commands regenerate `skills/ograf-authoring/ograf-authoring.zip` from the canonical skill,
+references, and metadata. Entries are sorted, line endings normalized, and timestamps fixed, so
+unchanged sources produce the same archive. The archive excludes itself.
+
+```powershell
+npm run skill:package
+npm run skill:check
+npm run hooks:install
+```
+
+The first build installs the repository's pre-push guard when no custom hook is configured. It checks
+the **committed revision being pushed**, so a freshly rebuilt but uncommitted ZIP cannot hide a stale
+archive in the commit. Commit the rebuilt ZIP alongside skill changes. Custom hook configurations
+are preserved; chain `node scripts/packageAuthoringSkill.mjs --check-push` from the existing pre-push
+hook, passing its standard input. `npm run verify` also checks ZIP/source parity.
+
+The guard is configured per checkout. When `extensions.worktreeConfig` is on, each checkout records
+its own `.githooks` path with `git config --worktree`, so the shared `.git/config` is never changed
+and removing one worktree cannot disarm another. Without that extension a linked worktree has no
+config of its own: run `npm run hooks:install` from the main checkout instead.
 
 ## Repository layout
 

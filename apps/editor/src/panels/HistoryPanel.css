@@ -1,0 +1,42 @@
+.history-pane {
+  padding: 8px;
+}
+.history-pane p {
+  color: var(--text-muted, #aaa);
+  margin: 0 0 8px;
+}
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.history-list li {
+  margin: 1px 0;
+}
+.history-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+.history-list button:hover {
+  background: #353b40;
+}
+.history-list button.current {
+  background: #254354;
+  border-color: #2987b5;
+}
+.history-list button.future {
+  opacity: 0.65;
+}
+.history-list small {
+  flex: none;
+  color: #aaa;
+}

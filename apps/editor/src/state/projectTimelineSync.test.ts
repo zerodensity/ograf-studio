@@ -4,6 +4,7 @@ import { useProjectStore } from './projectStore';
 import { useTimelineStore, type TimelineController } from './timelineStore';
 import { initializeEditorSession } from './editorStartup';
 import { useLayerClipboardStore } from './layerClipboardStore';
+import { onAirFrame } from './onAirFrame';
 
 function installTimelineAtFrame(frame: number): TimelineController {
   const controller: TimelineController = {
@@ -33,7 +34,7 @@ describe('project and timeline synchronization', () => {
     });
   });
 
-  it('stops the outgoing timeline and resets to frame zero when loading a project', () => {
+  it('stops the outgoing timeline and opens a project on its first step', () => {
     const controller = installTimelineAtFrame(42);
     const project = createProject({ name: 'Loaded project' });
 
@@ -41,7 +42,7 @@ describe('project and timeline synchronization', () => {
 
     expect(controller.stop).toHaveBeenCalledOnce();
     expect(useTimelineStore.getState()).toMatchObject({
-      currentFrame: 0,
+      currentFrame: onAirFrame(project.compositions[0]!),
       autoKeyframe: false,
       isPlaying: false,
       durationFrames: 0,
@@ -52,7 +53,21 @@ describe('project and timeline synchronization', () => {
     const composition = state.project.compositions[0]!;
     expect(
       composition.keyframes.find((keyframe) => keyframe.id === state.activeKeyframeId)?.role,
-    ).toBe('start');
+    ).toBe('step');
+  });
+
+  it('preserves outgoing playback and clipboard if project migration rejects the load', () => {
+    const controller = installTimelineAtFrame(42);
+    const before = useProjectStore.getState();
+    const clipboard = useLayerClipboardStore.getState();
+    const timeline = useTimelineStore.getState();
+    const project = createProject({ name: 'Invalid incoming project' });
+    project.shaders = {} as never;
+    expect(() => before.loadProject(project)).toThrow('Project shader library must be an array');
+    expect(useProjectStore.getState()).toBe(before);
+    expect(useLayerClipboardStore.getState()).toBe(clipboard);
+    expect(useTimelineStore.getState()).toBe(timeline);
+    expect(controller.stop).not.toHaveBeenCalled();
   });
 
   it('resets transient playback state when creating a new project', () => {
@@ -72,13 +87,13 @@ describe('project and timeline synchronization', () => {
     const composition = state.project.compositions[0]!;
     expect(
       composition.keyframes.find((keyframe) => keyframe.id === state.activeKeyframeId)?.role,
-    ).toBe('start');
+    ).toBe('step');
   });
 
-  it('resets a reused editor session before mounting when no autosave exists', () => {
+  it('resets a reused editor session before mounting when no autosave exists', async () => {
     const controller = installTimelineAtFrame(17);
 
-    initializeEditorSession(null);
+    await initializeEditorSession(null);
 
     expect(controller.stop).toHaveBeenCalledOnce();
     expect(useTimelineStore.getState()).toMatchObject({
@@ -90,16 +105,16 @@ describe('project and timeline synchronization', () => {
     });
   });
 
-  it('loads an autosave at frame zero before mounting the editor', () => {
+  it('loads an autosave at its first step before mounting the editor', async () => {
     const controller = installTimelineAtFrame(17);
     const autosaved = createProject({ name: 'Autosaved project' });
 
-    initializeEditorSession(autosaved);
+    await initializeEditorSession(autosaved);
 
     expect(controller.stop).toHaveBeenCalledOnce();
     expect(useProjectStore.getState().project.name).toBe('Autosaved project');
     expect(useTimelineStore.getState()).toMatchObject({
-      currentFrame: 0,
+      currentFrame: onAirFrame(autosaved.compositions[0]!),
       autoKeyframe: false,
       isPlaying: false,
       durationFrames: 0,

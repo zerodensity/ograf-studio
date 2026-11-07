@@ -13,7 +13,7 @@
   flex: none;
   font-size: var(--ui-font-size-compact);
   color: var(--text);
-  padding: 7px 10px;
+  padding: 4px 6px;
   background: var(--bg-header);
   border-bottom: 1px solid var(--border);
 }
@@ -22,7 +22,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 8px 10px;
+  padding: 4px 6px;
 }
 
 .panel-placeholder {
@@ -38,6 +38,6 @@
 }
 
 .panel-placeholder-list li {
-  padding: 6px 4px;
+  padding: 4px;
   border-bottom: 1px solid var(--border);
 }

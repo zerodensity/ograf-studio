@@ -1,4 +1,10 @@
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 
 const STORAGE_KEY = 'ograf-editor:panel-sizes';
 
@@ -37,6 +43,9 @@ interface UseResizableOptions {
   axis: ResizeAxis;
   /** Set when the handle sits on the pane's leading edge, so dragging toward the pane shrinks it. */
   invert?: boolean;
+  /** Workspace-owned size; legacy callers can keep using this hook's local persistence. */
+  value?: number;
+  onSizeChange?: (size: number) => void;
 }
 
 interface UseResizableResult {
@@ -51,11 +60,16 @@ export function useResizable({
   max,
   axis,
   invert = false,
+  value,
+  onSizeChange,
 }: UseResizableOptions): UseResizableResult {
-  const [size, setSize] = useState(() => {
+  const [storedSize, setSize] = useState(() => {
     const stored = loadStoredSizes()[key];
     return stored !== undefined ? clamp(stored, min, max) : defaultSize;
   });
+  const size = clamp(value ?? storedSize, min, max);
+  const latest = useRef({ value, onSizeChange, size });
+  latest.current = { value, onSizeChange, size };
   const dragStart = useRef<{ pos: number; size: number } | null>(null);
 
   const handlePointerMove = useCallback(
@@ -63,7 +77,9 @@ export function useResizable({
       if (!dragStart.current) return;
       const pos = axis === 'col' ? e.clientX : e.clientY;
       const delta = pos - dragStart.current.pos;
-      setSize(clamp(dragStart.current.size + (invert ? -delta : delta), min, max));
+      const next = clamp(dragStart.current.size + (invert ? -delta : delta), min, max);
+      if (latest.current.value === undefined) setSize(next);
+      latest.current.onSizeChange?.(next);
     },
     [axis, invert, min, max],
   );
@@ -73,10 +89,7 @@ export function useResizable({
     window.removeEventListener('pointermove', handlePointerMove);
     window.removeEventListener('pointerup', handlePointerUp);
     document.body.classList.remove('is-resizing');
-    setSize((current) => {
-      persistSize(key, current);
-      return current;
-    });
+    if (latest.current.value === undefined) persistSize(key, latest.current.size);
   }, [handlePointerMove, key]);
 
   const startDrag = useCallback(
@@ -89,6 +102,16 @@ export function useResizable({
       document.body.dataset.resizeAxis = axis;
     },
     [axis, size, handlePointerMove, handlePointerUp],
+  );
+
+  useEffect(
+    () => () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      if (dragStart.current) document.body.classList.remove('is-resizing');
+      dragStart.current = null;
+    },
+    [handlePointerMove, handlePointerUp],
   );
 
   return { size, startDrag };

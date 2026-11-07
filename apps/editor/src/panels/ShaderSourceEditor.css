@@ -12,17 +12,6 @@
   gap: 6px;
   margin: 6px;
 }
-.shader-source-label textarea {
-  width: 100%;
-  min-height: 240px;
-  resize: vertical;
-  box-sizing: border-box;
-  font:
-    11px/1.5 Consolas,
-    monospace;
-  tab-size: 2;
-  white-space: pre;
-}
 .shader-source-error {
   color: #ff9f96;
   white-space: pre-wrap;
@@ -30,18 +19,33 @@
   margin: 6px;
 }
 .shader-number-control {
-  display: flex;
-  gap: 6px;
+  min-height: var(--ui-control-height);
+  display: grid;
+  grid-template-columns: minmax(40px, 1fr) 60px;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 0;
+}
+.inspector-row > .shader-number-control {
+  width: calc(100% - 8px);
+  align-self: center;
+  justify-self: stretch;
+  margin: 1px 4px;
 }
 .shader-number-control input[type='range'] {
-  flex: 1;
+  width: 100%;
+  height: var(--ui-control-height);
   min-width: 40px;
+  margin: 0;
+  padding: 0;
 }
 .shader-number-control input[type='number'] {
-  width: 64px;
+  width: 60px;
+  min-height: var(--ui-control-height);
   min-width: 0;
+  margin: 0;
+  padding: 1px 4px;
 }
 .shader-render-settings {
   padding: 6px 0;

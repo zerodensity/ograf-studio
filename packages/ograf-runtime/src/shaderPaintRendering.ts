@@ -7,11 +7,14 @@ import {
   type ShaderPaintSlot,
 } from '@ograf-editor/scene-model';
 import { createShaderPaintMask } from './shaderPaintMask';
+import { renderTextAnimationAtFrame } from './textAnimationRendering';
+import { renderChartAnimationAtFrame } from './chartRendering';
 import {
   mountShader,
   disposeShader,
   renderShaderAtTime,
   setShaderCoverage,
+  setShaderTextTint,
   updateShaderParameters,
 } from './shaderRendering';
 
@@ -20,6 +23,7 @@ interface RenderOptions {
   shaderStrokePadding?: number;
   lottieBackingSize?: { width: number; height: number };
   requiresImageAlpha?: boolean;
+  frameRate?: number;
 }
 interface NativeContent {
   render(host: HTMLElement, element: Element, options: RenderOptions): void;
@@ -34,6 +38,7 @@ interface MountedSlot {
   paint: ShaderPaint;
   mask?: ReturnType<typeof createShaderPaintMask>;
   size: { width: number; height: number };
+  textTint: boolean;
 }
 interface MountedPaint {
   container: HTMLElement;
@@ -186,13 +191,35 @@ function drawRequestedFrame(mounted: MountedPaint): void {
   mounted.busy = true;
   void (async () => {
     mounted.native.renderAtTime(mounted.baseHost, mounted.baseElement, elapsedMs);
+    if (
+      mounted.baseElement.type === 'chart' &&
+      mounted.container.dataset.ografChartAnimationFrame !== undefined
+    ) {
+      mounted.baseHost.dataset.ografChartAnimationFrame =
+        mounted.container.dataset.ografChartAnimationFrame;
+      renderChartAnimationAtFrame(
+        mounted.baseHost,
+        mounted.baseElement,
+        Number(mounted.container.dataset.ografChartAnimationFrame),
+      );
+    }
+    const textFrame = Number(mounted.container.dataset.ografTextAnimationFrame);
+    if (
+      mounted.baseElement.type === 'text' &&
+      mounted.container.dataset.ografTextAnimationFrame !== undefined &&
+      Number.isFinite(textFrame)
+    ) {
+      renderTextAnimationAtFrame(mounted.baseHost, mounted.baseElement, textFrame);
+    }
     await mounted.native.ready(mounted.baseHost);
     for (const entry of slots) {
       if (mounted.disposed || mounted.configuration !== configuration) return;
       await entry.mask!.ready;
-      const coverage = await entry.mask!.update(elapsedMs);
+      const coverage = await entry.mask!.update(elapsedMs, { immutableChartSnapshot: true });
       if (mounted.disposed || mounted.configuration !== configuration) return;
       if (coverage) setShaderCoverage(entry.host, coverage as TexImageSource);
+      if (coverage && entry.textTint)
+        setShaderTextTint(entry.host, entry.mask!.textTint() as TexImageSource | null);
       renderShaderAtTime(entry.host, elapsedMs);
     }
   })()
@@ -227,6 +254,7 @@ function refreshMasks(mounted: MountedPaint, element: Element): void {
       slot: entry.slot,
       padding: mounted.padding,
       refreshTextLayout: () => mounted.native.refreshLayout(mounted.baseHost),
+      textTint: entry.textTint,
     });
   }
 }
@@ -237,7 +265,7 @@ function configureBase(mounted: MountedPaint, element: Element): void {
   mounted.baseHost.style.opacity = ['image', 'image-sequence', 'lottie'].includes(element.type)
     ? '0'
     : '';
-  mounted.baseHost.style.zIndex = '1';
+  mounted.baseHost.style.zIndex = element.type === 'chart' ? 'auto' : '1';
   mounted.native.render(mounted.baseHost, mounted.baseElement, {
     ...mounted.options,
     requiresImageAlpha: true,
@@ -266,8 +294,18 @@ function reconcileSlots(mounted: MountedPaint, element: Element): boolean {
     changed = true;
   }
   for (const { slot, paint } of desired) {
+    const textTint =
+      mounted.container.dataset.ografExperimentalShaderTint === 'true' &&
+      slot === 'fill' &&
+      element.type === 'text' &&
+      !!element.textAnimation.animators?.some(
+        (animator) => animator.enabled && animator.properties.color,
+      );
     let entry = mounted.slots.get(slot);
-    if (entry && !updateShaderParameters(entry.host, paint, layout.size)) {
+    if (
+      entry &&
+      (entry.textTint !== textTint || !updateShaderParameters(entry.host, paint, layout.size))
+    ) {
       removeSlot(entry);
       mounted.slots.delete(slot);
       entry = undefined;
@@ -277,7 +315,7 @@ function reconcileSlots(mounted: MountedPaint, element: Element): boolean {
       host.dataset.ografShaderSlotHost = slot;
       Object.assign(host.style, { position: 'absolute', pointerEvents: 'none' });
       mounted.visualHost.appendChild(host);
-      mountShader(host, paint, layout.size, true);
+      mountShader(host, paint, layout.size, true, textTint);
       const canvas = host.querySelector<HTMLCanvasElement>('[data-ograf-shader-canvas]');
       if (!canvas) throw new Error(`Shader ${slot} canvas was not created.`);
       canvas.dataset.ografShaderSlot = slot;
@@ -287,13 +325,14 @@ function reconcileSlots(mounted: MountedPaint, element: Element): boolean {
         width: '100%',
         height: '100%',
       });
-      entry = { slot, host, paint, size: { width: canvas.width, height: canvas.height } };
+      entry = { slot, host, paint, size: { width: canvas.width, height: canvas.height }, textTint };
       mounted.slots.set(slot, entry);
       changed = true;
     }
     entry.paint = paint;
     Object.assign(entry.host.style, layout.style, {
-      zIndex: slot === 'fill' && element.type === 'text' ? '2' : '0',
+      zIndex:
+        element.type === 'chart' ? '1' : slot === 'fill' && element.type === 'text' ? '2' : '0',
     });
     mounted.visualHost.appendChild(entry.host);
   }
@@ -320,6 +359,8 @@ export function mountShaderPaintContent(
   container.appendChild(visualHost);
   const baseHost = container.ownerDocument.createElement('div');
   baseHost.dataset.ografShaderBase = 'true';
+  if (container.dataset.ografExperimentalShaderTint === 'true')
+    baseHost.dataset.ografExperimentalShaderTint = 'true';
   Object.assign(baseHost.style, {
     position: 'absolute',
     inset: '0',

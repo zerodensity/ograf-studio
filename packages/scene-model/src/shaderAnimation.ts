@@ -240,7 +240,12 @@ export function applyShaderAnimationValues(
     } else parameters[spec.name] = spec.glslType === 'bool' ? value === 1 : value;
     const next = { ...paint, parameters };
     if (spec.slot === 'stroke' && result.type === 'text') result = { ...result, strokePaint: next };
-    else result = result.type === 'shader' ? next : { ...result, fill: next };
+    else if (result.type === 'shader') result = next;
+    else {
+      if (!('fill' in result))
+        throw new Error(`Shader animation property "${property}" requires a paintable object.`);
+      result = { ...result, fill: next };
+    }
   }
   return result;
 }

@@ -496,6 +496,9 @@ export function parseShaderParameters(source: string): {
   return { parameters, adaptedSource, errors: [...new Set(errors)] };
 }
 
+/** A data binding onto one uniform; bare `parameters.x` addresses a shader object's own paint. */
+export const SHADER_PARAMETER_TARGET = /^(?:(fill|strokePaint)\.)?parameters\.(.+)$/;
+
 export function shaderParameterTarget(name: string, slot: ShaderPaintSlot = 'fill'): string {
   return `${slot === 'stroke' ? 'strokePaint' : 'fill'}.parameters.${name}`;
 }

@@ -4,6 +4,11 @@ import {
   type OGrafManifest,
 } from '@ograf-editor/ograf-types';
 import type { Composition, Project } from '@ograf-editor/scene-model';
+import {
+  isMediaPaint,
+  walkElementContents,
+  elementAssetReferences,
+} from '@ograf-editor/scene-model';
 import { compileCustomActions, compileDataSchema } from './compileDataSchema';
 import type { CompiledGraphicDescriptor } from './compileDescriptor';
 
@@ -34,16 +39,32 @@ function compileActionDurations(descriptor: CompiledGraphicDescriptor): Manifest
       duration: 0,
       ...(steps.length > 0 ? { steps } : {}),
     },
-    { type: 'updateAction', duration: msFor(descriptor.updateTransitionFrames ?? 0) },
+    {
+      type: 'updateAction',
+      duration: msFor(
+        Math.max(
+          descriptor.updateTransitionFrames ?? 0,
+          ...descriptor.layers.map((layer) => layer.updateTransition?.durationFrames ?? 0),
+        ),
+      ),
+    },
     {
       type: 'stopAction',
-      duration: msFor(transitionInto(endKeyframeId)?.durationFrames ?? 0),
+      duration: msFor(
+        descriptor.exitTailStartFrame === undefined
+          ? (transitionInto(endKeyframeId)?.durationFrames ?? 0)
+          : (descriptor.keyframes.find((key) => key.id === endKeyframeId)?.frame ??
+              descriptor.exitTailStartFrame) - descriptor.exitTailStartFrame,
+      ),
     },
   ];
 
   for (const action of descriptor.customActions) {
-    // Custom actions are declarative acknowledgements today, with no animation of their own.
-    durations.push({ type: 'customAction', customActionId: action.id, duration: 0 });
+    durations.push({
+      type: 'customAction',
+      customActionId: action.id,
+      duration: msFor(action.durationFrames),
+    });
   }
 
   return durations;
@@ -56,14 +77,72 @@ export function assembleManifest(
   descriptor: CompiledGraphicDescriptor,
 ): OGrafManifest {
   const schema = compileDataSchema(composition);
-  const customActions = compileCustomActions(composition);
-  const needsPublicInternet = descriptor.layers.some((layer) => {
-    const element = layer.element;
-    if (element.type === 'image') return /^https?:\/\//i.test(element.src ?? '');
-    if (element.type === 'image-sequence')
-      return element.frames.some((frame) => /^https?:\/\//i.test(frame));
-    return false;
+  const customActions: NonNullable<OGrafManifest['customActions']> =
+    compileCustomActions(composition);
+  const compiledLayers = [
+    ...descriptor.layers,
+    ...(descriptor.collections ?? []).flatMap((collection) => collection.prototypeLayers),
+  ];
+  const loopGroups = [
+    ...new Set(
+      compiledLayers.flatMap((layer) => (layer.loop?.timing ? [layer.loop.timing.groupId] : [])),
+    ),
+  ];
+  if (loopGroups.length) {
+    for (const action of ['pause', 'resume', 'next']) {
+      const id = `loop.${action}`;
+      if (customActions.some((existing) => existing.id === id))
+        throw new Error(
+          `Custom action ${id} is reserved by timed loop controls. Rename the custom action.`,
+        );
+      customActions.push({
+        id,
+        name: `${action === 'next' ? 'Advance' : action === 'pause' ? 'Pause' : 'Resume'} a loop group`,
+        schema: {
+          type: 'object',
+          properties: { groupId: { type: 'string', enum: loopGroups } },
+          required: ['groupId'],
+          additionalProperties: false,
+        },
+      });
+    }
+  }
+  const mediaPaints = compiledLayers.flatMap((layer) => {
+    return walkElementContents(layer.element).flatMap((element) => {
+      const fill =
+        element.type === 'ticker'
+          ? element.background
+          : 'fill' in element
+            ? element.fill
+            : undefined;
+      return isMediaPaint(fill) ? [fill] : [];
+    });
   });
+  const cueSources = (descriptor.mediaCues ?? []).flatMap((cue) => cue.sources);
+  const needsLiveMedia =
+    mediaPaints.some((paint) => paint.source.kind === 'live') ||
+    cueSources.some((source) => source.kind === 'live');
+  const needsPublicInternet =
+    cueSources.some((source) =>
+      source.kind === 'clip'
+        ? /^https?:\/\//i.test(source.src)
+        : /^https?:\/\//i.test(source.fallback ?? ''),
+    ) ||
+    compiledLayers.some((layer) => {
+      if (elementAssetReferences(layer.element).some((source) => /^https?:\/\//i.test(source)))
+        return true;
+      const element = layer.element;
+      if (element.type === 'image') return /^https?:\/\//i.test(element.src ?? '');
+      if (element.type === 'audio') return /^https?:\/\//i.test(element.src ?? '');
+      if (element.type === 'image-sequence')
+        return element.frames.some((frame) => /^https?:\/\//i.test(frame));
+      const fill = 'fill' in element ? element.fill : undefined;
+      if (isMediaPaint(fill)) {
+        const source = fill.source.kind === 'clip' ? fill.source.src : fill.source.fallback;
+        return /^https?:\/\//i.test(source ?? '');
+      }
+      return false;
+    });
 
   const manifest: OGrafManifest = {
     $schema: OGRAF_MANIFEST_SCHEMA_URL,
@@ -80,9 +159,15 @@ export function assembleManifest(
         // Per the EBU schema, these are constraint objects (modeled on MediaTrackConstraints'
         // ConstrainDouble/ConstrainBoolean), not raw values — confirmed against the live schema
         // during the Phase 5a ograf-devtool cross-check, which caught this exact divergence.
-        resolution: { width: { exact: descriptor.width }, height: { exact: descriptor.height } },
+        resolution: {
+          width: { exact: descriptor.crop?.width ?? descriptor.width },
+          height: { exact: descriptor.crop?.height ?? descriptor.height },
+        },
         frameRate: { exact: descriptor.frameRate },
         accessToPublicInternet: { exact: needsPublicInternet },
+        ...(needsLiveMedia
+          ? { engine: [{ type: 'ZeroDensityHTML', version: { min: '1.0' } }] }
+          : {}),
       },
     ],
   };
@@ -92,6 +177,13 @@ export function assembleManifest(
   if (Object.keys(schema.properties).length > 0)
     manifest.schema = schema as unknown as Record<string, unknown>;
   if (customActions.length > 0) manifest.customActions = customActions;
+  if (loopGroups.length)
+    for (const action of ['pause', 'resume', 'next'])
+      manifest.actionDurations!.push({
+        type: 'customAction',
+        customActionId: `loop.${action}`,
+        duration: 0,
+      });
 
   return manifest;
 }

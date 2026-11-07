@@ -48,6 +48,14 @@ disconnected.
 Do not repeatedly retry browser-dependent mutations while responsiveness is false. Preserve the
 current project revision and recover the editor connection first.
 
+After template activation, browser tools briefly wait for a fresh heartbeat before admission.
+If Studio is still settling, the tool can return `isError:true` with
+`structuredContent.error = {code:"EDITOR_NOT_READY",retryable:true,admitted:false,
+operation,retryAfterMs,health}`. This means the requested operation was not dispatched or queued
+for later execution. Keep Studio visible, recheck readiness and the relevant revision, then retry
+deliberately. This contract does not apply to execution timeouts or uncertain playout outcomes:
+read their status and preserve the original request ID instead of repeating a mutation.
+
 ## Claude Desktop on Windows
 
 Claude Desktop's JSON configuration launches local stdio processes. This server uses Streamable
@@ -67,6 +75,20 @@ HTTP, so a local compatibility bridge is required:
 Merge the entry into `%APPDATA%\Claude\claude_desktop_config.json`, then fully restart Claude
 Desktop. `--allow-http` is limited to this trusted loopback development endpoint; never use it for
 an exposed network server.
+
+## Assistant context and large results
+
+The built-in assistant pages large tool results rather than cutting serialized JSON. Use
+`ograf_read_result_page` to inspect referenced fields, array items or string chunks. Pages retain
+the original snapshot and revision; they do not execute the source mutation again. Treat expired
+or evicted result IDs as unavailable and read current scene state before editing.
+
+External MCP responses keep their existing default shape. The result reader also provides opt-in
+paging for allowed read-only source tools. Studio's **Preferences → OGraf Studio → AI assistant**
+offers optional token budgets for its built-in agent. Automatic planning uses model metadata when
+available, otherwise a reported estimate; explicit overrides do not enlarge an advertised capacity.
+The full server-session conversation remains available when old turns leave the active model
+request. Neither chat history nor these editor preferences is embedded into `.ogs` or OGraf output.
 
 ## Workspace confinement
 

@@ -105,6 +105,7 @@ export function PropertyRow({
         row.current = element;
       }}
       className={`${className}${enabled ? ' property-row-resizable' : ''}`}
+      data-property-filter-row={enabled ? undefined : true}
       data-property-help={help}
       style={style}
       onMouseOver={(event) => {
@@ -124,6 +125,7 @@ export function PropertyRow({
   return (
     <div
       className="property-row-frame"
+      data-property-filter-row
       style={{ '--property-label-percent': `${columns.percent}%` } as CSSProperties}
     >
       {content}

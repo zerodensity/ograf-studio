@@ -13,5 +13,9 @@ describe('applyElementDataValue text properties', () => {
       'letterSpacing',
       -2,
     );
+    expect(applyElementDataValue(element, 'fontSize', 'not-a-number')).toHaveProperty(
+      'fontSize',
+      element.fontSize,
+    );
   });
 });

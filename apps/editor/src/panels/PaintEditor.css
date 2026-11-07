@@ -3,8 +3,70 @@
     background-color 100ms ease,
     outline-color 100ms ease;
 }
+.paint-editor .paint-stop {
+  grid-template-columns: 36px minmax(48px, 1fr) minmax(48px, 1fr) 22px;
+  align-items: end;
+  gap: 5px;
+}
+.paint-stop-control {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.paint-stop-control > span {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.paint-stop-control > input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.paint-editor .paint-stop > button {
+  min-width: 0;
+  height: var(--ui-control-height);
+  padding: 0;
+}
+.paint-gradient-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.paint-alpha-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}
 .paint-shader-drop.is-drag-over {
   background: color-mix(in srgb, var(--accent-focus) 20%, var(--bg-panel));
   outline: 2px solid var(--accent-focus);
   outline-offset: -2px;
+}
+
+.media-paint-controls {
+  display: contents;
+}
+
+.media-paint-import {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.media-paint-pending {
+  margin: 0;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.media-paint-source-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.media-paint-source-editor input {
+  min-width: 0;
 }

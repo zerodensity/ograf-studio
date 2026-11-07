@@ -88,7 +88,9 @@ export class AuthoringWorkspace {
     );
     const existing = this.sessions.get(sessionId);
     if (existing) {
-      existing.reset(project, existing.revision, 'Open editable project');
+      existing.reset(project, existing.revision, 'Open editable project', {
+        documentContext: 'standalone',
+      });
       return existing;
     }
     return this.create(sessionId, project);

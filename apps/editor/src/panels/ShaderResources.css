@@ -1,4 +1,5 @@
 .resources-shader-item {
+  user-select: none;
   display: grid;
   grid-template-columns: 8px 64px minmax(0, 1fr);
   align-items: center;
@@ -6,6 +7,12 @@
   padding: 5px 3px;
   border-bottom: 1px solid var(--border);
   cursor: grab;
+}
+.resources-shader-heading {
+  padding: 8px 3px 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
 }
 .resources-shader-item:active {
   cursor: grabbing;
@@ -189,7 +196,6 @@
   outline: 1px solid var(--accent-focus);
   outline-offset: 1px;
 }
-.shader-resource-dialog .shader-source-label textarea {
+.shader-resource-dialog .glsl-source-editor {
   min-height: 280px;
-  padding: 8px;
 }

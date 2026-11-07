@@ -1,0 +1,58 @@
+.test-rundowns {
+  display: grid;
+  gap: 8px;
+}
+.test-rundowns p {
+  margin: 0;
+  color: #bbb;
+}
+.test-rundowns [role='alert'] {
+  color: #ff9099;
+}
+.test-rundowns label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.test-rundowns textarea {
+  width: 100%;
+  min-height: 80px;
+}
+.test-rundown-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.test-rundown-controls input {
+  width: 60px;
+}
+.test-rundown-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow: auto;
+}
+.test-rundown-rows > li > button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+.test-rundown-rows button.active {
+  background: #254354;
+  outline: 1px solid #2987b5;
+}
+.test-rundown-rows strong {
+  color: #ff7883;
+}
+.test-rundown-rows ul {
+  color: #ff9099;
+  margin: 4px 0;
+  padding-left: 20px;
+}
+.test-rundowns details > label {
+  margin: 8px 0;
+}

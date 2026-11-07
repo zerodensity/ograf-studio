@@ -37,6 +37,49 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('shader resource thumbnail snapshots', () => {
+  it('serializes simultaneous thumbnail renders and coalesces duplicate requests', async () => {
+    const target = owner();
+    const cache = new ShaderThumbnailCache();
+    let release!: () => void;
+    rendererFactory.mockImplementationOnce(() => ({
+      ready: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      render: vi.fn(),
+      dispose: vi.fn(),
+    }));
+    const a = cache.get(target.document, paint);
+    const duplicate = cache.get(target.document, paint);
+    const b = cache.get(target.document, { ...paint, speed: 2 });
+    await Promise.resolve();
+    expect(rendererFactory).toHaveBeenCalledTimes(1);
+    release();
+    const [first, same, second] = await Promise.all([a, duplicate, b]);
+    expect(first).toBe(same);
+    expect(second.kind).toBe('ready');
+    expect(rendererFactory).toHaveBeenCalledTimes(2);
+    expect(rendererFactory.mock.results[0]!.value.dispose).toHaveBeenCalledTimes(1);
+  });
+  it('previews effect-only resources with a temporary image while retaining the original resource', async () => {
+    const target = owner();
+    const effect = createShaderElement({
+      fragmentSource:
+        'void mainImage(out vec4 c, in vec2 p) { c = texture(iChannel0, p / iResolution.xy); }',
+    });
+    const before = JSON.stringify(effect);
+    await expect(new ShaderThumbnailCache().get(target.document, effect)).resolves.toMatchObject({
+      kind: 'ready',
+    });
+    const renderedPaint = rendererFactory.mock.calls[0]?.[1];
+    expect(renderedPaint).not.toBe(effect);
+    expect(renderedPaint).toMatchObject({
+      fragmentSource: effect.fragmentSource,
+      inputImage: { name: 'Preview checkerboard — not applied', filter: 'nearest' },
+    });
+    expect(JSON.stringify(effect)).toBe(before);
+    expect(effect).not.toHaveProperty('inputImage');
+  });
   it('renders actual shader time in the owning document and captures before disposing GPU resources', async () => {
     const target = owner();
     const events: string[] = [];

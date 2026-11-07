@@ -1,0 +1,176 @@
+.animation-preset-picker {
+  position: fixed;
+  z-index: 650;
+  width: min(410px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--border, #444);
+  border-radius: 5px;
+  background: var(--bg-panel-raised, #292929);
+  color: var(--text, #eee);
+  font:
+    12px/1.3 'Nunito',
+    sans-serif;
+  box-shadow: 0 8px 28px #0008;
+  outline: none;
+}
+.animation-preset-picker.is-embedded {
+  position: static;
+  z-index: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.animation-preset-picker.is-embedded footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.animation-preset-picker.is-embedded footer button {
+  padding: 2px 7px;
+}
+.animation-preset-picker.is-embedded .animation-preset-controls {
+  flex-direction: column;
+  align-items: stretch;
+}
+.animation-preset-picker.is-embedded .animation-preset-controls > label {
+  margin-left: 0;
+}
+.animation-preset-picker.is-embedded .animation-preset-controls input {
+  margin-left: auto;
+}
+.animation-preset-picker.is-embedded .animation-preset-parameters {
+  grid-template-columns: minmax(0, 1fr);
+}
+.animation-preset-picker > header,
+.animation-preset-picker > footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.animation-preset-picker > header {
+  margin-bottom: 6px;
+}
+.animation-preset-picker button,
+.animation-preset-picker select,
+.animation-preset-picker input {
+  font: inherit;
+  color: inherit;
+  background: #252525;
+  border: 1px solid #555;
+  border-radius: 2px;
+  min-height: 22px;
+}
+.animation-preset-picker button {
+  cursor: pointer;
+}
+.animation-preset-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 7px;
+}
+.animation-preset-controls > select:first-child {
+  width: 100%;
+  min-width: 0;
+}
+.animation-preset-controls > label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.animation-preset-controls input {
+  width: 56px;
+}
+.animation-preset-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.animation-preset-tiles button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 4px;
+  min-width: 0;
+  font-size: 11px;
+}
+.animation-preset-tiles button[aria-pressed='true'] {
+  border-color: var(--accent, #5bc8fa);
+  box-shadow: inset 0 0 0 1px var(--accent, #5bc8fa);
+}
+.animation-preset-tiles button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.animation-preset-thumbnail {
+  width: 62px;
+  height: 33px;
+  fill: var(--accent, #5bc8fa);
+}
+.animation-thumbnail-guide {
+  fill: none;
+  stroke: var(--accent, #5bc8fa);
+  opacity: 0.35;
+  stroke-dasharray: 3 2;
+}
+.animation-preset-thumbnail .animation-thumbnail-arrow {
+  fill: none;
+  stroke: var(--accent, #5bc8fa);
+  stroke-width: 1.8;
+}
+.animation-preset-parameters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 6px;
+  margin-top: 7px;
+}
+.animation-preset-parameters label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.animation-preset-parameters span {
+  min-width: 0;
+  flex: 1;
+  font-size: 11px;
+}
+.animation-preset-parameters input {
+  width: 64px;
+  min-width: 0;
+}
+.animation-preset-hint {
+  font-size: 11px;
+  color: var(--text-dim, #aaa);
+  margin: 6px 0;
+}
+.animation-preset-error {
+  font-size: 11px;
+  color: #ffbf99;
+  margin: 6px 0;
+  white-space: pre-wrap;
+}
+.animation-preset-picker > footer {
+  margin-top: 8px;
+}
+.animation-preset-picker > footer button {
+  padding: 2px 7px;
+}
+.animation-preset-picker button:hover:not(:disabled),
+.animation-preset-picker button:focus-visible {
+  border-color: var(--accent, #5bc8fa);
+  outline: none;
+}

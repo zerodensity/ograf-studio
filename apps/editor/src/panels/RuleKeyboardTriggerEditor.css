@@ -1,0 +1,44 @@
+.rules-keyboard-trigger {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rules-keyboard-main,
+.rules-keyboard-main > label,
+.rules-keyboard-modifiers,
+.rules-keyboard-modifiers > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rules-keyboard-main {
+  flex-wrap: wrap;
+}
+
+.rules-keyboard-main input {
+  width: 120px;
+  min-width: 70px;
+}
+
+.rules-keyboard-main button[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rules-keyboard-modifiers {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.rules-keyboard-modifiers > label {
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.rules-keyboard-modifiers input[type='checkbox'] {
+  width: auto;
+  min-width: 0;
+  margin: 0;
+}

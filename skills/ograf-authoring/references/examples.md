@@ -146,11 +146,12 @@ certification.
 
 1. Create Brand Kit tokens such as `brand.primary`, `type.headline.family`, and
    `type.headline.size`; bind them to compatible layer properties.
-2. Save the reviewed layer selection as a component. Insert independent instances for graphics
-   that will diverge, or linked instances when later explicit refresh is desired.
-3. To revise the source, update the component snapshot from selected layers, preview a
-   `refresh_component_instances` operation, and present it through `ograf_apply_operations` with
-   `mode: "propose"` when replacement could remove local instance changes.
+2. Save the reviewed layer selection as a component. Insert linked instances for automatic source
+   updates, or independent copies for graphics that will diverge.
+3. Revise canonical source layers with `update_component_layer`, or promote one edited instance
+   and new independent children using `update_component_from_layers`. Preview the operation or use
+   `mode: "propose"` for visual review. New children keep their IDs; other instances retain overrides.
+   Retarget any Transitions references before removing a referenced source child.
 4. Accept only after the editor preview is correct; then query semantic roles/tags and rerun design
    QA to confirm every refreshed instance remains legible and on-air safe.
 

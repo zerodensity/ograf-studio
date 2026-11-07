@@ -9,6 +9,7 @@ import {
   lottiePlayerFrameAtTime,
 } from '@ograf-editor/scene-model';
 import { buildExportArtifacts, exportProjectAsZip } from './exportPackage';
+import { RUNTIME_PACKAGE_LICENSES } from '@ograf-editor/codegen';
 import {
   certificationSeekTimestamps,
   canvasPixelSignatures,
@@ -48,6 +49,7 @@ describe('canvas pixel certification', () => {
     const source = {
       width: 1,
       height: 1,
+      dataset: {} as Record<string, string>,
       getContext: vi.fn((kind: string) => (kind === 'webgl2' ? gl : null)),
       hasAttribute: (name: string): boolean => name === 'data-ograf-shader-canvas',
       ownerDocument: { createElement: vi.fn(() => snapshot) },
@@ -56,6 +58,18 @@ describe('canvas pixel certification', () => {
       shadowRoot: { querySelectorAll: () => [source] },
     } as unknown as Parameters<typeof canvasPixelSignatures>[0];
     return { pixels, drawImage, source, graphic, gl, binding };
+  }
+
+  function sharedShaderFixture() {
+    const fixture = webglFixture();
+    const context = {
+      getImageData: vi.fn(() => ({ data: fixture.pixels })),
+    };
+    fixture.source.dataset.ografShaderBackend = 'canvas2d';
+    fixture.source.getContext.mockImplementation((kind: string) =>
+      kind === '2d' ? (context as unknown as typeof fixture.gl) : null,
+    );
+    return { ...fixture, context };
   }
 
   it('hashes exact preserved GPU bytes, restores read bindings and detects changed frames', async () => {
@@ -133,6 +147,56 @@ describe('canvas pixel certification', () => {
     expect(fixture.source.getContext).not.toHaveBeenCalled();
     expect(fixture.drawImage).toHaveBeenCalledWith(fixture.source, 0, 0);
   });
+
+  it('certifies the distinct retained images of shared-GPU shaders and detects changed frames', async () => {
+    const first = sharedShaderFixture();
+    const second = sharedShaderFixture();
+    second.pixels[0] = 99;
+    const graphic = {
+      shadowRoot: { querySelectorAll: () => [first.source, second.source] },
+    } as unknown as Parameters<typeof canvasPixelSignatures>[0];
+    const initial = await canvasPixelSignatures(graphic);
+    expect(initial.errors).toEqual([]);
+    expect(initial.shaderCanvasCount).toBe(2);
+    expect(initial.signatures[0]).not.toEqual(initial.signatures[1]);
+    expect((await canvasPixelSignatures(graphic)).signatures).toEqual(initial.signatures);
+    first.pixels[0] = 11;
+    const changed = await canvasPixelSignatures(graphic);
+    expect(changed.signatures[0]).not.toEqual(initial.signatures[0]);
+    expect(changed.signatures[1]).toEqual(initial.signatures[1]);
+    expect(first.source.getContext).not.toHaveBeenCalledWith('webgl2');
+    expect(first.context.getImageData).toHaveBeenCalledWith(0, 0, 1, 1);
+    expect(first.drawImage).not.toHaveBeenCalled();
+  });
+
+  it('does not certify shared shaders with a lost GPU, unreadable pixels or missing presentation context', async () => {
+    const fixture = sharedShaderFixture();
+    fixture.source.dataset.ografShaderPaused = 'true';
+    const lost = await canvasPixelSignatures(fixture.graphic);
+    expect(lost.shaderCanvasCount).toBe(0);
+    expect(lost.errors[0]).toContain('Shader WebGL context is unavailable');
+    expect(fixture.context.getImageData).not.toHaveBeenCalled();
+    delete fixture.source.dataset.ografShaderPaused;
+    fixture.context.getImageData.mockImplementation(() => {
+      throw new Error('Canvas pixels are tainted');
+    });
+    const unreadable = await canvasPixelSignatures(fixture.graphic);
+    expect(unreadable.shaderCanvasCount).toBe(0);
+    expect(unreadable.errors[0]).toContain('Canvas pixels are tainted');
+    fixture.source.getContext.mockReturnValue(null);
+    const missing = await canvasPixelSignatures(fixture.graphic);
+    expect(missing.shaderCanvasCount).toBe(0);
+    expect(missing.errors[0]).toContain('Shader Canvas2D presentation context is unavailable');
+  });
+
+  it('does not mistake an uninitialized shader canvas for a valid shared-GPU presentation', async () => {
+    const fixture = sharedShaderFixture();
+    delete fixture.source.dataset.ografShaderBackend;
+    const result = await canvasPixelSignatures(fixture.graphic);
+    expect(result.shaderCanvasCount).toBe(0);
+    expect(result.errors[0]).toContain('Shader WebGL context is unavailable');
+    expect(fixture.context.getImageData).not.toHaveBeenCalled();
+  });
 });
 
 describe('export package artifacts', () => {
@@ -177,7 +241,9 @@ describe('export package artifacts', () => {
 
     const artifacts = buildExportArtifacts(project, composition);
     expect(artifacts.valid).toBe(true);
-    expect(artifacts.resources).toHaveLength(1);
+    expect(
+      artifacts.resources.filter((resource) => !(resource.path in RUNTIME_PACKAGE_LICENSES)),
+    ).toHaveLength(1);
     expect(artifacts.manifestFileName).toBe(`${project.id}.ograf.json`);
     expect(artifacts.mainJs).not.toContain(dataUri);
     expect(artifacts.mainJs).toContain('new URL(value, exportedModuleBaseUrl)');
@@ -224,9 +290,9 @@ describe('export package artifacts', () => {
 
     const artifacts = buildExportArtifacts(project, composition);
     expect(artifacts.errors).toEqual([]);
-    expect(artifacts.resources).toEqual([
-      expect.objectContaining({ path: `assets/${asset.id}.svg`, base64: true }),
-    ]);
+    expect(
+      artifacts.resources.filter((resource) => !(resource.path in RUNTIME_PACKAGE_LICENSES)),
+    ).toEqual([expect.objectContaining({ path: `assets/${asset.id}.svg`, base64: true })]);
     expect(artifacts.mainJs).not.toContain(`asset:${asset.id}`);
     const properties = artifacts.manifest.schema?.properties as Record<string, unknown> | undefined;
     expect(properties?.weather_icon).toMatchObject({
@@ -260,7 +326,9 @@ describe('export package artifacts', () => {
 
     const artifacts = buildExportArtifacts(project, composition);
 
-    expect(artifacts.resources).toEqual([
+    expect(
+      artifacts.resources.filter((resource) => !(resource.path in RUNTIME_PACKAGE_LICENSES)),
+    ).toEqual([
       expect.objectContaining({ path: 'fonts/rubik-regular.woff2' }),
       expect.objectContaining({
         path: expect.stringMatching(/^licenses\/.+-LICENSE\.txt$/),

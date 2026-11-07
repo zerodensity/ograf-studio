@@ -1,0 +1,182 @@
+.chart-editor {
+  display: grid;
+  gap: 6px;
+  padding: 4px 8px 10px;
+}
+
+.chart-data-mode,
+.chart-presentation-options {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.chart-presentation-options {
+  border: 0;
+  margin: 0;
+  padding: 5px 0;
+}
+.chart-editor-option > input:not([type='checkbox']),
+.chart-editor-option > .color-input {
+  max-width: 66%;
+  min-width: 0;
+}
+.chart-data-actions {
+  display: flex;
+  gap: 5px;
+}
+.chart-row > .color-input {
+  min-width: 0;
+}
+.chart-canonical-row {
+  grid-template-columns: minmax(70px, 1fr) 65px minmax(90px, 0.7fr) 22px;
+}
+.chart-canonical-row .color-input-hex {
+  flex-basis: 48px;
+}
+.chart-editor-label {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.chart-preset-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.chart-preset-gallery button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 5px 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-bg, #262626);
+  color: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.chart-preset-gallery button.is-selected {
+  border-color: #5bc8fa;
+  box-shadow: inset 0 0 0 1px #5bc8fa;
+}
+.chart-preset-gallery svg {
+  width: 52px;
+  height: 33px;
+  fill: #5bc8fa;
+  stroke: #5bc8fa;
+  stroke-width: 1.5;
+}
+.chart-preset-gallery .chart-icon-line {
+  fill: none;
+  stroke-width: 2.5;
+}
+.chart-preset-gallery .chart-icon-area {
+  fill: #5bc8fa66;
+}
+.chart-preset-gallery .chart-icon-cut {
+  fill: none;
+  stroke: #1f2328;
+  stroke-width: 2;
+}
+.chart-preset-gallery .chart-icon-hole {
+  fill: var(--panel-bg, #262626);
+  stroke: none;
+}
+.chart-editor-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+.chart-editor-option select {
+  min-width: 0;
+  max-width: 66%;
+}
+.chart-animation-timing {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.chart-animation-timing.has-stagger {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.chart-animation-timing label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.chart-animation-timing input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.chart-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: 11px/1.35 monospace;
+  background: #151515;
+  color: #f2f2f2;
+  border: 1px solid var(--border);
+}
+.chart-editor-error {
+  color: #ff8585;
+  margin: 0;
+  font-size: 11px;
+}
+
+.chart-dataset-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 25px 25px;
+  gap: 3px;
+}
+.chart-dataset-controls select {
+  min-width: 0;
+}
+.chart-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 65px 28px 22px;
+  gap: 3px;
+  align-items: center;
+}
+.chart-row input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.chart-row input[type='color'] {
+  height: 22px;
+  padding: 0;
+  border: 0;
+}
+.chart-row button {
+  padding: 0;
+}
+.chart-rows {
+  display: grid;
+  gap: 3px;
+  max-height: 220px;
+  overflow: auto;
+}
+.chart-editor-advanced {
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+.chart-editor-advanced summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.chart-editor-advanced textarea {
+  margin-top: 5px;
+}
+.chart-fill-editor {
+  border: 0;
+  margin: 6px 0;
+  padding: 0;
+  min-width: 0;
+}

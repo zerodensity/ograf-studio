@@ -25,8 +25,24 @@ import type {
 } from './types';
 
 const copy = <T>(value: T): T => structuredClone(value);
-const equal = (left: unknown, right: unknown): boolean =>
-  JSON.stringify(left) === JSON.stringify(right);
+const equal = (left: unknown, right: unknown): boolean => {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right))
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => equal(value, right[index]))
+    );
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  const a = left as Record<string, unknown>;
+  const b = right as Record<string, unknown>;
+  const keys = Object.keys(a).filter((key) => a[key] !== undefined);
+  return (
+    keys.length === Object.keys(b).filter((key) => b[key] !== undefined).length &&
+    keys.every((key) => Object.hasOwn(b, key) && equal(a[key], b[key]))
+  );
+};
 
 function labelFor(name: string): string {
   return name
@@ -88,9 +104,17 @@ function uniqueIdentity(
 function removeUnusedGeneratedFields(composition: Composition): void {
   const used = new Set(composition.layers.flatMap((layer) => layer.bindings.map((b) => b.fieldId)));
   for (const collection of composition.runtimeCollections) used.add(collection.fieldId);
-  composition.dataFields = composition.dataFields.filter(
-    (field) => !field.generatedShaderParameter || used.has(field.id),
+  const removed = new Set(
+    composition.dataFields
+      .filter((field) => field.generatedShaderParameter && !used.has(field.id))
+      .map((field) => field.id),
   );
+  composition.dataFields = composition.dataFields.filter((field) => !removed.has(field.id));
+  // A removed paint/pragma also retires its generated control. Keep unrelated mappings intact,
+  // including invalid imported references that ordinary validation still needs to report.
+  if (removed.size)
+    for (const connection of composition.dataConnections ?? [])
+      connection.mappings = connection.mappings.filter((mapping) => !removed.has(mapping.fieldId));
 }
 
 /** Materialize source-marked parameters as ordinary editable fields and runtime bindings. */
@@ -194,18 +218,23 @@ function syncShaderPaintSlotFields(
     field.options = [];
     field.fileExtensions = [];
     field.items = null;
+    const previousExposure = new Map(
+      field.properties.map((property) => [property.key, property.exposeToOgraf]),
+    );
     field.properties =
       definition.control === 'vector2'
-        ? ['x', 'y'].map((axis, index) =>
-            createFieldDefinition('number', {
+        ? ['x', 'y'].map((axis, index) => {
+            const exposeToOgraf = previousExposure.get(axis);
+            return createFieldDefinition('number', {
               id: `${field!.id}:${axis}`,
               key: axis,
               label: axis.toUpperCase(),
               required: true,
               defaultValue: (value as number[])[index]!,
               constraints: parameterConstraints(definition),
-            }),
-          )
+              ...(exposeToOgraf !== undefined ? { exposeToOgraf } : {}),
+            });
+          })
         : [];
     if (definition.control === 'vector2' || definition.control === 'color') field.constraints = {};
     field.generatedShaderParameter = {

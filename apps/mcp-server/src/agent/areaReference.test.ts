@@ -1,7 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentAreaReference } from '@ograf-editor/agent-tools';
+import { ToolResultPager, type AgentAreaReference } from '@ograf-editor/agent-tools';
 import { parseAreaReference, parseAreaReferences } from './areaReference';
-import { buildTurnMessages, compactChatHistory } from './chatAgent';
+import { buildTurnMessages } from './chatAgent';
+import { selectActiveContext } from './contextManager';
+import type { AgentMessage } from './types';
+
+function retainedReferences(history: AgentMessage[]): AgentMessage[] {
+  const pager = new ToolResultPager();
+  return selectActiveContext(
+    history,
+    {
+      model: { model: 'test', contextWindowTokens: 128000, source: 'provider' },
+      overheadTokens: 0,
+      inputTokens: 100000,
+      historyTokens: 64000,
+      toolPageTokens: 4096,
+      outputReserveTokens: 4096,
+    },
+    () => pager.store(history, { sessionId: 'editor:project-a' }),
+  ).messages;
+}
 
 export const referenceFixture: AgentAreaReference = {
   projectId: 'project-a',
@@ -108,7 +126,7 @@ describe('area reference transport', () => {
     );
     instructions.forEach((note) => expect(user?.content).toContain(note));
     const earlier = buildTurnMessages('portable-model', 'Previous area', {}, referenceFixture);
-    const retained = compactChatHistory([
+    const retained = retainedReferences([
       ...earlier,
       ...messages,
       { role: 'user', content: 'Apply those three changes' },
@@ -138,7 +156,7 @@ describe('area reference transport', () => {
   it('retains the latest visual reference through tool rounds and follow-ups, without accumulating older images', () => {
     const earlier = buildTurnMessages('portable-model', 'Old area', {}, referenceFixture);
     const latest = buildTurnMessages('portable-model', 'New area', {}, referenceFixture);
-    const history = compactChatHistory([
+    const history = retainedReferences([
       ...earlier,
       ...latest,
       { role: 'user', content: 'Move it a little more' },
@@ -147,7 +165,7 @@ describe('area reference transport', () => {
       message.role === 'user' ? (message.images ?? []) : [],
     );
     expect(images).toHaveLength(1);
-    expect(history.at(-1)?.content).toBe('Move it a little more');
+    expect(history.at(-1)?.content).toContain('Move it a little more');
     expect(earlier.some((message) => message.role === 'user' && message.images?.length)).toBe(true);
   });
 });

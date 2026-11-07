@@ -1,29 +1,99 @@
 import {
   isGradientPaint,
+  chartRendererFeatureErrors,
+  chartAnimationErrors,
+  parseChartData,
+  cropRectErrors,
+  getLayerPropertyValueAtFrame,
+  cropRectPoints,
+  sourceCropErrors,
+  normalizeSourceCrop,
+  normalizeCanvasCrop,
+  transformMatrix,
+  normalizeLayerVisualRule,
+  validateLogicFunctionDefinitions,
+  layerTransformBindingErrors,
+  assertLogicFunctionReferenceRemovable,
+  isVisualRuleKeyboardTrigger,
+  visualRuleKeyboardErrors,
+  clockTimerActionId,
+  pruneVisualRuleReferences,
+  rehomeVisualRuleGroupOwners,
+  remapVisualRule,
+  renameVisualRuleCustomAction,
+  visualRuleFieldIds,
+  isVisualRuleMouseFieldId,
+  visualRulePlayoutActionErrors,
+  layerRulePropertyValueError,
+  isMediaPaint,
   getElementShaderPaint,
   getElementShaderPaints,
   isShaderPaint,
   createShaderPaint,
+  normalizeMediaPaint,
+  normalizeLayerAutoLayout,
+  normalizeTextAnimation,
+  textAnimationErrors,
+  textAnimatorPaintErrors,
+  textPathReferenceErrors,
+  textPathCompatibilityErrors,
+  normalizeTextCrawl,
+  normalizeTicker,
+  normalizeDataConnection,
+  dataConnectionErrors,
+  MAX_DATA_CONNECTIONS,
+  normalizeClockTimerSettings,
+  validateClockTimerSettings,
+  validateTimerAlarmTrigger,
+  formatClockTimerValue,
+  parseClockTimerManualValue,
+  remapClockTimerLayerActions,
+  isClockTimerActionId,
+  applyLayerMotion,
+  applyAnimationPreset,
+  applyChartMarkAnimationPreset,
+  layerMotionDirections,
+  layerMotionStyleAvailable,
+  layerMotionWindows,
   migrateShaderBindingTarget,
   shaderPaintConflictsWithBinding,
   parseShaderAnimationProperty,
   shaderAnimationPropertySpec,
   shaderAnimationValueErrors,
+  resetLayerPropertyAnimation,
+  syncResetShaderParameterDefault,
 } from '@ograf-editor/scene-model';
 import {
   applyPathEdit,
   EFFECT_ANIMATION_PROPERTIES,
   assertMaskSourcesRemovable,
+  assertModifierSourcesRemovable,
+  assertModifierGroupCopySafe,
+  applyModifierSafeGroupChanges,
+  layerModifierFieldIds,
   layerMaskErrors,
   TRANSFORM_ANIMATION_PROPERTIES,
   applyDesignTokenBinding,
+  markTypographyOverrides,
   addEffect,
+  addLayerModifier,
+  updateLayerModifier,
+  removeLayerModifier,
+  duplicateLayerModifier,
+  reorderLayerModifiers,
+  modifierProperty,
+  parseModifierProperty,
+  modifierParameterSpec,
+  layerModifiersErrors,
+  remapLayerModifierReferences,
   ensureLegacyEffects,
   updateEffect,
   removeEffect,
   duplicateEffect,
   reorderEffects,
+  getEffectStack,
   effectProperty,
+  effectParameterValue,
   bindFieldDefaultToken,
   syncDesignToken,
   stylePackColorUsesToken,
@@ -33,7 +103,9 @@ import {
   addTilingPatternLayer,
   removeStylePack,
   computeKeyframeFrames,
+  retimeAnimationPhase,
   buildComponentDefinition,
+  updateComponentDefinitionFromLayers,
   createCustomActionDefinition,
   createFieldDefinition,
   createFieldDefinitionFromInput,
@@ -43,11 +115,15 @@ import {
   defaultValueForFieldType,
   createAsset,
   createId,
+  withStableGeneratedIds,
+  testRundownErrors,
+  reviewProjectFingerprint,
   createKeyframe,
   createLayerKeyframe,
   createLayerLoopClip,
   createLayerOfKind,
   createLayerPropertyKeyframe,
+  createMediaCue,
   createTransition,
   defaultTransformForRole,
   findLayerKeyframeAtFrame,
@@ -62,10 +138,16 @@ import {
   normalizeLayerEffects,
   inspectShaderElement,
   syncShaderParameterFields,
+  syncDesignerBindingDefaults,
+  syncDesignerTransformBindingDefaults,
+  validateRendererPluginReference,
+  validateRendererPluginSnapshot,
+  rendererPluginKey,
   syncCompositionShaderParameterFields,
   instantiateComponentDefinition,
   materializeBug,
   materializeClock,
+  materializeCountdown,
   materializeLowerThird,
   materializeScoreboard,
   materializeTicker,
@@ -74,6 +156,12 @@ import {
   planLifecycleRetime,
   pruneInvalidGradientStopTracks,
   refreshComponentInstances,
+  reconcileProjectComponentInstances,
+  resetComponentInstanceOverrides,
+  makeComponentInstanceUnique,
+  linkExistingComponentLayers,
+  findAssetConsumers,
+  refreshComponentDependencies,
   resizeConstrainedTransform,
   sortLayerKeyframes,
   sortLayerPropertyKeyframes,
@@ -85,7 +173,9 @@ import {
   type MaterializedLowerThird,
   type LayerPropertyKeyframe,
   type LayerTransform,
+  type Paint,
   type Project,
+  type ChartElement,
 } from '@ograf-editor/scene-model';
 import type { AuthoringChangeSummary, AuthoringOperation } from './types';
 
@@ -104,8 +194,99 @@ function layerFor(composition: Composition, layerId: string): Layer {
   return layer;
 }
 
+const COMPONENT_LAYER_PATCH_KEYS = new Set([
+  'name',
+  'isVisible',
+  'isGuide',
+  'isLocked',
+  'blendMode',
+  'groupId',
+  'parentId',
+  'clipChildren',
+  'crop',
+  'isMaskOnly',
+  'mask',
+  'constraints',
+  'autoLayout',
+  'updateTransition',
+  'motionPath',
+  'modifiers',
+  'motion',
+  'animationPresets',
+  'keyframes',
+  'animationTracks',
+  'loop',
+  'lighting',
+  'element',
+  'effects',
+  'semantics',
+  'designTokenBindings',
+  'typographyBinding',
+  'bindings',
+  'visualRules',
+]);
+
+/** Reuse ordinary authoring normalization on canonical children, without instance metadata. */
+function applyComponentChildOperations(
+  project: Project,
+  composition: Composition,
+  definition: Composition['components'][number],
+  operations: AuthoringOperation[],
+): void {
+  // Component children own their fields/rules; parent composition Functions are not copied.
+  const { functions: _functions, ...sourceComposition } = composition;
+  const temporary: Project = {
+    ...project,
+    mainCompositionId: composition.id,
+    compositions: [
+      {
+        ...sourceComposition,
+        layers: definition.layers.map((layer) => ({ ...layer, componentLink: null })),
+        dataFields: definition.dataFields,
+        components: [],
+        runtimeCollections: [],
+        assets: [
+          ...composition.assets,
+          ...(definition.resources ?? []).filter(
+            (asset) => !composition.assets.some((candidate) => candidate.id === asset.id),
+          ),
+        ],
+        patterns: [
+          ...composition.patterns,
+          ...(definition.patterns ?? []).filter(
+            (pattern) => !composition.patterns.some((candidate) => candidate.id === pattern.id),
+          ),
+        ],
+      },
+    ],
+  };
+  const updated = applyAuthoringOperations(temporary, operations).project.compositions[0]!;
+  definition.layers = updated.layers;
+  definition.dataFields = updated.dataFields;
+}
+
 function assertUnlocked(layer: Layer): void {
   if (layer.isLocked) throw new Error(`Layer is locked: ${layer.id}`);
+}
+
+function persistentGroupLayers(composition: Composition, groupId: string): Layer[] {
+  const layers = composition.layers.filter((layer) => layer.groupId === groupId);
+  if (layers.length < 2) throw new Error(`Persistent canvas group not found: ${groupId}`);
+  for (const layer of layers) assertUnlocked(layer);
+  return layers;
+}
+
+function effectTargetLayers(
+  composition: Composition,
+  selector: { layerId?: string; groupId?: string },
+): Layer[] {
+  if (selector.layerId && selector.groupId)
+    throw new Error('Effect operations accept layerId or groupId, not both.');
+  if (selector.groupId) return persistentGroupLayers(composition, selector.groupId);
+  if (!selector.layerId) throw new Error('Effect operations require layerId or groupId.');
+  const layer = layerFor(composition, selector.layerId);
+  assertUnlocked(layer);
+  return [layer];
 }
 
 function assertCollectionCapacity(capacity: number): number {
@@ -165,12 +346,137 @@ function frameInComposition(composition: Composition, frame: number): number {
 }
 
 function materializeTracks(layer: Layer): void {
+  const tracks =
+    layer.animationTrackMode === 'independent'
+      ? layer.animationTracks
+      : getResolvedLayerAnimationTracks(layer);
   layer.animationTracks = Object.fromEntries(
-    Object.entries(getResolvedLayerAnimationTracks(layer)).map(([property, keys]) => [
+    Object.entries(tracks).map(([property, keys]) => [
       property,
       keys?.map((key) => ({ ...key, ...(key.curve ? { curve: { ...key.curve } } : {}) })) ?? [],
     ]),
   );
+}
+
+/** The MCP provider schema stays compact; the canonical authoring transaction validates details. */
+function validateTextAnimators(value: unknown): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length > 32)
+    throw new Error('Text animators must be an array of at most 32 items.');
+  const ids = new Set<string>();
+  const choices: Record<string, string[]> = {
+    unit: ['character', 'word', 'line'],
+    shape: ['square', 'ramp', 'triangle', 'round'],
+    easing: ['linear', 'ease-in', 'ease-out', 'ease-in-out'],
+    order: ['forward', 'reverse', 'center-out', 'random'],
+  };
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item))
+      throw new Error('Each text animator must be an object.');
+    const animator = item as Record<string, unknown>;
+    const allowed = [
+      'id',
+      'enabled',
+      'unit',
+      'start',
+      'end',
+      'offset',
+      'offsetKeyframes',
+      'shape',
+      'easing',
+      'order',
+      'seed',
+      'durationFrames',
+      'properties',
+    ];
+    if (Object.keys(animator).some((key) => !allowed.includes(key)))
+      throw new Error('Text animator has an unsupported option.');
+    if (
+      typeof animator.id !== 'string' ||
+      !animator.id.trim() ||
+      animator.id.length > 128 ||
+      ids.has(animator.id)
+    )
+      throw new Error('Text animator IDs must be unique nonempty strings.');
+    ids.add(animator.id);
+    if (animator.enabled !== undefined && typeof animator.enabled !== 'boolean')
+      throw new Error('Text animator enabled must be a boolean.');
+    for (const [key, options] of Object.entries(choices))
+      if (animator[key] !== undefined && !options.includes(String(animator[key])))
+        throw new Error(`Unsupported text animator ${key}.`);
+    for (const [key, min, max] of [
+      ['start', 0, 1],
+      ['end', 0, 1],
+      ['offset', -1, 1],
+    ] as const)
+      if (
+        animator[key] !== undefined &&
+        (typeof animator[key] !== 'number' ||
+          !Number.isFinite(animator[key]) ||
+          animator[key] < min ||
+          animator[key] > max)
+      )
+        throw new Error(`Text animator ${key} is outside ${min} to ${max}.`);
+    if (
+      animator.seed !== undefined &&
+      (typeof animator.seed !== 'number' || !Number.isSafeInteger(animator.seed))
+    )
+      throw new Error('Text animator seed must be an integer.');
+    if (
+      animator.durationFrames !== undefined &&
+      (typeof animator.durationFrames !== 'number' ||
+        !Number.isSafeInteger(animator.durationFrames) ||
+        animator.durationFrames < 1)
+    )
+      throw new Error('Text animator durationFrames must be positive.');
+    if (animator.offsetKeyframes !== undefined) {
+      if (!Array.isArray(animator.offsetKeyframes) || animator.offsetKeyframes.length > 512)
+        throw new Error('Text animator supports up to 512 offset keys.');
+      const frames = new Set<number>();
+      for (const entry of animator.offsetKeyframes) {
+        if (
+          !entry ||
+          typeof entry !== 'object' ||
+          Array.isArray(entry) ||
+          Object.keys(entry).some((key) => key !== 'frame' && key !== 'value') ||
+          !Number.isSafeInteger(entry.frame) ||
+          entry.frame < 0 ||
+          frames.has(entry.frame) ||
+          typeof entry.value !== 'number' ||
+          !Number.isFinite(entry.value) ||
+          entry.value < -1 ||
+          entry.value > 1
+        )
+          throw new Error(
+            'Text animator offset keys require unique nonnegative frames and values from -1 to 1.',
+          );
+        frames.add(entry.frame);
+      }
+    }
+    if (animator.properties !== undefined) {
+      if (
+        !animator.properties ||
+        typeof animator.properties !== 'object' ||
+        Array.isArray(animator.properties)
+      )
+        throw new Error('Text animator properties must be an object.');
+      for (const [key, prop] of Object.entries(animator.properties)) {
+        if (key === 'color') {
+          if (typeof prop !== 'string' || !prop.trim() || prop.length > 128)
+            throw new Error('Text animator color must be a color string.');
+          continue;
+        }
+        if (
+          !['opacity', 'x', 'y', 'scale', 'rotation', 'blur', 'tracking'].includes(key) ||
+          typeof prop !== 'number' ||
+          !Number.isFinite(prop) ||
+          (key === 'opacity' && (prop < 0 || prop > 1)) ||
+          (['scale', 'blur'].includes(key) && prop < 0)
+        )
+          throw new Error(`Invalid text animator property ${key}.`);
+      }
+    }
+  }
 }
 
 function upsertPropertyKey(
@@ -198,6 +504,13 @@ function assertPropertyApplicable(
   property: AnimatableLayerProperty,
   value?: number,
 ): void {
+  if (parseModifierProperty(property)) {
+    const spec = modifierParameterSpec(layer, property);
+    if (!spec) throw new Error(`Missing numeric modifier parameter: ${property}`);
+    if (value !== undefined && (!Number.isFinite(value) || value < spec.min || value > spec.max))
+      throw new Error(`Modifier parameter ${property} must be ${spec.min}–${spec.max}.`);
+    return;
+  }
   if (parseShaderAnimationProperty(property)) {
     if (!shaderAnimationPropertySpec(layer.element, property))
       throw new Error(`Property "${property}" is not exposed by the layer's shader source.`);
@@ -414,13 +727,17 @@ function addLayer(
       operation.kind === 'shader'
         ? ({ fill: createShaderPaint(operation.element) } as Record<string, unknown>)
         : { ...operation.element };
-    if ('type' in elementPatch && elementPatch.type !== operation.kind) {
+    if (
+      'type' in elementPatch &&
+      elementPatch.type !== (operation.kind === 'clock' ? 'text' : operation.kind)
+    ) {
       throw new Error('An element patch cannot change the layer element type.');
     }
     if (layer.element.type === 'rectangle' && elementPatch.borderRadius !== undefined) {
       elementPatch.borderRadius = normalizeCornerRadii(elementPatch.borderRadius as never);
     }
     if (isShaderPaint(elementPatch.fill)) elementPatch.fill = createShaderPaint(elementPatch.fill);
+    if (isMediaPaint(elementPatch.fill)) elementPatch.fill = normalizeMediaPaint(elementPatch.fill);
     if ('strokePaint' in elementPatch && layer.element.type !== 'text')
       throw new Error('Shader outlines are supported only on text layers.');
     if (isShaderPaint(elementPatch.strokePaint))
@@ -431,8 +748,35 @@ function addLayer(
       !isShaderPaint(elementPatch.strokePaint)
     )
       throw new Error('Text strokePaint must be a shader paint or omitted.');
+    normalizeElementClockPatch(layer, elementPatch, true);
+    if (layer.element.type === 'text' && elementPatch.textAnimation !== undefined) {
+      if (
+        !elementPatch.textAnimation ||
+        typeof elementPatch.textAnimation !== 'object' ||
+        Array.isArray(elementPatch.textAnimation)
+      )
+        throw new Error('Text animation must be an object.');
+      const animation = {
+        ...layer.element.textAnimation,
+        ...(elementPatch.textAnimation as Record<string, unknown>),
+      };
+      validateTextAnimators(animation.animators);
+      const errors = textAnimationErrors(animation);
+      if (errors.length) throw new Error(errors.join('\n'));
+      elementPatch.textAnimation = normalizeTextAnimation(animation);
+    }
+    if (layer.element.type === 'chart' && elementPatch.data !== undefined)
+      elementPatch.data = parseChartData(elementPatch.data);
     Object.assign(layer.element, elementPatch);
+    if (layer.element.type === 'text') {
+      const errors = textAnimatorPaintErrors(layer.element);
+      if (errors.length) throw new Error(errors.join('\n'));
+    }
+    if (layer.element.type === 'ticker') layer.element = normalizeTicker(layer.element);
+    if (layer.element.type === 'text' && elementPatch.clock === null) delete layer.element.clock;
   }
+  refreshClockFallbackText(layer);
+  if (layer.element.type === 'chart') assertPinnedChartProvider(composition, layer.element);
   for (const { paint } of getElementShaderPaints(layer.element)) {
     const inspection = inspectShaderElement(paint);
     if (!inspection.valid) throw new Error(inspection.errors.join(' '));
@@ -447,6 +791,71 @@ function addLayer(
   composition.layers.splice(index, 0, layer);
   syncShaderParameterFields(composition, layer);
   return layer.id;
+}
+
+function normalizeElementClockPatch(
+  layer: Layer,
+  patch: Record<string, unknown>,
+  creating = false,
+): void {
+  if (!('clock' in patch)) return;
+  if (layer.element.type !== 'text')
+    throw new Error('Clock/timer settings require a text element.');
+  if (patch.clock === null) return;
+  if (!patch.clock || typeof patch.clock !== 'object' || Array.isArray(patch.clock))
+    throw new Error('Clock/timer settings must be an object or null.');
+  if (layer.bindings.some((binding) => ['content', 'runs'].includes(binding.targetProperty)))
+    throw new Error('Remove text content bindings before enabling a clock/timer.');
+  const supplied = patch.clock as Record<string, unknown>;
+  const defaults = normalizeClockTimerSettings({
+    mode: supplied.mode,
+    referenceTimeMs: Date.now(),
+  });
+  const clock = { ...defaults, ...layer.element.clock, ...supplied };
+  if (creating && supplied.mode === 'count-down' && supplied.initialValueMs === undefined)
+    clock.initialValueMs = 60000;
+  const errors = validateClockTimerSettings(clock);
+  if (errors.length) throw new Error(errors.join(' '));
+  patch.clock = normalizeClockTimerSettings(clock);
+  patch.runs = [];
+}
+
+function refreshClockFallbackText(layer: Layer): void {
+  if (layer.element.type !== 'text' || !layer.element.clock) return;
+  const clock = layer.element.clock;
+  layer.element.content = formatClockTimerValue(
+    clock,
+    clock.source === 'manual'
+      ? (parseClockTimerManualValue(clock, clock.manualValue) ?? 0)
+      : clock.mode === 'clock'
+        ? clock.referenceTimeMs
+        : clock.initialValueMs,
+  );
+  layer.element.runs = [];
+}
+
+function assertPinnedChartProvider(composition: Composition, element: ChartElement): void {
+  const reference = element.provider;
+  if (!reference)
+    throw new Error(
+      'Chart creation requires an explicit pinned renderer provider. Select an installed plugin and supply its provider reference.',
+    );
+  const referenceErrors = validateRendererPluginReference(reference);
+  if (referenceErrors.length) throw new Error(referenceErrors.join(' '));
+  const key = rendererPluginKey(reference);
+  const snapshot = (composition.rendererPlugins ?? []).find(
+    (candidate) =>
+      candidate?.manifest &&
+      rendererPluginKey({ ...candidate.manifest, sha256: candidate.sha256 }) === key,
+  );
+  if (!snapshot)
+    throw new Error('Chart renderer provider is missing from this composition’s pinned catalog.');
+  const snapshotErrors = validateRendererPluginSnapshot(snapshot);
+  if (snapshotErrors.length) throw new Error(snapshotErrors.join(' '));
+  if (!snapshot.manifest.presets.includes(element.preset))
+    throw new Error(`Chart renderer provider does not support preset ${element.preset}.`);
+  const featureErrors = chartRendererFeatureErrors(element, snapshot.manifest);
+  if (featureErrors.length) throw new Error(featureErrors.join(' '));
 }
 
 function warnForDegenerateShrinkToFit(
@@ -517,6 +926,7 @@ function duplicateGroup(
 ): void {
   const sources = duplicateSourceLayers(composition, operation.source);
   if (sources.length === 0) throw new Error('duplicate_group source matched no layers.');
+  assertModifierGroupCopySafe(composition, sources, true);
   for (const layer of sources) assertUnlocked(layer);
 
   const totalFrames = getTotalFrames(composition);
@@ -543,7 +953,13 @@ function duplicateGroup(
 
     if (bindings === 'clone') {
       const boundFieldIds = [
-        ...new Set(sources.flatMap((layer) => layer.bindings.map((binding) => binding.fieldId))),
+        ...new Set(
+          sources.flatMap((layer) => [
+            ...layer.bindings.map((binding) => binding.fieldId),
+            ...(layer.visualRules ?? []).flatMap(visualRuleFieldIds),
+            ...layerModifierFieldIds(layer),
+          ]),
+        ),
       ];
       for (const sourceFieldId of boundFieldIds) {
         const sourceField = composition.dataFields.find((field) => field.id === sourceFieldId);
@@ -582,6 +998,27 @@ function duplicateGroup(
         source.parentId && sourceIds.has(source.parentId)
           ? layerIds[source.parentId]!
           : source.parentId;
+      layer.motionPath = source.motionPath
+        ? {
+            ...source.motionPath,
+            sourceLayerId:
+              layerIds[source.motionPath.sourceLayerId] ?? source.motionPath.sourceLayerId,
+          }
+        : null;
+      layer.textPath = source.textPath
+        ? {
+            ...source.textPath,
+            sourceLayerId: layerIds[source.textPath.sourceLayerId] ?? source.textPath.sourceLayerId,
+          }
+        : null;
+      if (source.modifiers)
+        layer.modifiers = remapLayerModifierReferences(source.modifiers, {
+          layers: layerIds,
+          groups: new Map(
+            sources.flatMap((entry) => (entry.groupId ? [[entry.groupId, groupId] as const] : [])),
+          ),
+          ...(bindings === 'clone' ? { fields: fieldIds } : {}),
+        })!;
       const shiftedAggregateKeys = new Map<number, (typeof layer.keyframes)[number]>();
       layer.mask = source.mask
         ? {
@@ -669,6 +1106,7 @@ function duplicateGroup(
       if (layer.element.type === 'text') {
         layer.element.content = literalRewrite(layer.element.content, operation.labelRewrite, n);
       }
+      remapClockTimerLayerActions(layer, new Map(Object.entries(layerIds)));
       if (bindings === 'clear') layer.bindings = [];
       else if (bindings === 'clone') {
         layer.bindings = layer.bindings.map((binding) => ({
@@ -676,6 +1114,16 @@ function duplicateGroup(
           fieldId: fieldIds[binding.fieldId] ?? binding.fieldId,
         }));
       }
+      // Rules that drive siblings inside the group drive the copied siblings.
+      layer.visualRules = (layer.visualRules ?? []).map((rule) =>
+        remapVisualRule(rule, {
+          layerIds: new Map(Object.entries(layerIds)),
+          groupIds: new Map(
+            sources.flatMap((entry) => (entry.groupId ? [[entry.groupId, groupId] as const] : [])),
+          ),
+          ...(bindings === 'clone' ? { fieldIds: new Map(Object.entries(fieldIds)) } : {}),
+        }),
+      );
       summary.generatedIds.push({ operationIndex, kind: 'layer', id: layer.id });
       summary.affectedLayerIds.push(layer.id);
       return layer;
@@ -694,6 +1142,10 @@ function duplicateGroup(
         if (original) fieldIds[original.fieldId] = field.id;
       }
     }
+    if (bindings === 'clone')
+      for (const layer of clones)
+        if (layer.modifiers)
+          layer.modifiers = remapLayerModifierReferences(layer.modifiers, { fields: fieldIds })!;
     copies.push({ n, groupId, layers: layerIds, fields: fieldIds });
   }
   summary.duplicateGroups.push({ operationIndex, copies });
@@ -703,7 +1155,8 @@ function recordOperation(summary: AuthoringChangeSummary, operation: AuthoringOp
   summary.operationTypes.push(operation.type);
   const compositionId = 'compositionId' in operation ? operation.compositionId : undefined;
   if (compositionId) summary.affectedCompositionIds.push(compositionId);
-  if ('layerId' in operation) summary.affectedLayerIds.push(operation.layerId);
+  if ('layerId' in operation && typeof operation.layerId === 'string')
+    summary.affectedLayerIds.push(operation.layerId);
   if ('layerIds' in operation && Array.isArray(operation.layerIds)) {
     summary.affectedLayerIds.push(...operation.layerIds);
   }
@@ -726,8 +1179,8 @@ function recordSemanticBlock(
   operationIndex: number,
   block: MaterializedLowerThird | MaterializedBroadcastRecipe,
 ): void {
-  const layerIds = Object.values(block.layers);
-  const fieldIds = Object.values(block.fields);
+  const layerIds = [...new Set(Object.values(block.layers))];
+  const fieldIds = [...new Set(Object.values(block.fields))];
   summary.affectedLayerIds.push(...layerIds);
   for (const id of layerIds) summary.generatedIds.push({ operationIndex, kind: 'layer', id });
   for (const id of fieldIds) summary.generatedIds.push({ operationIndex, kind: 'field', id });
@@ -737,6 +1190,20 @@ function recordSemanticBlock(
     kind: 'timeline-group',
     id: block.timelineGroupId,
   });
+  if (block.componentId) {
+    summary.generatedIds.push({ operationIndex, kind: 'component', id: block.componentId });
+  }
+  if (block.componentId && block.instanceId) {
+    summary.componentInstances.push({
+      operationIndex,
+      componentId: block.componentId,
+      instanceId: block.instanceId,
+      groupId: block.groupId,
+      linked: true,
+      layers: block.layers,
+      fields: block.fields,
+    });
+  }
   summary.semanticBlocks.push({ operationIndex, ...block });
 }
 
@@ -746,6 +1213,8 @@ export function applyAuthoringOperations(
 ): { project: Project; summary: AuthoringChangeSummary } {
   if (operations.length === 0) throw new Error('At least one authoring operation is required.');
   const project = clone(source);
+  reconcileProjectComponentInstances(project);
+  const editedTextPaths = new Set<string>();
   const summary: AuthoringChangeSummary = {
     operationCount: operations.length,
     operationTypes: [],
@@ -763,7 +1232,91 @@ export function applyAuthoringOperations(
   };
 
   operations.forEach((operation, operationIndex) => {
+    const previousProject = clone(project);
     recordOperation(summary, operation);
+    if (operation.type === 'add_review_comment') {
+      const composition = compositionFor(project, operation.compositionId);
+      if (operation.layerId && !composition.layers.some((layer) => layer.id === operation.layerId))
+        throw new Error('Review comment layer not found.');
+      if (
+        !operation.text.trim() ||
+        operation.text.length > 2000 ||
+        !operation.author.trim() ||
+        operation.author.length > 128 ||
+        !Number.isInteger(operation.frame) ||
+        operation.frame < 0 ||
+        operation.frame > getTotalFrames(composition) ||
+        !Number.isFinite(operation.x) ||
+        !Number.isFinite(operation.y)
+      )
+        throw new Error('Review comment has invalid text, author, frame or position.');
+      const review = (project.review ??= { comments: [], versions: [] });
+      if (review.comments.length >= 1000)
+        throw new Error('A project can contain at most 1000 review comments.');
+      const id = operation.id ?? createId('comment');
+      if (!id || id.length > 256)
+        throw new Error('Review comment ID must contain 1 to 256 characters.');
+      if (review.comments.some((comment) => comment.id === id))
+        throw new Error('Review comment ID already exists.');
+      review.comments.push({
+        id,
+        text: operation.text.trim(),
+        author: operation.author.trim(),
+        createdAt: operation.createdAt ?? new Date().toISOString(),
+        resolved: false,
+        compositionId: composition.id,
+        layerId: operation.layerId ?? null,
+        frame: operation.frame,
+        x: operation.x,
+        y: operation.y,
+      });
+      summary.affectedCompositionIds.push(composition.id);
+      if (operation.layerId) summary.affectedLayerIds.push(operation.layerId);
+      summary.generatedIds.push({ operationIndex, kind: 'review-comment', id });
+      return;
+    }
+    if (operation.type === 'set_review_comment_resolved') {
+      const comment = project.review?.comments.find((item) => item.id === operation.commentId);
+      if (!comment) throw new Error('Review comment not found.');
+      comment.resolved = operation.resolved;
+      return;
+    }
+    if (operation.type === 'save_review_version') {
+      if (!operation.name.trim() || operation.name.length > 128)
+        throw new Error('Enter a version name (up to 128 characters).');
+      const review = (project.review ??= { comments: [], versions: [] });
+      const id = operation.id ?? createId('version');
+      if (!id || id.length > 256)
+        throw new Error('Review version ID must contain 1 to 256 characters.');
+      if (review.versions.length >= 32)
+        throw new Error('A project can contain at most 32 review versions.');
+      if (review.versions.some((version) => version.id === id))
+        throw new Error('Review version ID already exists.');
+      const { review: _review, ...content } = project;
+      const snapshot = clone(content);
+      review.versions.push({
+        id,
+        name: operation.name.trim(),
+        createdAt: operation.createdAt ?? new Date().toISOString(),
+        snapshot,
+      });
+      summary.generatedIds.push({ operationIndex, kind: 'review-version', id });
+      return;
+    }
+    if (operation.type === 'set_review_approval') {
+      const review = (project.review ??= { comments: [], versions: [] });
+      if (operation.author === null) delete review.approval;
+      else {
+        if (!operation.author.trim() || operation.author.length > 128)
+          throw new Error('Enter an approver name (up to 128 characters).');
+        review.approval = {
+          author: operation.author.trim(),
+          at: operation.at ?? new Date().toISOString(),
+          fingerprint: reviewProjectFingerprint(project),
+        };
+      }
+      return;
+    }
     if (operation.type === 'set_project_metadata') {
       if (operation.thumbnailFrame !== undefined) project.thumbnailFrame = operation.thumbnailFrame;
       if (operation.id !== undefined) project.id = operation.id;
@@ -775,12 +1328,56 @@ export function applyAuthoringOperations(
         project.supportsRealTime = operation.supportsRealTime;
       if (operation.supportsNonRealTime !== undefined)
         project.supportsNonRealTime = operation.supportsNonRealTime;
+      reconcileProjectComponentInstances(project, previousProject);
       return;
     }
 
     const composition = compositionFor(project, operation.compositionId);
     summary.affectedCompositionIds.push(composition.id);
     switch (operation.type) {
+      case 'set_test_rundowns': {
+        const errors = testRundownErrors(composition, operation.rundowns);
+        if (errors.length) throw new Error(errors.join('\n'));
+        composition.testRundowns = clone(operation.rundowns);
+        break;
+      }
+      case 'set_logic_functions': {
+        const errors = validateLogicFunctionDefinitions(operation.functions, composition);
+        if (errors.length) throw new Error(errors.join('\n'));
+        if (operation.functions.length) {
+          composition.functions = structuredClone(operation.functions);
+          project.supportsRealTime = true;
+          project.supportsNonRealTime = false;
+        } else delete composition.functions;
+        break;
+      }
+      case 'remove_renderer_plugin': {
+        const referenceErrors = validateRendererPluginReference(operation.reference);
+        if (referenceErrors.length) throw new Error(referenceErrors.join(' '));
+        const key = rendererPluginKey(operation.reference);
+        const catalog = composition.rendererPlugins ?? [];
+        const snapshotIndex = catalog.findIndex(
+          (snapshot) =>
+            snapshot?.manifest &&
+            rendererPluginKey({ ...snapshot.manifest, sha256: snapshot.sha256 }) === key,
+        );
+        if (snapshotIndex < 0) throw new Error(`Pinned renderer plugin not found: ${key}`);
+        const consumers = [
+          ...composition.layers,
+          ...composition.components.flatMap((component) => component.layers),
+        ].filter(
+          (layer) =>
+            layer.element.type === 'chart' &&
+            layer.element.provider &&
+            rendererPluginKey(layer.element.provider) === key,
+        );
+        if (consumers.length)
+          throw new Error(
+            `Pinned renderer plugin is still used by ${consumers.map((layer) => `"${layer.name}"`).join(', ')}. Select another provider or remove those chart layers first.`,
+          );
+        composition.rendererPlugins = catalog.filter((_, index) => index !== snapshotIndex);
+        break;
+      }
       case 'set_composition':
         bakeResponsiveResize(composition, {
           width: operation.width ?? composition.width,
@@ -795,8 +1392,28 @@ export function applyAuthoringOperations(
             0,
             Math.round(operation.updateTransitionFrames),
           );
-        if (operation.backgroundColor !== undefined)
+        if (operation.updateInterruption !== undefined)
+          composition.updateInterruption = operation.updateInterruption;
+        if (operation.backgroundColor !== undefined) {
           composition.backgroundColor = operation.backgroundColor;
+          delete composition.backgroundPaint;
+          delete composition.backgroundStyleId;
+          composition.backgroundPaintOverridden = true;
+        }
+        if (operation.crop !== undefined) {
+          if (operation.crop === null) delete composition.crop;
+          else {
+            const errors = cropRectErrors(operation.crop, composition, true);
+            if (errors.length) throw new Error(errors.join(' '));
+            const crop = normalizeCanvasCrop(operation.crop, composition.width, composition.height);
+            if (crop) composition.crop = crop;
+            else delete composition.crop;
+          }
+        } else if (composition.crop) {
+          const crop = normalizeCanvasCrop(composition.crop, composition.width, composition.height);
+          if (crop) composition.crop = crop;
+          else delete composition.crop;
+        }
         break;
       case 'set_composition_layout':
         Object.assign(composition.layout, operation.patch);
@@ -897,6 +1514,7 @@ export function applyAuthoringOperations(
       case 'bind_design_token': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
+        markTypographyOverrides(layer, [operation.targetProperty]);
         const token = operation.tokenId
           ? composition.designSystem.tokens.find((candidate) => candidate.id === operation.tokenId)
           : composition.designSystem.tokens.find(
@@ -1000,6 +1618,13 @@ export function applyAuthoringOperations(
         );
         break;
       }
+      case 'retime_animation_phase': {
+        const result = retimeAnimationPhase(composition, operation.phase, operation.targetFrames);
+        summary.warnings.push(
+          `${operation.phase.toUpperCase()} fit to ${operation.targetFrames} frames; ${result.retimedKeys} property keys retimed.`,
+        );
+        break;
+      }
       case 'remove_lifecycle_step': {
         const index = composition.keyframes.findIndex(
           (candidate) => candidate.id === operation.keyframeId,
@@ -1045,6 +1670,7 @@ export function applyAuthoringOperations(
           );
         }
         summary.affectedFrames.push(removedFrame);
+        pruneVisualRuleReferences(composition);
         break;
       }
       case 'add_canvas_guide': {
@@ -1153,9 +1779,10 @@ export function applyAuthoringOperations(
         if (composition.layers.some((layer) => layer.groupId === id)) {
           throw new Error(`Canvas group id already exists: ${id}`);
         }
-        for (const layer of composition.layers) {
-          if (members.includes(layer.id)) layer.groupId = id;
-        }
+        applyModifierSafeGroupChanges(
+          composition.layers,
+          new Map(members.map((layerId) => [layerId, id])),
+        );
         summary.generatedIds.push({ operationIndex, kind: 'canvas-group', id });
         summary.affectedLayerIds.push(...members);
         break;
@@ -1181,12 +1808,14 @@ export function applyAuthoringOperations(
         ) {
           throw new Error('Remove the runtime collection before ungrouping its prototype.');
         }
-        for (const layer of composition.layers) {
-          if (layer.groupId && groupIds.has(layer.groupId)) {
-            layer.groupId = null;
-            summary.affectedLayerIds.push(layer.id);
-          }
-        }
+        const ungrouped = composition.layers.filter(
+          (layer) => layer.groupId && groupIds.has(layer.groupId),
+        );
+        applyModifierSafeGroupChanges(
+          composition.layers,
+          new Map(ungrouped.map((layer) => [layer.id, null])),
+        );
+        summary.affectedLayerIds.push(...ungrouped.map((layer) => layer.id));
         break;
       }
       case 'save_component': {
@@ -1203,7 +1832,20 @@ export function applyAuthoringOperations(
           operation.id,
         );
         composition.components.push(definition);
+        definition.scope = operation.scope ?? 'local';
         summary.generatedIds.push({ operationIndex, kind: 'component', id: definition.id });
+        const instance = linkExistingComponentLayers(composition, definition, operation.layerIds);
+        summary.affectedLayerIds.push(...instance.layers.map((layer) => layer.id));
+        summary.generatedIds.push({ operationIndex, kind: 'canvas-group', id: instance.groupId });
+        summary.componentInstances.push({
+          operationIndex,
+          componentId: definition.id,
+          instanceId: instance.instanceId,
+          groupId: instance.groupId,
+          linked: true,
+          layers: instance.layerIds,
+          fields: instance.fieldIds,
+        });
         break;
       }
       case 'instantiate_component': {
@@ -1218,7 +1860,8 @@ export function applyAuthoringOperations(
             x: operation.offset?.x ?? 40,
             y: operation.offset?.y ?? 40,
           },
-          operation.linked ?? false,
+          operation.linked ?? true,
+          operation.identity,
         );
         composition.dataFields.push(...instance.dataFields);
         composition.layers.push(...instance.layers);
@@ -1234,24 +1877,15 @@ export function applyAuthoringOperations(
           componentId: definition.id,
           instanceId: instance.instanceId,
           groupId: instance.groupId,
-          linked: operation.linked ?? false,
+          linked: operation.linked ?? true,
           layers: instance.layerIds,
           fields: instance.fieldIds,
         });
         break;
       }
       case 'update_component_from_layers': {
-        const index = composition.components.findIndex(
-          (candidate) => candidate.id === operation.componentId,
-        );
-        const existing = composition.components[index];
-        if (!existing) throw new Error(`Component not found: ${operation.componentId}`);
-        composition.components[index] = buildComponentDefinition(
-          composition,
-          operation.layerIds,
-          existing.name,
-          existing.id,
-        );
+        updateComponentDefinitionFromLayers(composition, operation.componentId, operation.layerIds);
+        summary.affectedLayerIds.push(...operation.layerIds);
         break;
       }
       case 'refresh_component_instances': {
@@ -1297,18 +1931,179 @@ export function applyAuthoringOperations(
         definition.name = name;
         break;
       }
+      case 'update_component_layer': {
+        const definition = composition.components.find(
+          (candidate) => candidate.id === operation.componentId,
+        );
+        if (!definition) throw new Error(`Component not found: ${operation.componentId}`);
+        const layer = definition.layers.find(
+          (candidate) => candidate.id === operation.sourceLayerId,
+        );
+        if (!layer) throw new Error(`Component source layer not found: ${operation.sourceLayerId}`);
+        const keys = Object.keys(operation.patch);
+        if (!keys.length) throw new Error('A component layer patch cannot be empty.');
+        for (const key of keys)
+          if (!COMPONENT_LAYER_PATCH_KEYS.has(key))
+            throw new Error(`Unsupported component layer patch: ${key}`);
+        if (layer.isLocked && keys.some((key) => key !== 'isLocked')) assertUnlocked(layer);
+        const { element, effects, animationTracks, ...remaining } = clone(operation.patch);
+        Object.assign(layer, remaining);
+        if (effects !== undefined) {
+          if (!effects || typeof effects !== 'object' || Array.isArray(effects))
+            throw new Error('Component effects must be an object.');
+          const before = clone({ element: layer.element, effects: layer.effects });
+          layer.effects = normalizeLayerEffects({ ...layer.effects, ...effects });
+          const editedEffectProperties = Object.keys(effects).filter((key) => key !== 'stack');
+          for (const binding of layer.bindings)
+            if (
+              binding.targetProperty.startsWith('effects.') &&
+              effectParameterValue(before.effects, binding.targetProperty) !==
+                effectParameterValue(layer.effects, binding.targetProperty)
+            )
+              editedEffectProperties.push(binding.targetProperty);
+          syncDesignerBindingDefaults(
+            { ...composition, layers: definition.layers, dataFields: definition.dataFields },
+            layer,
+            before,
+            editedEffectProperties,
+          );
+        }
+        if (animationTracks !== undefined) {
+          if (
+            !animationTracks ||
+            typeof animationTracks !== 'object' ||
+            Array.isArray(animationTracks)
+          )
+            throw new Error('Component animationTracks must be an object.');
+          layer.animationTracks = {
+            ...layer.animationTracks,
+            ...clone(animationTracks as Layer['animationTracks']),
+          };
+        }
+        if (element !== undefined) {
+          if (!element || typeof element !== 'object' || Array.isArray(element))
+            throw new Error('Component element must be an object.');
+          applyComponentChildOperations(project, composition, definition, [
+            {
+              type: 'update_element',
+              compositionId: composition.id,
+              layerId: layer.id,
+              patch: element as Record<string, unknown>,
+            },
+          ]);
+        }
+        refreshComponentDependencies(composition, definition);
+        break;
+      }
+      case 'update_component_field': {
+        const definition = composition.components.find(
+          (candidate) => candidate.id === operation.componentId,
+        );
+        if (!definition) throw new Error(`Component not found: ${operation.componentId}`);
+        if (!Object.keys(operation.patch).length)
+          throw new Error('A component field patch cannot be empty.');
+        if ('id' in operation.patch || 'generatedShaderParameter' in operation.patch)
+          throw new Error('Component field identity and shader provenance cannot be patched.');
+        const { type: fieldType, ...patch } = operation.patch;
+        applyComponentChildOperations(project, composition, definition, [
+          {
+            type: 'update_data_field',
+            compositionId: composition.id,
+            fieldId: operation.fieldId,
+            ...clone(patch),
+            ...(fieldType !== undefined ? { fieldType } : {}),
+          },
+        ]);
+        refreshComponentDependencies(composition, definition);
+        break;
+      }
+      case 'reset_component_overrides': {
+        if (
+          operation.paths &&
+          (operation.paths.length === 0 ||
+            operation.paths.length > 1024 ||
+            operation.paths.some(
+              (path) =>
+                path.length > 4096 ||
+                !/^\/(?:[^~]|~[01])*$/.test(path) ||
+                path === '/' ||
+                path
+                  .split('/')
+                  .slice(1)
+                  .map((part) => part.replaceAll('~1', '/').replaceAll('~0', '~'))
+                  .some((part) => ['__proto__', 'prototype', 'constructor'].includes(part)) ||
+                /^\/(id|componentLink)(\/|$)/.test(path),
+            ))
+        )
+          throw new Error(
+            'Reset paths must be safe JSON Pointers to authored component properties.',
+          );
+        if (
+          !operation.layerIds.length ||
+          new Set(operation.layerIds).size !== operation.layerIds.length
+        )
+          throw new Error('Reset requires non-empty unique component layer IDs.');
+        for (const id of operation.layerIds) {
+          const layer = layerFor(composition, id);
+          assertUnlocked(layer);
+          if (!layer.componentLink)
+            throw new Error(`Layer is not a linked component member: ${id}`);
+        }
+        summary.affectedLayerIds.push(
+          ...resetComponentInstanceOverrides(composition, operation.layerIds, operation.paths),
+        );
+        break;
+      }
+      case 'make_component_unique': {
+        const members = composition.layers.filter(
+          (layer) => layer.componentLink?.instanceId === operation.instanceId,
+        );
+        if (!members.length)
+          throw new Error(`Linked component instance not found: ${operation.instanceId}`);
+        for (const layer of members) assertUnlocked(layer);
+        const definition = makeComponentInstanceUnique(composition, operation.instanceId);
+        if (operation.id !== undefined) {
+          if (
+            composition.components.some(
+              (candidate) => candidate !== definition && candidate.id === operation.id,
+            )
+          )
+            throw new Error(`Component id already exists: ${operation.id}`);
+          definition.id = operation.id;
+          for (const layer of members)
+            if (layer.componentLink) layer.componentLink.componentId = definition.id;
+        }
+        if (operation.name !== undefined) {
+          if (!operation.name.trim()) throw new Error('Component name cannot be empty.');
+          definition.name = operation.name.trim();
+        }
+        summary.generatedIds.push({ operationIndex, kind: 'component', id: definition.id });
+        summary.affectedLayerIds.push(...members.map((layer) => layer.id));
+        break;
+      }
       case 'remove_component': {
-        if (!composition.components.some((candidate) => candidate.id === operation.componentId)) {
+        const definition = composition.components.find(
+          (candidate) => candidate.id === operation.componentId,
+        );
+        if (!definition) {
           throw new Error(`Component not found: ${operation.componentId}`);
         }
+        if (definition.scope === 'set')
+          throw new Error(
+            'Remove a template-set component through Studio so usage in every template is checked.',
+          );
+        if (
+          [
+            ...composition.layers,
+            ...composition.components.flatMap((component) => component.layers),
+          ].some((layer) => layer.componentLink?.componentId === operation.componentId)
+        )
+          throw new Error(
+            'Component is still used. Remove its instances or make them unique before deleting the asset.',
+          );
         composition.components = composition.components.filter(
           (candidate) => candidate.id !== operation.componentId,
         );
-        for (const layer of composition.layers) {
-          if (layer.componentLink?.componentId === operation.componentId) {
-            layer.componentLink = null;
-          }
-        }
         break;
       }
       case 'add_asset': {
@@ -1333,7 +2128,11 @@ export function applyAuthoringOperations(
             ? 'font'
             : operation.mimeType.startsWith('image/')
               ? 'image'
-              : 'source',
+              : operation.mimeType.startsWith('video/')
+                ? 'media'
+                : operation.mimeType.startsWith('audio/')
+                  ? 'audio'
+                  : 'source',
           mimeType: operation.mimeType,
           dataUri,
           originalFileName: operation.name.trim(),
@@ -1372,13 +2171,25 @@ export function applyAuthoringOperations(
       case 'remove_asset': {
         const asset = composition.assets.find((candidate) => candidate.id === operation.assetId);
         if (!asset) throw new Error(`Asset not found: ${operation.assetId}`);
+        const componentConsumers = findAssetConsumers(composition, asset).componentIds ?? [];
+        if (componentConsumers.length)
+          throw new Error(
+            `Asset is used by component definition(s): ${componentConsumers.join(', ')}. Remove those dependencies first; force cannot orphan component resources.`,
+          );
         const reference = `asset:${asset.id}`;
         const layerConsumers = composition.layers.filter((layer) => {
           if (layer.element.type === 'image') return layer.element.src === reference;
+          if (layer.element.type === 'audio') return layer.element.src === reference;
           if (layer.element.type === 'image-sequence') {
-            return layer.element.frames.includes(reference);
+            if (layer.element.frames.includes(reference)) return true;
           }
-          return false;
+          const fill = 'fill' in layer.element ? layer.element.fill : undefined;
+          return (
+            isMediaPaint(fill) &&
+            (fill.source.kind === 'clip'
+              ? fill.source.src === reference
+              : fill.source.fallback === reference)
+          );
         });
         const fieldConsumers = composition.dataFields.filter(
           (field) =>
@@ -1393,8 +2204,31 @@ export function applyAuthoringOperations(
         if (operation.force) {
           for (const layer of layerConsumers) {
             if (layer.element.type === 'image') layer.element.src = null;
+            else if (layer.element.type === 'audio') layer.element.src = null;
             else if (layer.element.type === 'image-sequence') {
               layer.element.frames = layer.element.frames.filter((frame) => frame !== reference);
+            }
+            const paintElement = 'fill' in layer.element ? layer.element : null;
+            const mutablePaintElement = paintElement as { fill?: Paint } | null;
+            const fill = paintElement?.fill;
+            if (isMediaPaint(fill)) {
+              if (fill.source.kind === 'live' && fill.source.fallback === reference) {
+                mutablePaintElement!.fill = {
+                  ...fill,
+                  source: { kind: 'live', tag: fill.source.tag },
+                };
+              } else if (fill.source.kind === 'clip' && fill.source.src === reference) {
+                if (
+                  layer.element.type === 'image' ||
+                  layer.element.type === 'image-sequence' ||
+                  layer.element.type === 'lottie'
+                )
+                  delete layer.element.fill;
+                else if (layer.element.type === 'text') {
+                  layer.element.color = '#3b3f4a';
+                  delete layer.element.fill;
+                } else mutablePaintElement!.fill = '#3b3f4a';
+              }
             }
             summary.affectedLayerIds.push(layer.id);
           }
@@ -1412,6 +2246,37 @@ export function applyAuthoringOperations(
           );
         }
         composition.assets = composition.assets.filter((candidate) => candidate.id !== asset.id);
+        break;
+      }
+      case 'add_media_cue': {
+        const cue = createMediaCue(operation.cue);
+        if (composition.mediaCues.some((candidate) => candidate.id === cue.id)) {
+          throw new Error(`Media cue id already exists: ${cue.id}`);
+        }
+        composition.mediaCues.push(cue);
+        project.supportsRealTime = true;
+        project.supportsNonRealTime = false;
+        summary.generatedIds.push({ operationIndex, kind: 'media-cue', id: cue.id });
+        break;
+      }
+      case 'update_media_cue': {
+        const cue = composition.mediaCues.find((candidate) => candidate.id === operation.cueId);
+        if (!cue) throw new Error(`Media cue not found: ${operation.cueId}`);
+        Object.assign(cue, structuredClone(operation.patch));
+        if (!cue.sources.some((source) => source.id === cue.activeSourceId)) {
+          cue.activeSourceId = cue.sources[0]?.id ?? null;
+        }
+        project.supportsRealTime = true;
+        project.supportsNonRealTime = false;
+        break;
+      }
+      case 'remove_media_cue': {
+        assertLogicFunctionReferenceRemovable(composition, 'cue', operation.cueId);
+        if (!composition.mediaCues.some((cue) => cue.id === operation.cueId)) {
+          throw new Error(`Media cue not found: ${operation.cueId}`);
+        }
+        composition.mediaCues = composition.mediaCues.filter((cue) => cue.id !== operation.cueId);
+        pruneVisualRuleReferences(composition);
         break;
       }
       case 'add_layer': {
@@ -1499,24 +2364,61 @@ export function applyAuthoringOperations(
         break;
       }
       case 'create_lower_third': {
-        const block = materializeLowerThird(composition, operation);
+        const block = withStableGeneratedIds(operation.identitySeed, () =>
+          materializeLowerThird(composition, operation),
+        );
         recordSemanticBlock(summary, operationIndex, block);
         break;
       }
       case 'create_bug':
-        recordSemanticBlock(summary, operationIndex, materializeBug(composition, operation));
+        recordSemanticBlock(
+          summary,
+          operationIndex,
+          withStableGeneratedIds(operation.identitySeed, () =>
+            materializeBug(composition, operation),
+          ),
+        );
         break;
       case 'create_ticker':
-        recordSemanticBlock(summary, operationIndex, materializeTicker(composition, operation));
+        recordSemanticBlock(
+          summary,
+          operationIndex,
+          withStableGeneratedIds(operation.identitySeed, () =>
+            materializeTicker(composition, operation),
+          ),
+        );
         break;
       case 'create_scoreboard':
-        recordSemanticBlock(summary, operationIndex, materializeScoreboard(composition, operation));
+        recordSemanticBlock(
+          summary,
+          operationIndex,
+          withStableGeneratedIds(operation.identitySeed, () =>
+            materializeScoreboard(composition, operation),
+          ),
+        );
         break;
       case 'create_clock':
-        recordSemanticBlock(summary, operationIndex, materializeClock(composition, operation));
+        recordSemanticBlock(
+          summary,
+          operationIndex,
+          withStableGeneratedIds(operation.identitySeed, () =>
+            materializeClock(composition, operation),
+          ),
+        );
+        break;
+      case 'create_countdown':
+        recordSemanticBlock(
+          summary,
+          operationIndex,
+          withStableGeneratedIds(operation.identitySeed, () =>
+            materializeCountdown(composition, operation),
+          ),
+        );
         break;
       case 'create_repeater': {
-        const repeater = materializeRepeater(composition, operation);
+        const repeater = withStableGeneratedIds(operation.identitySeed, () =>
+          materializeRepeater(composition, operation),
+        );
         for (const item of repeater.items) {
           summary.generatedIds.push({
             operationIndex,
@@ -1540,6 +2442,7 @@ export function applyAuthoringOperations(
         break;
       case 'remove_layer':
         assertMaskSourcesRemovable(composition, new Set([operation.layerId]));
+        assertModifierSourcesRemovable(composition, new Set([operation.layerId]));
         if (
           composition.runtimeCollections.some((collection) =>
             collection.prototypeLayerIds.includes(operation.layerId),
@@ -1550,10 +2453,12 @@ export function applyAuthoringOperations(
           );
         }
         assertUnlocked(layerFor(composition, operation.layerId));
+        rehomeVisualRuleGroupOwners(composition.layers, new Set([operation.layerId]));
         composition.layers = composition.layers.filter((layer) => layer.id !== operation.layerId);
         for (const layer of composition.layers) {
           if (layer.parentId === operation.layerId) layer.parentId = null;
         }
+        pruneVisualRuleReferences(composition);
         break;
       case 'rename_layer':
         layerFor(composition, operation.layerId).name = operation.name;
@@ -1564,6 +2469,7 @@ export function applyAuthoringOperations(
         if (operation.isGuide !== undefined) layer.isGuide = operation.isGuide;
         if (operation.isMaskOnly !== undefined) layer.isMaskOnly = operation.isMaskOnly;
         if (operation.blendMode !== undefined) layer.blendMode = operation.blendMode;
+        if (operation.isGuide === true) pruneVisualRuleReferences(composition);
         break;
       }
       case 'set_layer_layout': {
@@ -1585,9 +2491,326 @@ export function applyAuthoringOperations(
         }
         if (operation.isLocked !== undefined) layer.isLocked = operation.isLocked;
         if (operation.clipChildren !== undefined) layer.clipChildren = operation.clipChildren;
-        if (operation.groupId !== undefined) layer.groupId = operation.groupId;
+        if (operation.groupId !== undefined)
+          applyModifierSafeGroupChanges(
+            composition.layers,
+            new Map([[layer.id, operation.groupId]]),
+          );
         if (operation.parentId !== undefined) layer.parentId = operation.parentId;
         if (operation.constraints) Object.assign(layer.constraints, operation.constraints);
+        if (operation.textPath !== undefined) {
+          assertUnlocked(layer);
+          editedTextPaths.add(`${composition.id}\0${layer.id}`);
+          const value = operation.textPath;
+          if (
+            value !== null &&
+            (typeof value !== 'object' ||
+              Array.isArray(value) ||
+              Object.keys(value).some(
+                (key) => !['sourceLayerId', 'startOffset', 'alignment'].includes(key),
+              ))
+          )
+            throw new Error('Text path requires sourceLayerId, startOffset and alignment.');
+          layer.textPath = value ? structuredClone(value) : null;
+        }
+        if (operation.motionBlur !== undefined) {
+          const value = operation.motionBlur;
+          if (value === null) delete layer.motionBlur;
+          else if (
+            typeof value !== 'object' ||
+            Array.isArray(value) ||
+            typeof value.enabled !== 'boolean' ||
+            !Number.isFinite(value.shutterAngle) ||
+            value.shutterAngle < 0 ||
+            value.shutterAngle > 360 ||
+            Object.keys(value).some((key) => key !== 'enabled' && key !== 'shutterAngle')
+          )
+            throw new Error('Motion blur requires enabled and a shutterAngle from 0 to 360.');
+          else layer.motionBlur = { enabled: value.enabled, shutterAngle: value.shutterAngle };
+        }
+        if (operation.autoLayout) {
+          layer.autoLayout = normalizeLayerAutoLayout({
+            ...layer.autoLayout,
+            ...operation.autoLayout,
+          });
+        }
+        if (operation.updateTransition) {
+          layer.updateTransition = {
+            ...(layer.updateTransition ?? { style: 'inherit', durationFrames: 0, distance: 24 }),
+            ...operation.updateTransition,
+          };
+          layer.updateTransition.durationFrames = Math.max(
+            0,
+            Math.round(layer.updateTransition.durationFrames),
+          );
+          layer.updateTransition.distance = Math.max(0, layer.updateTransition.distance);
+        }
+        if (operation.motionPath !== undefined) {
+          if (operation.motionPath) {
+            const source = composition.layers.find(
+              (candidate) => candidate.id === operation.motionPath!.sourceLayerId,
+            );
+            if (!source || source.element.type !== 'path')
+              throw new Error('Motion-path source must be an editable path layer.');
+            if (source.id === layer.id) throw new Error('A layer cannot follow itself.');
+          }
+          layer.motionPath = operation.motionPath ? structuredClone(operation.motionPath) : null;
+        }
+        break;
+      }
+      case 'set_layer_motion': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        const windows = layerMotionWindows(composition);
+        if (!windows) throw new Error('Animate In/Out needs a Start, Step, and End keyframe.');
+        const available = operation.side === 'in' ? windows.inFrames : windows.outFrames;
+        if (available < 1) throw new Error(`Animate ${operation.side} has no available frames.`);
+        if (operation.spec) {
+          if (operation.spec.durationFrames > available)
+            throw new Error(`Animate ${operation.side} duration exceeds ${available} frames.`);
+          if (!layerMotionStyleAvailable(layer, operation.spec.style))
+            throw new Error(
+              operation.spec.style === 'grow'
+                ? 'Grow motion would reflow text; use wipe or scale.'
+                : 'Focus motion needs the layer’s built-in blur effect.',
+            );
+          const directions = layerMotionDirections(operation.spec.style);
+          if (operation.spec.direction && !directions.includes(operation.spec.direction))
+            throw new Error(
+              `${operation.spec.style} motion directions: ${directions.join(', ') || 'none'}.`,
+            );
+          if ((operation.spec.offsetFrames ?? 0) < 0)
+            throw new Error('Animate offsetFrames must be 0 or more.');
+          if (operation.spec.durationFrames + (operation.spec.offsetFrames ?? 0) > available)
+            throw new Error(
+              `Animate ${operation.side} duration plus offset exceeds ${available} frames.`,
+            );
+        }
+        applyLayerMotion(composition, layer, operation.side, operation.spec);
+        break;
+      }
+      case 'apply_animation_preset': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        const errors = validateRendererPluginReference(operation.reference);
+        if (errors.length) throw new Error(errors.join(' '));
+        const key = rendererPluginKey(operation.reference);
+        const snapshot = (composition.animationPresetPlugins ?? []).find(
+          (candidate) =>
+            rendererPluginKey({ ...candidate.manifest, sha256: candidate.sha256 }) === key,
+        );
+        if (!snapshot)
+          throw new Error(
+            'The exact animation preset pack is not present in this composition. Install and apply it through Configuration and Animate In/Out first.',
+          );
+        if (operation.target === 'chart-marks') {
+          if (operation.offsetFrames !== undefined)
+            throw new Error(
+              'Chart mark presets use delayFrames and staggerFrames, not finish offset.',
+            );
+          applyChartMarkAnimationPreset(
+            composition,
+            layer,
+            snapshot,
+            operation.presetId,
+            operation.side,
+            {
+              durationFrames: operation.durationFrames,
+              delayFrames: operation.delayFrames ?? 0,
+              staggerFrames: operation.staggerFrames ?? 0,
+              ...(operation.parameters === undefined ? {} : { parameters: operation.parameters }),
+            },
+          );
+          if (layer.element.type === 'chart') {
+            const provider = composition.rendererPlugins?.find(
+              (entry) =>
+                layer.element.type === 'chart' &&
+                layer.element.provider &&
+                rendererPluginKey({ ...entry.manifest, sha256: entry.sha256 }) ===
+                  rendererPluginKey(layer.element.provider),
+            );
+            if (!provider)
+              throw new Error('Chart mark animation requires a pinned compatible renderer.');
+            const errors = chartRendererFeatureErrors(layer.element, provider.manifest);
+            if (errors.length) throw new Error(errors.join(' '));
+          }
+          break;
+        }
+        if (operation.delayFrames !== undefined || operation.staggerFrames !== undefined)
+          throw new Error('Mark delay/stagger require target chart-marks.');
+        applyAnimationPreset(composition, layer, snapshot, operation.presetId, operation.side, {
+          durationFrames: operation.durationFrames,
+          ...(operation.offsetFrames === undefined ? {} : { offsetFrames: operation.offsetFrames }),
+          ...(operation.parameters === undefined ? {} : { parameters: operation.parameters }),
+        });
+        break;
+      }
+      case 'remove_animation_preset_plugin': {
+        const errors = validateRendererPluginReference(operation.reference);
+        if (errors.length) throw new Error(errors.join(' '));
+        const key = rendererPluginKey(operation.reference);
+        const catalog = composition.animationPresetPlugins ?? [];
+        if (
+          !catalog.some(
+            (snapshot) =>
+              rendererPluginKey({ ...snapshot.manifest, sha256: snapshot.sha256 }) === key,
+          )
+        )
+          throw new Error('Animation preset snapshot not found for this exact reference.');
+        const users = [
+          ...composition.layers,
+          ...composition.components.flatMap((component) => component.layers),
+        ].filter((layer) =>
+          [
+            ...Object.values(layer.animationPresets ?? {}),
+            ...Object.values(
+              layer.element.type === 'chart' ? (layer.element.markAnimations ?? {}) : {},
+            ),
+          ].some((application) => application && rendererPluginKey(application.reference) === key),
+        );
+        if (users.length)
+          throw new Error(
+            `Animation preset pack is still referenced by: ${users.map((layer) => layer.name).join(', ')}.`,
+          );
+        const remaining = catalog.filter(
+          (snapshot) =>
+            rendererPluginKey({ ...snapshot.manifest, sha256: snapshot.sha256 }) !== key,
+        );
+        if (remaining.length) composition.animationPresetPlugins = remaining;
+        else delete composition.animationPresetPlugins;
+        break;
+      }
+      case 'set_layer_visual_rules': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        for (const rule of operation.rules) {
+          if (isVisualRuleKeyboardTrigger(rule.trigger) || rule.keyboard !== undefined) {
+            const errors = visualRuleKeyboardErrors(rule.keyboard);
+            if (errors.length) throw new Error(errors.join(' '));
+          }
+        }
+        const rules = operation.rules.map(normalizeLayerVisualRule);
+        const fieldIds = new Set(composition.dataFields.map((field) => field.id));
+        const actionIds = new Set(composition.customActions.map((action) => action.actionId));
+        // Built-in clock/timer commands are custom actions too, as they are in exported packages.
+        for (const candidate of composition.layers) {
+          if (candidate.isGuide || candidate.element.type !== 'text' || !candidate.element.clock)
+            continue;
+          for (const command of ['start', 'pause', 'reset', 'restart'] as const)
+            actionIds.add(clockTimerActionId(candidate.id, command));
+        }
+        const layerIds = new Set(composition.layers.map((candidate) => candidate.id));
+        for (const rule of rules) {
+          const trigger = rule.trigger ?? 'data';
+          if (trigger === 'timer-alarm') {
+            const errors = validateTimerAlarmTrigger(rule.timerAlarm, composition.layers);
+            if (errors.length) throw new Error(errors.join(' '));
+          }
+          if (rule.hostGroupId && layer.groupId !== rule.hostGroupId)
+            throw new Error(
+              `Visual rule owner group does not contain this layer: ${rule.hostGroupId}`,
+            );
+          if (
+            trigger === 'data' &&
+            !fieldIds.has(rule.fieldId) &&
+            !isVisualRuleMouseFieldId(rule.fieldId)
+          )
+            throw new Error(`Visual rule field not found: ${rule.fieldId}`);
+          for (const fieldId of visualRuleFieldIds(rule)) {
+            if (!fieldIds.has(fieldId)) throw new Error(`Visual rule field not found: ${fieldId}`);
+          }
+          if (trigger === 'custom-action' && (!rule.eventId || !actionIds.has(rule.eventId)))
+            throw new Error(`Visual rule trigger custom action not found: ${rule.eventId ?? ''}`);
+          if (
+            trigger === 'step' &&
+            rule.eventId &&
+            !composition.keyframes.some((key) => key.id === rule.eventId && key.role === 'step')
+          )
+            throw new Error(`Visual rule trigger step not found: ${rule.eventId}`);
+          for (const action of rule.actions) {
+            if (action.type === 'property') {
+              const error = layerRulePropertyValueError(action.targetProperty, action.value);
+              if (error) throw new Error(error);
+            }
+            if (action.type === 'playout') {
+              const errors = visualRulePlayoutActionErrors(action);
+              if (errors.length) throw new Error(errors.join(' '));
+            }
+            if (
+              (action.type === 'visibility' ||
+                action.type === 'toggle-visibility' ||
+                action.type === 'property') &&
+              action.targetLayerId &&
+              !layerIds.has(action.targetLayerId)
+            )
+              throw new Error(`Visual rule target layer not found: ${action.targetLayerId}`);
+            if (
+              (action.type === 'visibility' ||
+                action.type === 'toggle-visibility' ||
+                action.type === 'property') &&
+              action.targetGroupId &&
+              !composition.layers.some((candidate) => candidate.groupId === action.targetGroupId)
+            )
+              throw new Error(`Visual rule target group not found: ${action.targetGroupId}`);
+            if (
+              (action.type === 'custom-action' || action.type === 'shader-animation') &&
+              !actionIds.has(action.actionId)
+            ) {
+              throw new Error(`Visual rule custom action not found: ${action.actionId}`);
+            }
+            if (
+              (action.type === 'play-sound' || action.type === 'take-media') &&
+              !composition.mediaCues.some((cue) => cue.id === action.cueId)
+            ) {
+              throw new Error(`Visual rule media cue not found: ${action.cueId}`);
+            }
+          }
+        }
+        layer.visualRules = structuredClone(rules);
+        break;
+      }
+      case 'set_layer_crop': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        if (layer.element.type === 'audio') throw new Error('Audio layers have no visual crop.');
+        if (operation.crop === null) {
+          delete layer.crop;
+          break;
+        }
+        const rect = operation.crop;
+        if (operation.coordinateSpace !== 'composition') {
+          const errors = sourceCropErrors(rect);
+          if (errors.length) throw new Error(errors.join(' '));
+          const normalized = normalizeSourceCrop(rect);
+          if (normalized) layer.crop = { points: cropRectPoints(normalized) };
+          else delete layer.crop;
+        } else {
+          if (
+            ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) ||
+            rect.width <= 0 ||
+            rect.height <= 0
+          )
+            throw new Error(
+              'Composition-space crop must be a finite non-empty rectangle in pixels.',
+            );
+          const at = operation.frame ?? 0;
+          const pose = getLayerTransformAtFrame(layer, at);
+          const [a, b, c, d, e, f] = transformMatrix(pose);
+          const scale = Math.max(0.000001, getLayerPropertyValueAtFrame(layer, 'scale', at));
+          const ox = pose.width * pose.transformOriginX,
+            oy = pose.height * pose.transformOriginY;
+          const determinant = a * d - b * c;
+          layer.crop = {
+            points: cropRectPoints(rect).map((point) => {
+              const x = point.x - e,
+                y = point.y - f;
+              return {
+                x: (ox + ((d * x - c * y) / determinant - ox) / scale) / pose.width,
+                y: (oy + ((-b * x + a * y) / determinant - oy) / scale) / pose.height,
+              };
+            }),
+          };
+        }
         break;
       }
       case 'set_layer_mask': {
@@ -1620,6 +2843,16 @@ export function applyAuthoringOperations(
       case 'update_element': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
+        if (
+          layer.element.type === 'chart' &&
+          layer.element.provider != null &&
+          'provider' in operation.patch &&
+          operation.patch.provider == null
+        )
+          throw new Error(
+            'A configured chart must retain an explicit pinned renderer provider. Select a replacement plugin instead of clearing its provider.',
+          );
+        const before = clone({ element: layer.element, effects: layer.effects });
         const legacyShaderPatch =
           operation.patch.type === 'shader' &&
           layer.element.type === 'rectangle' &&
@@ -1641,6 +2874,10 @@ export function applyAuthoringOperations(
           assertPropertyApplicable(layer, 'strokeWidth', strokeWidth);
         }
         const elementPatch = { ...operation.patch };
+        if (layer.element.type === 'chart' && elementPatch.animation != null) {
+          const errors = chartAnimationErrors(elementPatch.animation);
+          if (errors.length) throw new Error(errors.join('\n'));
+        }
         if (legacyShaderPatch) delete elementPatch.type;
         const previousShader = getElementShaderPaint(layer.element);
         const previousStrokeShader = getElementShaderPaint(layer.element, 'stroke');
@@ -1681,6 +2918,8 @@ export function applyAuthoringOperations(
             },
           });
         }
+        if (isMediaPaint(elementPatch.fill))
+          elementPatch.fill = normalizeMediaPaint(elementPatch.fill);
         if (
           isShaderPaint(elementPatch.fill) &&
           elementPatch.fill.parameters !== undefined &&
@@ -1723,9 +2962,101 @@ export function applyAuthoringOperations(
               : (radiusPatch as never),
           );
         }
+        if (layer.element.type === 'text' && elementPatch.textAnimation !== undefined) {
+          if (!elementPatch.textAnimation || typeof elementPatch.textAnimation !== 'object') {
+            throw new Error('Text textAnimation must be an object.');
+          }
+          const mergedAnimation = {
+            ...layer.element.textAnimation,
+            ...(elementPatch.textAnimation as Record<string, unknown>),
+          };
+          if (
+            'animators' in (elementPatch.textAnimation as Record<string, unknown>) ||
+            layer.element.textAnimation.animators?.length
+          ) {
+            validateTextAnimators(mergedAnimation.animators);
+            const errors = textAnimationErrors(mergedAnimation);
+            if (errors.length) throw new Error(errors.join('\n'));
+          }
+          elementPatch.textAnimation = normalizeTextAnimation(mergedAnimation);
+          const errors = textAnimatorPaintErrors({
+            ...layer.element,
+            ...elementPatch,
+          } as typeof layer.element);
+          if (errors.length) throw new Error(errors.join('\n'));
+        }
+        normalizeElementClockPatch(layer, elementPatch);
+        if (
+          layer.element.type === 'text' &&
+          elementPatch.crawl !== undefined &&
+          elementPatch.crawl !== null
+        ) {
+          if (typeof elementPatch.crawl !== 'object' || Array.isArray(elementPatch.crawl))
+            throw new Error('Text crawl must be an object.');
+          elementPatch.crawl = normalizeTextCrawl({
+            ...layer.element.crawl,
+            ...(elementPatch.crawl as Record<string, unknown>),
+          });
+        }
+        if (layer.element.type === 'chart' && elementPatch.data !== undefined)
+          elementPatch.data = parseChartData(elementPatch.data);
+        if (
+          layer.element.type === 'text' &&
+          elementPatch.content !== undefined &&
+          !('runs' in elementPatch)
+        ) {
+          const authoredText = layer.element.runs.length
+            ? layer.element.runs.map((run) => run.text).join('')
+            : layer.element.content;
+          if (String(elementPatch.content) !== authoredText) elementPatch.runs = [];
+        }
         Object.assign(layer.element, elementPatch);
+        if (layer.element.type === 'text') {
+          const errors = textAnimatorPaintErrors(layer.element);
+          if (errors.length) throw new Error(errors.join('\n'));
+        }
+        if (layer.element.type === 'ticker') layer.element = normalizeTicker(layer.element);
+        if (layer.element.type === 'text' && elementPatch.crawl === null)
+          delete layer.element.crawl;
+        if (layer.element.type === 'text' && elementPatch.clock === null)
+          delete layer.element.clock;
+        if (elementPatch.clock === null) pruneVisualRuleReferences(composition);
+        if ('clock' in elementPatch) refreshClockFallbackText(layer);
+        markTypographyOverrides(layer, Object.keys(elementPatch));
+        for (const binding of layer.designTokenBindings) {
+          const property = binding.targetProperty;
+          if (
+            'borderRadius' in elementPatch &&
+            property.startsWith('borderRadius') &&
+            property !== 'borderRadius' &&
+            before.element.type === 'rectangle' &&
+            layer.element.type === 'rectangle'
+          ) {
+            const corner = property.slice('borderRadius'.length);
+            const key =
+              `${corner.charAt(0).toLowerCase()}${corner.slice(1)}` as keyof typeof layer.element.borderRadius;
+            if (before.element.borderRadius[key] !== layer.element.borderRadius[key])
+              binding.overridden = true;
+          }
+          if (
+            Object.keys(elementPatch).some(
+              (key) =>
+                key === property ||
+                property.startsWith(`${key}.`) ||
+                property.startsWith(`${key}[`) ||
+                (layer.element.type === 'text' && key === 'fill' && property === 'color'),
+            )
+          )
+            binding.overridden = true;
+        }
+        if (
+          (layer.element.type === 'image' || layer.element.type === 'image-sequence') &&
+          elementPatch.crop === null
+        )
+          delete layer.element.crop;
         if (
           (layer.element.type === 'text' ||
+            layer.element.type === 'chart' ||
             layer.element.type === 'image' ||
             layer.element.type === 'image-sequence' ||
             layer.element.type === 'lottie') &&
@@ -1767,12 +3098,17 @@ export function applyAuthoringOperations(
           }
         }
         pruneInvalidGradientStopTracks(layer);
+        if (layer.element.type === 'chart' && layer.element.provider != null)
+          assertPinnedChartProvider(composition, layer.element);
+        syncDesignerBindingDefaults(composition, layer, before, Object.keys(elementPatch));
         break;
       }
       case 'update_transform': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
-        const patch = normalizeAuthoredTransformPatch(operation.patch);
+        const bound = syncDesignerTransformBindingDefaults(composition, layer, operation.patch);
+        const patch = normalizeAuthoredTransformPatch(bound.patch);
+        if (!Object.keys(patch).length) break;
         const frames = operationFrames(composition, operation.scope, operation.frame);
         for (const frame of frames) {
           const before = getLayerTransformAtFrame(layer, frame);
@@ -1798,46 +3134,146 @@ export function applyAuthoringOperations(
         warnForDegenerateShrinkToFit(summary, layer, frames, operationIndex);
         break;
       }
-      case 'add_effect':
-      case 'duplicate_effect': {
+      case 'add_modifier': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
-        const effect =
-          operation.type === 'add_effect'
-            ? addEffect(layer, operation.effectType, operation.patch, operation.index, operation.id)
-            : duplicateEffect(layer, operation.effectId, operation.id);
-        summary.generatedIds.push({ operationIndex, kind: 'effect', id: effect.id });
+        const modifier = addLayerModifier(
+          layer,
+          operation.modifierType,
+          operation.params,
+          operation.index,
+          operation.id,
+        );
+        if (operation.name !== undefined || operation.enabled !== undefined)
+          updateLayerModifier(layer, modifier.id, {
+            ...(operation.name !== undefined ? { name: operation.name } : {}),
+            ...(operation.enabled !== undefined ? { enabled: operation.enabled } : {}),
+          });
+        summary.generatedIds.push({ operationIndex, kind: 'modifier', id: modifier.id });
         summary.affectedLayerIds.push(layer.id);
         break;
       }
-      case 'update_effect': {
+      case 'update_modifier': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
-        const effect = updateEffect(layer, operation.effectId, operation.patch);
-        for (const [param, value] of Object.entries(operation.patch.params ?? {}))
-          if (typeof value === 'number')
-            for (const frame of operationFrames(composition, operation.scope, operation.frame))
-              upsertPropertyKey(
-                layer,
-                effectProperty(effect, param) as AnimatableLayerProperty,
-                frame,
-                value,
-              );
+        const before = clone({
+          element: layer.element,
+          effects: layer.effects,
+          modifiers: layer.modifiers,
+        });
+        const modifier = updateLayerModifier(layer, operation.modifierId, operation.patch);
+        const edited: string[] = [];
+        for (const [param, value] of Object.entries(operation.patch.params ?? {})) {
+          const property = modifierProperty(modifier, param);
+          if (typeof value !== 'number' || !modifierParameterSpec(layer, property)) continue;
+          edited.push(property);
+          for (const frame of operationFrames(composition, operation.scope, operation.frame))
+            upsertPropertyKey(layer, property, frame, value);
+        }
+        syncDesignerBindingDefaults(composition, layer, before, edited);
         summary.affectedLayerIds.push(layer.id);
+        break;
+      }
+      case 'duplicate_modifier': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        const modifier = duplicateLayerModifier(layer, operation.modifierId, operation.id);
+        summary.generatedIds.push({ operationIndex, kind: 'modifier', id: modifier.id });
+        summary.affectedLayerIds.push(layer.id);
+        break;
+      }
+      case 'remove_modifier': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        removeLayerModifier(layer, operation.modifierId);
+        summary.affectedLayerIds.push(layer.id);
+        break;
+      }
+      case 'reorder_modifiers': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        reorderLayerModifiers(layer, operation.modifierIds);
+        summary.affectedLayerIds.push(layer.id);
+        break;
+      }
+      case 'add_effect':
+      case 'duplicate_effect': {
+        const layers = effectTargetLayers(composition, operation);
+        if (operation.type === 'duplicate_effect')
+          for (const layer of layers)
+            if (!getEffectStack(layer.effects).some((effect) => effect.id === operation.effectId))
+              throw new Error(`Group effect not found on every member: ${operation.effectId}`);
+        const effectId = operation.id ?? createId('fx');
+        for (const layer of layers)
+          if (operation.type === 'add_effect')
+            addEffect(layer, operation.effectType, operation.patch, operation.index, effectId);
+          else duplicateEffect(layer, operation.effectId, effectId);
+        summary.generatedIds.push({ operationIndex, kind: 'effect', id: effectId });
+        summary.affectedLayerIds.push(...layers.map((layer) => layer.id));
+        break;
+      }
+      case 'update_effect': {
+        const layers = effectTargetLayers(composition, operation);
+        for (const layer of layers)
+          if (!getEffectStack(layer.effects).some((effect) => effect.id === operation.effectId))
+            throw new Error(`Group effect not found on every member: ${operation.effectId}`);
+        for (const layer of layers) {
+          const before = clone({ element: layer.element, effects: layer.effects });
+          const effect = updateEffect(layer, operation.effectId, operation.patch);
+          for (const [param, value] of Object.entries(operation.patch.params ?? {}))
+            if (typeof value === 'number')
+              for (const frame of operationFrames(composition, operation.scope, operation.frame))
+                upsertPropertyKey(
+                  layer,
+                  effectProperty(effect, param) as AnimatableLayerProperty,
+                  frame,
+                  value,
+                );
+          syncDesignerBindingDefaults(
+            composition,
+            layer,
+            before,
+            Object.keys(operation.patch.params ?? {}).map((param) => effectProperty(effect, param)),
+          );
+        }
+        summary.affectedLayerIds.push(...layers.map((layer) => layer.id));
         break;
       }
       case 'remove_effect':
       case 'reorder_effects': {
-        const layer = layerFor(composition, operation.layerId);
-        assertUnlocked(layer);
-        if (operation.type === 'remove_effect') removeEffect(layer, operation.effectId);
-        else reorderEffects(layer, operation.effectIds);
-        summary.affectedLayerIds.push(layer.id);
+        const layers = effectTargetLayers(composition, operation);
+        const effectIds =
+          operation.type === 'remove_effect' ? [operation.effectId] : operation.effectIds;
+        for (const layer of layers)
+          if (
+            effectIds.some(
+              (effectId) => !getEffectStack(layer.effects).some((effect) => effect.id === effectId),
+            )
+          )
+            throw new Error('Group effect is not present on every member layer.');
+        if (operation.type === 'remove_effect') {
+          for (const layer of layers) removeEffect(layer, operation.effectId);
+        } else {
+          const shared = new Set(operation.effectIds);
+          for (const layer of layers) {
+            const stack = getEffectStack(layer.effects),
+              queue = operation.effectIds.map((effectId) =>
+                stack.find((effect) => effect.id === effectId)!,
+              ),
+              reordered = stack.map((effect) => (shared.has(effect.id) ? queue.shift()! : effect));
+            reorderEffects(
+              layer,
+              reordered.map((effect) => effect.id),
+            );
+          }
+        }
+        summary.affectedLayerIds.push(...layers.map((layer) => layer.id));
         break;
       }
       case 'update_effects': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
+        const before = clone({ element: layer.element, effects: layer.effects });
         layer.effects = ensureLegacyEffects(
           normalizeLayerEffects({ ...layer.effects, ...operation.patch }),
           operation.patch,
@@ -1850,6 +3286,7 @@ export function applyAuthoringOperations(
             }
           }
         }
+        syncDesignerBindingDefaults(composition, layer, before, Object.keys(operation.patch));
         break;
       }
       case 'set_property_key': {
@@ -1899,6 +3336,15 @@ export function applyAuthoringOperations(
         ) {
           throw new Error(`Loop activation Step not found: ${activation.stepKeyframeId}`);
         }
+        if (
+          activation?.type === 'customAction' &&
+          !composition.customActions.some(
+            (action) => action.actionId === activation.customActionId,
+          ) &&
+          !isClockTimerActionId(composition.layers, activation.customActionId)
+        ) {
+          throw new Error(`Loop activation custom action not found: ${activation.customActionId}`);
+        }
         const nextDuration = operation.durationFrames ?? layer.loop?.durationFrames ?? 30;
         if (!Number.isInteger(nextDuration) || nextDuration < 1) {
           throw new Error('Loop durationFrames must be a positive integer.');
@@ -1918,8 +3364,15 @@ export function applyAuthoringOperations(
         if (operation.name !== undefined) layer.loop.name = operation.name.trim() || 'Loop';
         if (operation.activation !== undefined) {
           layer.loop.activation = clone(operation.activation);
+          if (operation.activation.type === 'customAction' && operation.repeatCount === undefined) {
+            layer.loop.repeatCount = 1;
+          }
         }
         layer.loop.durationFrames = nextDuration;
+        if (operation.timing !== undefined) {
+          if (operation.timing === null) delete layer.loop.timing;
+          else layer.loop.timing = clone(operation.timing);
+        }
         if (operation.phaseOffsetFrames !== undefined) {
           layer.loop.phaseOffsetFrames = Math.round(operation.phaseOffsetFrames);
         }
@@ -1987,6 +3440,21 @@ export function applyAuthoringOperations(
         syncAggregateKey(layer, frame, key.easing);
         break;
       }
+      case 'reset_property_animation': {
+        const layer = layerFor(composition, operation.layerId);
+        assertUnlocked(layer);
+        const frame = frameInComposition(composition, operation.frame);
+        resetLayerPropertyAnimation(layer, operation.property, frame, {
+          composition,
+          ...(operation.loopElapsedFrames !== undefined
+            ? { loopElapsedFrames: operation.loopElapsedFrames }
+            : {}),
+        });
+        // Reset removes authored animation, not operator data. Only source-owned shader
+        // defaults follow the frozen uniform; ordinary bindings and their values stay intact.
+        syncResetShaderParameterDefault(composition, layer, operation.property);
+        break;
+      }
       case 'remove_property_key': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
@@ -2026,6 +3494,44 @@ export function applyAuthoringOperations(
         });
         break;
       }
+      case 'add_data_connection': {
+        composition.dataConnections ??= [];
+        if (composition.dataConnections.length >= MAX_DATA_CONNECTIONS)
+          throw new Error(
+            `A composition supports at most ${MAX_DATA_CONNECTIONS} data connections.`,
+          );
+        const connection = normalizeDataConnection({
+          name: `Data connection ${composition.dataConnections.length + 1}`,
+          ...operation.connection,
+          ...(operation.id !== undefined ? { id: operation.id } : {}),
+        });
+        if (composition.dataConnections.some((candidate) => candidate.id === connection.id))
+          throw new Error(`Data connection id already exists: ${connection.id}`);
+        const errors = dataConnectionErrors(connection, composition.dataFields);
+        if (errors.length) throw new Error(errors.join(' '));
+        composition.dataConnections.push(connection);
+        summary.generatedIds.push({ operationIndex, kind: 'data-connection', id: connection.id });
+        break;
+      }
+      case 'update_data_connection': {
+        const connection = (composition.dataConnections ?? []).find(
+          (c) => c.id === operation.connectionId,
+        );
+        if (!connection) throw new Error(`Data connection not found: ${operation.connectionId}`);
+        const next = { ...connection, ...structuredClone(operation.patch), id: connection.id };
+        const errors = dataConnectionErrors(next, composition.dataFields);
+        if (errors.length) throw new Error(errors.join(' '));
+        Object.assign(connection, next);
+        break;
+      }
+      case 'remove_data_connection': {
+        if (!(composition.dataConnections ?? []).some((c) => c.id === operation.connectionId))
+          throw new Error(`Data connection not found: ${operation.connectionId}`);
+        composition.dataConnections = composition.dataConnections.filter(
+          (c) => c.id !== operation.connectionId,
+        );
+        break;
+      }
       case 'add_data_field': {
         if (composition.dataFields.some((field) => field.key === operation.key)) {
           throw new Error(`Data field key already exists: ${operation.key}`);
@@ -2036,6 +3542,10 @@ export function applyAuthoringOperations(
           description: operation.description ?? '',
           ...(operation.defaultValue !== undefined ? { defaultValue: operation.defaultValue } : {}),
           required: operation.required ?? false,
+          ...(operation.exposeToOgraf !== undefined
+            ? { exposeToOgraf: operation.exposeToOgraf }
+            : {}),
+          ...(operation.nodosType !== undefined ? { nodosType: operation.nodosType } : {}),
           ...(operation.options ? { options: operation.options } : {}),
           ...(operation.constraints ? { constraints: operation.constraints } : {}),
           ...(operation.fileExtensions ? { fileExtensions: operation.fileExtensions } : {}),
@@ -2070,6 +3580,7 @@ export function applyAuthoringOperations(
           field.generatedShaderParameter &&
           [
             operation.fieldType,
+            operation.nodosType,
             operation.constraints,
             operation.properties,
             operation.items,
@@ -2099,6 +3610,7 @@ export function applyAuthoringOperations(
         if (operation.label !== undefined) field.label = operation.label;
         if (operation.description !== undefined) field.description = operation.description;
         if (operation.fieldType !== undefined) {
+          delete field.nodosType;
           const defaults = createFieldDefinition(operation.fieldType);
           field.type = operation.fieldType;
           field.options = operation.options ?? defaultOptionsForFieldType(operation.fieldType);
@@ -2131,6 +3643,9 @@ export function applyAuthoringOperations(
           }
         }
         if (operation.required !== undefined) field.required = operation.required;
+        if (operation.nodosType === null) delete field.nodosType;
+        else if (operation.nodosType !== undefined) field.nodosType = operation.nodosType;
+        if (operation.exposeToOgraf !== undefined) field.exposeToOgraf = operation.exposeToOgraf;
         if (operation.defaultTokenId !== undefined)
           bindFieldDefaultToken(composition, field, operation.defaultTokenId);
         else if (operation.defaultValue !== undefined || operation.fieldType !== undefined)
@@ -2150,6 +3665,7 @@ export function applyAuthoringOperations(
         break;
       }
       case 'remove_data_field': {
+        assertLogicFunctionReferenceRemovable(composition, 'field', operation.fieldId);
         const field = composition.dataFields.find(
           (candidate) => candidate.id === operation.fieldId,
         );
@@ -2158,13 +3674,27 @@ export function applyAuthoringOperations(
           throw new Error(
             'Remove the corresponding #pragma ograf declaration from the shader source to remove its generated data field.',
           );
-        const consumers = composition.layers.filter((layer) =>
-          layer.bindings.some((binding) => binding.fieldId === operation.fieldId),
+        const consumers = composition.layers.filter(
+          (layer) =>
+            layer.bindings.some((binding) => binding.fieldId === operation.fieldId) ||
+            layerModifierFieldIds(layer).includes(operation.fieldId) ||
+            layer.loop?.timing?.holdFieldId === operation.fieldId ||
+            (layer.visualRules ?? []).some((rule) =>
+              visualRuleFieldIds(rule).includes(operation.fieldId),
+            ),
         );
         const collectionConsumers = composition.runtimeCollections.filter(
           (collection) => collection.fieldId === operation.fieldId,
         );
-        if ((consumers.length > 0 || collectionConsumers.length > 0) && !operation.force) {
+        const connectionConsumers = (composition.dataConnections ?? []).filter((connection) =>
+          connection.mappings.some((mapping) => mapping.fieldId === operation.fieldId),
+        );
+        if (
+          (consumers.length > 0 ||
+            collectionConsumers.length > 0 ||
+            connectionConsumers.length > 0) &&
+          !operation.force
+        ) {
           throw new Error(
             `Cannot remove data field "${field.key}" while it is used by ${[
               consumers.length
@@ -2173,12 +3703,23 @@ export function applyAuthoringOperations(
               collectionConsumers.length
                 ? `runtime collection${collectionConsumers.length === 1 ? '' : 's'} ${collectionConsumers.map((collection) => `"${collection.name}" (${collection.id})`).join(', ')}`
                 : '',
+              connectionConsumers.length
+                ? `data connection${connectionConsumers.length === 1 ? '' : 's'} ${connectionConsumers.map((connection) => `"${connection.name}" (${connection.id})`).join(', ')}`
+                : '',
             ]
               .filter(Boolean)
               .join(' and ')}. Pass force=true to clear those uses atomically.`,
           );
         }
         for (const layer of consumers) {
+          if (layer.loop?.timing?.holdFieldId === operation.fieldId) delete layer.loop.timing;
+          for (const modifier of layer.modifiers ?? [])
+            if (
+              modifier.type === 'hide-empty' &&
+              modifier.params.source.kind === 'field' &&
+              modifier.params.source.fieldId === operation.fieldId
+            )
+              removeLayerModifier(layer, modifier.id);
           const removedBindings = layer.bindings.filter(
             (binding) => binding.fieldId === operation.fieldId,
           );
@@ -2197,22 +3738,48 @@ export function applyAuthoringOperations(
         composition.dataFields = composition.dataFields.filter(
           (candidate) => candidate.id !== field.id,
         );
+        for (const connection of connectionConsumers)
+          connection.mappings = connection.mappings.filter(
+            (mapping) => mapping.fieldId !== field.id,
+          );
         if (collectionConsumers.length > 0) {
           composition.runtimeCollections = composition.runtimeCollections.filter(
             (collection) => collection.fieldId !== field.id,
           );
         }
+        pruneVisualRuleReferences(composition);
         break;
       }
       case 'set_layer_binding': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
+        if (operation.binding) {
+          const errors = layerTransformBindingErrors(
+            operation.binding,
+            composition.dataFields.find((field) => field.id === operation.binding!.fieldId),
+          );
+          if (errors.length) throw new Error(errors.join(' '));
+        }
+        if (
+          operation.binding?.targetProperty === 'clock.manualValue' &&
+          (layer.element.type !== 'text' || !layer.element.clock)
+        )
+          throw new Error('Manual time bindings require a clock/timer layer.');
+        if (
+          layer.element.type === 'text' &&
+          layer.element.clock &&
+          operation.binding &&
+          ['content', 'runs'].includes(operation.binding.targetProperty)
+        )
+          throw new Error(
+            'Clock/timer layers generate their text; content bindings are not supported.',
+          );
         if (
           operation.binding &&
           shaderPaintConflictsWithBinding(layer.element, operation.binding.targetProperty)
         )
           throw new Error(
-            'A shader paint cannot bind its whole fill or gradient stops; bind a shader parameter instead.',
+            'Shader and media paints cannot bind their whole fill or gradient stops; bind a supported inner property instead.',
           );
         if (
           operation.binding &&
@@ -2233,13 +3800,33 @@ export function applyAuthoringOperations(
       case 'set_layer_bindings': {
         const layer = layerFor(composition, operation.layerId);
         assertUnlocked(layer);
+        for (const binding of operation.bindings) {
+          const errors = layerTransformBindingErrors(
+            binding,
+            composition.dataFields.find((field) => field.id === binding.fieldId),
+          );
+          if (errors.length) throw new Error(errors.join(' '));
+        }
+        if (
+          operation.bindings.some((binding) => binding.targetProperty === 'clock.manualValue') &&
+          (layer.element.type !== 'text' || !layer.element.clock)
+        )
+          throw new Error('Manual time bindings require a clock/timer layer.');
+        if (
+          layer.element.type === 'text' &&
+          layer.element.clock &&
+          operation.bindings.some((binding) => ['content', 'runs'].includes(binding.targetProperty))
+        )
+          throw new Error(
+            'Clock/timer layers generate their text; content bindings are not supported.',
+          );
         if (
           operation.bindings.some((binding) =>
             shaderPaintConflictsWithBinding(layer.element, binding.targetProperty),
           )
         )
           throw new Error(
-            'A shader paint cannot bind its whole fill or gradient stops; bind a shader parameter instead.',
+            'Shader and media paints cannot bind their whole fill or gradient stops; bind a supported inner property instead.',
           );
         for (const binding of operation.bindings) {
           if (!composition.dataFields.some((field) => field.id === binding.fieldId)) {
@@ -2296,6 +3883,11 @@ export function applyAuthoringOperations(
           offsetPerItem: { ...operation.offsetPerItem },
           capacity,
           overflow: operation.overflow ?? 'truncate',
+          itemKeyPath: operation.itemKeyPath ?? [],
+          sortPath: operation.sortPath ?? [],
+          sortDirection: operation.sortDirection ?? 'none',
+          pageSize: Math.max(0, Math.round(operation.pageSize ?? 0)),
+          page: Math.max(0, Math.round(operation.page ?? 0)),
         });
         summary.affectedLayerIds.push(...layerIds);
         summary.generatedIds.push({ operationIndex, kind: 'runtime-collection', id });
@@ -2347,6 +3939,17 @@ export function applyAuthoringOperations(
           collection.capacity = assertCollectionCapacity(operation.capacity);
         }
         if (operation.overflow !== undefined) collection.overflow = operation.overflow;
+        if (operation.itemKeyPath !== undefined)
+          collection.itemKeyPath = [...operation.itemKeyPath];
+        if (operation.sortPath !== undefined) collection.sortPath = [...operation.sortPath];
+        if (operation.sortDirection !== undefined)
+          collection.sortDirection = operation.sortDirection;
+        if (operation.pageSize !== undefined)
+          collection.pageSize = Math.max(
+            0,
+            Math.min(collection.capacity, Math.round(operation.pageSize)),
+          );
+        if (operation.page !== undefined) collection.page = Math.max(0, Math.round(operation.page));
         const field = composition.dataFields.find(
           (candidate) => candidate.id === collection.fieldId,
         );
@@ -2369,7 +3972,10 @@ export function applyAuthoringOperations(
       case 'add_custom_action': {
         const actionId = operation.actionId.trim();
         if (!actionId) throw new Error('Custom action id cannot be empty.');
-        if (composition.customActions.some((action) => action.actionId === actionId)) {
+        if (
+          composition.customActions.some((action) => action.actionId === actionId) ||
+          isClockTimerActionId(composition.layers, actionId)
+        ) {
           throw new Error(`Custom action id already exists: ${actionId}`);
         }
         const action = createCustomActionDefinition({
@@ -2391,22 +3997,42 @@ export function applyAuthoringOperations(
         );
         if (!action) throw new Error(`Custom action not found: ${operation.actionId}`);
         if (operation.nextActionId !== undefined) {
+          const previousActionId = action.actionId;
           const nextActionId = operation.nextActionId.trim();
+          if (nextActionId !== previousActionId)
+            assertLogicFunctionReferenceRemovable(composition, 'action', previousActionId);
           if (!nextActionId) throw new Error('Custom action id cannot be empty.');
           if (
             composition.customActions.some(
               (candidate) => candidate.id !== action.id && candidate.actionId === nextActionId,
-            )
+            ) ||
+            isClockTimerActionId(composition.layers, nextActionId)
           ) {
             throw new Error(`Custom action id already exists: ${nextActionId}`);
           }
           action.actionId = nextActionId;
+          for (const layer of composition.layers) {
+            if (
+              layer.loop?.activation.type === 'customAction' &&
+              layer.loop.activation.customActionId === previousActionId
+            ) {
+              layer.loop.activation.customActionId = nextActionId;
+            }
+            if (
+              layer.element.type === 'text' &&
+              layer.element.textAnimation.customActionId === previousActionId
+            ) {
+              layer.element.textAnimation.customActionId = nextActionId;
+            }
+          }
+          renameVisualRuleCustomAction(composition.layers, previousActionId, nextActionId);
         }
         if (operation.name !== undefined) action.name = operation.name;
         if (operation.description !== undefined) action.description = operation.description;
         break;
       }
       case 'remove_custom_action': {
+        assertLogicFunctionReferenceRemovable(composition, 'action', operation.actionId);
         const action = composition.customActions.find(
           (candidate) => candidate.actionId === operation.actionId,
         );
@@ -2414,6 +4040,21 @@ export function applyAuthoringOperations(
         composition.customActions = composition.customActions.filter(
           (candidate) => candidate.id !== action.id,
         );
+        for (const layer of composition.layers) {
+          if (
+            layer.loop?.activation.type === 'customAction' &&
+            layer.loop.activation.customActionId === action.actionId
+          ) {
+            layer.loop = null;
+          }
+          if (
+            layer.element.type === 'text' &&
+            layer.element.textAnimation.customActionId === action.actionId
+          ) {
+            layer.element.textAnimation.customActionId = null;
+          }
+        }
+        pruneVisualRuleReferences(composition);
         break;
       }
       case 'set_transition': {
@@ -2462,9 +4103,34 @@ export function applyAuthoringOperations(
         break;
       }
     }
+    for (const current of project.compositions) syncCompositionShaderParameterFields(current);
+    summary.affectedLayerIds.push(...reconcileProjectComponentInstances(project, previousProject));
   });
 
-  for (const composition of project.compositions) syncCompositionShaderParameterFields(composition);
+  for (const composition of project.compositions) {
+    syncCompositionShaderParameterFields(composition);
+    const functionErrors = validateLogicFunctionDefinitions(composition.functions, composition);
+    if (functionErrors.length) throw new Error(functionErrors.join('\n'));
+    const modifierErrors = layerModifiersErrors(composition.layers, composition.dataFields);
+    if (modifierErrors.length) throw new Error(modifierErrors.join('\n'));
+    for (const layer of composition.layers) {
+      if (!layer.textPath) continue;
+      const errors = textPathReferenceErrors(layer, layer.textPath, composition.layers);
+      if (layer.element.type === 'text') errors.push(...textPathCompatibilityErrors(layer.element));
+      const oldComposition = source.compositions.find((item) => item.id === composition.id);
+      const oldLayer = oldComposition?.layers.find((item) => item.id === layer.id);
+      const oldErrors =
+        oldLayer?.textPath && oldComposition
+          ? textPathReferenceErrors(oldLayer, oldLayer.textPath, oldComposition.layers)
+          : [];
+      if (oldLayer?.textPath && oldLayer.element.type === 'text')
+        oldErrors.push(...textPathCompatibilityErrors(oldLayer.element));
+      const introduced = editedTextPaths.has(`${composition.id}\0${layer.id}`)
+        ? errors
+        : errors.filter((error) => !oldErrors.includes(error));
+      if (introduced.length) throw new Error(introduced.join('\n'));
+    }
+  }
   summary.operationTypes = [...new Set(summary.operationTypes)];
   summary.affectedCompositionIds = [...new Set(summary.affectedCompositionIds)];
   summary.affectedLayerIds = [...new Set(summary.affectedLayerIds)];

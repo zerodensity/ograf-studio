@@ -135,6 +135,14 @@ export function resolvePatternElement(
   element: Element,
   patterns: readonly TilingPattern[],
 ): Element {
+  if (element.type === 'ticker')
+    return {
+      ...element,
+      items: element.items.map((item) => ({
+        ...item,
+        element: resolvePatternElement(item.element, patterns) as typeof item.element,
+      })),
+    };
   if (element.type !== 'pattern') return element;
   const definition = patterns.find((pattern) => pattern.id === element.patternId);
   const resolved = { ...element };

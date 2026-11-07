@@ -180,7 +180,7 @@ describe('shader paint model', () => {
     const source = structuredClone(project);
     const migrated = migrateProject(project);
     const restored = migrated.compositions[0]!.layers[0]!;
-    expect(migrated.documentVersion).toBe(33);
+    expect(migrated.documentVersion).toBe(37);
     expect(restored.id).toBe(layer.id);
     expect(getElementShaderPaint(restored.element)?.name).toBe('Legacy background');
     expect(restored.keyframes).toEqual(layer.keyframes);
@@ -218,7 +218,13 @@ describe('shader paint model', () => {
       'lottie',
     ] as const) {
       const layer = createLayerOfKind(kind);
-      if (layer.element.type === 'shader') throw new Error('Expected canonical object.');
+      if (
+        layer.element.type === 'shader' ||
+        layer.element.type === 'audio' ||
+        layer.element.type === 'ticker' ||
+        layer.element.type === 'chart'
+      )
+        throw new Error('Expected canonical paintable object.');
       layer.element.fill = structuredClone(shader);
       expect(getElementShaderPaint(layer.element)).toEqual(shader);
       expect(getLayerAnimatableProperties(layer)).not.toContain('fill.stops[0].offset');

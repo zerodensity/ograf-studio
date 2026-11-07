@@ -14,14 +14,15 @@ export async function assertStaticEditorRoot(editorRoot: string): Promise<void> 
 }
 
 export function installStaticEditor(app: Express, editorRoot: string): void {
-  const indexPath = join(editorRoot, 'index.html');
   app.use(
     express.static(editorRoot, {
       index: 'index.html',
       setHeaders(response, filePath) {
         response.setHeader(
           'Cache-Control',
-          filePath === indexPath ? 'no-store' : 'public, max-age=31536000, immutable',
+          extname(filePath).toLowerCase() === '.html'
+            ? 'no-store'
+            : 'public, max-age=31536000, immutable',
         );
       },
     }),
@@ -32,7 +33,7 @@ export function installStaticEditor(app: Express, editorRoot: string): void {
       return;
     }
     response.setHeader('Cache-Control', 'no-store');
-    response.sendFile(indexPath, (error) => {
+    response.sendFile('index.html', { root: editorRoot }, (error) => {
       if (error) next(error);
     });
   });
@@ -80,7 +81,9 @@ export function installEmbeddedEditor(
         const logicalPath = fallbackToIndex ? '/index.html' : requestedPath;
         response.setHeader(
           'Cache-Control',
-          logicalPath === '/index.html' ? 'no-store' : 'public, max-age=31536000, immutable',
+          extname(logicalPath).toLowerCase() === '.html'
+            ? 'no-store'
+            : 'public, max-age=31536000, immutable',
         );
         response.setHeader(
           'Content-Type',

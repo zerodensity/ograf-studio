@@ -1,0 +1,60 @@
+.preview-fps-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: calc(100% - 16px);
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(9, 13, 19, 0.78);
+  color: #f4f6fa;
+  font:
+    500 11px/1.4 Consolas,
+    'SFMono-Regular',
+    monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.preview-fps-overlay > span {
+  color: #c2c8d3;
+}
+
+/* The editor's #root * typography rule must not replace diagnostic tabular monospace text. */
+#root .preview-fps-overlay,
+#root .preview-fps-overlay > * {
+  font-family: Consolas, 'SFMono-Regular', monospace;
+  font-size: 11px;
+}
+
+.preview-fps-overlay > strong {
+  font: inherit;
+  font-weight: 700;
+}
+
+.preview-fps-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 4px 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.preview-fps-controls > input {
+  margin: 0;
+}
+
+.preview-diagnostics-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  column-gap: 8px;
+}

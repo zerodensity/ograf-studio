@@ -1,4 +1,5 @@
 import { applyDesignTokenBinding, syncDesignTokenFieldDefaults } from './designSystem';
+import { isRecipeBackgroundPaint, syncRecipeBackgroundStyle } from './recipeBackgrounds';
 import { planStylePackPalette, applyStylePackPalette } from './stylePackPalette';
 import {
   createStylePackRestore,
@@ -309,17 +310,17 @@ export const STYLE_PACKS: readonly StylePackDefinition[] = /* @__PURE__ */ Objec
       outline: '#020617',
     },
     {
-      fontFamily: 'Arial, Helvetica, sans-serif',
+      fontFamily: 'Roboto Condensed, Arial Narrow, Arial, sans-serif',
       displaySize: 96,
       headlineSize: 64,
       subheadlineSize: 38,
-      labelSize: 26,
+      labelSize: 32,
       valueSize: 72,
-      displayWeight: 800,
-      headlineWeight: 700,
-      bodyWeight: 500,
+      displayWeight: 900,
+      headlineWeight: 900,
+      bodyWeight: 600,
       radius: 10,
-      strokeWidth: 3,
+      strokeWidth: 0,
     },
     {
       entranceFrames: 10,
@@ -343,17 +344,17 @@ export const STYLE_PACKS: readonly StylePackDefinition[] = /* @__PURE__ */ Objec
       outline: '#000000',
     },
     {
-      fontFamily: 'Arial Narrow, Arial, sans-serif',
+      fontFamily: 'Roboto Condensed, Arial Narrow, Arial, sans-serif',
       displaySize: 112,
       headlineSize: 68,
       subheadlineSize: 40,
-      labelSize: 26,
+      labelSize: 32,
       valueSize: 88,
       displayWeight: 900,
-      headlineWeight: 800,
+      headlineWeight: 900,
       bodyWeight: 600,
       radius: 6,
-      strokeWidth: 4,
+      strokeWidth: 0,
     },
     {
       entranceFrames: 8,
@@ -608,6 +609,7 @@ function materializeLayerStyle(
   let affected = false;
   if (layer.isMaskOnly || layer.semantics.role === 'mask' || layer.lighting) return false;
   if (
+    layer.element.type !== 'text' &&
     'fill' in layer.element &&
     layer.element.fill !== undefined &&
     typeof layer.element.fill !== 'string'
@@ -698,6 +700,23 @@ export function applyStylePack(
   const affected = new Set<string>();
   for (const layer of composition.layers) {
     for (const binding of layer.designTokenBindings) {
+      if (binding.overridden) continue;
+      // Owned recipe paints update their inherited baselines with these palette values below.
+      if (
+        ['fill.parameters.ink', 'fill.parameters.accent'].includes(binding.targetProperty) &&
+        layer.element.type === 'rectangle' &&
+        isRecipeBackgroundPaint(layer.element.fill)
+      )
+        continue;
+      if (binding.targetProperty.startsWith('fill.parameters.')) {
+        const path = `/element/${binding.targetProperty.replaceAll('.', '/')}`;
+        if (
+          layer.componentLink?.overridePaths?.some(
+            (override) => override === path || path.startsWith(`${override}/`),
+          )
+        )
+          continue;
+      }
       const token = packTokenById.get(binding.tokenId);
       if (!token) continue;
       if (
@@ -716,6 +735,7 @@ export function applyStylePack(
     if (materializeLayerStyle(composition, layer, tokenByKey)) affected.add(layer.id);
   }
   for (const id of applyStylePackPalette(composition, palette, !allowed)) affected.add(id);
+  for (const id of syncRecipeBackgroundStyle(composition, packId, allowed)) affected.add(id);
   const affectedLayerIds = [...affected];
   if (refreshTokens) {
     composition.updateTransitionFrames = resolveStylePackMotion(composition, packId).updateFrames;

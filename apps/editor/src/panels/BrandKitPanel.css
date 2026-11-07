@@ -4,6 +4,12 @@
   gap: 4px;
   font-size: 11px;
 }
+.brand-kit-section-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+}
 .brand-kit-panel .inspector-hint {
   margin: 0 0 2px;
   font-size: 10px;
@@ -58,4 +64,71 @@
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.brand-kit-scope,
+.brand-kit-origin-row,
+.brand-kit-master-background {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.brand-kit-scope {
+  padding: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+.brand-kit-scope select {
+  flex: 1;
+  min-width: 110px;
+}
+.brand-kit-scope-hint,
+.brand-kit-panel > .inspector-error {
+  padding: 0 4px;
+}
+.brand-kit-origin {
+  flex: 0 1 auto;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.brand-kit-origin.is-inherited,
+.brand-kit-origin.is-master {
+  color: var(--accent);
+}
+.brand-kit-origin.is-overridden {
+  color: #e9bd76;
+}
+.brand-kit-color > .brand-kit-origin {
+  margin-left: auto;
+}
+.brand-kit-origin-row {
+  justify-content: space-between;
+}
+.brand-kit-master-background {
+  flex-wrap: wrap;
+  padding: 2px 4px;
+  min-height: var(--ui-row-height);
+}
+.brand-kit-master-background input[type='color'] {
+  width: 28px;
+  height: var(--ui-control-height);
+  padding: 0;
+}
+.brand-kit-master-background label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.brand-kit-css {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 120px;
+  resize: vertical;
+  font-family: monospace;
+  color: var(--text);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
 }

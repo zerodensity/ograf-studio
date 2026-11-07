@@ -1,0 +1,30 @@
+.board-panel {
+  padding: 10px;
+  overflow: auto;
+}
+.board-panel p {
+  color: #aaa;
+}
+.board-actions {
+  display: flex;
+  gap: 8px;
+}
+.board-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.board-grid figure {
+  margin: 0;
+  padding: 6px;
+  background: #191d21;
+  border: 1px solid #3c444c;
+}
+.board-grid img {
+  display: block;
+  width: 100%;
+  background: #000;
+}
+.board-grid figcaption {
+  padding-top: 5px;
+}

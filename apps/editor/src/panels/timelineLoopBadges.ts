@@ -27,6 +27,7 @@ export function buildTimelineLoopBadges(composition: Composition): TimelineLoopB
   const badges: TimelineLoopBadge[] = [];
   for (const layer of composition.layers) {
     if (!layer.loop) continue;
+    if (layer.loop.activation.type === 'customAction') continue;
     const lifecycleKeyframeId =
       layer.loop.activation.type === 'lifecycle'
         ? firstStep?.id

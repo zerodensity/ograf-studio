@@ -9,6 +9,18 @@ export function selectionIdsForLayer(composition: Composition, layerId: string):
     .map((candidate) => candidate.id);
 }
 
+/** Resolve a canvas hit without changing how shader drops target complete groups. */
+export function selectionForPointer(
+  composition: Composition,
+  layerId: string,
+  options: { enteredGroupId?: string | null; deep?: boolean } = {},
+): string[] {
+  const layer = composition.layers.find((candidate) => candidate.id === layerId);
+  if (!layer) return [];
+  if (options.deep || (layer.groupId && layer.groupId === options.enteredGroupId)) return [layerId];
+  return selectionIdsForLayer(composition, layerId);
+}
+
 /** True only when the selection is exactly one complete persistent group. */
 export function isPersistentGroupSelection(composition: Composition, layerIds: string[]): boolean {
   if (layerIds.length < 2) return false;

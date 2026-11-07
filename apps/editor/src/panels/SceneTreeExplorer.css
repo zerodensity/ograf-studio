@@ -1,0 +1,247 @@
+.scene-tree-panel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  color: var(--text-primary);
+  background: var(--bg-panel);
+}
+
+.scene-tree-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.scene-tree-toolbar input {
+  min-width: 0;
+  height: 26px;
+  flex: 1;
+  padding: 3px 6px;
+  color: var(--text-primary);
+  background: var(--bg-raised, #252525);
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--ui-font-size-compact);
+}
+
+.scene-tree-toolbar button {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.scene-tree-toolbar button:hover:not(:disabled),
+.scene-tree-toolbar button[aria-pressed='true'] {
+  color: var(--text-heading);
+  background: var(--bg-hover, #333);
+  border-color: var(--border-strong);
+}
+
+.scene-tree-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.scene-tree-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.scene-tree-columns,
+.scene-tree-row {
+  display: grid;
+  grid-template-columns: 32px 24px minmax(0, 1fr);
+  gap: 3px;
+  padding: 0 6px 0 4px;
+}
+
+.scene-tree-columns {
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 23px;
+  color: var(--text-dim);
+  background: var(--bg-header);
+  font-size: var(--ui-font-size-compact);
+}
+
+.scene-tree-row {
+  min-width: 0;
+  min-height: 25px;
+  align-items: center;
+  font-size: var(--ui-font-size-compact);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+.scene-tree-object {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.scene-tree-z-order {
+  min-width: 0;
+  padding-right: 3px;
+  text-align: right;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.scene-tree-visibility,
+.scene-tree-visibility-heading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 23px;
+}
+
+.scene-tree-visibility {
+  padding: 2px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.scene-tree-visibility svg,
+.scene-tree-visibility-heading svg {
+  width: 16px;
+  height: 16px;
+}
+
+.scene-tree-visibility[aria-pressed='true'] {
+  color: var(--text-heading);
+}
+
+.scene-tree-visibility:hover:not(:disabled) {
+  background: var(--bg-hover, #333);
+  color: var(--accent);
+}
+
+.scene-tree-visibility:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.scene-tree-visibility:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.scene-tree-row.is-hidden .scene-tree-name {
+  opacity: 0.55;
+}
+
+.scene-tree-row:hover {
+  background: var(--bg-hover, rgb(255 255 255 / 5%));
+}
+
+.scene-tree-row.is-selected {
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--accent, #69a9ff) 23%, transparent);
+}
+
+.scene-tree-row:focus-visible {
+  outline: 1px solid var(--accent, #69a9ff);
+  outline-offset: -1px;
+}
+
+.scene-tree-chevron {
+  width: 17px;
+  height: 23px;
+  flex: 0 0 17px;
+  padding: 0;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.scene-tree-chevron:disabled {
+  cursor: default;
+}
+
+.scene-tree-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  color: #d0b679;
+}
+
+.scene-tree-icon.icon-template,
+.scene-tree-icon.icon-composition {
+  color: #89bbef;
+}
+
+.scene-tree-icon.icon-layer {
+  color: #bd99d5;
+}
+
+.scene-tree-icon.icon-asset {
+  color: #a8c97c;
+}
+
+.scene-tree-icon.icon-asset-instance {
+  color: #8aa8bc;
+}
+
+.scene-tree-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scene-tree-name-input {
+  min-width: 0;
+  width: 100%;
+  height: 23px;
+  flex: 1;
+  padding: 2px 4px;
+  color: var(--text-heading);
+  background: var(--bg-panel);
+  border: 1px solid var(--accent, #69a9ff);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--ui-font-size-compact);
+}
+
+.scene-tree-badge {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.scene-tree-empty {
+  padding: 10px;
+  color: var(--text-dim);
+  font-size: var(--ui-font-size-compact);
+}
+
+.scene-tree-status {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+}
+
+.scene-tree-scroll > .project-set-authoring-details {
+  margin: 8px 6px 0;
+}

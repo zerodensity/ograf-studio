@@ -1,0 +1,18 @@
+{
+  "name": "@ograf-editor/web-player",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "types": "./ograf-player.d.ts",
+  "exports": {
+    "types": "./ograf-player.d.ts",
+    "default": "./ograf-player.js"
+  },
+  "files": [
+    "ograf-player.js",
+    "ograf-player.d.ts",
+    "demo.html",
+    "README.md"
+  ]
+}

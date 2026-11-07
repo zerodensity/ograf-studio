@@ -1,0 +1,76 @@
+.plugin-load-warning-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-height: 34px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, #dc9d37 17%, var(--bg-header));
+  color: var(--text-heading);
+  border-bottom: 1px solid #9a7132;
+}
+.plugin-load-warning-banner > span:first-child {
+  color: #efbd67;
+}
+.plugin-load-warning-banner button {
+  padding: 3px 8px;
+  margin-left: auto;
+  color: var(--text-heading);
+  border: 1px solid #9a7132;
+  border-radius: 3px;
+  background: var(--bg-panel);
+  cursor: pointer;
+}
+.plugin-load-warning-backdrop {
+  z-index: 1300;
+}
+.plugin-load-warning-dialog {
+  width: min(820px, calc(100vw - 40px));
+  border-color: #9a7132;
+}
+.plugin-load-warning-dialog header h2 {
+  color: #efbd67;
+}
+.plugin-load-warning-dialog .workspace-dialog-content {
+  padding: 12px 18px;
+}
+.plugin-load-warning-list {
+  display: grid;
+  gap: 10px;
+}
+.plugin-load-warning-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid #c18c3d;
+  border-radius: 3px;
+  background: var(--bg-raised, #252525);
+}
+.plugin-load-warning-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.plugin-load-warning-heading > span {
+  color: var(--text-dim);
+}
+.plugin-load-warning-dialog p {
+  margin: 6px 0;
+}
+.plugin-load-warning-build code {
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+.plugin-load-warning-build > span {
+  margin-left: 8px;
+}
+.plugin-load-warning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.plugin-load-warning-dialog .plugin-load-warning-note {
+  margin-top: 12px;
+}

@@ -10,24 +10,30 @@
     "build:standalone": "tsc -b && vite build --mode standalone",
     "lint": "oxlint",
     "typecheck": "tsc -b",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "predev": "bun run ../../scripts/buildBundledStudioPlugins.mjs",
+    "prebuild": "node ../../scripts/packageAuthoringSkill.mjs && node ../../scripts/generateStudioRuntimeLicense.mjs && bun run ../../scripts/buildBundledStudioPlugins.mjs",
+    "prebuild:standalone": "node ../../scripts/packageAuthoringSkill.mjs && node ../../scripts/generateStudioRuntimeLicense.mjs && bun run ../../scripts/buildBundledStudioPlugins.mjs"
   },
   "dependencies": {
     "@fontsource/nunito": "^5.3.0",
+    "@noble/hashes": "2.4.0",
+    "@ograf-editor/agent-tools": "*",
     "@ograf-editor/codegen": "*",
     "@ograf-editor/ograf-runtime": "*",
     "@ograf-editor/ograf-types": "*",
     "@ograf-editor/scene-model": "*",
+    "@ograf-editor/ui-kit": "*",
     "@ograf-editor/validation": "*",
-    "gsap": "^3.15.0",
+    "ag-psd": "^34.1.0",
     "html-to-image": "^1.11.13",
     "immer": "^11.1.16",
     "jszip": "^3.10.1",
+    "paper": "^0.12.18",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-moveable": "^0.56.0",
-    "zustand": "^5.0.15",
-    "@ograf-editor/agent-tools": "*"
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

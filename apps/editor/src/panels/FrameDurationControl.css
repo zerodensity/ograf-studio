@@ -1,6 +1,6 @@
 .frame-duration-control {
   display: grid;
-  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px 8px;
 }
 
@@ -25,6 +25,14 @@
 .frame-duration-warning {
   grid-column: 1 / -1;
   font-size: 10px;
+}
+
+.frame-duration-provenance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
 }
 
 .frame-duration-exact {

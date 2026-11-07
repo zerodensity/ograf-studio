@@ -1,0 +1,49 @@
+.brand-kit-styles,
+.brand-kit-style-section,
+.brand-kit-style-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.brand-kit-style-section {
+  padding: 3px;
+}
+.brand-kit-style-origin-row,
+.brand-kit-style-actions,
+.brand-kit-style-add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.brand-kit-style-origin-row {
+  justify-content: flex-end;
+}
+.brand-kit-style-origin-row > button {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-kit-style-origin-row > .brand-kit-origin {
+  display: inline-flex;
+  align-items: center;
+}
+.brand-kit-style-add button {
+  min-height: var(--ui-control-height);
+  padding: 1px 3px;
+  font-size: 10px;
+}
+.brand-kit-style-actions {
+  justify-content: flex-end;
+}
+.brand-kit-styles .inspector-row > span:first-child {
+  padding: 0 4px;
+}
+.brand-kit-styles input[readonly] {
+  color: var(--text-dim);
+}

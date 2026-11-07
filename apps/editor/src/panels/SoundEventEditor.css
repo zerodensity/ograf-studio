@@ -1,0 +1,16 @@
+.sound-event-editor {
+  display: grid;
+  gap: 6px;
+}
+
+.sound-event-editor label {
+  display: grid;
+  gap: 3px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.sound-event-remove {
+  margin-top: 3px;
+  color: #ff8b8b;
+}

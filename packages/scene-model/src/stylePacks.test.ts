@@ -231,14 +231,14 @@ describe('broadcast style packs', () => {
       type: 'text',
       color: '#FFFFFF',
       fontSize: 68,
-      fontWeight: 800,
+      fontWeight: 900,
     });
     expect(score.element).toMatchObject({
       type: 'text',
       fontSize: 88,
       fontWeight: 900,
       strokeColor: '#000000',
-      strokeWidth: 4,
+      strokeWidth: 0,
     });
     expect(composition.updateTransitionFrames).toBe(5);
 

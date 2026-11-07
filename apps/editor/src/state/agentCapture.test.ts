@@ -3,6 +3,7 @@ import {
   createComposition,
   createFieldDefinition,
   createImageLayer,
+  createImageSequenceElement,
   createLayerOfKind,
   createLayerKeyframe,
   createLayerLoopClip,
@@ -13,7 +14,10 @@ import {
   applyShaderAnimationValues,
   sampleShaderAnimationValues,
   createTextElement,
+  createDefaultTransform,
+  createLayerModifier,
   type Asset,
+  type FieldValue,
 } from '@ograf-editor/scene-model';
 import { compileDescriptor } from '@ograf-editor/codegen';
 
@@ -25,6 +29,7 @@ const runtime = vi.hoisted(() => {
     ready: vi.fn(async () => {}),
     deterministic: vi.fn(),
     pattern: vi.fn(),
+    presentation: vi.fn(),
   };
 });
 vi.mock('@ograf-editor/ograf-runtime', async (original) => ({
@@ -34,16 +39,20 @@ vi.mock('@ograf-editor/ograf-runtime', async (original) => ({
   waitForElementContentReady: runtime.ready,
   setLottieDeterministicRendering: runtime.deterministic,
   renderPatternAtElapsed: runtime.pattern,
+  applyCompiledLayerVisualState: runtime.presentation,
 }));
 afterAll(() => vi.unstubAllGlobals());
 import {
   sampleCompiledLayerVisualState,
   compiledLoopElapsedFrames,
+  expandRuntimeCollections,
 } from '@ograf-editor/ograf-runtime';
 import {
   renderCaptureElementFrame,
   resolveCaptureElement,
   settleCaptureContent,
+  resolveCaptureFrameLayout,
+  compileTextMeasurement,
 } from './agentCapture';
 import { inferResolvedFamily, rasterize } from './agentCapture';
 import { getFontEmbedCSS, toCanvas } from 'html-to-image';
@@ -51,6 +60,268 @@ import { captureMaskedCanvas } from './maskedCapture';
 import { acquireProjectFonts } from './projectFonts';
 vi.mock('html-to-image', () => ({ getFontEmbedCSS: vi.fn(), toCanvas: vi.fn() }));
 vi.mock('./maskedCapture', () => ({ captureMaskedCanvas: vi.fn() }));
+
+describe('static authoring capture Functions boundary', () => {
+  it('resolves static capture bindings from authored defaults without executing Functions or changing export metadata', () => {
+    const field = createFieldDefinition('number', {
+      key: 'score',
+      defaultValue: 42,
+      exposeToOgraf: false,
+    });
+    const label = createLayerOfKind('text');
+    label.bindings = [{ fieldId: field.id, targetProperty: 'content' }];
+    const composition = createComposition({
+      layers: [label],
+      dataFields: [field],
+      functions: [
+        {
+          type: 'javascript',
+          version: 1,
+          id: 'logic',
+          name: 'Logic',
+          enabled: true,
+          source: '(()=>{ throw new Error("Authoring capture must not execute this source"); })()',
+          inputs: { score: field.id },
+          outputs: { score: field.id },
+          actions: [],
+          initialState: { started: false },
+        },
+      ],
+    });
+    const before = structuredClone(composition);
+    const exported = compileDescriptor(composition);
+    const defaults = Object.fromEntries(
+      composition.dataFields.map((field) => [field.key, field.defaultValue]),
+    );
+    const rendered = resolveCaptureElement(exported.layers[0]!, defaults, composition);
+    expect(rendered).toMatchObject({ type: 'text', content: '42' });
+    expect(exported.functions).toHaveLength(1);
+    expect(exported.dataDefaults?.score).toBe(42);
+    expect(composition).toEqual(before);
+    expect(compileDescriptor(composition).functions).toEqual(exported.functions);
+  });
+});
+
+describe('text measurement source-to-runtime identity', () => {
+  it('resolves collection prototype text to its first clone with bound geometry and remapped clipping', () => {
+    const parent = createLayerOfKind('rectangle'),
+      label = createLayerOfKind('text');
+    parent.groupId = 'brick';
+    label.groupId = 'brick';
+    parent.clipChildren = true;
+    label.parentId = parent.id;
+    parent.keyframes = [
+      createLayerKeyframe(0, createDefaultTransform({ x: 100, width: 200, height: 40 })),
+    ];
+    label.keyframes = [
+      createLayerKeyframe(0, createDefaultTransform({ x: 100, width: 180, height: 30 })),
+    ];
+    const rows = createFieldDefinition('array', {
+      key: 'bricks',
+      constraints: { maxItems: 72 },
+      items: createFieldDefinition('object', {
+        properties: [
+          createFieldDefinition('number', { key: 'width' }),
+          createFieldDefinition('text', { key: 'armor' }),
+        ],
+      }),
+      defaultValue: [{ width: 90, armor: '2' }],
+    });
+    label.bindings = [
+      { fieldId: rows.id, targetProperty: 'content', sourcePath: ['armor'] },
+      { fieldId: rows.id, targetProperty: 'layer.width', sourcePath: ['width'] },
+    ];
+    const composition = createComposition({
+      layers: [parent, label],
+      dataFields: [rows],
+      runtimeCollections: [
+        {
+          id: 'bricks',
+          name: 'Bricks',
+          fieldId: rows.id,
+          prototypeLayerIds: [parent.id, label.id],
+          offsetPerItem: { x: 0, y: 40 },
+          capacity: 72,
+          overflow: 'truncate',
+        },
+      ],
+    });
+    const before = structuredClone(composition);
+    const { descriptor, layer } = compileTextMeasurement(composition, label.id);
+    expect(layer.id).not.toBe(label.id);
+    expect(layer.collectionItem).toMatchObject({ prototypeLayerId: label.id, slot: 0 });
+    expect(descriptor.layers.some((candidate) => candidate.id === layer.clipParentId)).toBe(true);
+    const data = { bricks: rows.defaultValue };
+    expect(resolveCaptureElement(layer, data, composition)).toMatchObject({
+      type: 'text',
+      content: '2',
+    });
+    const states = resolveCaptureFrameLayout(descriptor, 0, data);
+    expect(states.get(layer.id)!.transform.width).toBe(90);
+    expect(states.get(layer.clipParentId!)!.transform.width).toBe(200);
+    expect(composition).toEqual(before);
+  });
+  it('keeps explicit guide text measurable and reports missing authored targets clearly', () => {
+    const label = createLayerOfKind('text');
+    label.isGuide = true;
+    label.keyframes = [createLayerKeyframe(0, createDefaultTransform())];
+    const composition = createComposition({ layers: [label] });
+    expect(compileTextMeasurement(composition, label.id).layer.id).toBe(label.id);
+    expect(() => compileTextMeasurement(composition, 'missing')).toThrow(
+      'could not be compiled for measurement',
+    );
+  });
+});
+
+describe('capture frame geometry', () => {
+  const pose = (
+    layer: ReturnType<typeof createLayerOfKind>,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ) => {
+    layer.keyframes = [createLayerKeyframe(0, createDefaultTransform({ x, y, width, height }))];
+    return layer;
+  };
+
+  it('arranges and justifies cards plus nested artwork before capture presentation, collapsing hidden data items', () => {
+    const owner = pose(createLayerOfKind('rectangle'), 100, 200, 600, 100);
+    owner.id = 'owner';
+    owner.modifiers = [
+      createLayerModifier('grid-arrange', { columns: 3, spreadX: 120 }),
+      createLayerModifier('justify', { horizontal: 'center' }),
+    ];
+    const cards = [0, 1, 2].map((index) => {
+      const card = pose(createLayerOfKind('rectangle'), 0, 0, 100, 50);
+      card.id = `card${index}`;
+      card.parentId = owner.id;
+      return card;
+    });
+    const field = createFieldDefinition('text', { key: 'second', defaultValue: 'Visible' });
+    cards[1]!.modifiers = [
+      createLayerModifier('hide-empty', {
+        source: { kind: 'field', fieldId: field.id, sourcePath: [] },
+      }),
+    ];
+    const label = pose(createLayerOfKind('rectangle'), 8, 11, 40, 20);
+    label.id = 'label';
+    label.parentId = cards[0]!.id;
+    const descriptor = compileDescriptor(
+      createComposition({ layers: [owner, ...cards, label], dataFields: [field] }),
+    );
+    const source = structuredClone(descriptor);
+    for (const second of ['Visible', '', 'Visible']) {
+      const states = resolveCaptureFrameLayout(descriptor, 0, { second });
+      expect(states.get('card0')!.transform.x).toBe(second ? 230 : 290);
+      expect(states.get('card2')!.transform.x).toBe(second ? 470 : 410);
+      expect(states.get('card1')!.isVisible).toBe(Boolean(second));
+      expect(states.get('label')!.transform).toMatchObject({ x: second ? 238 : 298, y: 211 });
+      renderCaptureElementFrame(
+        {} as HTMLElement,
+        descriptor.layers[1]!.element,
+        states.get('card0')!,
+        0,
+      );
+      expect(runtime.presentation).toHaveBeenLastCalledWith(
+        expect.anything(),
+        states.get('card0'),
+        0,
+      );
+    }
+    expect(descriptor).toEqual(source);
+  });
+
+  it('captures the final arranged path and rider geometry rather than their authored origin', () => {
+    const owner = pose(createLayerOfKind('rectangle'), 300, 200, 500, 300);
+    owner.id = 'owner';
+    owner.modifiers = [createLayerModifier('grid-arrange', { columns: 1 })];
+    const path = pose(createLayerOfKind('path'), 0, 0, 200, 100);
+    path.id = 'path';
+    path.parentId = owner.id;
+    if (path.element.type !== 'path') throw Error('fixture');
+    path.element = { ...path.element, d: 'M0 0 L100 100', viewBoxWidth: 100, viewBoxHeight: 100 };
+    const rider = pose(createLayerOfKind('rectangle'), 0, 0, 20, 10);
+    rider.id = 'rider';
+    rider.motionPath = {
+      sourceLayerId: path.id,
+      progress: 0.45,
+      orientToPath: true,
+      offsetX: 17,
+      offsetY: -9,
+      rotationOffset: 21,
+    };
+    const descriptor = compileDescriptor(createComposition({ layers: [rider, path, owner] }));
+    for (const frame of [12, 0, 6, 12, 0]) {
+      const transform = resolveCaptureFrameLayout(descriptor, frame, {}).get('rider')!.transform;
+      expect(transform.x).toBeCloseTo(397);
+      expect(transform.y).toBeCloseTo(231);
+      expect(transform.rotation).toBeCloseTo((Math.atan2(100, 200) * 180) / Math.PI + 21);
+    }
+  });
+
+  it('keeps Max Text Width dimensions and fit consistent across fresh capture samples', () => {
+    const label = pose(createLayerOfKind('text'), 100, 200, 400, 40);
+    if (label.element.type !== 'text') throw Error('fixture');
+    label.element.fontSize = 40;
+    label.modifiers = [
+      createLayerModifier('max-text-width', {
+        maxWidth: 200,
+        mode: 'shrink',
+        minFontSize: 1,
+      }),
+    ];
+    const descriptor = compileDescriptor(createComposition({ layers: [label] }));
+    for (const frame of [12, 0, 6, 12]) {
+      const state = resolveCaptureFrameLayout(descriptor, frame, {}).get(label.id)!;
+      expect(state.transform).toMatchObject({ width: 200, height: 20 });
+      expect(state.textFit).toMatchObject({ scaleX: 0.5, scaleY: 0.5, fontSize: 20 });
+    }
+    expect(label.keyframes[0]!.transform.width).toBe(400);
+    expect(label.element.fontSize).toBe(40);
+  });
+
+  it('arranges active collection rows while retaining inactive row visibility state', () => {
+    const owner = pose(createLayerOfKind('rectangle'), 100, 200, 400, 200);
+    owner.id = 'owner';
+    owner.modifiers = [createLayerModifier('grid-arrange', { columns: 1, spreadY: 60 })];
+    const card = pose(createLayerOfKind('rectangle'), 0, 0, 100, 50);
+    card.id = 'card';
+    card.parentId = owner.id;
+    const people = createFieldDefinition('array', {
+      key: 'people',
+      defaultValue: [],
+      items: createFieldDefinition('object', {
+        key: 'person',
+        properties: [createFieldDefinition('text', { key: 'name' })],
+      }),
+    });
+    const composition = createComposition({ layers: [owner, card], dataFields: [people] });
+    composition.runtimeCollections = [
+      {
+        id: 'people',
+        name: 'People',
+        fieldId: people.id,
+        prototypeLayerIds: [card.id],
+        offsetPerItem: { x: 0, y: 0 },
+        capacity: 3,
+        overflow: 'truncate',
+        itemKeyPath: [],
+        sortPath: [],
+        sortDirection: 'none',
+        pageSize: 0,
+        page: 0,
+      },
+    ];
+    const descriptor = expandRuntimeCollections(compileDescriptor(composition));
+    const states = resolveCaptureFrameLayout(descriptor, 0, {
+      people: [{ name: 'A' }, { name: 'B' }],
+    });
+    expect(states.get('people::0::card')!.transform).toMatchObject({ x: 100, y: 200 });
+    expect(states.get('people::1::card')!.transform).toMatchObject({ x: 100, y: 260 });
+    expect(states.get('people::2::card')!.isVisible).toBe(false);
+  });
+});
 
 describe('embedded capture fonts', () => {
   afterEach(() => {
@@ -210,9 +481,86 @@ describe('capture image bindings', () => {
       resolveCaptureElement(layer, { programmeImage: 'asset:missing' }, composition),
     ).toThrow('unknown asset');
   });
+
+  it('resolves image and sequence references after a whole ticker feed replaces compiled artwork', () => {
+    const ticker = createLayerOfKind('ticker');
+    if (ticker.element.type !== 'ticker') throw Error('Expected ticker.');
+    ticker.element.items = [
+      { id: 'original', width: 96, element: { type: 'image', src: 'asset:default-image' } },
+    ];
+    const feed = [
+      { id: 'logo', width: 96, element: { type: 'image', src: 'asset:bound-image' } },
+      {
+        id: 'sequence',
+        width: 128,
+        element: createImageSequenceElement({
+          frames: ['asset:default-image', 'asset:bound-image'],
+        }),
+      },
+    ];
+    const field = createFieldDefinition('array', {
+      key: 'tickerFeed',
+      defaultValue: JSON.parse(JSON.stringify(feed)) as FieldValue,
+    });
+    ticker.bindings = [{ fieldId: field.id, targetProperty: 'items' }];
+    const composition = createComposition({ assets, layers: [ticker], dataFields: [field] });
+    const compiled = compileDescriptor(composition).layers[0]!;
+    expect(compiled.element).toMatchObject({
+      items: [{ id: 'original', element: { src: assets[0]!.dataUri } }],
+    });
+    const captured = resolveCaptureElement(
+      compiled,
+      { tickerFeed: field.defaultValue },
+      composition,
+    );
+    expect(captured).toMatchObject({
+      items: [
+        { id: 'logo', element: { src: assets[1]!.dataUri } },
+        { id: 'sequence', element: { frames: assets.map((asset) => asset.dataUri) } },
+      ],
+    });
+    expect(field.defaultValue).toEqual(feed);
+    expect(ticker.element.items[0]!.element).toMatchObject({ src: 'asset:default-image' });
+  });
 });
 
 describe('shader animation capture', () => {
+  it('applies complete lifecycle scale and wipe samples for solid non-loop capture layers', () => {
+    const composition = createComposition({ frameRate: 25 });
+    const layer = createLayerOfKind('rectangle');
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(index * 12, defaultTransformForRole('rectangle', keyframe.role)),
+    );
+    layer.animationTracks.clipLeft = [
+      createLayerPropertyKeyframe(0, 0.5),
+      createLayerPropertyKeyframe(12, 0, { easing: 'linear' }),
+    ];
+    layer.animationTracks.clipRight = [
+      createLayerPropertyKeyframe(0, 0.5),
+      createLayerPropertyKeyframe(12, 0, { easing: 'linear' }),
+    ];
+    layer.animationTracks.scale = [
+      createLayerPropertyKeyframe(0, 1),
+      createLayerPropertyKeyframe(12, 1),
+      createLayerPropertyKeyframe(15, 1.25),
+      createLayerPropertyKeyframe(24, 0.05, { easing: 'linear' }),
+    ];
+    composition.layers = [layer];
+    const compiled = compileDescriptor(composition).layers[0]!;
+    runtime.presentation.mockClear();
+    for (const frame of [0, 4, 8, 12, 18, 22, 24]) {
+      const state = sampleCompiledLayerVisualState(compiled, frame);
+      renderCaptureElementFrame({} as HTMLElement, compiled.element, state, (frame / 25) * 1000);
+      expect(runtime.presentation).toHaveBeenLastCalledWith(
+        expect.anything(),
+        state,
+        (frame / 25) * 1000,
+      );
+    }
+    const first = runtime.presentation.mock.calls[0]![1];
+    expect(first.paintTracks.clipLeft[0].value + first.paintTracks.clipRight[0].value).toBe(1);
+    expect(runtime.presentation.mock.calls[4]![1].paintTracks.scale[0].value).toBeCloseTo(0.85);
+  });
   it('applies the shared loop sample after binding, before drawing the exact capture timestamp', () => {
     const composition = createComposition({ frameRate: 25 });
     const layer = createLayerOfKind('rectangle');

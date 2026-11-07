@@ -1,0 +1,76 @@
+.plugins-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--ui-row-height, 22px);
+  padding: 2px 4px;
+  flex: none;
+  background: #292929;
+  border-bottom: 1px solid var(--border);
+}
+.plugins-toolbar-label {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim, #aaa);
+  padding: 0 3px;
+}
+.plugins-toolbar-empty {
+  color: var(--text-dim, #aaa);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.plugins-toolbar-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.plugin-tool-button,
+.plugins-manage-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: none;
+  min-height: var(--ui-row-height, 22px);
+  padding: 0 6px;
+  border: 1px solid #444;
+  border-radius: 2px;
+  background: #303030;
+  color: var(--text, #eee);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.plugin-tool-button svg,
+.plugin-tool-button img,
+.plugins-manage-button svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  object-fit: contain;
+}
+.plugin-tool-button svg,
+.plugins-manage-button svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.plugin-tool-button:hover,
+.plugin-tool-button:focus-visible,
+.plugins-manage-button:hover,
+.plugins-manage-button:focus-visible {
+  background: color-mix(in srgb, var(--accent, #5bc8fa) 12%, #303030);
+  border-color: var(--accent, #5bc8fa);
+  outline: none;
+}
+.plugins-manage-button {
+  width: 25px;
+  padding: 0;
+}

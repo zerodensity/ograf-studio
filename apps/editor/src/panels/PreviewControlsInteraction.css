@@ -1,0 +1,91 @@
+/* Frost only the popup background. The preview and the controls themselves stay sharp.
+   Each row is a disjoint opacity unit; ancestors never compound its alpha. */
+:is(.preview-stage-wrap, .template-preview-surface):is(:fullscreen, [data-preview-overlay])
+  :is(.preview-fullscreen-data, .template-preview-data)[data-preview-opacity-controls]:not(
+    [hidden]
+  ) {
+  background: rgba(20, 24, 31, 0.85);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: none;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+:is(.preview-stage-wrap, .template-preview-surface):is(:fullscreen, [data-preview-overlay])
+  [data-preview-opacity-controls]
+  [data-preview-opacity-path] {
+  opacity: 1;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:is(.preview-stage-wrap, .template-preview-surface):is(:fullscreen, [data-preview-overlay])
+  [data-preview-opacity-controls]
+  [data-preview-opacity-unit] {
+  opacity: 0.9 !important;
+  background: transparent;
+  transition:
+    opacity 100ms ease,
+    background-color 100ms ease;
+}
+
+/* Emphasize only the row under the pointer without fading its siblings. */
+:is(.preview-stage-wrap, .template-preview-surface):is(:fullscreen, [data-preview-overlay])
+  [data-preview-opacity-controls]
+  [data-preview-opacity-unit][data-preview-hovered-control] {
+  opacity: 1 !important;
+  background: transparent !important;
+  border-radius: 3px;
+}
+
+/* Keep the edited row readable against any preview image. */
+:is(.preview-stage-wrap, .template-preview-surface):is(:fullscreen, [data-preview-overlay])
+  [data-preview-opacity-controls]
+  [data-preview-opacity-unit][data-preview-active-control] {
+  opacity: 1 !important;
+  background: rgb(20, 24, 31) !important;
+}
+
+/* Editing clears the pane while preserving geometry and the active input. */
+:is(.preview-stage-wrap, .template-preview-surface):is(:fullscreen, [data-preview-overlay])
+  :is(
+    .preview-fullscreen-data,
+    .template-preview-data
+  )[data-preview-opacity-controls][data-preview-adjusting]:not([hidden]) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  scrollbar-color: transparent transparent;
+}
+
+:is(.preview-stage-wrap, .template-preview-surface):is(:fullscreen, [data-preview-overlay])
+  [data-preview-opacity-controls][data-preview-adjusting]
+  [data-preview-active-path] {
+  border-color: transparent !important;
+  outline-color: transparent !important;
+}
+
+:is(.preview-stage-wrap, .template-preview-surface):is(:fullscreen, [data-preview-overlay])
+  [data-preview-opacity-controls][data-preview-adjusting]
+  [data-preview-dimmed] {
+  opacity: 0 !important;
+  visibility: hidden;
+  pointer-events: none !important;
+}
+
+.template-preview-surface:is(:fullscreen, [data-preview-overlay]):has(
+    .template-preview-data[data-preview-adjusting]
+  )
+  .template-preview-navigation {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-preview-opacity-controls] [data-preview-opacity-unit] {
+    transition: none;
+  }
+}

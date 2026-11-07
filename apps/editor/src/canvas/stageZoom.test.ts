@@ -4,6 +4,7 @@ import {
   MIN_STAGE_ZOOM,
   captureStageZoomAnchor,
   nextStageZoom,
+  parseStageZoomPercent,
   scrollForStageZoom,
   stageZoomDirectionForWheel,
 } from './stageZoom';
@@ -14,6 +15,15 @@ describe('stage zoom', () => {
     expect(nextStageZoom(1, 'out')).toBeLessThan(1);
     expect(nextStageZoom(MAX_STAGE_ZOOM, 'in')).toBe(MAX_STAGE_ZOOM);
     expect(nextStageZoom(MIN_STAGE_ZOOM, 'out')).toBe(MIN_STAGE_ZOOM);
+  });
+
+  it('accepts explicit magnification percentages and rejects malformed drafts', () => {
+    expect(parseStageZoomPercent('125')).toBe(1.25);
+    expect(parseStageZoomPercent(' 33.3% ')).toBeCloseTo(0.333);
+    expect(parseStageZoomPercent('1')).toBe(MIN_STAGE_ZOOM);
+    expect(parseStageZoomPercent('900')).toBe(MAX_STAGE_ZOOM);
+    for (const invalid of ['', '0', '-20', 'not a number', 'Infinity'])
+      expect(parseStageZoomPercent(invalid)).toBeNull();
   });
 
   it('maps an unmodified vertical mouse wheel directly to canvas zoom', () => {

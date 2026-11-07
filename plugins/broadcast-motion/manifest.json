@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "kind": "animation-presets",
+  "id": "ograf.broadcast-motion",
+  "version": "1.0.0",
+  "name": "Broadcast Motion",
+  "author": "Zero Density",
+  "license": "AGPL-3.0-only",
+  "description": "Editable layer entrances and exits: Slide & Settle, Pulse Pop, and Curtain Reveal."
+}

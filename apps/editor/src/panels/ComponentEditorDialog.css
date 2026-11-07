@@ -1,0 +1,234 @@
+.component-editor-dialog {
+  width: min(1120px, calc(100vw - 40px));
+  height: min(860px, calc(100vh - 40px));
+  padding: 0;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: 0 18px 64px #0008;
+}
+.component-editor-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.component-editor-dialog::backdrop {
+  background: #0008;
+}
+.component-editor-dialog > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 18px 8px;
+}
+.component-editor-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.component-editor-dialog h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+.component-editor-dialog p {
+  margin: 4px 0;
+  font-size: 12px;
+}
+.component-editor-breadcrumb {
+  color: var(--text-dim);
+}
+.component-editor-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px 12px;
+}
+.component-editor-name input {
+  flex: 1;
+}
+.component-editor-body {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  border-block: 1px solid var(--border);
+}
+.component-editor-body > aside {
+  overflow: auto;
+  padding: 14px 10px;
+  border-right: 1px solid var(--border);
+}
+.component-editor-body > aside button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  text-align: left;
+}
+.component-editor-body > aside button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.component-editor-body > aside small {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.component-editor-body > aside button.is-selected {
+  border-color: var(--accent-focus);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-panel));
+}
+.component-editor-work {
+  min-width: 0;
+  overflow: auto;
+  padding: 14px 18px;
+}
+.component-editor-preview {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  height: 230px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-canvas);
+}
+.component-editor-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.component-editor-preview p {
+  color: #ff9f96;
+}
+.component-preview-frame {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-block: 10px 18px;
+  font-size: 12px;
+}
+.component-preview-frame input[type='range'] {
+  min-width: 60px;
+  flex: 1;
+}
+.component-preview-frame input[type='number'] {
+  width: 72px;
+}
+.component-editor-controls {
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+.component-editor-controls > label,
+.component-source-effect > label,
+.component-field-object > label {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin-block: 6px;
+  font-size: 12px;
+}
+.component-source-dimensions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-block: 10px;
+}
+.component-source-dimensions label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+.component-editor-dialog :is(input, select, textarea) {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 7px;
+  color: var(--text);
+  background: var(--bg-control);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  font: inherit;
+}
+.component-editor-dialog textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+.component-editor-dialog :is(button, input, select, textarea):focus-visible {
+  outline: 1px solid var(--accent-focus);
+  outline-offset: 1px;
+}
+.component-editor-dialog button {
+  min-height: 28px;
+  padding: 5px 9px;
+  color: var(--text);
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font: inherit;
+  cursor: pointer;
+}
+.component-editor-dialog button:hover {
+  border-color: var(--accent-focus);
+  background: var(--bg-hover);
+}
+.component-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.component-source-effects {
+  margin-top: 14px;
+}
+.component-source-effect {
+  margin-top: 8px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-raised);
+}
+.component-source-effect .component-editor-actions {
+  justify-content: space-between;
+}
+.component-field-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.component-field-object {
+  min-width: 0;
+  border: 1px solid var(--border);
+  margin: 8px 0;
+  padding: 10px;
+}
+.component-editor-hint {
+  color: var(--text-dim);
+}
+.component-editor-error {
+  margin: 8px 18px !important;
+  color: #ff9f96;
+}
+.component-editor-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 18px;
+  font-size: 11px;
+}
+.component-editor-dialog > footer span {
+  color: var(--text-dim);
+}
+@media (max-width: 700px) {
+  .component-editor-body {
+    grid-template-columns: 140px minmax(0, 1fr);
+  }
+  .component-source-dimensions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .component-editor-controls > label {
+    grid-template-columns: 1fr;
+  }
+}

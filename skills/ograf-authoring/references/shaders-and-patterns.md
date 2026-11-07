@@ -5,6 +5,9 @@ capability sections; older servers may require `elements`. Add `loops` when auth
 `editor` before browser checks. All examples below are operations inside a revision-checked
 `ograf_apply_operations` batch, not standalone tool names.
 
+For independent Pause/Resume/Next transports and data-controlled hold durations, see
+[loop controls](./loop-controls.md).
+
 ## Shader paints
 
 Apply a complete paint to an existing object's `fill`. Editable text can also use `strokePaint`
@@ -53,6 +56,14 @@ Numeric limits use `min(N) max(N) step(N)`. No `expose` keyword is needed. Gener
 bindings are automatic; do not create duplicates. `paint.parameters` holds numbers, booleans,
 or numeric arrays, while runtime field values use the types above. Inspect
 `shaderPaintInspections` and `shaderAnimationProperties` for exact source diagnostics and tracks.
+Generated fields are publicly exposed by default. Use `update_data_field` with
+`exposeToOgraf:false` (or its checkbox in Data → Operator controls) to keep a control internal.
+Its default, binding, local control, Rules and animation remain intact; public schema and
+external playout updates exclude it. Re-enable with `exposeToOgraf:true`.
+Save/reopen must preserve generated scalar/vector/color defaults and exposure choices. For
+delivery, check public schemas/defaults/examples and exercise both blocked external writes and
+working internal Rules/animation in the actual renderer; see
+[internal-field playback review](./ograf-invariants.md#internal-fields-and-shader-exposure).
 
 ### Keyframes and local loops
 
@@ -103,9 +114,17 @@ channels; keep symbol names stable when their animations should survive source e
 
 ### Shader Resources
 
-Resources → Shaders provides New Shader, editable names, Edit, Load, Save shader, and removal.
-Saved resources live in `project.shaders`; applied paints are copies, not live library links.
-Read saved shaders with `ograf_get_project include:["shaders"]`, then copy `resource.paint` into
+Resources → Shaders lists saved library shaders and applied Fill, Outline and shader Effect usages,
+including bypassed effects and component definitions. Each applied entry identifies its object
+and slot or stable effect ID. Edit shader in Properties opens the dedicated editor; Properties
+retains parameter controls. New Shader, editable names, Edit, Load, Save shader and removal use
+the editor UI.
+
+Saved library resources live in `project.shaders`; applied paints remain independent layer/effect
+copies. Editing an applied entry changes only that usage. Removing a library entry preserves
+applied copies; removing an applied entry detaches its paint or removes only that effect.
+Read saved shaders with `ograf_get_project include:["shaders"]`, and inspect layer elements/effects
+for applied paints. Copy `resource.paint` into
 `update_element.patch.fill` or text `strokePaint`. Library create/rename/delete and GLSL file
 loading are editor UI actions, not dedicated MCP mutations. To load GLSL through MCP, read the
 authorized source and send its text in the complete paint. Preserve existing paint values when

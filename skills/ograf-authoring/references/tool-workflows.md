@@ -62,6 +62,15 @@ the absence of an on-canvas marker does not mean a layer is unbound.
   index. `clippedBy: "parent"` identifies intentional ancestor masking and is not an overflow fault;
   `clippedBy: "own-box"` is actionable. `resolvedFont.resolution: "inferred"` is advisory. It is read-only.
 - `ograf_validate_project`: fast semantic validation; not final certification.
+  `dataFieldUsage: true` adds a browser-free advisory audit of top-level operator fields. Summary
+  reports fields with no runtime reference, bindings only to excluded guides, or bindings only to
+  authored-hidden non-mask layers; `detail: "full"` includes every field and its reference owners.
+  Bindings use stable IDs across fills, outlines, effects, shaders, media and component instances.
+  Rules (including custom-action writes), modifier sources, collections, loop hold fields and data
+  connections count as references; retained component baselines do not. A reference is not proof of
+  visible output: inspect the target and test changed values, especially for hidden geometry,
+  masks, shared components, disabled rules and external data connections. Warnings do not change
+  validity, revision or certification and never remove fields automatically.
   `browserTextOverflow: true` measures authored/bound defaults and optional stress `testValues`.
   `detail: "summary"` returns counts plus only failed checks; use `"full"` for every measurement.
   `broadcastLint: true` adds non-gating safe-area/font/contrast warnings; add
@@ -106,44 +115,44 @@ Supported operation discriminators:
   `ungroup_timeline_group`
 - Assets: `add_asset`, `update_asset`, `remove_asset`; use the separate `ograf_import_asset` and
   `ograf_import_svg_bundle` tools when payloads already exist under the configured workspace
+- Plugin catalog: `remove_renderer_plugin` removes an exact unused provider snapshot; it never
+  installs/uninstalls or trusts code. See [renderer-plugins.md](./renderer-plugins.md).
 - Layers: `add_layer`, `duplicate_group`, `remove_layer`, `rename_layer`, `set_layer_flags`,
   `set_layer_layout`, `set_layer_semantics`, `create_lower_third`, `create_bug`, `create_ticker`,
-  `create_scoreboard`, `create_clock`, `create_repeater`, `group_layers`, `ungroup_layers`,
+  `create_scoreboard`, `create_clock`, `create_countdown`, `create_repeater`, `group_layers`, `ungroup_layers`,
   `reorder_layers`
 - Components: `save_component`, `instantiate_component`, `update_component_from_layers`,
-  `refresh_component_instances`, `rename_component`, `remove_component`
+  `update_component_layer`, `update_component_field`, `reset_component_overrides`,
+  `make_component_unique`, `refresh_component_instances`, `rename_component`, `remove_component`
 - Shared patterns: `set_tiling_pattern`, `remove_tiling_pattern`, `set_layer_lighting`; inspect through
   `ograf_get_project include: ["patterns"]` and `ograf_inspect_scene`
 - Content/style: `update_element`, `update_transform`, `update_effects`, `add_effect`,
-  `update_effect`, `duplicate_effect`, `remove_effect`, `reorder_effects`
+  `update_effect`, `duplicate_effect`, `remove_effect`, `reorder_effects`; effect operations accept
+  one layer selector or a persistent canvas `groupId`
 - Compositing: `set_layer_mask`; `set_layer_flags.isMaskOnly` controls source-only output
 - Timeline: `set_property_key`, `set_property_track`, `stagger_property_track`,
   `move_property_key`, `remove_property_key`, `set_property_key_easing`, `set_transition`,
-  `set_layer_loop`, `set_loop_property_track`, `remove_layer_loop`
+  `set_layer_loop`, `set_loop_property_track`, `remove_layer_loop`, `set_layer_motion`
 - Data: `add_data_field`, `update_data_field`, `remove_data_field`, `set_layer_bindings`,
   `set_layer_binding` (legacy single-binding replace), `create_runtime_collection`,
   `update_runtime_collection`, `remove_runtime_collection`
 - Actions: `add_custom_action`, `update_custom_action`, `remove_custom_action`
 
-`add_layer.kind` supports `rectangle`, `ellipse`, `text`, `image`, `path`, `pattern`, `image-sequence`, and `lottie`. It returns the generated layer ID in `summary.generatedIds`. For Lottie, pass a complete self-contained Bodymovin JSON object in `element.animationData`, then inspect the layer's derived `lottieInspection` warnings.
+`add_layer.kind` supports `rectangle`, `ellipse`, `chart`, `text`, `image`, `path`, `pattern`, `image-sequence`, and `lottie`. It returns the generated layer ID in `summary.generatedIds`. For Lottie, pass a complete self-contained Bodymovin JSON object in `element.animationData`, then inspect its warnings. Audio/video/live playback uses composition-level Media Cues, never canvas Audio layers.
 
 When `transform` is omitted, rectangle and ellipse layers begin at 200 × 200 as a square/circle.
 Pass explicit width and height for a panel or oval; later edits remain independent.
 
-`set_layer_semantics` assigns an authoring role, normalized tags, and an intent description without
-changing output pixels. `create_lower_third` materializes a four-layer/two-field grouped lower third
-with semantic roles. `motion.style` is `wipe` (default), `stagger`, `slide`, or `none`; entrance and
-exit directions accept left/right/up/down/none. The default wipe makes the panel a `clipChildren`
-parent and reveals its three children with a cubic-out entrance, then uses a cubic-in directional
-exit. `staggerFrames` controls the four-layer cascade and rejects atomically when the entrance
-transition is too short. Every style returns ordinary layer/field/group mappings for later edits.
+`set_layer_semantics` assigns an authoring role, normalized tags, and intent without changing pixels.
+Built-in broadcast recipes return complete layer/field/group mappings and create linked reusable
+component assets by default; `asComponent:false` keeps independent layers. See
+[broadcast recipes](./broadcast-recipes.md) for current native ticker, clock/timer, countdown,
+material styling, motion and compatibility contracts. Legacy `text.crawl` remains available for
+older graphics; new ticker recipes use the native mixed-content element.
 
-`create_bug`, `create_ticker`, `create_scoreboard`, and `create_clock` materialize compact grouped
-broadcast graphics with semantic tags, constrained editable fields, complete layer/field mappings,
-and one Timeline Group. Each accepts an optional `stylePack`, placement, content/field-key values,
-and shared motion overrides. The scoreboard defaults to the Sports pack and uses text outlines
-for score values. The ticker owns a `clipChildren` window and one lifecycle-activated local X loop;
-its finite lifecycle X track remains static. Use `speedPixelsPerSecond` to control crawl duration.
+`set_test_rundowns` saves named authoring-only `{id,name,rows:[{id,values}]}` lists keyed by field
+ID. Data → Test data imports and checks rows; Preview & Export plays their Take, Update and Out.
+Rows stay in `.ogs` and never enter the exported schema or runtime.
 
 `create_repeater` takes one or more source `layerIds`, at least two item records, direction, and gap.
 It materializes finite grouped copies and independently cloned fields, adds semantic item/index tags,
@@ -153,8 +162,10 @@ and returns complete mappings. It is an authoring recipe, not a runtime collecti
 `fieldId` or unique `fieldKey`; select one contiguous persistent-group prototype with `groupId`,
 ordered `layerIds`, or exact `layerNames`; and provide `offsetPerItem`, capacity 1..100, and truncate
 overflow. Bind prototype layers to the array field with item-relative `sourcePath` segment arrays.
-Capacity is mirrored to field `maxItems`. Updates are index-based snapshot replacement with the
-composition update crossfade; instances never infer identity, timing, scroll, or pagination. Remove
+Capacity is mirrored to field `maxItems`. Optional `itemKeyPath` gives stable identity; `sortPath`
+plus `sortDirection` orders items deterministically; `pageSize` and zero-based `page` select a bounded
+window. Bindings still resolve the original array item, and keyed items animate between changed
+slots. Remove
 the runtime collection before deleting or ungrouping prototype layers. `create_repeater` remains the
 right tool when the row count itself should be authored as ordinary editable layers and fields.
 
@@ -169,6 +180,10 @@ Use `scope: "frame"` and a required `frame` for one-frame animation changes.
 For a post-process shader use `add_effect effectType:"shader"` with complete `patch.shader`; its
 `iChannel0` is the preceding stack output, so omit `inputImage`. Update by returned effect ID. See
 [effects-stack.md](./effects-stack.md#shader-effect).
+
+Pass `groupId` instead of `layerId`/`layerName` to any effect operation for a persistent canvas
+group. One stable effect ID is materialized on every member; member-only effects remain independent,
+and group reorder changes only shared entries.
 
 `set_layer_flags.blendMode` accepts `normal`, `multiply`, `screen`, `overlay`, `darken`, `lighten`,
 `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, or `exclusion`. The value is a
@@ -213,15 +228,14 @@ as actionable; lifecycle edits never silently move layer property keys.
 `ungroup_layers` accepts that `groupId` or member `layerIds` and dissolves the complete matching
 group. These are transform/selection groups, distinct from UI-only Timeline Groups.
 
-Use `save_component` when a layer selection should become a reusable authoring resource.
-`instantiate_component` materializes fresh ordinary layers and bound fields and returns complete
-source-to-instance mappings. `linked: false` creates a permanently independent instance.
-`linked: true` stores authoring-only source metadata; `update_component_from_layers` replaces the
-snapshot and `refresh_component_instances` explicitly rematerializes chosen or all linked instances
-with returned replacement mappings. Refresh preserves authored placement but replaces instance
-content, so use independent instances when local overrides must survive. Removing a definition never
-removes inserted layers; it only clears their links.
-
+`save_component` links originals; `scope:set` shares the asset. `instantiate_component` defaults
+`linked:true`; false makes copies. `instanceId` shares continuity.
+`update_component_layer componentId,sourceLayerId,patch` and `update_component_field componentId,fieldId,patch`
+edit sources. `update_component_from_layers componentId,layerIds` promotes one instance and adopts
+new children in place. IDs, animation, bindings and overrides survive.
+`reset_component_overrides layerIds,paths?` resumes inheritance (omit paths for all).
+`make_component_unique instanceId,name?` creates a private asset. Refresh keeps overrides.
+Used assets and Transitions-referenced sources cannot be removed; retarget references first.
 `apply_style_pack` accepts `news`, `sports`, `entertainment`, or `documentary`. Catalog definitions
 are immutable; application copies or refreshes canonical editable tokens, optionally binds them to
 compatible semantic layers, and returns complete token/affected-layer mappings. The pack includes
@@ -233,9 +247,10 @@ each stop and shadow link under Brand Kit. Text accepts both `strokeColor` and `
 consumer's ordinary element value. Removing a used token requires `force: true` to clear links while
 preserving the last materialized values.
 
-Custom actions are declarative OGraf manifest entries. Use `add_custom_action`,
-`update_custom_action`, and `remove_custom_action` with unique public `actionId` values; they do not
-authorize arbitrary JavaScript payloads.
+Manage unique public IDs with the custom-action operations.
+A finite layer clip may activate from `{type:"customAction",customActionId}`; its object payload
+updates data fields before matching clips play and settle. The manifest publishes their longest
+duration. This is declarative and does not authorize arbitrary JavaScript.
 
 `duplicate_group` accepts `source.groupId`, `source.parentId`, or raw `source.layerIds`. It creates
 independent copies with fresh groups and returns source→copy layer/field mappings. Transform offsets
@@ -263,7 +278,11 @@ authoring bounds, and overflow preview. For a still image, set
 `presentationBackgroundImageSource` to an image URL; local file selection and embedding are
 available in the visible Studio Canvas Layout settings. Canvas guides are `{axis: "vertical"|"horizontal",
 position}` and receive stable generated IDs. `set_layer_layout` accepts `isLocked`, `groupId`,
-`parentId`, `clipChildren`, and horizontal/vertical constraints. When `clipChildren: true`, direct
+`parentId`, `clipChildren`, horizontal/vertical constraints, and `autoLayout`. Auto layout accepts
+`direction: none|horizontal|vertical`, non-negative `gap` and four padding values,
+`align: start|center|end|stretch`, `hugWidth`, `hugHeight`, `minWidth`, `maxWidth`, and
+`collapseHidden`; auto-size text contributes its measured bound content size, and direct children
+flow in paint order in Studio and exported playback. When `clipChildren: true`, direct
 children pointing at that layer are clipped to its animated transformed bounds; parent rotation and
 transform origin produce diagonal masks, and rectangle `borderRadius` rounds the transformed mask.
 Use `{ topLeft, topRight, bottomRight, bottomLeft }` for independent corners; a number remains a
@@ -273,8 +292,14 @@ and is remapped by `duplicate_group`. Parent translation and composition resize 
 regular tracks.
 Unlock a layer before attempting content, transform, binding, effect, or timeline mutations.
 
+`set_layer_visual_rules` replaces ordered rules. Data rules (default `trigger`) need an existing
+`fieldId`; compare with `value` or `compareFieldId`, and add `conditions` combined by `match`.
+`data`/`hover` are states that revert; other pointer and playout triggers are events whose
+results persist, optionally after `delayFrames`. State actions take `targetLayerId` or
+`targetGroupId`, and `transitionFrames`. Details: [visual rules](./visual-rules.md).
+
 `create_timeline_group` accepts at least two existing `layerIds`, plus optional `name` and
-`#RRGGBB` `color`, and returns a stable timeline-group ID. Prefer one named/color-coded group for
+`#RRGGBB` `color` (either case), and returns a stable timeline-group ID. Prefer one named/color-coded group for
 each coherent component when a composition has many related layer rows. A layer belongs to at most
 one timeline group; creating a new one moves its members out of earlier groups and removes groups
 left empty. Use `rename_timeline_group`, `set_timeline_group_color`, and
@@ -289,18 +314,20 @@ offset and opacity are in 0..1. Use a `gradient` data field for the complete pai
 field for `fill.stops[N].color`. Animate an existing stop position through `set_property_key`,
 `set_property_track`, or `stagger_property_track` with property `fill.stops[N].offset`.
 
-For one or more data bindings on a layer, call `set_layer_bindings` with an ordered `bindings`
-array. Each entry accepts `{fieldId,targetProperty}` or `{fieldKey,targetProperty}`; do not guess
-target-property names, and do not repeat one target property. Use `set_layer_binding` only when an
-intentional legacy-compatible single-binding replacement should also discard any additional rows.
-`update_data_field` accepts `fieldId` or unique `fieldKey` and can change key, label, default, and
-required state in place. It can also change `fieldType`, operator `description`, ordered
-`options: [{value,label}]`, `fileExtensions`, and `constraints` (`minLength`, `maxLength`, `minimum`,
-`maximum`, `pattern`, `step`, `minItems`, `maxItems`). `object` fields use recursive `properties`;
-`array` fields use one recursive `items` schema. Supported enriched scalar types include integer,
-duration-ms, percentage, file-path, select, and select-multiple. Compiled fields emit official GDD
-hints (`gddType`/`gddOptions`) plus recursive JSON Schema; select-multiple defaults are string arrays.
-Prefer `maxLength` on every operator-editable on-air text leaf.
+`set_layer_bindings` takes ordered `{fieldId,targetProperty}` or `{fieldKey,targetProperty}` rows;
+use declared targets once each. Legacy `set_layer_binding` replaces all rows. Designer edits
+synchronize bound defaults/mappings while preserving links.
+`update_data_field` addresses `fieldId` or unique `fieldKey`, updating key/label/default/required.
+`exposeToOgraf:false` retains defaults/bindings/Rules internally, excluding public schema/external
+updates. Defaults true; omitted updates preserve it. Works on nested properties/items and
+shader/component fields. Hidden parents/items hide subtrees/arrays; Required is public-only.
+See `bindings.playoutExposure` for full semantics.
+
+Also accepts `fieldType`, `description`, ordered `options:[{value,label}]`, `fileExtensions` and
+`constraints:{minLength,maxLength,minimum,maximum,pattern,step,minItems,maxItems}`. Object `properties`
+and array `items` recurse. Scalars include integer, duration-ms, percentage, file-path, select and
+select-multiple (string-array defaults). Public fields emit GDD hints and JSON Schema. Prefer
+`maxLength` on operator-editable text leaves.
 `remove_data_field` refuses to orphan bindings and names their layers; `force: true` clears those
 bindings atomically and reports them in `summary.clearedBindings`.
 
@@ -332,7 +359,7 @@ It cannot delete `editor` and does not remove saved `.ogs` or `.ograf.zip` files
 
 - `ograf_certify_project`: exact manifest, package, module, and declared lifecycle certification in
   the browser; optionally choose `realtime`, `non-realtime`, or `dual` output profile.
-- `ograf_save_project`: certified `.ogs` plus a transparent `<id>_thumb.png` in the same folder,
+- `ograf_save_project`: certified standalone JSON `.ogs` plus `<id>_thumb.png` in the same folder,
   using the top-level project `id`, independent of the source filename.
   `thumbnailFrame` overrides and persists the thumbnail frame; omitted uses the project preference
   or first OGraf step (frame 0 if none). The response includes `thumbnailPath` and `thumbnailFrame`.
@@ -350,3 +377,13 @@ Paths must stay under the MCP server's configured workspace root. Both file tool
 The MCP file tools do not import or reverse-engineer an existing `.ograf.zip`. For that request, use
 the visible editor's **Import OGraf** command and preserve its best-effort recovery report. Never
 execute an imported third-party `main.js` merely to make conversion appear more complete.
+
+Use `ograf_export_coordinated_package` with the current set revision, explicit profile/path,
+`confirm:true`, unique `operationId`, and authorized overwrite choice. Follow the snapshot,
+recovery, and graph-inclusion rules in [template sets](./template-sets-and-crops.md).
+Separate standalone imports do not verify Reality Hub host coordination; test the coordinated
+package in the actual host. Do not claim Windows runtime validation from cross-compilation.
+
+`ograf_export_package` and `ograf_export_coordinated_package` emit typed color defaults and
+coordinated state presets as GDD's canonical lowercase hex, including nested object/array values.
+Editable source values retain their original spelling.

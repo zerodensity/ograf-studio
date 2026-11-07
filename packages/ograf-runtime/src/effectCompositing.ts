@@ -10,8 +10,11 @@ import {
 import {
   applyShaderEffectStack,
   removeShaderEffectStack,
+  resumeShaderEffectStacks,
+  suspendShaderEffectStacks,
   waitForShaderEffectStacksReady,
 } from './shaderEffectCompositing';
+import { applyLayerBackdropFilter, disposeLayerBackdropFilter } from './backdropEffectRendering';
 
 const mounted = new WeakMap<
   HTMLElement,
@@ -25,6 +28,7 @@ export function applyLayerEffectsFilter(
   effects: LayerEffects,
   elapsedMs = 0,
 ): void {
+  applyLayerBackdropFilter(host, effects);
   let entry = mounted.get(host);
   if (
     getEffectStack(effects).some(
@@ -78,9 +82,14 @@ export function applyLayerEffectsFilter(
   host.style.filter = `url("#${entry.filter.id}")`;
 }
 
-export { waitForShaderEffectStacksReady as waitForLayerEffectsReady };
+export {
+  resumeShaderEffectStacks as resumeLayerEffects,
+  suspendShaderEffectStacks as suspendLayerEffects,
+  waitForShaderEffectStacksReady as waitForLayerEffectsReady,
+};
 
 export function disposeLayerEffects(host: HTMLElement): void {
+  disposeLayerBackdropFilter(host);
   removeShaderEffectStack(host);
   const entry = mounted.get(host);
   entry?.svg.remove();

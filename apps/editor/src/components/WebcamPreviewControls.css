@@ -1,0 +1,27 @@
+.webcam-preview-controls {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 6px;
+  color: var(--text-dim);
+  font-size: var(--ui-font-size);
+}
+
+.webcam-preview-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.webcam-preview-controls-row select {
+  min-width: 100px;
+  flex: 1;
+}
+
+.webcam-preview-controls small {
+  color: var(--text-muted);
+}
+
+.webcam-preview-controls [role='alert'] {
+  color: #ff8b8b;
+}

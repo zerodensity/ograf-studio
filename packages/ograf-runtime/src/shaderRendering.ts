@@ -8,6 +8,71 @@ import {
 export const MAX_SHADER_BACKING_AXIS = 4_096;
 export const MAX_SHADER_BACKING_PIXELS = 8_388_608;
 
+type ContextRecord = {
+  canvas: HTMLElement;
+  lost: boolean;
+  restore: () => void;
+  gl: WebGL2RenderingContext;
+};
+const shaderContexts = new Set<ContextRecord>();
+const contextListeners = new Set<() => void>();
+const physicalContexts = new Map<WebGL2RenderingContext, { count: number; lost: boolean }>();
+let lostShaderContexts = 0;
+type SharedContext = { canvas: HTMLCanvasElement; gl: WebGL2RenderingContext; users: number };
+const sharedContexts = new WeakMap<object, SharedContext>();
+
+/** Counts only contexts owned by this runtime; other libraries may use additional contexts. */
+export function shaderContextCounts(): { live: number; lost: number } {
+  return { live: physicalContexts.size - lostShaderContexts, lost: lostShaderContexts };
+}
+export function subscribeShaderContexts(listener: () => void): () => void {
+  contextListeners.add(listener);
+  return () => contextListeners.delete(listener);
+}
+function notifyShaderContexts(): void {
+  for (const listener of contextListeners) listener();
+}
+function emitShaderContextEvent(canvas: HTMLCanvasElement, state: 'lost' | 'restored'): void {
+  const EventClass = canvas.ownerDocument?.defaultView?.CustomEvent ?? globalThis.CustomEvent;
+  if (typeof EventClass === 'function')
+    canvas.dispatchEvent(
+      new EventClass('ograf-shader-context', {
+        bubbles: true,
+        composed: true,
+        detail: { state, ...shaderContextCounts() },
+      }),
+    );
+}
+export function shaderContextsLostIn(root: HTMLElement): boolean {
+  return [...shaderContexts].some((context) => context.lost && root.contains(context.canvas));
+}
+export function pausedShaderLayerIds(): string[] {
+  return [
+    ...new Set(
+      [...shaderContexts].flatMap((context) => {
+        const id = context.lost
+          ? context.canvas.closest?.<HTMLElement>('[data-layer-id]')?.dataset.layerId
+          : undefined;
+        return id ? [id] : [];
+      }),
+    ),
+  ];
+}
+export function restoreShaderLayer(layerId: string): void {
+  for (const context of shaderContexts) {
+    if (
+      context.lost &&
+      context.canvas.closest?.<HTMLElement>('[data-layer-id]')?.dataset.layerId === layerId
+    )
+      context.restore();
+  }
+}
+/** Request a browser restore once; the browser may refuse until GPU resources are available. */
+export function restoreShaderContextsIn(root: HTMLElement): void {
+  for (const context of shaderContexts)
+    if (context.lost && root.contains(context.canvas)) context.restore();
+}
+
 interface ShaderSizedLayer {
   keyframes: ReadonlyArray<{ transform: { width: number; height: number } }>;
   animationTracks: Partial<Record<'width' | 'height', ReadonlyArray<{ value: number }>>>;
@@ -93,7 +158,8 @@ const EFFECT_BLEND_INDEX: Record<EffectBlendMode, number> = {
   lighten: 6,
 };
 
-export function shaderFragmentSource(source: string, effect = false): string {
+export function shaderFragmentSource(source: string, effect = false, textTint = false): string {
+  if (effect && textTint) throw new Error('Text tint is not supported on shader effect passes.');
   return `#version 300 es
 precision highp float;
 precision highp int;
@@ -103,6 +169,7 @@ uniform sampler2D iChannel0;
 uniform vec3 iChannelResolution[4];
 ${effect ? 'uniform int ografEffectBlendMode;\nuniform float ografEffectOpacity;' : ''}
 uniform sampler2D ografCoverageSampler;
+${textTint ? 'uniform sampler2D ografTextTintSampler;' : ''}
 out vec4 ografFragmentColor;
 ${
   effect
@@ -127,8 +194,18 @@ void main() {
   vec3 ografMixed = ografBlend(ografInput.rgb, ografFragmentColor.rgb, ografEffectBlendMode);
   vec4 ografEffect = vec4(ografMixed, ografFragmentColor.a);
   ografFragmentColor = mix(ografInput, ografEffect, clamp(ografEffectOpacity, 0.0, 1.0));`
-      : 'ografFragmentColor.a *= texture(ografCoverageSampler, gl_FragCoord.xy / iResolution.xy).a;'
+      : textTint
+        ? `vec2 ografMaskUv = gl_FragCoord.xy / iResolution.xy;
+  float ografCoverage = texture(ografCoverageSampler, ografMaskUv).a;
+  vec4 ografTint = texture(ografTextTintSampler, ografMaskUv);
+  float ografTintWeight = ografCoverage > 0.0 ? clamp(ografTint.a / ografCoverage, 0.0, 1.0) : 0.0;
+  ografFragmentColor.rgb = mix(ografFragmentColor.rgb, ografTint.rgb, ografTintWeight);
+  ografFragmentColor.a *= ografCoverage;`
+        : 'ografFragmentColor.a *= texture(ografCoverageSampler, gl_FragCoord.xy / iResolution.xy).a;'
   }
+  // Keep shader/effect calculations straight-alpha, then associate RGB only for presentation.
+  ografFragmentColor = clamp(ografFragmentColor, 0.0, 1.0);
+  ografFragmentColor.rgb *= ografFragmentColor.a;
 }
 `;
 }
@@ -145,10 +222,14 @@ export interface ShaderRenderer {
   render(elapsedMs: number): void;
   updateParameters(element: ShaderPaint): void;
   setCoverage(source: TexImageSource | null): void;
+  /** Experimental: only available when explicitly requested at renderer creation. */
+  setTextTint(source: TexImageSource | null): void;
   setInput(source: TexImageSource): void;
   setEffectBlend(config: ShaderEffectConfig): void;
   checkReady(): void;
   ready(): Promise<void>;
+  /** Wait for submitted pixels only at deterministic seek/capture boundaries. */
+  completeFrame(): Promise<void>;
   dispose(): void;
 }
 
@@ -160,38 +241,102 @@ export function createShaderRenderer(
   reportError: (error: Error | null) => void = () => {},
   requireCoverage = false,
   effectConfig?: ShaderEffectConfig,
+  scopeHost?: HTMLElement,
+  textTint = false,
 ): ShaderRenderer {
+  if (textTint && effectConfig)
+    throw new Error('Text tint is not supported on shader effect passes.');
   const inspection = inspectShaderElement(element, { channel0Provided: !!effectConfig });
   if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
   let parameterValues = resolveShaderParameters(element);
   let currentElement = element;
-  const gl = canvas.getContext('webgl2', {
+  const contextOptions: WebGLContextAttributes = {
     alpha: true,
     antialias: false,
-    premultipliedAlpha: false,
+    premultipliedAlpha: true,
     preserveDrawingBuffer: true,
     depth: false,
     stencil: false,
-  });
+  };
+  const host = scopeHost ?? canvas;
+  const root = host.getRootNode?.();
+  // Editor stages and individual graphic shadow roots are independent rendering scopes.
+  const scope =
+    host.closest?.('.canvas-stage-frame') ??
+    (root && root.nodeType === 11 && 'host' in root ? root : null);
+  let pool = scope ? sharedContexts.get(scope) : undefined;
+  if (scope && !pool) {
+    const surface = canvas.ownerDocument.createElement('canvas');
+    const sharedGl = surface.getContext('webgl2', contextOptions);
+    if (sharedGl) {
+      pool = { canvas: surface, gl: sharedGl, users: 0 };
+      sharedContexts.set(scope, pool);
+    }
+  }
+  const destination = pool ? canvas.getContext('2d') : null;
+  // If 2D presentation is unavailable, use the original direct renderer.
+  if (pool && !destination) {
+    if (pool.users === 0) {
+      pool.gl.getExtension('WEBGL_lose_context')?.loseContext();
+      if (scope) sharedContexts.delete(scope);
+    }
+    pool = undefined;
+  }
+  const gpuCanvas = pool?.canvas ?? canvas;
+  const gl = pool?.gl ?? canvas.getContext('webgl2', contextOptions);
   if (!gl)
     throw new Error('Shader backgrounds require WebGL 2, which is unavailable in this renderer.');
+  if (pool) pool.users += 1;
+
+  // Keep the extension obtained while the context is live; getExtension can return null during loss.
+  const loseContextExtension = gl.getExtension('WEBGL_lose_context');
+  const contextRecord: ContextRecord = {
+    canvas: scopeHost ?? canvas,
+    lost: false,
+    gl,
+    restore: () => {
+      try {
+        loseContextExtension?.restoreContext?.();
+      } catch {
+        /* The browser can decline restoration while resources remain exhausted. */
+      }
+    },
+  };
+  shaderContexts.add(contextRecord);
+  const group = physicalContexts.get(gl) ?? { count: 0, lost: false };
+  group.count += 1;
+  physicalContexts.set(gl, group);
+  notifyShaderContexts();
+  const updatePausedOwner = () => {
+    if (!scopeHost) return;
+    if ([...shaderContexts].some((record) => record.canvas === scopeHost && record.lost))
+      scopeHost.dataset.ografShaderPaused = 'true';
+    else delete scopeHost.dataset.ografShaderPaused;
+  };
 
   let program: WebGLProgram | null = null;
   let vertexArray: WebGLVertexArrayObject | null = null;
   let colorTexture: WebGLTexture | null = null;
   let coverageTexture: WebGLTexture | null = null;
+  let textTintTexture: WebGLTexture | null = null;
   let inputTexture: WebGLTexture | null = null;
   let coverageSource: TexImageSource | null = null;
+  let textTintSource: TexImageSource | null = null;
   let externalInputSource: TexImageSource | null = null;
   let currentEffectConfig = effectConfig;
   let framebuffer: WebGLFramebuffer | null = null;
   let timeUniform: WebGLUniformLocation | null = null;
   let resolutionUniform: WebGLUniformLocation | null = null;
   let channelResolutionUniform: WebGLUniformLocation | null = null;
+  let effectBlendUniform: WebGLUniformLocation | null = null;
+  let effectOpacityUniform: WebGLUniformLocation | null = null;
   const parameterUniforms = new Map<string, WebGLUniformLocation | null>();
   let error: Error | null = null;
   let disposed = false;
   let elapsedMs = 0;
+  let submittedRevision = 0;
+  let completedRevision = 0;
+  const completions = new Map<number, { promise: Promise<void>; cancel: (error: Error) => void }>();
   const inputImage = element.inputImage ? canvas.ownerDocument.createElement('img') : null;
   let inputReadyResolve: (() => void) | undefined;
   let inputReadySettled = !inputImage;
@@ -213,12 +358,14 @@ export function createShaderRenderer(
     if (framebuffer) gl.deleteFramebuffer(framebuffer);
     if (colorTexture) gl.deleteTexture(colorTexture);
     if (coverageTexture) gl.deleteTexture(coverageTexture);
+    if (textTintTexture) gl.deleteTexture(textTintTexture);
     if (inputTexture) gl.deleteTexture(inputTexture);
     program = null;
     vertexArray = null;
     framebuffer = null;
     colorTexture = null;
     coverageTexture = null;
+    textTintTexture = null;
     inputTexture = null;
   };
 
@@ -279,6 +426,33 @@ export function createShaderRenderer(
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   };
 
+  const uploadTextTint = () => {
+    if (!textTintTexture) return;
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, textTintTexture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    if (textTintSource)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textTintSource);
+    else
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        1,
+        1,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        new Uint8Array([0, 0, 0, 0]),
+      );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  };
+
   const compileShader = (kind: number, source: string): WebGLShader => {
     const shader = gl.createShader(kind);
     if (!shader) throw new Error('Unable to allocate a WebGL shader.');
@@ -302,7 +476,7 @@ export function createShaderRenderer(
       vertex = compileShader(gl.VERTEX_SHADER, VERTEX_SOURCE);
       fragment = compileShader(
         gl.FRAGMENT_SHADER,
-        shaderFragmentSource(inspection.adaptedSource, !!currentEffectConfig),
+        shaderFragmentSource(inspection.adaptedSource, !!currentEffectConfig, textTint),
       );
       program = gl.createProgram();
       if (!program) throw new Error('Unable to allocate a WebGL shader program.');
@@ -319,6 +493,12 @@ export function createShaderRenderer(
       timeUniform = gl.getUniformLocation(program, 'iTime');
       resolutionUniform = gl.getUniformLocation(program, 'iResolution');
       channelResolutionUniform = gl.getUniformLocation(program, 'iChannelResolution[0]');
+      effectBlendUniform = currentEffectConfig
+        ? gl.getUniformLocation(program, 'ografEffectBlendMode')
+        : null;
+      effectOpacityUniform = currentEffectConfig
+        ? gl.getUniformLocation(program, 'ografEffectOpacity')
+        : null;
       parameterUniforms.clear();
       for (const parameter of inspection.parameters) {
         parameterUniforms.set(parameter.name, gl.getUniformLocation(program, parameter.name));
@@ -359,6 +539,12 @@ export function createShaderRenderer(
       uploadCoverage();
       gl.useProgram(program);
       gl.uniform1i(gl.getUniformLocation(program, 'ografCoverageSampler'), 0);
+      if (textTint) {
+        textTintTexture = gl.createTexture();
+        if (!textTintTexture) throw new Error('Unable to allocate text tint coverage.');
+        uploadTextTint();
+        gl.uniform1i(gl.getUniformLocation(program, 'ografTextTintSampler'), 2);
+      }
       if (element.inputImage || currentEffectConfig) {
         inputTexture = gl.createTexture();
         if (!inputTexture) throw new Error('Unable to allocate shader iChannel0 texture.');
@@ -391,12 +577,20 @@ export function createShaderRenderer(
   const render = (timestampMs: number) => {
     elapsedMs = timestampMs;
     checkReady();
+    if (pool && (gpuCanvas.width !== canvas.width || gpuCanvas.height !== canvas.height)) {
+      gpuCanvas.width = canvas.width;
+      gpuCanvas.height = canvas.height;
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.useProgram(program);
     gl.bindVertexArray(vertexArray);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, coverageTexture);
+    if (textTint && textTintTexture) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, textTintTexture);
+    }
     gl.uniform1f(timeUniform, shaderTimeSeconds(elapsedMs, currentElement.speed));
     gl.uniform3f(resolutionUniform, canvas.width, canvas.height, 1);
     if ((element.inputImage || currentEffectConfig) && inputTexture) {
@@ -414,14 +608,8 @@ export function createShaderRenderer(
       );
     }
     if (currentEffectConfig) {
-      gl.uniform1i(
-        gl.getUniformLocation(program!, 'ografEffectBlendMode'),
-        EFFECT_BLEND_INDEX[currentEffectConfig.blendMode],
-      );
-      gl.uniform1f(
-        gl.getUniformLocation(program!, 'ografEffectOpacity'),
-        currentEffectConfig.blendOpacity,
-      );
+      gl.uniform1i(effectBlendUniform, EFFECT_BLEND_INDEX[currentEffectConfig.blendMode]);
+      gl.uniform1f(effectOpacityUniform, currentEffectConfig.blendOpacity);
     }
     for (const parameter of inspection.parameters) {
       const location = parameterUniforms.get(parameter.name) ?? null;
@@ -465,8 +653,14 @@ export function createShaderRenderer(
       gl.NEAREST,
     );
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    // Complete the requested frame before OGraf goToTime resolves and before canvas capture.
-    gl.finish();
+    if (destination) {
+      destination.clearRect(0, 0, canvas.width, canvas.height);
+      destination.drawImage(gpuCanvas, 0, 0);
+    }
+    submittedRevision += 1;
+  };
+
+  const checkFrameError = () => {
     const code = gl.getError();
     if (code !== gl.NO_ERROR) {
       if (gl.isContextLost()) throw new ShaderContextLostError();
@@ -474,6 +668,75 @@ export function createShaderRenderer(
       reportError(error);
       throw error;
     }
+  };
+
+  const completeFrame = (): Promise<void> => {
+    try {
+      checkReady();
+    } catch (cause) {
+      return Promise.reject(cause);
+    }
+    const revision = submittedRevision;
+    if (revision <= completedRevision) return Promise.resolve();
+    const existing = completions.get(revision);
+    if (existing) return existing.promise;
+    // Realtime draws stay asynchronous. Fences are inserted only when OGraf requests an exact
+    // completed frame (seek, resource preparation, or capture), never for each animation tick.
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (!sync) return Promise.reject(new Error('Unable to allocate a shader completion fence.'));
+    gl.flush();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+    let resolveCompletion!: () => void;
+    let rejectCompletion!: (error: Error) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
+    });
+    const settle = (failure?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      gl.deleteSync(sync);
+      completions.delete(revision);
+      if (failure) rejectCompletion(failure);
+      else {
+        completedRevision = Math.max(completedRevision, revision);
+        resolveCompletion();
+      }
+    };
+    completions.set(revision, { promise, cancel: settle });
+    const deadline = Date.now() + 30_000;
+    const poll = () => {
+      try {
+        checkReady();
+        const status = gl.clientWaitSync(sync, 0, 0);
+        if (status === gl.ALREADY_SIGNALED || status === gl.CONDITION_SATISFIED) {
+          checkFrameError();
+          settle();
+        } else if (status === gl.WAIT_FAILED) {
+          checkFrameError();
+          throw new Error('Shader GPU completion wait failed.');
+        } else if (Date.now() >= deadline) {
+          throw new Error('Shader GPU frame did not complete within 30000 ms.');
+        } else timer = setTimeout(poll, 0);
+      } catch (cause) {
+        const failure = cause instanceof Error ? cause : new Error(String(cause));
+        if (!disposed && !(failure instanceof ShaderContextLostError) && error !== failure) {
+          error = failure;
+          reportError(error);
+        }
+        settle(failure);
+      }
+    };
+    // The browser may have queued commands not yet visible to the GPU. Yield before the first
+    // zero-timeout poll, so completion never spins or blocks the main thread awaiting the GPU.
+    timer = setTimeout(poll, 0);
+    return promise;
+  };
+
+  const cancelCompletions = (failure: Error) => {
+    for (const completion of [...completions.values()]) completion.cancel(failure);
   };
 
   const updateParameters = (nextElement: ShaderPaint) => {
@@ -496,16 +759,29 @@ export function createShaderRenderer(
 
   const lost = (event: Event) => {
     event.preventDefault();
+    if (!group.lost) {
+      group.lost = true;
+      lostShaderContexts += 1;
+    }
+    contextRecord.lost = true;
+    canvas.dataset.ografShaderPaused = 'true';
+    updatePausedOwner();
+    notifyShaderContexts();
+    emitShaderContextEvent(canvas, 'lost');
+    cancelCompletions(new ShaderContextLostError());
     // Context loss invalidates every GPU object; restored contexts must use fresh handles.
     program = null;
     vertexArray = null;
     colorTexture = null;
     coverageTexture = null;
+    textTintTexture = null;
     inputTexture = null;
     framebuffer = null;
     timeUniform = null;
     resolutionUniform = null;
     channelResolutionUniform = null;
+    effectBlendUniform = null;
+    effectOpacityUniform = null;
     parameterUniforms.clear();
     error = new ShaderContextLostError();
     reportError(error);
@@ -515,19 +791,39 @@ export function createShaderRenderer(
     try {
       initialize();
       render(elapsedMs);
+      if (group.lost) {
+        group.lost = false;
+        lostShaderContexts -= 1;
+      }
+      contextRecord.lost = false;
+      delete canvas.dataset.ografShaderPaused;
+      updatePausedOwner();
+      notifyShaderContexts();
+      emitShaderContextEvent(canvas, 'restored');
     } catch (cause) {
       error = cause instanceof Error ? cause : new Error(String(cause));
       reportError(error);
     }
   };
-  canvas.addEventListener('webglcontextlost', lost);
-  canvas.addEventListener('webglcontextrestored', restored);
+  gpuCanvas.addEventListener('webglcontextlost', lost);
+  gpuCanvas.addEventListener('webglcontextrestored', restored);
 
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    canvas.removeEventListener('webglcontextlost', lost);
-    canvas.removeEventListener('webglcontextrestored', restored);
+    shaderContexts.delete(contextRecord);
+    updatePausedOwner();
+    group.count -= 1;
+    if (group.count === 0) {
+      if (group.lost) lostShaderContexts -= 1;
+      physicalContexts.delete(gl);
+    }
+    delete canvas.dataset.ografShaderPaused;
+    delete canvas.dataset.ografShaderBackend;
+    notifyShaderContexts();
+    cancelCompletions(new Error('Shader playback has been disposed.'));
+    gpuCanvas.removeEventListener('webglcontextlost', lost);
+    gpuCanvas.removeEventListener('webglcontextrestored', restored);
     if (inputImage) {
       inputImage.onload = null;
       inputImage.onerror = null;
@@ -535,13 +831,21 @@ export function createShaderRenderer(
     settleInputReady();
     releaseResources();
     // Browsers cap simultaneous contexts; return this one when a layer is removed/recompiled.
-    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    if (!pool || --pool.users === 0) {
+      loseContextExtension?.loseContext();
+      if (scope && pool) sharedContexts.delete(scope);
+    }
     canvas.width = 1;
     canvas.height = 1;
   };
   try {
     initialize();
     render(0);
+    // Validate the initial submission once; normal realtime draws avoid synchronous error reads.
+    checkFrameError();
+    // Shared GPU scopes present each shader through a Canvas2D copy. Pixel inspection must read
+    // that retained image, rather than requesting an incompatible WebGL context on this canvas.
+    canvas.dataset.ografShaderBackend = destination ? 'canvas2d' : 'webgl2';
   } catch (cause) {
     dispose();
     throw cause;
@@ -572,6 +876,12 @@ export function createShaderRenderer(
     checkReady();
     uploadCoverage();
   };
+  const setTextTint = (source: TexImageSource | null) => {
+    if (!textTint) throw new Error('Experimental text tint was not enabled for this shader.');
+    textTintSource = source;
+    checkReady();
+    uploadTextTint();
+  };
   const ready = async () => {
     await inputReady;
     checkReady();
@@ -591,10 +901,12 @@ export function createShaderRenderer(
     render,
     updateParameters,
     setCoverage,
+    setTextTint,
     setInput,
     setEffectBlend,
     checkReady,
     ready,
+    completeFrame,
     dispose,
   };
 }
@@ -612,6 +924,7 @@ export function mountShader(
   element: ShaderPaint,
   preferredSize?: { width: number; height: number },
   requireCoverage = false,
+  textTint = false,
 ): void {
   const canvas = container.ownerDocument.createElement('canvas');
   canvas.dataset.ografShaderCanvas = 'true';
@@ -653,7 +966,16 @@ export function mountShader(
     container.appendChild(message);
   };
   try {
-    mounted.renderer = createShaderRenderer(canvas, element, size, displayError, requireCoverage);
+    mounted.renderer = createShaderRenderer(
+      canvas,
+      element,
+      size,
+      displayError,
+      requireCoverage,
+      undefined,
+      undefined,
+      textTint,
+    );
   } catch (cause) {
     mounted.error = cause instanceof Error ? cause : new Error(String(cause));
     displayError(mounted.error);
@@ -687,6 +1009,13 @@ export function setShaderCoverage(container: HTMLElement, source: TexImageSource
   mounted.renderer.setCoverage(source);
 }
 
+/** Experimental text-only path; validation must still reject unsupported paint combinations. */
+export function setShaderTextTint(container: HTMLElement, source: TexImageSource | null): void {
+  const mounted = mountedShaders.get(container);
+  if (!mounted?.renderer) throw mounted?.error ?? new Error('Shader fill is not mounted.');
+  mounted.renderer.setTextTint(source);
+}
+
 export function renderShaderAtTime(container: HTMLElement, elapsedMs: number): void {
   const mounted = mountedShaders.get(container);
   if (!mounted) throw new Error('Shader background is not mounted.');
@@ -701,6 +1030,16 @@ export async function waitForShadersReady(root: ParentNode): Promise<void> {
     return mounted?.renderer ? [mounted.renderer] : [];
   });
   await Promise.all(renderers.map((renderer) => renderer.ready()));
+}
+
+/** Ensures exact shader pixels after the final requested frame, without blocking realtime draws. */
+export async function waitForShadersComplete(root: ParentNode): Promise<void> {
+  const renderers = [root, ...root.querySelectorAll<HTMLElement>('*')].flatMap((element) => {
+    const mounted = mountedShaders.get(element as HTMLElement);
+    if (mounted?.error) throw mounted.error;
+    return mounted?.renderer ? [mounted.renderer] : [];
+  });
+  await Promise.all(renderers.map((renderer) => renderer.completeFrame()));
 }
 
 export function disposeShader(container: HTMLElement): void {

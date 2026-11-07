@@ -32,8 +32,11 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ($version -ne "$($env:GITHUB_REF_NAME.TrimStart('v')).0") { throw 'Tag and package version differ' }
-          if (-not (Test-Path "docs/releases/$($env:GITHUB_REF_NAME.TrimStart('v')).md")) { throw 'Release notes are missing' }
+          $tag = $env:GITHUB_REF_NAME
+          if (-not $tag.StartsWith('v')) { throw 'Expected a v-prefixed tag' }
+          $releaseVersion = $tag.Substring(1)
+          if ($version -ne $releaseVersion) { throw 'Tag and package version differ' }
+          if (-not (Test-Path "docs/releases/$releaseVersion.md")) { throw 'Release notes are missing' }
       - run: npm ci
       - run: npm run verify
       - run: npm audit
@@ -62,7 +65,8 @@ jobs:
           $peOffset = [BitConverter]::ToInt32($binary, 60)
           if ([BitConverter]::ToUInt32($binary, $peOffset) -ne 0x4550 -or [BitConverter]::ToUInt16($binary, $peOffset + 4) -ne 0x8664) { throw 'Expected Windows x64 PE executable' }
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ((Get-Item release/OGrafStudioServer.exe).VersionInfo.FileVersion -ne "$version.0") { throw 'Executable version mismatch' }
+          $fileVersion = if ($version -match '^(\d+)\.(\d+)\.(\d+)-rc\.(\d+)$') { "$($Matches[1]).$($Matches[2]).$($Matches[3]).$($Matches[4])" } else { "$version.0" }
+          if ((Get-Item release/OGrafStudioServer.exe).VersionInfo.FileVersion -ne $fileVersion) { throw 'Executable version mismatch' }
           $process = Start-Process -FilePath "$PWD/release/OGrafStudioServer.exe" -ArgumentList '--port', '4497', '--workspace', "$env:RUNNER_TEMP/ograf-projects", '--no-open' -WindowStyle Hidden -PassThru
           try {
             $ready = $false
@@ -150,7 +154,9 @@ jobs:
           if gh release view "$RELEASE_TAG" --json isDraft > release/release-state.json 2>/dev/null; then
             node -e "if (!require('./release/release-state.json').isDraft) process.exit(1)"
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "OGraf Studio ${RELEASE_TAG#v}" --notes-file "docs/releases/${RELEASE_TAG#v}.md"
+            release_args=()
+            if [[ "$RELEASE_TAG" == *-rc.* ]]; then release_args+=(--prerelease --latest=false); fi
+            gh release create "$RELEASE_TAG" --verify-tag --draft "${release_args[@]}" --title "OGraf Studio ${RELEASE_TAG#v}" --notes-file "docs/releases/${RELEASE_TAG#v}.md"
           fi
           for file in OGrafStudioServer.exe OGrafStudioServer-linux-x64 OGrafStudioServer-linux-arm64 ograf-authoring.zip RELEASE-MANIFEST.json SHA256SUMS.txt; do
             gh release upload "$RELEASE_TAG" "release/$file" --clobber
@@ -168,4 +174,8 @@ jobs:
             if (!asset || asset.state !== 'uploaded' || asset.size !== data.length || asset.digest !== digest) throw new Error(`Upload verification failed: ${file}`);
           }
           JS
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          if [[ "$RELEASE_TAG" == *-rc.* ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          fi

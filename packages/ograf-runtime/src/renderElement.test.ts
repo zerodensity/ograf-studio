@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   applyTextStrokeStyle,
   calculateTextSqueezeScale,
@@ -42,6 +42,81 @@ describe('text stroke rendering', () => {
 });
 
 describe('text fitting', () => {
+  it('uses two browser measurements when live text already fits at its authored size', () => {
+    const fits = vi.fn((fontSize: number) => fontSize <= 80);
+    expect(
+      findFittedFontSize({ mode: 'shrink-to-fit', authoredFontSize: 80, minFontSize: 40, fits }),
+    ).toEqual({ fontSize: 79.9, ratio: 79.9 / 80, degenerate: false });
+    expect(fits.mock.calls).toEqual([[40], [80]]);
+  });
+
+  it('keeps the one-decimal font-size contract on the authored-size fast path', () => {
+    const fits = vi.fn(() => true);
+    const result = findFittedFontSize({
+      mode: 'shrink-to-fit',
+      authoredFontSize: 32.37,
+      minFontSize: 12,
+      fits,
+    });
+    expect(result).toEqual({ fontSize: 32.3, ratio: 32.3 / 32.37, degenerate: false });
+    expect(fits.mock.calls).toEqual([[12], [32.37]]);
+  });
+
+  it('retains the binary-search result when authored text overflows', () => {
+    const fits = vi.fn((fontSize: number) => fontSize <= 52.35);
+    const result = findFittedFontSize({
+      mode: 'shrink-to-fit',
+      authoredFontSize: 80,
+      minFontSize: 40,
+      fits,
+    });
+    expect(result).toEqual({ fontSize: 52.3, ratio: 52.3 / 80, degenerate: false });
+    expect(fits.mock.calls[0]).toEqual([40]);
+    expect(fits.mock.calls[1]).toEqual([80]);
+    expect(fits).toHaveBeenCalledTimes(18);
+  });
+
+  it('keeps overflow at the legibility floor visible to validation', () => {
+    const fits = vi.fn(() => false);
+    expect(
+      findFittedFontSize({ mode: 'shrink-to-fit', authoredFontSize: 40, minFontSize: 20, fits }),
+    ).toEqual({ fontSize: 20, ratio: 0.5, degenerate: true });
+    expect(fits.mock.calls).toEqual([[20]]);
+  });
+
+  it.each([
+    [28, 12, 28],
+    [80, 40, 100],
+    [32.37, 12.15, 100],
+    [80, 100, 100],
+    [0.5, 12, 1],
+    [80, 40, 52.35],
+    [40, 20, 0],
+  ])(
+    'preserves legacy quantized pixels for authored %s, floor %s and limit %s',
+    (authoredFontSize, minFontSize, limit) => {
+      const fits = (size: number) => size <= limit;
+      const authored = Math.max(0.1, authoredFontSize);
+      const floor = Math.min(authored, Math.max(1, minFontSize));
+      let lower = floor;
+      if (fits(floor) && lower !== authored) {
+        // Keep the complete legacy search for both fitting and genuinely overflowing input.
+        let upper = authored;
+        lower = floor;
+        for (let step = 0; step < 16; step++) {
+          const candidate = (lower + upper) / 2;
+          if (fits(candidate)) lower = candidate;
+          else upper = candidate;
+        }
+      }
+      const fontSize = Math.max(0.1, Math.floor(lower * 10) / 10);
+      const expected = { fontSize, ratio: fontSize / authored, degenerate: !fits(floor) };
+      expect(
+        findFittedFontSize({ mode: 'shrink-to-fit', authoredFontSize, minFontSize, fits }),
+      ).toEqual(expected);
+    },
+  );
+
   it('keeps shrink-to-fit below the authored size and above its legibility floor', () => {
     const result = findFittedFontSize({
       mode: 'shrink-to-fit',

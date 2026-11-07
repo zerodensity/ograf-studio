@@ -1,0 +1,26 @@
+.preview-background-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.preview-background-controls-row > span {
+  flex: 0 0 64px;
+}
+
+.preview-background-controls-row > :is(select, input) {
+  flex: 1;
+  min-width: 0;
+}
+
+.preview-background-controls-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.preview-background-controls [role='alert'] {
+  color: var(--danger, #ff9da7);
+}

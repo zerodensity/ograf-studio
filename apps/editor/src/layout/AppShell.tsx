@@ -8,11 +8,71 @@ import { DockWorkspace, type DockPaneCommand } from './DockWorkspace';
 import type { DockPaneId } from './dockModel';
 import { NumericScrubController } from '../components/NumericScrubController';
 import { PatternDialogHost } from '../panels/PatternResources';
+import { ShaderResourceEditorHost } from '../panels/ShaderResources';
+import { ComponentEditorDialogHost } from '../panels/ComponentEditorDialog';
+import { WorkspaceDialogHost } from '../components/WorkspaceDialogs';
+import { CertifiedPackageSaveDialogHost } from '../components/CertifiedPackageSaveDialog';
+import { PluginLoadWarningDialogHost } from '../components/PluginLoadWarningDialog';
 import { useProjectFonts } from '../state/useProjectFonts';
+import { usePaneRequestStore } from '../state/paneRequestStore';
+import { StartupScreen } from '../components/StartupScreen';
+import { useProjectStore } from '../state/projectStore';
+import { revealPaneOnFirstUse } from '../state/firstUsePanes';
+import { DOCK_PANE_LABELS } from './dockModel';
 import './AppShell.css';
 
 export function AppShell() {
   useProjectFonts();
+  const [paneNotice, setPaneNotice] = useState('');
+  useEffect(() => {
+    let timer: number | undefined;
+    let deferredReveal: number | undefined;
+    const notice = (event: Event) => {
+      const pane = (event as CustomEvent<DockPaneId>).detail;
+      setPaneNotice(`${DOCK_PANE_LABELS[pane]} opened. Use its close button to hide it.`);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setPaneNotice(''), 4500);
+    };
+    window.addEventListener('ograf-first-use-pane', notice);
+    let previous = useProjectStore.getState();
+    const unsubscribeProject = useProjectStore.subscribe((next) => {
+      if (
+        next.project.id === previous.project.id &&
+        next.activeCompositionId === previous.activeCompositionId
+      ) {
+        const oldComp = previous.project.compositions.find(
+          (item) => item.id === previous.activeCompositionId,
+        );
+        const newComp = next.project.compositions.find(
+          (item) => item.id === next.activeCompositionId,
+        );
+        if (oldComp && newComp) {
+          const addedData = newComp.dataFields.length > oldComp.dataFields.length;
+          if (addedData) revealPaneOnFirstUse('data');
+          const countRules = (layers: typeof newComp.layers) =>
+            layers.reduce((total, layer) => total + (layer.visualRules?.length ?? 0), 0);
+          if (countRules(newComp.layers) > countRules(oldComp.layers)) {
+            if (addedData)
+              deferredReveal = window.setTimeout(() => revealPaneOnFirstUse('rules'), 100);
+            else revealPaneOnFirstUse('rules');
+          }
+        }
+      }
+      previous = next;
+    });
+    return () => {
+      unsubscribeProject();
+      window.removeEventListener('ograf-first-use-pane', notice);
+      window.clearTimeout(timer);
+      window.clearTimeout(deferredReveal);
+    };
+  }, []);
+  useEffect(() => {
+    const pane = new URLSearchParams(window.location.search).get('pane');
+    if (pane === 'transition-logic' || pane === 'transitions')
+      usePaneRequestStore.getState().reveal('transitions');
+    else if (pane === 'functions') usePaneRequestStore.getState().reveal('functions');
+  }, []);
   const proposals = useAgentReviewStore((state) => state.proposals);
   const proposal = proposals[0];
   useEffect(() => {
@@ -48,10 +108,9 @@ export function AppShell() {
       <div className="app-shell">
         <Menubar
           closedDockPanes={closedDockPanes}
-          onToggleDockPane={(pane) =>
-            commandDockPane(pane, closedDockPanes.includes(pane) ? 'open' : 'close')
-          }
+          onCenterDockPane={(pane) => commandDockPane(pane, 'float-center')}
         />
+        <PluginLoadWarningDialogHost />
         <DockWorkspace
           paneCommand={dockPaneCommand}
           onClosedPanesChange={updateClosedDockPanes}
@@ -65,6 +124,16 @@ export function AppShell() {
         />
         <NumericScrubController />
         <PatternDialogHost />
+        <ShaderResourceEditorHost />
+        <ComponentEditorDialogHost />
+        <WorkspaceDialogHost />
+        <CertifiedPackageSaveDialogHost />
+        <StartupScreen />
+        {paneNotice && (
+          <div className="app-first-use-notice" role="status">
+            {paneNotice}
+          </div>
+        )}
       </div>
     </DetachedWindowsProvider>
   );

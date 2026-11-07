@@ -2,6 +2,15 @@ export const MIN_STAGE_ZOOM = 0.05;
 export const MAX_STAGE_ZOOM = 4;
 const STAGE_ZOOM_FACTOR = 1.12;
 
+/** Accept a typed percentage and constrain it to the same range as wheel zoom. */
+export function parseStageZoomPercent(value: string): number | null {
+  const input = value.trim().replace(/%$/, '').trim();
+  if (!input) return null;
+  const percentage = Number(input);
+  if (!Number.isFinite(percentage) || percentage <= 0) return null;
+  return Math.min(MAX_STAGE_ZOOM, Math.max(MIN_STAGE_ZOOM, percentage / 100));
+}
+
 export interface StageZoomAnchor {
   logicalX: number;
   logicalY: number;

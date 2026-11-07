@@ -15,11 +15,28 @@ describe('semantic authoring recipes', () => {
       fieldKeys: { headline: 'story_headline', subheadline: 'story_location' },
     });
 
-    expect(composition.layers).toHaveLength(4);
-    expect(composition.dataFields.map((field) => field.key)).toEqual([
-      'story_headline',
-      'story_location',
+    expect(composition.layers).toHaveLength(5);
+    expect(
+      composition.dataFields
+        .filter((field) => !field.generatedShaderParameter)
+        .map((field) => field.key),
+    ).toEqual(['story_headline', 'story_location']);
+    const shaderControls = composition.dataFields.filter((field) => field.generatedShaderParameter);
+    expect(shaderControls.map((field) => field.generatedShaderParameter!.name)).toEqual([
+      'ink',
+      'accent',
+      'strength',
+      'speed',
     ]);
+    for (const field of shaderControls) {
+      expect(field.generatedShaderParameter!.layerId).toBe(result.layers.panel);
+      expect(
+        composition.layers.find((layer) => layer.id === result.layers.panel)!.bindings,
+      ).toContainEqual({
+        fieldId: field.id,
+        targetProperty: `fill.parameters.${field.generatedShaderParameter!.name}`,
+      });
+    }
     expect(composition.layout.timelineFolders[0]).toMatchObject({
       id: result.timelineGroupId,
       name: 'News',
@@ -27,11 +44,19 @@ describe('semantic authoring recipes', () => {
     });
     expect(composition.layers.map((layer) => layer.semantics.role)).toEqual([
       'container',
+      'decorative',
       'accent',
       'headline',
       'subheadline',
     ]);
-    expect(composition.layers.every((layer) => layer.groupId === result.groupId)).toBe(true);
+    expect(
+      composition.layers.every(
+        (layer) =>
+          layer.groupId === result.groupId &&
+          layer.componentLink?.componentId === result.componentId &&
+          layer.componentLink?.instanceId === result.instanceId,
+      ),
+    ).toBe(true);
 
     const frames = computeKeyframeFrames(composition);
     const frameForRole = (role: 'start' | 'step' | 'end') => {
@@ -44,7 +69,9 @@ describe('semantic authoring recipes', () => {
     const panel = composition.layers.find((layer) => layer.id === result.layers.panel)!;
     expect(getLayerTransformAtFrame(panel, start)).toMatchObject({ x: 140, width: 1 });
     expect(getLayerTransformAtFrame(panel, step)).toMatchObject({ x: 140, y: 760 });
-    expect(getLayerTransformAtFrame(panel, end).y).toBeGreaterThan(composition.height);
+    const exitPose = getLayerTransformAtFrame(panel, end);
+    expect(exitPose.x + exitPose.width).toBeLessThan(0);
+    expect(exitPose.y).toBe(760);
     expect(panel.clipChildren).toBe(true);
     expect(
       composition.layers
@@ -54,7 +81,7 @@ describe('semantic authoring recipes', () => {
     expect(panel.animationTracks.width?.find((key) => key.frame === step)?.easing).toBe(
       'cubic-out',
     );
-    expect(panel.animationTracks.y?.find((key) => key.frame === end)?.easing).toBe('cubic-in');
+    expect(panel.animationTracks.x?.find((key) => key.frame === end)?.easing).toBe('cubic-in');
   });
 
   it('preserves directional lockstep translation as the explicit slide style', () => {
@@ -73,8 +100,12 @@ describe('semantic authoring recipes', () => {
       composition.width,
     );
     expect(getLayerTransformAtFrame(panel, frameForRole('end')).y).toBeLessThan(0);
-    expect(panel.clipChildren).toBe(false);
-    expect(composition.layers.every((layer) => layer.parentId === null)).toBe(true);
+    expect(panel.clipChildren).toBe(true);
+    expect(
+      composition.layers.every((layer) =>
+        layer.id === result.layers.texture ? layer.parentId === panel.id : layer.parentId === null,
+      ),
+    ).toBe(true);
   });
 
   it('consumes editable style-pack palette, type, and motion conventions', () => {
@@ -88,7 +119,7 @@ describe('semantic authoring recipes', () => {
     expect(headline.element).toMatchObject({
       type: 'text',
       fontSize: 68,
-      fontWeight: 800,
+      fontWeight: 900,
       color: '#FFFFFF',
     });
     expect(panel.animationTracks.width?.find((key) => key.frame === 4)?.value).toBe(1);
@@ -99,7 +130,8 @@ describe('semantic authoring recipes', () => {
     const composition = createProject().compositions[0]!;
     materializeLowerThird(composition, {
       placement: { x: 140, y: 760, width: 1120, height: 170 },
-      motion: { style: 'stagger', staggerFrames: 3 },
+      // Keep the original four-part cascade; the News pack otherwise uses a shorter entrance.
+      motion: { style: 'stagger', staggerFrames: 3, entranceDurationFrames: 12 },
     });
     const arrivals = composition.layers.map((layer) => {
       const onAirX = getLayerTransformAtFrame(layer, 12).x;
@@ -107,7 +139,7 @@ describe('semantic authoring recipes', () => {
         (key) => key.frame > 0 && key.frame <= 12 && key.value === onAirX,
       )!.frame;
     });
-    expect(arrivals).toEqual([3, 6, 9, 12]);
+    expect(arrivals).toEqual([3, 3, 6, 9, 12]);
     expect(
       composition.layers.every((layer) => layer.keyframes.every((key) => key.frame <= 24)),
     ).toBe(true);
@@ -138,11 +170,21 @@ describe('semantic authoring recipes', () => {
     const composition = createProject().compositions[0]!;
     materializeLowerThird(composition);
     materializeLowerThird(composition);
-    expect(composition.dataFields.map((field) => field.key)).toEqual([
-      'headline',
-      'subheadline',
-      'headline_2',
-      'subheadline_2',
-    ]);
+    expect(
+      composition.dataFields
+        .filter((field) => !field.generatedShaderParameter)
+        .map((field) => field.key),
+    ).toEqual(['headline', 'subheadline', 'headline_2', 'subheadline_2']);
+    const shaderControls = composition.dataFields.filter((field) => field.generatedShaderParameter);
+    expect(shaderControls).toHaveLength(8);
+    expect(
+      new Set(shaderControls.map((field) => field.generatedShaderParameter!.layerId)).size,
+    ).toBe(2);
+    expect(new Set(composition.dataFields.map((field) => field.key)).size).toBe(
+      composition.dataFields.length,
+    );
+    expect(new Set(composition.dataFields.map((field) => field.id)).size).toBe(
+      composition.dataFields.length,
+    );
   });
 });

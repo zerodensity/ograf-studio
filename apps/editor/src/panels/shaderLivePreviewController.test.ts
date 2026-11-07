@@ -138,15 +138,22 @@ describe('live draft shader preview', () => {
     const renderer = rendererFactory.mock.results[0]!.value;
     target.visible(false);
     expect(target.frames.size).toBe(0);
+    expect(renderer.dispose).toHaveBeenCalledTimes(1);
     target.setTime(5000);
     const changed = { ...paint, parameters: { waveFrequency: 9 } };
     target.controller.update(changed);
     expect(renderer.updateParameters).not.toHaveBeenCalled();
     target.visible(true);
-    expect(renderer.updateParameters).toHaveBeenCalledWith(changed);
-    expect(renderer.render).toHaveBeenLastCalledWith(100);
+    expect(rendererFactory).toHaveBeenLastCalledWith(
+      expect.anything(),
+      changed,
+      expect.anything(),
+      expect.any(Function),
+    );
+    const restored = rendererFactory.mock.results[1]!.value;
+    expect(restored.render).toHaveBeenLastCalledWith(100);
     target.tick(5100);
-    expect(renderer.render).toHaveBeenLastCalledWith(200);
+    expect(restored.render).toHaveBeenLastCalledWith(200);
     target.controller.dispose();
   });
 

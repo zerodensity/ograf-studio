@@ -2,6 +2,97 @@
 
 [Back to overview](../README.md) · [Using Studio](USER_GUIDE.md) · [Server setup](DEVELOPMENT.md#run-the-mcp-server)
 
+## Template sets and cropping
+
+The connected editor exposes `ograf_get_template_set` and `ograf_update_template_set` for set `.ogs`
+structure, template duplication/clipboard operations, shared defaults/inheritance, and control/asset
+links. Set commands use the opaque set revision from the read tool; layer batches use the separate
+numeric project revision. Re-read the active project after activation or set-default changes.
+`ograf_save_template_set` saves the whole connected set to a workspace-confined `.ogs` path using
+its opaque `expectedRevision`, `confirm:true` and optional `overwrite:true`. `archiveMode:"compact"`
+(default, schema 6) stores shared fonts, resources and component sources once; `"compatible"` writes
+the schema 5 archive layout for older set readers without down-converting newer features.
+The compressed MCP transfer limit is
+64 MiB; use Studio's Save Template Set dialog for larger sets. The tool saves a snapshot copy without
+renaming the open document or changing its revision; an edit during generation fails before writing.
+Open `.ogs` and Insert Template remain visible file actions; legacy `.ogp` and archive schemas 1–5
+remain readable. MCP project open/save use standalone JSON source with resolved dependencies.
+Never extract a compact member and pass it to standalone save/export without hydration.
+
+Crop any visual layer with `set_layer_crop`; normalized layer fractions and canvas-pixel group
+coordinates are distinct. Image/sequence source crops use `update_element.patch.crop`; Media Cues
+accept `visual.crop`. Output canvas cropping uses `set_composition.crop` in whole pixels. Null resets
+layer/canvas/image crops. See the [authoring reference](../skills/ograf-authoring/references/template-sets-and-crops.md)
+and [generated contracts](generated/mcp-contracts.md) for exact input shapes.
+
+## Operator field verification
+
+For coordinated exports, discover `templateSets.transitionLogic.exportStartup`. Generated startup
+defaults select a compatible baseline, leaving prerequisite-dependent lanes Off and excluding
+conflicting state combinations.
+Custom Take form suggestions remain separate. Exported `playAction` preflights the complete
+selection and prepares resources before committing dependency-ordered stages on the shared
+playout clock. Select required parents explicitly; individual Take commands still require them
+already On. Reject conflicting batches before output changes, and verify rejected calls preserve
+on-air selections. A newer playout command supersedes unfinished stages. Test successful default
+Play, explicit parent/child startup, conflicting selections, and scheduled replay; a structurally
+valid numeric error status is not successful playback. `goto:0` reapplies the coordinator's sole
+On-air step; ordinary Play advances to Out after it.
+
+`ograf_validate_project` accepts `dataFieldUsage:true` for a browser-free, read-only field-reference
+audit. The default summary reports unreferenced fields, guide-only bindings and hidden-only bindings;
+`detail:"full"` includes all fields with their stable reference owners and authored visibility flags.
+The audit recognizes bindings to any supported target, Rules, modifier field sources, collections,
+loop timing and data connections, while ignoring retained component baselines. It does not remove
+fields or change validity, revision, certification or the source document.
+
+These are advisory references, not a guarantee of visible output. A hidden layer can legitimately
+drive geometry or a matte, and Rules or transitions can reveal it. Verify exposed text and colors
+with distinct values in the exported graphic's actual preview. Capture crawl repeat boundaries and
+dependent resize/takeover transitions as well as settled frames; a valid manifest cannot prove
+editorial behavior. See [export playback review](../skills/ograf-authoring/references/ograf-invariants.md#export-playback-review).
+MCP PNG/strip captures verify requested frames; they do not measure real-time switching latency.
+For modifier playback, also review fullscreen switching and the actual exported package using
+the [modifier data and lifecycle cases](../skills/ograf-authoring/references/modifiers.md#modifier-example-playback-review).
+
+Continuous ticker text uses `update_element.patch.crawl:{speedPixelsPerSecond,gap,direction}`;
+`crawl:null` removes it. The runtime repeats measured bound text, with a composition-pixel gap and
+graphic-clock motion, so updates do not retain a fixed empty travel distance. Existing crawls retain
+this behavior. New `create_ticker` recipes use the native mixed-content ticker, with safe Next
+appearance updates, transparent edge fades, RTL text, images, animations and shaders. See
+[broadcast recipes](../skills/ograf-authoring/references/broadcast-recipes.md) for all six updated
+starters and linked asset behavior, and [ticker controls](../skills/ograf-authoring/references/loop-controls.md#continuous-tickers)
+for legacy limits and migration from an authored single-copy x-loop.
+
+## Component source updates
+
+`update_component_from_layers` takes `componentId` and `layerIds`. Select members of one linked
+instance plus any new independent layers to promote the edited content. New layers join that
+instance without changing their IDs; other instances receive one corresponding child. Canonical
+source/field IDs remain stable, and local bindings, animation, placement and overrides survive.
+Selecting only independent layers makes them a new linked source instance of the chosen asset.
+Locked selected layers, foreign component members and selections spanning multiple instances are
+rejected atomically. Read the updated project or query the scene for inherited child mappings;
+updating a source does not return an insertion result for the existing source instance.
+
+The connected editor checks shared component edits against the template set's current Transitions
+definition before publishing either document. Remove or retarget references to a source layer in
+Transitions before removing it from its component. Rejected edits leave project, set and Undo
+history intact. This set-level guard also covers connected MCP changes and Undo/Redo; a standalone
+project session has no external template-set graph to validate.
+
+## Conditional geometry in Rules
+
+Use a `property` action with `targetProperty:"layer.x"`, `"layer.y"`, `"layer.width"` or
+`"layer.height"` to set an absolute pose channel in pixels. The older bare names `x`, `y`, `width`
+and `height` remain readable aliases and affect real geometry. Values must be finite; width and
+height cannot be negative. Existing `layer.offsetX` and `layer.offsetY` remain additive.
+
+Rule geometry overrides the sampled animation while its result is active, then ordinary layout,
+modifiers, masks and crops operate on that pose. Explicit coordinated shared-element pins retain
+priority. A data-state rule releases its geometry when it stops matching; event results persist
+until another rule replaces them. See the [Rules reference](../skills/ograf-authoring/references/visual-rules.md).
+
 ## AI Assistant
 
 OGraf Studio includes an **AI Assistant** tab beside **Layers** in the left sidebar. The model loop runs in
@@ -94,10 +185,60 @@ Intermediate steps do not add conversation rows or scroll the transcript. The fi
 usage appear once when the turn finishes. Disconnects and provider timeouts report an error and
 leave the assistant ready to retry.
 
-AI Assistant conversations are isolated by project ID, keep a bounded recent conversation and the
-latest batch of reference images, and cap individual tool-result payloads at 16,000 characters. Opening or creating another
-project therefore starts a fresh conversation. If Anthropic still rejects the first request as too
-long, Studio automatically retries that turn once with fresh project conversation history.
+AI Assistant conversations are isolated by project ID. Studio plans each model request against the
+selected model's context capacity, including tool definitions, instructions, image estimates and
+space for the reply. Advertised model metadata is used when available; otherwise Studio reports an
+estimated fallback, which can be overridden with the model's documented capacity. Token counts are
+estimates, not billing measurements.
+
+Large tool results are returned as complete JSON pages instead of cut-off JSON text. The assistant
+can retrieve more fields, array items or long string chunks with `ograf_read_result_page`. Older
+conversation turns remain retrievable when omitted from the active request. Context pressure does
+not reset the conversation or replay an earlier editing operation. Expired result snapshots are
+reported explicitly; refresh current scene data and its revision before making a new change.
+
+Open **File → Preferences → OGraf Studio → AI assistant** to override the model context window or
+set optional conversation and tool-result page budgets in tokens. Leave each checkbox off for
+Automatic. A custom limit cannot enlarge an advertised model capacity, and Studio still reserves
+space for tool definitions and the reply. These user preferences save with the Studio profile,
+not templates, template sets or graphic exports. They affect the built-in assistant; external MCP
+clients manage their own model context. The status panel reports context planning and paging.
+
+The retained conversation and result snapshots belong to the running server session. They are not
+an authoring prompt archive inside `.ogs` documents. Starting another project uses a separate
+conversation; a server restart does not restore previous chat history. Older image pixels have
+separate bounded retention: their text, area instructions and coordinates remain in the conversation,
+and expired image references ask for a fresh capture instead of pretending the pixels are available.
+
+External MCP clients can opt into paging without changing existing read responses:
+
+```json
+{
+  "sourceTool": "ograf_get_project",
+  "input": { "include": ["metadata", "layers"], "tracks": "none" },
+  "maxTokens": 4096
+}
+```
+
+Send that object to `ograf_read_result_page`, then use the returned `resultId` to inspect a path:
+
+```json
+{
+  "resultId": "<returned-result-id>",
+  "path": ["project", "compositions", 0, "layers"],
+  "offset": 0,
+  "limit": 50,
+  "maxTokens": 4096
+}
+```
+
+Object entries and array items may contain a complete value or a path reference. Follow that path
+for the full value. Continue a node with its `nextOffset` while `hasMore` is true; strings use
+explicit chunks and Unicode-safe offsets. `expiresAt` identifies the snapshot lifetime. Snapshots
+are immutable and scoped to their workspace/conversation, and their revision may be older than the
+live project. The reader refuses editing, imports, save/export and certification as source tools;
+reading another page never repeats an operation. Existing source tools keep their default response
+shape, and external client context limits remain controlled by that client.
 
 Use **Capture areas** to reference parts of your graphic without selecting layers. Studio pauses
 playback and freezes the current frame in place on the main canvas. Choose **Rectangle** or
@@ -133,8 +274,9 @@ and those references update immediately as selection changes. Layers may still b
 to add removable references outside the current selection. Explicit chips supply stable IDs, names,
 and element types for prompts such as “change the color to green.”
 
-The in-app model receives a reduced 14-tool authoring surface. Save, export, certification, project
-reset/open, and imports remain explicit Studio UI actions. Visually consequential tool batches still
+The in-app model receives selected canonical authoring tools, including the structured result reader.
+Save, export, certification, standalone project reset/open, and file imports remain explicit Studio
+UI actions. Ask for a proposal to review visually consequential edits. Proposed tool batches
 appear on the **main canvas**, with **Accept changes** and **Reject** in the AI Assistant pane.
 Use the proposal frame controls to inspect the result or **Compare original** to switch views.
 Approval shows one large frame at a time, so the operator can inspect changes clearly.
@@ -162,6 +304,159 @@ MCP uses explicit vector definitions and ordinary create/relink operations for t
 
 See the [shader and pattern authoring reference](../skills/ograf-authoring/references/shaders-and-patterns.md)
 for operation examples, shader animation/data precedence, and the current UI/MCP boundaries.
+
+## Entrance and exit motion through MCP
+
+`set_layer_motion` matches Studio's **Animate In / Out** controls. It bakes Fade, Slide, Fly,
+Focus, Wipe, Scale, Pop, Grow, Spin, or Drop into ordinary timeline keys; it does not add a
+playout-only preset. Choose `side: "in"` or `"out"`, provide a positive `durationFrames` that fits
+between the relevant lifecycle markers, and optionally add direction, distance, easing, or
+`offsetFrames`. Focus requires the target's built-in blur effect, and Grow is not available on text.
+`offsetFrames` ends the motion that many frames early; give each layer of a group a different value
+to stagger it. Set `spec: null` to clear that side and hold the on-air pose.
+
+```json
+{
+  "type": "set_layer_motion",
+  "layerName": "Headline",
+  "side": "in",
+  "spec": {
+    "style": "slide",
+    "direction": "left",
+    "distance": 80,
+    "durationFrames": 12,
+    "easing": "cubic-out"
+  }
+}
+```
+
+See the [motion workflow](../skills/ograf-authoring/references/layer-motion.md) for key replacement
+and lifecycle-window limits.
+
+## Interactive visual rules through MCP
+
+`set_layer_visual_rules` replaces one layer's ordered rules. `trigger: "data"` (or no trigger) needs
+an existing Data field; `hover` (a state), `pointer-enter`, `pointer-leave`, `pointer-down`,
+`pointer-up`, `click`, and `double-click` react to the pointer; `play`, `step`, `stop`, and `custom-action` react to playout. `conditions` adds more
+comparisons (`match: "all" | "any"`), `compareFieldId` compares two fields, and visibility,
+`toggle-visibility`, and property actions accept `targetLayerId` to drive another layer, or
+`targetGroupId` to drive every layer of an editor group.
+
+Timer/counter alarms use `trigger:"timer-alarm"` and
+`timerAlarm:{sourceLayerId,thresholdMs,direction:"up"|"down"}` on the same Rule records. Multiple
+alarms may share a timer. Thresholds are nonnegative milliseconds; the source is a text clock
+layer. Reset/Restart rearm alarms, including externally fed values, without replacing manual
+data. Preserve the other Rules when replacing the array. See the authoring skill's clock/timer
+reference for a five-second/zero example and export checks.
+
+For example, after creating a rectangle named `Tab A` and a panel named `Panel A`, add this operation:
+
+```json
+{
+  "type": "set_layer_visual_rules",
+  "layerName": "Tab A",
+  "rules": [
+    {
+      "id": "tab-a-open",
+      "name": "Open panel A",
+      "enabled": true,
+      "trigger": "click",
+      "actions": [
+        {
+          "type": "visibility",
+          "visible": true,
+          "targetLayerId": "<Panel A id>",
+          "transitionFrames": 8
+        },
+        { "type": "property", "targetProperty": "fill", "value": "#2680ff" }
+      ]
+    }
+  ]
+}
+```
+
+Pointer rules run in an interactive real-time HTML renderer; Studio canvas clicks still select and
+edit objects. Playout triggers, `delayFrames`, and `transitionFrames` replay deterministically in
+non-real-time schedules; pointer input does not, so use an OGraf custom action for a remote or
+deterministic trigger. The authoring skill's
+[rule workflow](../skills/ograf-authoring/references/tool-workflows.md) covers state versus event
+rules, conditions, and action references.
+
+### Rules that command coordinated playout
+
+Read `ograf_get_template_set` and `ograf_get_capabilities sections:["templateSets","bindings"]`
+before adding `type:"playout"` actions. Use existing stable lane (`slotId`) and state (`stateId`)
+IDs from `transitionLogic`; the editor labels them Lane and Template under **Then → Playout**.
+Keep transition definitions in **Transitions** or `set_transition_logic`. Rule commands go through
+the same planner, so timing, make-room phases, dependent-slot Out/Clear and incoming-state
+`takeOutSlotIds` takeover behavior apply. Takeover prepares the incoming state, waits for selected
+lanes to finish their authored Out, and leaves them Off when the incoming state later goes out.
+Reciprocal policies are valid: a normal state's `takeOutSlotIds:["breaking"]` can complement
+Breaking taking the normal lanes out. Requests prepare before canceling the opposite lane's entry;
+failed preparation preserves output, stale readiness cannot reactivate canceled states, and no Out
+automatically restores replaced content. Self references and dependency ancestors remain invalid.
+
+**Take conditions and named-state presets require Transition Logic v4.** Optional
+`slot.admission.requireOnSlotIds` requires settled On lanes; `blockWhileActiveSlotIds` rejects Take
+while a conflicting lane prepares, enters, remains On or leaves. Rejection changes no occupancy,
+is not queued and never activates a parent automatically. Out/Clear remain available. These
+conditions are separate from `parentSlotId` (**Take out with**). For Source/second-line lanes, an
+explicit requirement for Headline On and a blocker for Breaking prevents orphan or hidden active
+graphics while preserving the normal shared layout behavior.
+
+`state.dataDefaults` supplies editorial presets for states sharing one template. Template defaults
+are followed by the state preset, retained state edits and explicit request data. Omit Take data
+when preset/retained values should apply. A state name alone does not set its text/style. Studio's
+lane map exposes **Take conditions** and **Template presets**; playback remains in Preview & Export.
+Export validates preset fields and packages their image resources. Definitions v1–v3 remain
+readable without these features; compatible archive storage does not make v4 features readable by
+older runtimes. Discover `templateSets.transitionLogic` capabilities before authoring them.
+
+**Incoming/outgoing content animations require Transition Logic v5.** Optional recipe
+`incomingAnimation` / `outgoingAnimation` select `{type:"template"}`, a built-in
+`{type:"builtin",motion:{style,direction?,distance?,easing?}}`, or a data-only
+`{type:"plugin",reference:{id,version,sha256},presetId,parameters?}`. Pin inspected pack snapshots
+once in `definition.animationPresetPlugins`. Preserve omitted sides for legacy transition-style
+behavior. Duration comes from the recipe phase fields, not the choice. Overrides animate whole
+non-shared content, keep shared objects morphing, and never rewrite template layer tracks or
+replay entrance motion on same-instance data changes. Native/plugin motion replaces that side's
+authored layer entrance/exit, avoiding double motion. Export bakes normal tracks and needs no
+installed animation pack. Read the authoring skill's set reference for validation and compatibility.
+
+Multiple `layoutRules` may add offsets to the same shared property. Baseline/state pose is sampled
+first, then every observed lane contributes its timed numeric delta. Replacements retain occupancy;
+preparation alone contributes zero. Keep each property's owner in one lane and avoid duplicate
+property entries inside a rule. Validate the complete combined negative and positive bounds against
+all baseline/state dimensions; separate reservations can be safe alone and invalid together.
+
+```json
+[
+  { "type": "playout", "operation": "take", "slotId": "ticker", "stateId": "ticker" },
+  {
+    "type": "playout",
+    "operation": "update",
+    "slotId": "lower-third",
+    "data": { "headline": "Updated headline" }
+  },
+  { "type": "playout", "operation": "out", "slotId": "ticker" },
+  { "type": "playout", "operation": "clear", "slotId": "lower-third" }
+]
+```
+
+These are alternative action examples, not a sequence to paste into one rule. Take requires a
+state in the chosen lane. Update addresses only the on-air state; optional `stateId` is a guard
+and never takes a different state. Take without `data` keeps target retained/default values;
+Update without `data` forwards the rule's effective source-template data to known target field
+keys. Explicit `data:{}` adds no patch; literal data merges with retained target values. Data must
+be a JSON object of at most 64 KiB, 4096 values and 16 nested levels. Out/Clear require a lane and
+accept neither state nor data. Out animates dependent lanes; Clear removes them immediately.
+
+Enabled playout rules require coordinated set output; standalone composition export reports the
+requirement. Coordinated Rules support data/change, pointer and once-per-entry hover, `play`,
+first-step `step`, and `stop` triggers; event command delays are supported. Custom-action triggers,
+shader/media/custom/set-data side effects, animated persistent rule properties and later-step
+behavior remain unsupported in coordinated output. Pointer input is real-time only. Validate
+set references before preview/export; composition-only validation cannot resolve the graph.
 
 ## Claude Desktop configuration on Windows
 

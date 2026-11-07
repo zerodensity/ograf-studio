@@ -13,6 +13,7 @@ import { useTimelineStore } from '../state/timelineStore';
 import { importPatternSvg, patternSymbolFromLayer } from '../state/patternSymbols';
 import { PatternPreview } from './PatternPreview';
 import { TilingPatternAdvancedEditor } from './TilingPatternAdvancedEditor';
+import { FrameDurationControl } from './FrameDurationControl';
 import './TilingPatternEditor.css';
 
 function SymbolPreview({ symbol }: { symbol: PatternSymbol }) {
@@ -424,16 +425,14 @@ export function TilingPatternEditor({
               <option value="left">Left</option>
             </select>
           </label>
-          <NumberControl
-            label="Loop duration (s)"
-            value={pattern.cycleFrames / frameRate}
-            min={1 / frameRate}
-            max={1000000 / frameRate}
-            step={0.1}
+          <FrameDurationControl
+            label="Loop duration"
+            frames={pattern.cycleFrames}
+            frameRate={frameRate}
+            minFrames={1}
+            maxFrames={1000000}
             disabled={!animated}
-            onChange={(seconds) =>
-              update({ cycleFrames: Math.max(1, Math.round(seconds * frameRate)) })
-            }
+            onChange={(cycleFrames) => update({ cycleFrames })}
           />
         </div>
         <p className="pattern-editor-hint">

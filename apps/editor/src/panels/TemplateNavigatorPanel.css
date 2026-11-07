@@ -1,0 +1,303 @@
+.template-navigator-panel {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  color: var(--text-primary);
+  background: var(--bg-panel, #202020);
+}
+
+.template-navigator-header {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border);
+}
+
+.template-navigator-header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.template-navigator-header > .template-navigator-actions {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.template-navigator-header strong {
+  overflow: hidden;
+  color: var(--text-heading);
+  font-size: var(--ui-font-size-compact);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-navigator-header span,
+.template-navigator-footer {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.template-navigator-header button {
+  width: 27px;
+  height: 27px;
+  flex: 0 0 auto;
+  color: var(--text-heading);
+  background: var(--bg-control, #303030);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.template-navigator-header button:hover:not(:disabled) {
+  background: var(--bg-hover, #3a3a3a);
+}
+
+.template-navigator-header button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.template-navigator-list {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 11px;
+  overflow: auto;
+  padding: 12px 9px;
+}
+
+.template-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  flex: 0 0 auto;
+}
+
+.template-card:hover {
+  background: rgb(255 255 255 / 4%);
+}
+
+.template-card.is-dragging {
+  opacity: 0.45;
+}
+
+.template-card.drop-before::before,
+.template-card.drop-after::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 3px;
+  content: '';
+  background: var(--accent, #69a9ff);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.template-card.drop-before::before {
+  top: -7px;
+}
+
+.template-card.drop-after::after {
+  bottom: -7px;
+}
+
+.template-card.is-active {
+  background: color-mix(in srgb, var(--accent, #69a9ff) 11%, transparent);
+  border-color: var(--accent, #69a9ff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #69a9ff) 20%, transparent);
+}
+
+.template-card-select {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.template-card-main {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.template-card-remove {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  margin-top: 4px;
+  cursor: pointer;
+}
+.template-card-remove svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.template-card-order .template-card-remove:hover:not(:disabled) {
+  color: #ff8b8b;
+}
+.template-card-remove:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.template-card-name-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.template-card-name-editor input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 5px;
+  color: var(--text-heading);
+  background: var(--bg-panel, #202020);
+  border: 1px solid var(--accent, #69a9ff);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--ui-font-size-compact);
+}
+
+.template-card-name-error {
+  color: #ff9999;
+  font-size: 11px;
+}
+
+.template-card-select:active {
+  cursor: grabbing;
+}
+
+.template-card-preview {
+  position: relative;
+  display: grid;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  place-items: center;
+  overflow: hidden;
+  background: #151515;
+  border: 1px solid rgb(255 255 255 / 13%);
+  border-radius: 3px;
+}
+
+.template-card-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.template-card-preview-empty {
+  color: rgb(255 255 255 / 24%);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.template-card-number {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0 4px;
+  color: #fff;
+  background: rgb(0 0 0 / 72%);
+  border-radius: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.template-card-caption {
+  width: 100%;
+  overflow: hidden;
+  color: var(--text-heading);
+  font-size: var(--ui-font-size-compact);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-card-order {
+  display: flex;
+  flex: 0 0 24px;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 2px;
+}
+
+.template-card-order button {
+  width: 23px;
+  height: 23px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.template-card-order button:hover:not(:disabled) {
+  color: var(--text-heading);
+  background: var(--bg-hover, rgb(255 255 255 / 8%));
+}
+
+.template-card-order button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.template-navigator-footer {
+  min-height: 30px;
+  padding: 7px 9px;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-navigator-empty {
+  justify-content: center;
+  padding: 18px;
+  color: var(--text-dim);
+  font-size: var(--ui-font-size-compact);
+  text-align: center;
+}
+.template-navigator-empty-set {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+.template-navigator-footer button {
+  margin-left: 8px;
+}

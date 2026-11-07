@@ -22,6 +22,8 @@ import {
   shaderPaintWithPatch,
   shaderResourceKey,
   shaderResourcePatchBetween,
+  shaderResourceIsEffectOnly,
+  shaderResourcePreviewPaint,
   type ShaderResourceTarget,
   type ShaderUsageTarget,
 } from './shaderResources';
@@ -43,6 +45,13 @@ const float removed = 0.2;
 #pragma ograf tint color
 vec3 tint = vec3(0.1,0.2,0.3);
 void mainImage(out vec4 c, in vec2 p) { c = vec4(tint * gain + removed, 1.0); }`;
+
+const effectSource = `#pragma ograf amount slider min(0) max(1)
+const float amount = 0.5;
+void mainImage(out vec4 c, in vec2 p) {
+  vec4 inputColor = texture(iChannel0, p / iResolution.xy);
+  c = vec4(mix(inputColor.rgb, 1.0 - inputColor.rgb, amount), inputColor.a);
+}`;
 
 function fixture() {
   const project = createProject();
@@ -74,6 +83,94 @@ function fixture() {
 }
 
 describe('project shader resources', () => {
+  it('derives effect-only resource capabilities without inventing a persisted paint kind', () => {
+    const effect = createShaderPaint({ fragmentSource: effectSource });
+    expect(shaderResourceIsEffectOnly(effect)).toBe(true);
+    expect(shaderResourceIsEffectOnly(createShaderPaint())).toBe(false);
+    expect(shaderResourceIsEffectOnly({ ...effect, speed: 99 })).toBe(false);
+    expect(
+      shaderResourceIsEffectOnly({
+        ...effect,
+        inputImage: {
+          source: 'data:image/png;base64,iVBORw0KGgo=',
+          wrap: 'repeat',
+          filter: 'nearest',
+        },
+      }),
+    ).toBe(false);
+    const project = createProject();
+    project.shaders = [{ id: 'effect-resource', paint: effect }];
+    expect(collectStoredShaderResources(project)[0]?.usageLabel).toBe('Effect shader');
+    expect(effect).not.toHaveProperty('inputImage');
+    expect(effect).not.toHaveProperty('kind');
+  });
+
+  it('previews effect-only resources against an isolated temporary checkerboard', () => {
+    const effect = createShaderPaint({
+      name: 'Invert',
+      fragmentSource: effectSource,
+      parameters: { amount: 0.75 },
+      packProvenance: {
+        reference: {
+          id: 'test.shader-pack',
+          version: '1.0.0',
+          sha256: 'a'.repeat(64),
+        },
+        presetId: 'invert',
+        packName: 'Test effects',
+        license: 'CC0-1.0',
+        licenseText: 'CC0 1.0 Universal',
+      },
+    });
+    const before = JSON.stringify(effect);
+    const preview = shaderResourcePreviewPaint(effect);
+    expect(preview).not.toBe(effect);
+    expect(preview).toMatchObject({
+      fragmentSource: effectSource,
+      parameters: { amount: 0.75 },
+      inputImage: {
+        name: 'Preview checkerboard — not applied',
+        wrap: 'repeat',
+        filter: 'nearest',
+      },
+      packProvenance: effect.packProvenance,
+    });
+    expect(preview.packProvenance).not.toBe(effect.packProvenance);
+    preview.parameters.amount = 0.2;
+    expect(JSON.stringify(effect)).toBe(before);
+    const standalone = createShaderPaint();
+    expect(shaderResourcePreviewPaint(standalone)).toBe(standalone);
+    const ownInput = { ...effect, inputImage: preview.inputImage };
+    expect(shaderResourcePreviewPaint(ownInput)).toBe(ownInput);
+  });
+
+  it('allows library edits of effect-only sources without leaking the preview input into saved data', () => {
+    const initial = createShaderPaint();
+    const effect = shaderPaintWithPatch(
+      initial,
+      { fragmentSource: effectSource },
+      { libraryResource: true },
+    );
+    expect(effect.fragmentSource).toBe(effectSource);
+    expect(effect).not.toHaveProperty('inputImage');
+    const changed = shaderPaintWithPatch(
+      effect,
+      { name: '  Invert  ', parameters: { amount: 0.8 } },
+      { libraryResource: true },
+    );
+    expect(changed).toMatchObject({ name: 'Invert', parameters: { amount: 0.8 } });
+    expect(shaderResourcePatchBetween(effect, changed)).toEqual({
+      name: 'Invert',
+      parameters: { amount: 0.8 },
+    });
+    expect(() => shaderPaintWithPatch(effect, {})).toThrow(/no input image/);
+    expect(() => shaderPaintWithPatch(effect, { speed: 99 }, { libraryResource: true })).toThrow(
+      /speed/,
+    );
+    expect(() =>
+      shaderPaintWithPatch(effect, { fragmentSource: 'invalid' }, { libraryResource: true }),
+    ).toThrow(/mainImage/);
+  });
   it('normalizes custom names, preserves them through save/load, and keeps usage and field names independent', () => {
     useProjectStore.getState().loadProject(fixture());
     const target = inlineShaderResources(useProjectStore.getState().project)[0]!;

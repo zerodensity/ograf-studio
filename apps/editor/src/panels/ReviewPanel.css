@@ -1,0 +1,67 @@
+.review-panel {
+  padding: 10px;
+  overflow: auto;
+}
+.review-panel h3 {
+  margin: 18px 0 8px;
+}
+.review-panel p {
+  color: #aaa;
+}
+.review-panel textarea {
+  width: 100%;
+  min-height: 60px;
+  box-sizing: border-box;
+}
+.review-row {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+.review-row input,
+.review-row select {
+  flex: 1;
+  min-width: 0;
+}
+.review-comments {
+  padding: 0;
+  list-style: none;
+}
+.review-comments li {
+  padding: 8px;
+  margin: 6px 0;
+  background: #202429;
+  border-left: 2px solid #44a7d6;
+}
+.review-comments li.resolved {
+  opacity: 0.6;
+}
+.review-comments li.selected {
+  border-color: #ffbf4a;
+}
+.review-comments p {
+  white-space: pre-wrap;
+}
+.review-comparison {
+  margin: 12px 0;
+}
+.review-comparison-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.review-image {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+.review-image img {
+  display: block;
+  width: 100%;
+}
+.review-changed-outline {
+  position: absolute;
+  border: 2px solid #ffbf4a;
+  box-sizing: border-box;
+  pointer-events: none;
+}

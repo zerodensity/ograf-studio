@@ -1,0 +1,85 @@
+.easing-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 5px;
+  color: var(--text);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.easing-picker-trigger span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  text-align: left;
+}
+.easing-picker-trigger svg,
+.easing-picker-feels svg {
+  width: 32px;
+  height: 22px;
+  flex: none;
+}
+.easing-picker-trigger path,
+.easing-picker-feels path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.easing-picker-popover {
+  position: fixed;
+  z-index: 11000;
+  width: 292px;
+  max-height: min(470px, calc(100vh - 16px));
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-header);
+  color: var(--text);
+  box-shadow: 0 6px 20px #0009;
+}
+.easing-picker-direction,
+.easing-picker-feels {
+  display: grid;
+  gap: 4px;
+}
+.easing-picker-direction {
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 7px;
+}
+.easing-picker-feels {
+  grid-template-columns: repeat(3, 1fr);
+}
+.easing-picker-popover button,
+.easing-picker-popover select {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-panel-raised);
+  color: var(--text);
+  padding: 4px;
+  cursor: pointer;
+}
+.easing-picker-popover button[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+.easing-picker-feels button {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-direction: column;
+  font-size: 10px;
+}
+.easing-picker-more {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  text-align: left;
+}
+.easing-picker-popover select {
+  width: 100%;
+  margin-top: 4px;
+}

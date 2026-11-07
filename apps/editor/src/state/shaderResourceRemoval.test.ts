@@ -34,7 +34,13 @@ function fixture(kind: NewLayerKind = 'text') {
   const project = createProject();
   const composition = project.compositions[0]!;
   const layer = createLayerOfKind(kind);
-  if (layer.element.type === 'shader') throw new Error('Expected canonical object.');
+  if (
+    layer.element.type === 'shader' ||
+    layer.element.type === 'audio' ||
+    layer.element.type === 'chart' ||
+    layer.element.type === 'ticker'
+  )
+    throw new Error('Expected canonical paintable object.');
   layer.element.fill = createShaderPaint({ name: 'Shared name' });
   if (layer.element.type === 'text') {
     layer.element.content = 'Keep editable text';
@@ -91,7 +97,7 @@ describe('shader resource removal', () => {
         expected.type === 'pattern'
       )
         expected.fill = '#3b3f4a';
-      else if (expected.type !== 'shader') delete expected.fill;
+      else if (expected.type !== 'shader' && 'fill' in expected) delete expected.fill;
       expect(layer.element).toEqual(expected);
       expect(layer.id).toBe(before.id);
       expect(layer.keyframes).toEqual(before.keyframes);

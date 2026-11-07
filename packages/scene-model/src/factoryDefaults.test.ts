@@ -30,6 +30,7 @@ describe('authoring factory defaults', () => {
       'path',
       'image-sequence',
       'lottie',
+      'audio',
     ] as const) {
       for (const role of ['start', 'step', 'end'] as const) {
         expect(defaultTransformForRole(kind, role).opacity).toBe(1);
@@ -41,11 +42,12 @@ describe('authoring factory defaults', () => {
     expect(defaultTransformFor('rectangle')).toMatchObject({ width: 200, height: 200 });
     expect(defaultTransformFor('ellipse')).toMatchObject({ width: 200, height: 200 });
     expect(defaultTransformFor('image')).toMatchObject({ width: 400, height: 120 });
+    expect(defaultTransformFor('audio')).toMatchObject({ width: 400, height: 120 });
   });
 
-  it('starts new compositions on black with the 20% gray outside-canvas fill enabled', () => {
+  it('starts new compositions transparent, for overlays, with the 20% gray outside-canvas fill', () => {
     const composition = createComposition();
-    expect(composition.backgroundColor).toBe('#000000');
+    expect(composition.backgroundColor).toBe('transparent');
     expect(composition.layout.dimOutsideCanvas).toBe(true);
     expect(composition.layout.presentationBackground).toBe('none');
     expect(composition.layout.presentationBackgroundImageSource).toBe('');

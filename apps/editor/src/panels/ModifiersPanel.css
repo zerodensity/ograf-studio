@@ -1,0 +1,268 @@
+.modifiers-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  font-size: var(--ui-font-size-compact);
+}
+.modifier-owner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-left: 2px solid var(--accent);
+  padding: 3px 5px;
+}
+.modifier-owner span {
+  color: var(--text-dim);
+}
+.modifier-owner strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.modifier-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px;
+}
+.modifier-toolbar > input {
+  flex: 1 1 100px;
+  min-width: 70px;
+}
+.modifier-starters {
+  display: grid;
+  gap: 6px;
+}
+.modifier-starter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 5px;
+}
+.modifier-starter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  padding: 7px;
+  text-align: left;
+  white-space: normal;
+  font: inherit;
+}
+.modifier-starter span {
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+.modifier-starter[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-panel));
+}
+.modifier-starter-setup {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+}
+.modifier-add {
+  position: relative;
+}
+.modifier-add-body {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  width: min(300px, 70vw);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 5px 15px #0008;
+}
+.modifier-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.modifier-card {
+  border: 1px solid var(--border);
+}
+.modifier-card > summary {
+  min-height: 23px;
+  padding: 2px 4px;
+  gap: 3px;
+}
+.modifier-card .collapsible-section-content {
+  padding: 3px 4px;
+}
+.modifier-card.is-bypassed > summary {
+  color: var(--text-dim);
+}
+.modifier-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+.modifier-card-actions button {
+  min-width: 20px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+}
+.modifier-row {
+  display: grid;
+  grid-template-columns: minmax(76px, 30%) minmax(0, 1fr);
+  align-items: center;
+  min-height: 24px;
+  gap: 5px;
+  border-bottom: 1px solid var(--border);
+}
+.modifier-row > div {
+  min-width: 0;
+}
+.modifier-row-label {
+  overflow-wrap: anywhere;
+  padding: 2px 0;
+}
+.modifier-row input:not([type='checkbox']),
+.modifier-row select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  padding: 1px 4px;
+  font: inherit;
+}
+.modifier-number-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.modifier-number-control > input {
+  flex: 1;
+}
+.modifier-number-control > button {
+  flex: 0 0 21px;
+  padding: 0;
+  height: 21px;
+}
+.modifier-number-control > button.is-linked {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.modifier-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 9px;
+}
+.modifier-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.modifier-check input {
+  margin: 0;
+}
+.modifier-muted,
+.modifier-empty,
+.modifier-driven {
+  color: var(--text-dim);
+  line-height: 1.4;
+  margin: 3px 0;
+}
+.modifier-driven {
+  padding: 3px 4px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.modifier-error,
+.modifier-warning {
+  margin: 2px 0;
+  padding: 5px;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  color: #ffad87;
+  background: #663b2028;
+  border: 1px solid #815c3d;
+}
+.modifier-advanced {
+  margin-top: 3px;
+}
+.modifier-advanced > summary {
+  cursor: pointer;
+  min-height: 23px;
+  display: list-item;
+  padding: 3px 0;
+  color: var(--text-dim);
+}
+.modifier-picker {
+  position: relative;
+  min-width: 0;
+}
+.modifier-picker-selected {
+  display: flex;
+  width: 100%;
+  gap: 5px;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  font: inherit;
+  padding: 3px 4px;
+}
+.modifier-picker-selected > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.modifier-picker-popover {
+  position: absolute;
+  z-index: 12;
+  top: 100%;
+  right: 0;
+  min-width: 100%;
+  width: min(330px, 72vw);
+  padding: 4px;
+  box-sizing: border-box;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  box-shadow: 0 4px 12px #0008;
+}
+.modifier-picker-popover > input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 23px;
+  font: inherit;
+}
+.modifier-picker-options {
+  max-height: 230px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.modifier-picker-options > button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  width: 100%;
+  min-height: 25px;
+  padding: 4px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  font: inherit;
+}
+.modifier-picker-options > button[aria-selected='true'] {
+  color: var(--accent);
+}
+.modifier-picker-options small {
+  color: var(--text-dim);
+}

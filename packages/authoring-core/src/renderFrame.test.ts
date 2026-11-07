@@ -70,6 +70,37 @@ describe('renderCompositionFrameSvg', () => {
     expect(svg).toContain('paint-order="stroke fill"');
   });
 
+  it('renders the deterministic typewriter prefix for the requested frame', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw new Error('Expected a text layer.');
+    layer.element.content = 'ABCD';
+    layer.element.textAnimation = {
+      ...layer.element.textAnimation,
+      type: 'typewriter',
+      durationFrames: 10,
+      cursor: 'none',
+    };
+    layer.keyframes = [
+      createLayerKeyframe(0, {
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 80,
+        rotation: 0,
+        opacity: 1,
+        transformOriginX: 0.5,
+        transformOriginY: 0.5,
+      }),
+    ];
+    composition.layers.push(layer);
+
+    const { svg } = renderCompositionFrameSvg(project, composition.id, 5);
+    expect(svg).toContain('AB');
+    expect(svg).not.toContain('ABCD');
+  });
+
   it('samples image sequences from the composition clock and clamps the frame range', () => {
     const project = createProject();
     const composition = project.compositions[0]!;

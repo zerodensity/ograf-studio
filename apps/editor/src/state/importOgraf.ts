@@ -10,8 +10,10 @@ import {
   createTransition,
   defaultValueForFieldType,
   getResolvedLayerAnimationTracks,
+  isMediaPaint,
   isProjectSourcePath,
   migrateProject,
+  validateRendererPluginSnapshot,
   PROJECT_DOCUMENT_VERSION,
   type Element,
   type FieldDefinition,
@@ -23,6 +25,7 @@ import {
 } from '@ograf-editor/scene-model';
 import type { CompiledGraphicDescriptor, OGrafManifest } from '@ograf-editor/ograf-types';
 import { validateManifest, validateProject } from '@ograf-editor/validation';
+import { restoreFieldExposureDefinition } from './fieldExposure';
 
 const MAX_PACKAGE_BYTES = 128 * 1024 * 1024;
 const UTF8 = new TextDecoder();
@@ -36,6 +39,7 @@ const SUPPORTED_ELEMENTS = new Set<Element['type']>([
   'lottie',
   'pattern',
   'shader',
+  'chart',
 ]);
 
 type UnknownRecord = Record<string, unknown>;
@@ -122,6 +126,10 @@ function mimeTypeForPath(path: string): string {
       return 'image/webp';
     case 'svg':
       return 'image/svg+xml';
+    case 'mp4':
+      return 'video/mp4';
+    case 'webm':
+      return 'video/webm';
     default:
       return 'application/octet-stream';
   }
@@ -709,14 +717,19 @@ function makeAssetResolver(
       return source;
     }
     const mimeType = mimeTypeForPath(path);
-    if (!mimeType.startsWith('image/')) {
+    if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) {
       warnings.push(
         `Resource "${path}" is not a supported editor image asset and was left unchanged.`,
       );
       return source;
     }
     const dataUri = `data:${mimeType};base64,${bytesToBase64(bytes)}`;
-    const asset = createAsset({ name: fileNameFromPath(path), dataUri, mimeType });
+    const asset = createAsset({
+      name: fileNameFromPath(path),
+      dataUri,
+      mimeType,
+      kind: mimeType.startsWith('video/') ? 'media' : 'image',
+    });
     assets.push(asset);
     const reference = `asset:${asset.id}`;
     referenceBySource.set(source, reference);
@@ -740,6 +753,26 @@ function projectFromDescriptor(
   const fieldByKey = new Map(dataFields.map((field) => [field.key, field]));
   const layers: Layer[] = [];
   const mainDirectory = dirname(mainPath);
+  const rendererPlugins = (descriptor.rendererPlugins ?? []).map((compiled) => {
+    const { moduleUrl, ...snapshot } = compiled;
+    const errors = validateRendererPluginSnapshot(snapshot);
+    if (errors.length) throw new Error(`Cannot import renderer plugin: ${errors.join(' ')}`);
+    if (moduleUrl) {
+      const sourcePath = resolvePackagePath(mainDirectory, moduleUrl);
+      const sourceBytes = sourcePath ? entries.get(sourcePath) : undefined;
+      if (sourceBytes && decodeText(sourceBytes) !== snapshot.source)
+        throw new Error(
+          `Renderer plugin ${snapshot.manifest.id} package source differs from its pinned snapshot.`,
+        );
+      const licensePath = sourcePath ? `${dirname(sourcePath)}/LICENSE.txt` : undefined;
+      const licenseBytes = licensePath ? entries.get(licensePath) : undefined;
+      if (licenseBytes && decodeText(licenseBytes) !== snapshot.licenseText)
+        throw new Error(
+          `Renderer plugin ${snapshot.manifest.id} package license differs from its pinned snapshot.`,
+        );
+    }
+    return clone(snapshot);
+  });
   const manifestDirectory = dirname(manifestPath);
   const ordinaryById = new Map(descriptor.layers.map((layer) => [layer.id, layer]));
   const collectionsById = new Map(
@@ -788,6 +821,28 @@ function projectFromDescriptor(
       element.src = resolveAsset(element.src, mainDirectory);
     if (element.type === 'image-sequence') {
       element.frames = element.frames.map((frame) => resolveAsset(frame, mainDirectory));
+    }
+    if ('fill' in element && isMediaPaint(element.fill)) {
+      element.fill =
+        element.fill.source.kind === 'clip'
+          ? {
+              ...element.fill,
+              source: {
+                ...element.fill.source,
+                src: resolveAsset(element.fill.source.src, mainDirectory),
+              },
+            }
+          : {
+              ...element.fill,
+              source: {
+                ...element.fill.source,
+                ...(element.fill.source.fallback
+                  ? {
+                      fallback: resolveAsset(element.fill.source.fallback, mainDirectory),
+                    }
+                  : {}),
+              },
+            };
     }
     const layer = createLayerOfKind(element.type);
     layer.id = compiled.id;
@@ -892,6 +947,7 @@ function projectFromDescriptor(
     transitions: lifecycle.transitions,
     dataFields,
     runtimeCollections,
+    rendererPlugins,
     patterns: [
       ...new Map([
         ...compiledEntries.flatMap(({ compiled }) =>
@@ -954,6 +1010,24 @@ async function importEntries(entries: Map<string, Uint8Array>): Promise<OgrafImp
   const warnings: string[] = [];
   addManifestValidationWarnings(manifest, warnings);
 
+  const manifestDirectory = dirname(manifestPath);
+  let mainPath = '';
+  try {
+    mainPath = resolvePackagePath(manifestDirectory, manifest.main) ?? '';
+  } catch {
+    warnings.push(`Manifest main path "${manifest.main}" is unsafe.`);
+  }
+  const mainBytes = mainPath ? entries.get(mainPath) : undefined;
+  const mainSource = mainBytes ? decodeText(mainBytes) : '';
+  if (
+    Object.prototype.hasOwnProperty.call(manifest, 'v_ografTransitionLogic') ||
+    /\b(?:const|let|var)\s+exportedTransitionDescriptor\s*=/.test(mainSource)
+  ) {
+    throw new Error(
+      'This is a coordinated playout runtime package. Use File → Open… to open the original .ogs document for editing. Import OGraf cannot recover its complete template set, shared scene, and routes from the runtime package.',
+    );
+  }
+
   const embedded = importEmbeddedProject(entries);
   if (embedded) {
     warnings.push(
@@ -968,21 +1042,22 @@ async function importEntries(entries: Map<string, Uint8Array>): Promise<OgrafImp
   }
 
   const dataFields = fieldsFromManifest(manifest, warnings);
-  const manifestDirectory = dirname(manifestPath);
-  let mainPath = '';
-  try {
-    mainPath = resolvePackagePath(manifestDirectory, manifest.main) ?? '';
-  } catch {
-    warnings.push(`Manifest main path "${manifest.main}" is unsafe.`);
-  }
-  const mainBytes = mainPath ? entries.get(mainPath) : undefined;
   if (!mainBytes) {
     warnings.push(
       `The manifest entry module "${manifest.main}" was not selected; only manifest metadata was imported.`,
     );
   }
-  const descriptor = mainBytes ? extractCompiledDescriptor(decodeText(mainBytes), warnings) : null;
+  const descriptor = mainBytes ? extractCompiledDescriptor(mainSource, warnings) : null;
   if (descriptor) {
+    if (descriptor.dataExposure && Array.isArray(descriptor.sourceDataFields)) {
+      for (const source of descriptor.sourceDataFields) {
+        if (!Object.hasOwn(descriptor.dataExposure, source.key)) continue;
+        const index = dataFields.findIndex((field) => field.key === source.key);
+        const recovered = restoreFieldExposureDefinition(source, dataFields[index]);
+        if (index < 0) dataFields.push(recovered);
+        else dataFields[index] = recovered;
+      }
+    }
     const project = projectFromDescriptor(
       manifest,
       descriptor,

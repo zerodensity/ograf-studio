@@ -7,6 +7,10 @@
   outline: 1px solid var(--accent);
 }
 
+.layer-node.inline-text-editing {
+  outline: 1px solid var(--accent);
+}
+
 .layer-node.guide {
   outline: 1px dashed #ffb020;
 }
@@ -20,6 +24,28 @@
   outline-color: #ffb74d;
 }
 
+.layer-content-host :is([data-inline-text-editor='true']) {
+  cursor: text;
+  outline: 1px solid var(--accent);
+  caret-color: auto;
+  caret-shape: bar;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.layer-inline-text-badge {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  z-index: 5;
+  padding: 2px 5px;
+  background: var(--accent);
+  color: #071018;
+  font: 11px/1.25 sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /*
  * Container the shared runtime renderer (`renderElementContent`) draws into. React deliberately
  * never renders children here — the runtime owns this subtree — so the two can't fight over it.
@@ -29,6 +55,17 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+/* Studio chrome fixes all #root descendants to the compact UI font. Animated and rich text
+ * introduce nested spans, so restore authored typography inside those renderer-owned flows.
+ * Inline mixed-run font overrides still win over these inherited values. */
+#root .layer-content-host [data-ograf-text-flow],
+#root .layer-content-host [data-ograf-text-flow] *,
+#root .layer-content-host [data-ograf-rich-text-flow],
+#root .layer-content-host [data-ograf-rich-text-flow] * {
+  font-family: inherit;
+  font-size: inherit;
 }
 
 /* Editor-only affordance for elements with nothing to draw yet — never part of broadcast output. */
@@ -43,4 +80,25 @@
   font-size: 12px;
   pointer-events: none;
   user-select: none;
+}
+.layer-node.cropped.selected {
+  outline: none;
+}
+.layer-shader-paused {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  padding: 4px 6px;
+  background: #4a2c18;
+  color: #ffe6c7;
+  font: 12px sans-serif;
+  pointer-events: auto;
+}
+.layer-shader-paused button {
+  margin-left: 6px;
+}
+.layer-node.test-data-overflow {
+  outline: 3px solid #fa4855;
+  outline-offset: 2px;
 }

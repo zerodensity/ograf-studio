@@ -1,0 +1,29 @@
+.ticker-pending-updates {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.ticker-pending-updates > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ticker-pending-updates > div > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticker-pending-updates > div > span:last-child {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.ticker-pending-updates > .ticker-pending-error > span:last-child {
+  color: #ffb86b;
+}

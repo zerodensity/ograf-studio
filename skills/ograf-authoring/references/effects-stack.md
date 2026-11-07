@@ -1,13 +1,13 @@
 # Composable effects stack
 
 Properties → Effects stack is an ordered filter chain. Types: blur, drop-shadow, glow,
-brightness, contrast, saturate, hue-rotate, shader. Each layer supports 16 entries, including the two
+brightness, contrast, saturate, hue-rotate, shader, backdrop-blur. Each layer supports 16 entries, including the two
 compatibility slots for older blur/shadow controls. Duplicate types are supported. The stack
 stays inside one layer; avoid duplicate geometry just to combine shadows or glows.
 
 New effects start bypassed. Choose Normal, Screen, Add, Multiply, Overlay, Darken or Lighten to
 activate one; MCP `blendMode` also enables unless `enabled:false` is explicit. `blendOpacity`
-(0..1) mixes its result with the input. Glow/shadow modes blend their generated contribution;
+(0..1) mixes foreground effects with their input. Glow/shadow modes blend their generated contribution;
 adjustments blend the processed image. Existing entries without blend settings keep Normal/100%.
 Blend settings are static; effect parameter keyframes remain independent. Bypass preserves all
 settings and keys. All bypassed produces no extra filter graph.
@@ -51,6 +51,36 @@ use multipliers 0–4 (1 is unchanged), and hue uses degrees. Effect colors use 
 Numeric eased overshoot is clamped to the supported range. Glow adds an outer colored halo to
 the preceding result. A subsequent blur or color adjustment processes that halo too; order matters.
 
+## Backdrop blur
+
+Use `backdrop-blur` on rectangles or ellipses to soften earlier layers inside the same composition,
+clipped to the object's geometry. Set shape `fill:"transparent"` through `update_element` for the
+UI's None fill, or use gradient stop `opacity` (0..1) for glass tint. The editor displays stop alpha
+as 0–100%; Fade to transparent makes a two-stop fade from the first stop's color/alpha to opacity 0.
+
+Backdrop supports Normal blending only. Radius is 0–128 px; `blendOpacity` scales that radius,
+so 0 gives no blur and 1 uses the full authored radius. Animate the returned `effects.ID.radius`
+path. Shader fills are supported, but active backdrop blur and an active shader effect cannot
+share one layer. A backdrop-blurred layer cannot supply an alpha mask; geometric path masks remain
+supported. External video and the editor checkerboard are outside the composition's backdrop.
+
+```json
+{
+  "type": "add_effect",
+  "layerName": "Glass panel",
+  "effectType": "backdrop-blur",
+  "patch": {
+    "blendMode": "normal",
+    "blendOpacity": 1,
+    "params": { "radius": 12 }
+  }
+}
+```
+
+Pure SVG diagnostic previews omit backdrop blur. Inspect the actual Studio or exported browser
+viewport; PNG capture through serialized SVG foreignObject has not established backdrop-filter
+parity. Preserve the browser certification gate for final output.
+
 ## Shader effect
 
 `add_effect` with `effectType:"shader"` creates a bypassed identity post-process shader. Enable a
@@ -60,8 +90,15 @@ source for later effects. `iResolution` and `iChannelResolution[0]` describe the
 buffer. The pass is WebGL 2 and uses absolute OGraf time. A separate `inputImage` is rejected because
 the stack owns `iChannel0`; additional texture channels, feedback, video and audio remain unsupported.
 
-The editor disclosure exposes source loading, render scale and pragma controls. Shader-effect source
-and static control edits are stored with the effect; declared controls are not yet effect-track or
+For Normal blending on still artwork, generative shaders without layer-input references are
+composited over the incoming image, preserving its coverage. A transparent overlay such as Light
+Leaks therefore keeps the picture visible at 100%; opacity scales the overlay's contribution.
+Shaders referencing `iChannel0` or `iChannelResolution` remain full post-processing passes, so
+intentional transparent output (for example Tile Reveal) can hide the incoming artwork. References
+in comments do not change this classification. Shader Fill/Outline painting is unchanged.
+
+Properties exposes render scale and pragma controls; Edit shader opens the dedicated Resources
+source editor. Shader-effect source and static control edits are stored with the effect; declared controls are not yet effect-track or
 runtime-binding targets. Use browser capture and final certification—SVG-only previews omit the GLSL
 pixels. A layer with an enabled shader effect cannot be used as an alpha-mask source; path masks
 still ignore paint and effects.

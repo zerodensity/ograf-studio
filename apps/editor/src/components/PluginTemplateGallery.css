@@ -1,0 +1,196 @@
+.plugin-template-gallery[class] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 104px), 1fr));
+  align-content: start;
+  gap: 5px;
+}
+.plugin-template-gallery > .plugin-template-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 64px;
+  padding: 5px 6px;
+  border: 1px solid var(--border, #444);
+  border-radius: 3px;
+  background: var(--panel-bg, #262626);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+}
+.plugin-template-gallery > .plugin-template-card:hover:not(:disabled),
+.plugin-template-gallery > .plugin-template-card:focus-visible {
+  border-color: var(--accent, #5bc8fa);
+  outline: none;
+}
+.plugin-template-gallery > .plugin-template-card[aria-pressed='true'] {
+  border-color: var(--accent, #5bc8fa);
+  box-shadow: inset 0 0 0 1px var(--accent, #5bc8fa);
+  background: #25404e;
+}
+.plugin-template-gallery > .plugin-template-card:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.plugin-template-icon {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  width: 100%;
+}
+.plugin-template-card .plugin-template-icon > svg {
+  width: 56px;
+  height: 34px;
+}
+.plugin-template-name {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.plugin-template-workspace {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 8px minmax(
+      0,
+      var(--plugin-template-detail-width, 320px)
+    );
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.plugin-template-workspace.is-gallery-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+.plugin-template-browser-content,
+.plugin-template-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-color: #858585 #242424;
+  overscroll-behavior: contain;
+}
+.plugin-template-browser {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.plugin-template-browser-header {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+}
+.plugin-template-browser-content {
+  flex: 1;
+}
+.plugin-template-detail {
+  padding-left: 6px;
+}
+.plugin-template-splitter {
+  position: relative;
+  min-width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+.plugin-template-splitter::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--border, #444);
+}
+.plugin-template-splitter:hover::before,
+.plugin-template-splitter:focus-visible::before {
+  width: 3px;
+  left: 2px;
+  background: var(--accent, #5bc8fa);
+}
+body.is-resizing-plugin-template,
+body.is-resizing-plugin-template * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+.plugin-template-workspace.is-stacked:not(.is-gallery-only) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  overflow-y: auto;
+}
+.plugin-template-workspace.is-stacked > .plugin-template-splitter {
+  display: none;
+}
+.plugin-template-workspace.is-stacked > .plugin-template-browser,
+.plugin-template-workspace.is-stacked > .plugin-template-detail {
+  overflow: visible;
+  min-height: 120px;
+}
+.plugin-template-workspace.is-stacked .plugin-template-browser-content {
+  flex: none;
+  overflow: visible;
+}
+.plugin-template-workspace.is-stacked > .plugin-template-detail {
+  border-top: 1px solid var(--border, #444);
+  padding: 8px 0 0;
+}
+.plugin-template-detail > h3 {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 0 6px;
+  padding: 0 0 4px;
+  background: var(--bg-panel, #292929);
+  font-size: 12px;
+  font-weight: 600;
+}
+.plugin-template-detail footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+.plugin-template-detail footer > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+@container (max-width: 760px) {
+  .plugin-template-workspace:not(.is-measured) > .plugin-template-splitter {
+    display: none;
+  }
+  .plugin-template-workspace:not(.is-measured):not(.is-gallery-only) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    overflow-y: auto;
+  }
+  .plugin-template-workspace:not(.is-measured):not(.is-gallery-only) > .plugin-template-browser,
+  .plugin-template-workspace:not(.is-measured):not(.is-gallery-only) > .plugin-template-detail {
+    overflow: visible;
+    min-height: 120px;
+  }
+  .plugin-template-workspace:not(.is-measured):not(.is-gallery-only)
+    .plugin-template-browser-content {
+    flex: none;
+    overflow: visible;
+  }
+  .plugin-template-workspace:not(.is-measured):not(.is-gallery-only) > .plugin-template-detail {
+    border-left: 0;
+    border-top: 1px solid var(--border, #444);
+    padding: 8px 0 0;
+  }
+}

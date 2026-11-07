@@ -7,8 +7,9 @@ import {
   templateThumbnailName,
   type Project,
 } from '@ograf-editor/scene-model';
-import { saveProjectToFile } from '../state/fileIO';
+import { saveProjectSourceToFile, saveProjectToFile } from '../state/fileIO';
 import { useEditorWindow } from '../layout/EditorWindow';
+import { useMovableDialog } from './useMovableDialog';
 import './TemplateSaveDialog.css';
 
 export function TemplateSaveDialog({
@@ -19,14 +20,14 @@ export function TemplateSaveDialog({
 }: {
   project: Project;
   onClose: () => void;
-  onSaved: (mode: 'saved' | 'downloaded', frame: number | null) => void;
+  onSaved: (mode: 'saved' | 'downloaded', snapshot: Project, bundled: boolean) => void;
   exportOptions?: {
     fileName: string;
     save: (snapshot: Project) => Promise<'saved' | 'cancelled' | 'downloaded'>;
   };
 }) {
   const { document: ownerDocument } = useEditorWindow();
-  const [name, setName] = useState(templateBaseName(project.name));
+  const [name, setName] = useState(project.name);
   const [frame, setFrame] = useState<number | null>(project.thumbnailFrame ?? null);
   const [preview, setPreview] = useState('');
   const [error, setError] = useState('');
@@ -34,6 +35,7 @@ export function TemplateSaveDialog({
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
+  const movable = useMovableDialog(dialogRef);
   const snapshot = useMemo(() => ({ ...project, thumbnailFrame: frame }), [project, frame]);
   const composition = snapshot.compositions.find((item) => item.id === snapshot.mainCompositionId)!;
   const selectedFrame = projectThumbnailFrame(snapshot);
@@ -67,15 +69,21 @@ export function TemplateSaveDialog({
       if (url) URL.revokeObjectURL(url);
     };
   }, [snapshot]);
-  const save = async (downloadOnly = false) => {
-    if (saving || rendering || !preview || !name.trim()) return;
+  const save = async (bundled = false) => {
+    if (saving || !name.trim() || ((bundled || exportOptions) && (rendering || !preview))) return;
     setSaving(true);
     setError('');
     try {
+      const savedSnapshot = exportOptions ? snapshot : { ...snapshot, name: name.trim() };
+      if (!exportOptions && !bundled) {
+        const result = await saveProjectSourceToFile(savedSnapshot, { baseName });
+        if (result.status !== 'cancelled') onSaved(result.status, result.project, false);
+        return;
+      }
       const result = exportOptions
-        ? await exportOptions.save(snapshot)
-        : await saveProjectToFile(snapshot, { baseName, downloadOnly });
-      if (result !== 'cancelled') onSaved(result, frame);
+        ? await exportOptions.save(savedSnapshot)
+        : await saveProjectToFile(savedSnapshot, { baseName, downloadOnly: true });
+      if (result !== 'cancelled') onSaved(result, savedSnapshot, bundled);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -94,15 +102,16 @@ export function TemplateSaveDialog({
         className="template-save-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label={exportOptions ? 'Export OGraf with thumbnail' : 'Save template and thumbnail'}
+        aria-label={exportOptions ? 'Export OGraf with thumbnail' : 'Save template'}
         ref={dialogRef}
+        {...movable.dialogProps}
         onKeyDown={(event) => {
           event.stopPropagation();
           if (event.key === 'Escape' && !saving) onClose();
           if (event.key === 'Tab') {
             const controls = [
               ...(dialogRef.current?.querySelectorAll<HTMLElement>(
-                'input:not(:disabled), button:not(:disabled)',
+                'input:not(:disabled), button:not(:disabled), [data-movable-dialog-handle]',
               ) ?? []),
             ];
             const current = controls.indexOf(ownerDocument.activeElement as HTMLElement);
@@ -117,10 +126,10 @@ export function TemplateSaveDialog({
           }
         }}
       >
-        <h2>{exportOptions ? 'Export OGraf' : 'Save template'}</h2>
+        <h2 {...movable.handleProps}>{exportOptions ? 'Export OGraf' : 'Save template'}</h2>
         {!exportOptions && (
           <label>
-            File name
+            Template name
             <input
               ref={inputRef}
               value={name}
@@ -202,15 +211,15 @@ export function TemplateSaveDialog({
           <span>{exportOptions ? exportOptions.fileName : `${baseName}.ogs`}</span>
           <span>
             {templateThumbnailName(snapshot)}
-            {exportOptions ? ' (inside ZIP)' : ''}
+            {exportOptions ? ' (inside ZIP)' : ' (in ZIP)'}
           </span>
         </div>
         <p>
           {exportOptions
             ? 'Choose the thumbnail frame to include in the OGraf package.'
-            : window.showDirectoryPicker
-              ? 'Choose a folder to save both files together.'
-              : 'Download a ZIP containing the editable template and its PNG thumbnail.'}
+            : window.showSaveFilePicker
+              ? 'Choose a filename and location for the editable .ogs file. Download ZIP also includes its PNG thumbnail.'
+              : 'Download the editable .ogs file, or choose Download ZIP to include its PNG thumbnail.'}
         </p>
         {error ? (
           <div role="alert" className="template-save-error">
@@ -221,7 +230,7 @@ export function TemplateSaveDialog({
           <button type="button" disabled={saving} onClick={onClose}>
             Cancel
           </button>
-          {!exportOptions && window.showDirectoryPicker ? (
+          {!exportOptions ? (
             <button
               type="button"
               disabled={saving || rendering || !preview || !name.trim()}
@@ -232,7 +241,7 @@ export function TemplateSaveDialog({
           ) : null}
           <button
             type="button"
-            disabled={saving || rendering || !preview || !name.trim()}
+            disabled={saving || !name.trim() || (!!exportOptions && (rendering || !preview))}
             onClick={() => void save()}
           >
             {exportOptions
@@ -241,9 +250,9 @@ export function TemplateSaveDialog({
                 : 'Export .ograf.zip'
               : saving
                 ? 'Saving…'
-                : window.showDirectoryPicker
-                  ? 'Save files…'
-                  : 'Download files'}
+                : window.showSaveFilePicker
+                  ? 'Save .ogs…'
+                  : 'Download .ogs'}
           </button>
         </div>
       </section>

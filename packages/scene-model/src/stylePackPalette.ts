@@ -33,7 +33,12 @@ function roleFor(
   brightness: number,
   highlightGradient: boolean,
 ): { role: Role; priority: number } {
-  if (property === 'color') {
+  // Text paints have the same semantic palette role as the legacy solid color channel.
+  // A fade in a glyph gradient describes its alpha, not a decorative surface highlight.
+  if (
+    property === 'color' ||
+    (layer.element.type === 'text' && (property === 'fill' || property.startsWith('fill.stops[')))
+  ) {
     if (layer.semantics.role === 'label' && brightness < 128)
       return { role: 'outline', priority: 100 };
     return {

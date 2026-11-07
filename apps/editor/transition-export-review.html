@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Northline coordinated export review</title>
+    <style>
+      body {
+        margin: 24px auto;
+        padding: 0 24px;
+        max-width: 1200px;
+        background: #121923;
+        color: #e1ebf5;
+        font: 14px system-ui;
+      }
+      h1 {
+        font-size: 24px;
+      }
+      button,
+      a {
+        margin: 0 8px 8px 0;
+      }
+      button {
+        background: #294158;
+        color: white;
+        border: 1px solid #567089;
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+      a {
+        color: #8cddff;
+      }
+      #status {
+        padding: 12px 0;
+        font-weight: 600;
+      }
+      #output {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16/9;
+        background: repeating-conic-gradient(#28313c 0% 25%, #202832 0% 50%) 50% / 20px 20px;
+        overflow: hidden;
+        border: 1px solid #465667;
+      }
+      #stage {
+        position: absolute;
+        transform-origin: top left;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font:
+          12px/1.5 Consolas,
+          monospace;
+        background: #0b1119;
+        padding: 16px;
+        max-height: 380px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Northline coordinated export</h1>
+    <p>
+      Build and certify the news example, then exercise the exact ZIP's player. This page has its
+      own source and playback session.
+    </p>
+    <p>
+      <button id="source">Load saved .ogs</button
+      ><input id="source-file" type="file" accept=".ogs" hidden /><button id="build">
+        Build and certify</button
+      ><button id="live" disabled>Check live playback</button
+      ><button id="offline" disabled>Check offline replay</button
+      ><button id="show" disabled>Show news graphic</button
+      ><a id="download" hidden>Download certified .ograf.zip</a>
+    </p>
+    <p>
+      <label
+        ><input id="deployed" type="checkbox" /> Use extracted HTTP package at
+        /coordinated-news-review/</label
+      >
+    </p>
+    <div id="source-label">Source: built-in news example</div>
+    <div id="status" role="status">Ready — built-in news example</div>
+    <div id="output"><div id="stage"></div></div>
+    <pre id="results" aria-label="Check results"></pre>
+    <script type="module" src="/src/examples/transitionExportReviewPage.ts"></script>
+  </body>
+</html>

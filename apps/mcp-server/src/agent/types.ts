@@ -50,6 +50,8 @@ export interface ProviderRequest {
   model?: string;
   messages: AgentMessage[];
   tools: ProviderToolDefinition[];
+  /** Planned reply reservation; API adapters pass it as their output-token ceiling. */
+  maxOutputTokens?: number;
   signal: AbortSignal;
 }
 
@@ -69,6 +71,20 @@ export type ChatServerEvent =
     }
   | { type: 'chat.external'; active: boolean }
   | { type: 'chat.turn.start'; turnId: string }
+  | {
+      type: 'chat.context';
+      turnId: string;
+      model: string;
+      contextWindowTokens: number;
+      historyBudgetTokens: number;
+      toolPageTokens: number;
+      estimatedInputTokens: number;
+      source: 'provider' | 'override' | 'fallback';
+      omittedMessages: number;
+      historyResultId?: string;
+      estimated: true;
+      message: string;
+    }
   | {
       type: 'chat.progress';
       turnId: string;

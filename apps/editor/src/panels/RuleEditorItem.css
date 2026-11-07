@@ -1,0 +1,555 @@
+/* Shared rule editor shell (object rules and transition rules).
+   Layout follows the usual automation-builder pattern: a titled header with a
+   compact toolbar, then When / Only if / Then sections joined by a rail. */
+.rule-editor-item {
+  min-width: 0;
+  max-width: 760px;
+  font-size: var(--ui-font-size-compact, 11px);
+  container-type: inline-size;
+}
+.rule-editor-item[hidden] {
+  display: none;
+}
+
+/* Header */
+.rule-editor-detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 0 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.rule-editor-detail-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.rule-editor-detail-heading h3 {
+  margin: 0;
+  color: var(--text-heading, var(--text));
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.rule-editor-heading-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.rule-editor-name-editor {
+  min-width: 0;
+}
+.rule-editor-name-editor input {
+  width: 100%;
+  min-width: 0;
+  min-height: 26px;
+  margin-left: -5px;
+  padding: 2px 5px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-heading, var(--text));
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control, 2px);
+}
+.rule-editor-name-editor input:hover {
+  border-color: var(--border);
+}
+.rule-editor-name-editor input:focus {
+  border-color: var(--accent);
+  background: var(--bg-control, var(--bg-canvas));
+  outline: none;
+}
+.rule-editor-detail-target {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rule-editor-detail-target strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.rule-editor-target-editor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: visible;
+}
+.rule-editor-target-editor > span {
+  flex: none;
+}
+.rule-editor-target-editor > select {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 24px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: inherit;
+  color: var(--text);
+}
+.rule-editor-target-editor > .rule-target-picker {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+.rule-editor-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  min-height: 26px;
+}
+.rule-editor-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.rule-editor-header-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+@container (max-width: 380px) {
+  .rule-editor-detail-header {
+    flex-wrap: wrap;
+  }
+  .rule-editor-toolbar {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* Switch-style checkbox for the rule's on/off state. */
+.rule-editor-header-controls label > input[type='checkbox'] {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 14px;
+  margin: 0;
+  border-radius: 7px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.rule-editor-header-controls label > input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 120ms ease;
+}
+.rule-editor-header-controls label > input[type='checkbox']:checked {
+  background: var(--accent);
+}
+.rule-editor-header-controls label > input[type='checkbox']:checked::before {
+  transform: translateX(12px);
+  background: #fff;
+}
+
+.rule-editor-dirty {
+  flex: 0 0 auto;
+  margin: 0 4px;
+  font-size: 8px;
+  color: var(--accent, var(--text-dim));
+}
+.rule-editor-status {
+  flex: 0 1 auto;
+  max-width: 110px;
+  min-width: 0;
+  margin: 0 4px;
+  padding: 1px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  background: var(--bg-canvas);
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.rule-editor-icon-button {
+  flex: 0 0 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 2px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control, 2px);
+  color: var(--text-dim);
+}
+.rule-editor-icon-button:hover:not(:disabled),
+.rule-editor-icon-button[aria-expanded='true'] {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.rule-editor-overflow {
+  flex: 0 0 auto;
+  position: relative;
+}
+.rule-editor-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 20;
+  min-width: 150px;
+  max-width: min(260px, 70vw);
+  max-height: 240px;
+  overflow: auto;
+  display: grid;
+  gap: 1px;
+  padding: 4px;
+  background: var(--bg-panel-raised, var(--bg-panel));
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  box-shadow: 0 6px 18px #0007;
+}
+.rule-editor-menu > button,
+.rule-editor-menu > a {
+  text-align: left;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 0;
+  background: transparent;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rule-editor-menu > button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.rule-editor-body {
+  min-width: 0;
+  padding: 0 0 10px;
+}
+
+/* When / Only if / Then sections on a connected rail */
+.rule-workflow-section {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+.rule-workflow-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.rule-workflow-section:not(:last-of-type) > .rule-workflow-rail::after {
+  content: '';
+  position: absolute;
+  top: 24px;
+  bottom: -4px;
+  left: 50%;
+  width: 1px;
+  background: var(--border-strong);
+}
+.rule-workflow-node {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  background: var(--bg-panel);
+  color: var(--accent);
+}
+.rule-workflow-section[data-kind='if'] .rule-workflow-node {
+  color: #d9a441;
+}
+.rule-workflow-section[data-kind='then'] .rule-workflow-node {
+  color: #4fc27f;
+}
+.rule-workflow-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-bottom: 14px;
+}
+.rule-workflow-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 22px;
+  padding-top: 3px;
+}
+.rule-workflow-label {
+  margin: 0;
+  color: var(--text-heading, var(--text));
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.rule-workflow-hint {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.rule-workflow-section-body {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+/* Inline sections: the controls share the heading row instead of starting a new line. */
+.rule-workflow-section[data-inline] .rule-workflow-main {
+  padding-bottom: 10px;
+}
+.rule-workflow-section[data-inline] .rule-workflow-heading {
+  align-items: center;
+  min-height: 26px;
+  padding-top: 0;
+}
+.rule-workflow-section[data-inline] .rule-workflow-node {
+  margin-top: 3px;
+}
+.rule-workflow-section[data-inline] .rule-workflow-label {
+  flex: none;
+  min-width: 46px;
+}
+.rule-workflow-inline-body {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.rule-workflow-inline-body > .rule-editor-inline-field {
+  flex: 1 1 150px;
+}
+.rule-workflow-inline-body > select {
+  flex: 1 1 120px;
+  min-width: 0;
+  min-height: 24px;
+}
+
+/* Action steps as cards */
+.rule-action-step {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-areas: 'num body controls';
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-header);
+}
+.rule-action-step-single {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'body controls';
+}
+.rule-action-step + .rule-action-step {
+  margin-top: 0;
+}
+.rule-action-step-number {
+  grid-area: num;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  border-radius: 50%;
+  background: var(--bg-canvas);
+}
+.rule-action-step-body {
+  grid-area: body;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.rule-action-step-controls {
+  grid-area: controls;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+}
+.rule-action-step-controls button {
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+.rule-action-step-controls button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.rule-action-step-controls button:disabled {
+  opacity: 0.35;
+}
+@container (max-width: 380px) {
+  .rule-action-step {
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'num . controls'
+      'body body body';
+  }
+  .rule-action-step-single {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      '. controls'
+      'body body';
+  }
+}
+
+/* Forms */
+.rule-editor-form {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.rule-editor-field {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rule-editor-then {
+  color: var(--text-dim);
+  font-size: 11px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
+}
+.rule-editor-field > span:first-child {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.rule-editor-field input,
+.rule-editor-field select,
+.rule-editor-field textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  box-sizing: border-box;
+}
+.rule-editor-field input[type='checkbox'] {
+  width: auto;
+  min-height: 0;
+  justify-self: start;
+}
+.rule-editor-inline-field {
+  display: block;
+  min-width: 0;
+}
+.rule-editor-inline-field > select,
+.rule-editor-inline-field > input {
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  box-sizing: border-box;
+}
+.rule-editor-readonly {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.rule-editor-form-row,
+.rule-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.rule-editor-form-row > .rule-editor-field {
+  flex: 1 1 140px;
+}
+
+/* Disclosures (Options, Timing) */
+.rule-editor-options {
+  min-width: 0;
+}
+.rule-editor-options > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  padding: 3px 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.rule-editor-options > summary::-webkit-details-marker {
+  display: none;
+}
+.rule-editor-options > summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 100ms ease;
+}
+.rule-editor-options[open] > summary::before {
+  transform: rotate(90deg);
+}
+.rule-editor-options > summary:hover {
+  color: var(--text);
+}
+.rule-editor-options[open] > summary {
+  margin-bottom: 6px;
+}
+.rule-editor-timing {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+.rule-editor-note,
+.rule-editor-error {
+  margin: 3px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.rule-editor-note {
+  color: var(--text-dim);
+}
+.rule-editor-error {
+  color: #ffbaa9;
+}
+.rule-editor-item button:focus-visible,
+.rule-editor-item input:focus-visible,
+.rule-editor-item select:focus-visible,
+.rule-editor-item summary:focus-visible {
+  outline: 2px solid var(--accent, #6cc9fa);
+  outline-offset: 1px;
+}

@@ -147,7 +147,7 @@
   font-size: 11px;
 }
 
-.test-data-row span {
+.test-data-row > span:first-child {
   flex: none;
   width: 90px;
   color: var(--text-dim);
@@ -215,7 +215,7 @@
 /* RealityHub-style pane sections and tabular field rows. */
 .data-panel {
   gap: 0;
-  margin: -8px -10px;
+  margin: 0 -6px -4px;
 }
 
 .data-panel-section + .data-panel-section {
@@ -223,9 +223,9 @@
 }
 
 .data-panel-section-header {
-  min-height: 34px;
+  min-height: var(--ui-header-height);
   margin: 0;
-  padding: 3px 8px;
+  padding: 1px 5px;
   border-bottom: 1px solid var(--border);
   background: #252525;
 }
@@ -240,7 +240,7 @@
 .data-panel-section > .inspector-hint,
 .data-panel-section > .data-json-preview {
   margin: 0;
-  padding: 7px 8px;
+  padding: 4px 5px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -260,7 +260,7 @@
 }
 
 .test-data-row {
-  min-height: 30px;
+  min-height: var(--ui-row-height);
   display: grid;
   grid-template-columns: var(--property-label-width, minmax(118px, 42%)) minmax(0, 1fr);
   gap: 0;
@@ -272,16 +272,62 @@
   height: 100%;
   display: flex;
   align-items: center;
-  padding: 0 8px;
+  padding: 0 5px;
   border-right: 1px solid var(--border);
   color: var(--text);
 }
 
 .test-data-row > :is(input, select, textarea) {
-  width: calc(100% - 12px);
-  margin: 3px 6px;
+  width: calc(100% - 8px);
+  margin: 1px 4px;
+}
+
+.test-data-row > .color-input {
+  width: calc(100% - 8px);
+  margin: 2px 4px;
 }
 
 .data-field-schema-node > .data-field-details {
   flex: 1 0 100%;
+}
+
+.data-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-tabs > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.data-tabs > button.active {
+  border-color: var(--border);
+  background: var(--bg-panel-raised);
+  color: var(--text);
+}
+
+.data-tab-count {
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--bg-canvas);
+  font-size: 10px;
+}
+
+.data-tab-intro {
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--text-dim);
+  font-size: 11px;
 }

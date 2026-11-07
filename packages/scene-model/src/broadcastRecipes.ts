@@ -1,293 +1,67 @@
-import { createAnimationTracksFromLegacyLayer } from './layerAnimation';
 import {
   createFieldDefinition,
-  createLayerLoopClip,
-  createLayerOfKind,
-  createLayerPropertyKeyframe,
-  createLayerSemantics,
+  createTextElement,
+  createTickerElement,
+  createImageElement,
+  createAsset,
 } from './factory';
-import { createId } from './id';
-import { buildLayerMotionKeyframes, type MotionDirection, type MotionStyle } from './motionPresets';
+import { finishRecipeMaterials, finishRecipeComponent } from './recipeFinishing';
+import { STYLE_TOKEN_KEYS } from './stylePacks';
 import {
-  applyStylePack,
-  resolveStylePackMotion,
-  STYLE_TOKEN_KEYS,
-  stylePackIdForComposition,
-  styleTokenValue,
-  type StylePackId,
-} from './stylePacks';
-import type { Composition, EasingPreset, Layer, LayerTransform } from './types';
-
-export type BroadcastRecipeName = 'bug' | 'ticker' | 'scoreboard' | 'clock';
-
-export interface BroadcastRecipeMotionOptions {
-  style?: MotionStyle;
-  entrance?: MotionDirection;
-  exit?: MotionDirection;
-  staggerFrames?: number;
-  entranceDurationFrames?: number;
-  exitDurationFrames?: number;
-  entranceEasing?: EasingPreset;
-  exitEasing?: EasingPreset;
-}
-
-interface CommonRecipeOptions {
-  name?: string;
-  stylePack?: StylePackId;
-  placement?: Partial<Pick<LayerTransform, 'x' | 'y' | 'width' | 'height'>>;
-  motion?: BroadcastRecipeMotionOptions;
-}
-
-export interface BugRecipeOptions extends CommonRecipeOptions {
-  content?: { label?: string };
-  fieldKey?: string;
-}
-
-export interface TickerRecipeOptions extends CommonRecipeOptions {
-  content?: { label?: string; text?: string };
-  fieldKeys?: { label?: string; text?: string };
-  speedPixelsPerSecond?: number;
-}
-
-export interface ScoreboardRecipeOptions extends CommonRecipeOptions {
-  content?: {
-    homeName?: string;
-    homeScore?: number;
-    awayScore?: number;
-    awayName?: string;
-  };
-  fieldKeys?: {
-    homeName?: string;
-    homeScore?: string;
-    awayScore?: string;
-    awayName?: string;
-  };
-}
-
-export interface ClockRecipeOptions extends CommonRecipeOptions {
-  content?: { hours?: string; minutes?: string };
-  fieldKeys?: { hours?: string; minutes?: string };
-}
-
-export interface MaterializedBroadcastRecipe {
-  recipe: BroadcastRecipeName;
-  name: string;
-  stylePack: StylePackId;
-  groupId: string;
-  timelineGroupId: string;
-  layers: Record<string, string>;
-  fields: Record<string, string>;
-}
-
-interface ResolvedRecipeMotion {
-  style: MotionStyle;
-  entrance: MotionDirection;
-  exit: MotionDirection;
-  staggerFrames: number;
-  entranceDurationFrames: number;
-  exitDurationFrames: number;
-  entranceEasing: EasingPreset;
-  exitEasing: EasingPreset;
-}
-
-interface RecipeContext {
-  packId: StylePackId;
-  motion: ResolvedRecipeMotion;
-  groupId: string;
-  timelineGroupId: string;
-  color: (key: Parameters<typeof styleTokenValue>[1], fallback: string) => string;
-  number: (key: Parameters<typeof styleTokenValue>[1], fallback: number) => number;
-}
-
-function requireStep(composition: Composition, recipe: string): void {
-  if (!composition.keyframes.some((keyframe) => keyframe.role === 'step')) {
-    throw new Error(`The ${recipe} recipe requires at least one pausable OGraf Step.`);
-  }
-}
-
-function uniqueFieldKey(composition: Composition, requested: string, fallback: string): string {
-  const base = (requested.trim() || fallback).replace(/[^A-Za-z0-9_]+/g, '_').replace(/^\d/, '_$&');
-  let key = base || fallback;
-  let suffix = 2;
-  while (composition.dataFields.some((field) => field.key === key)) key = `${base}_${suffix++}`;
-  return key;
-}
-
-function fieldKeyAllocator(composition: Composition) {
-  const reserved = new Set(composition.dataFields.map((field) => field.key));
-  return (requested: string, fallback: string) => {
-    const base = (requested.trim() || fallback)
-      .replace(/[^A-Za-z0-9_]+/g, '_')
-      .replace(/^\d/, '_$&');
-    let key = base || fallback;
-    let suffix = 2;
-    while (reserved.has(key)) key = `${base}_${suffix++}`;
-    reserved.add(key);
-    return key;
-  };
-}
-
-function context(
-  composition: Composition,
-  requestedPack: StylePackId | undefined,
-  fallbackPack: StylePackId,
-  motion: BroadcastRecipeMotionOptions | undefined,
-  defaults: Pick<ResolvedRecipeMotion, 'style' | 'entrance' | 'exit'>,
-): RecipeContext {
-  const currentPack = stylePackIdForComposition(composition);
-  const packId = requestedPack ?? currentPack ?? fallbackPack;
-  const refreshTokens = requestedPack !== undefined || currentPack === null;
-  applyStylePack(composition, packId, {
-    ...(refreshTokens ? {} : { bindLayerIds: [] }),
-    refreshTokens,
-  });
-  const convention = resolveStylePackMotion(composition, packId);
-  return {
-    packId,
-    groupId: createId('group'),
-    timelineGroupId: createId('timeline-group'),
-    motion: {
-      style: motion?.style ?? defaults.style,
-      entrance: motion?.entrance ?? defaults.entrance,
-      exit: motion?.exit ?? defaults.exit,
-      staggerFrames: Math.max(0, Math.round(motion?.staggerFrames ?? convention.staggerFrames)),
-      entranceDurationFrames: Math.max(
-        2,
-        Math.round(motion?.entranceDurationFrames ?? convention.entranceFrames),
-      ),
-      exitDurationFrames: Math.max(
-        2,
-        Math.round(motion?.exitDurationFrames ?? convention.exitFrames),
-      ),
-      entranceEasing: motion?.entranceEasing ?? convention.entranceEasing,
-      exitEasing: motion?.exitEasing ?? convention.exitEasing,
-    },
-    color: (key, fallback) => String(styleTokenValue(composition, key, fallback)),
-    number: (key, fallback) => {
-      const value = Number(styleTokenValue(composition, key, fallback));
-      return Number.isFinite(value) ? value : fallback;
-    },
-  };
-}
-
-function recipeLayer(
-  composition: Composition,
-  recipe: BroadcastRecipeName,
-  name: string,
-  groupId: string,
-  kind: 'rectangle' | 'ellipse' | 'text',
-  role: Layer['semantics']['role'],
-  tags: string[],
-  onAir: LayerTransform,
-  motion: ResolvedRecipeMotion,
-  cascadeIndex: number,
-  cascadeCount: number,
-  revealMask = false,
-): Layer {
-  const layer = createLayerOfKind(kind);
-  layer.name = name;
-  layer.groupId = groupId;
-  layer.semantics = createLayerSemantics({
-    role,
-    tags: [recipe, ...tags],
-    description: `${role} generated by the ${recipe} authoring recipe.`,
-  });
-  layer.keyframes = buildLayerMotionKeyframes({
-    composition,
-    onAir,
-    style: motion.style,
-    entrance: motion.entrance,
-    exit: motion.exit,
-    staggerFrames: motion.staggerFrames,
-    cascadeIndex,
-    cascadeCount,
-    isRevealMask: revealMask,
-    entranceDurationFrames: motion.entranceDurationFrames,
-    exitDurationFrames: motion.exitDurationFrames,
-    entranceEasing: motion.entranceEasing,
-    exitEasing: motion.exitEasing,
-  });
-  layer.animationTracks = createAnimationTracksFromLegacyLayer(layer);
-  return layer;
-}
-
-function staticRecipeLayer(
-  composition: Composition,
-  recipe: BroadcastRecipeName,
-  name: string,
-  groupId: string,
-  kind: 'rectangle' | 'ellipse' | 'text',
-  role: Layer['semantics']['role'],
-  tags: string[],
-  onAir: LayerTransform,
-): Layer {
-  return recipeLayer(
-    composition,
-    recipe,
-    name,
-    groupId,
-    kind,
-    role,
-    tags,
-    onAir,
-    {
-      style: 'none',
-      entrance: 'none',
-      exit: 'none',
-      staggerFrames: 0,
-      entranceDurationFrames: 2,
-      exitDurationFrames: 2,
-      entranceEasing: 'linear',
-      exitEasing: 'linear',
-    },
-    0,
-    1,
-  );
-}
+  context,
+  fieldKeyAllocator,
+  finish as finishBase,
+  pose,
+  recipeLayer,
+  requireStep,
+  staticRecipeLayer,
+  uniqueFieldKey,
+  type BugRecipeOptions,
+  type TickerRecipeOptions,
+  type ScoreboardRecipeOptions,
+  type MaterializedBroadcastRecipe,
+  type BroadcastRecipeName,
+  type RecipeContext,
+} from './broadcastRecipeShared';
+import type { Composition, Layer } from './types';
+export type {
+  BroadcastRecipeName,
+  BroadcastRecipeMotionOptions,
+  BugRecipeOptions,
+  TickerRecipeOptions,
+  ScoreboardRecipeOptions,
+  ClockRecipeOptions,
+  MaterializedBroadcastRecipe,
+} from './broadcastRecipeShared';
+export { materializeClock, materializeCountdown } from './clockRecipes';
 
 function finish(
   composition: Composition,
-  context: RecipeContext,
+  ctx: RecipeContext,
   recipe: BroadcastRecipeName,
   name: string,
   layers: Record<string, Layer>,
   fields: Record<string, ReturnType<typeof createFieldDefinition>>,
+  asComponent = true,
 ): MaterializedBroadcastRecipe {
-  const layerValues = Object.values(layers);
-  const fieldValues = Object.values(fields);
-  composition.layers.push(...layerValues);
-  composition.dataFields.push(...fieldValues);
-  applyStylePack(composition, context.packId, {
-    bindLayerIds: layerValues.map((layer) => layer.id),
-    refreshTokens: false,
-  });
-  composition.layout.timelineFolders.push({
-    id: context.timelineGroupId,
-    name,
-    color: context.color(STYLE_TOKEN_KEYS.accent, '#31b7d4'),
-    layerIds: layerValues.map((layer) => layer.id),
-  });
+  const result = finishBase(composition, ctx, recipe, name, layers, fields);
+  finishRecipeMaterials(
+    composition,
+    layers,
+    undefined,
+    ctx.motion.style !== 'none' && ctx.motion.entrance !== 'none',
+  );
+  // Compact recipes align text inside fixed label/score boxes. Max Text Width instead
+  // sizes the wrapper to its glyphs, removing the space center/right/middle alignment needs.
+  // Their authored shrink-to-fit keeps those boxes intact as external values change.
   return {
-    recipe,
-    name,
-    stylePack: context.packId,
-    groupId: context.groupId,
-    timelineGroupId: context.timelineGroupId,
-    layers: Object.fromEntries(Object.entries(layers).map(([key, layer]) => [key, layer.id])),
-    fields: Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.id])),
-  };
-}
-
-function pose(x: number, y: number, width: number, height: number): LayerTransform {
-  return {
-    x: Math.round(x),
-    y: Math.round(y),
-    width: Math.max(1, Math.round(width)),
-    height: Math.max(1, Math.round(height)),
-    rotation: 0,
-    opacity: 1,
-    transformOriginX: 0.5,
-    transformOriginY: 0.5,
+    ...result,
+    ...finishRecipeComponent(
+      composition,
+      Object.values(layers).map((layer) => layer.id),
+      name,
+      asComponent,
+    ),
   };
 }
 
@@ -342,12 +116,14 @@ export function materializeBug(
     'text',
     'label',
     ['editable', 'identity'],
-    pose(x + accentWidth + 18, y + 12, width - accentWidth - 36, height - 24),
+    pose(x + accentWidth + 18, y + 10, width - accentWidth - 36, height - 20),
   );
   if (label.element.type === 'text') {
     label.element.content = options.content?.label ?? 'LIVE';
     label.element.autoFit = 'shrink-to-fit';
     label.element.overflowPolicy = 'clip';
+    label.element.textAlign = 'center';
+    label.element.verticalAlign = 'middle';
   }
   accent.parentId = panel.id;
   label.parentId = panel.id;
@@ -359,7 +135,15 @@ export function materializeBug(
     constraints: { maxLength: 24 },
   });
   label.bindings = [{ fieldId: labelField.id, targetProperty: 'content' }];
-  return finish(composition, ctx, 'bug', name, { panel, accent, label }, { label: labelField });
+  return finish(
+    composition,
+    ctx,
+    'bug',
+    name,
+    { panel, accent, label },
+    { label: labelField },
+    options.asComponent !== false,
+  );
 }
 
 export function materializeTicker(
@@ -373,7 +157,8 @@ export function materializeTicker(
     entrance: 'left',
     exit: 'down',
   });
-  const width = Math.max(640, Math.round(options.placement?.width ?? composition.width * 0.84));
+  const scale = composition.height / 1080;
+  const width = Math.max(640, Math.round(options.placement?.width ?? composition.width * 0.9));
   const height = Math.max(48, Math.round(options.placement?.height ?? composition.height * 0.065));
   const x = Math.round(options.placement?.x ?? (composition.width - width) / 2);
   const y = Math.round(
@@ -385,7 +170,7 @@ export function materializeTicker(
     `${name} · Window`,
     ctx.groupId,
     'rectangle',
-    'mask',
+    'container',
     ['window', 'clip'],
     pose(x, y, width, height),
     ctx.motion,
@@ -394,7 +179,7 @@ export function materializeTicker(
     true,
   );
   window.clipChildren = true;
-  const labelWidth = Math.max(110, Math.round(width * 0.12));
+  const labelWidth = Math.max(110, Math.round(width * 0.115));
   const labelPlate = staticRecipeLayer(
     composition,
     'ticker',
@@ -413,74 +198,132 @@ export function materializeTicker(
     'text',
     'label',
     ['editable', 'category'],
-    pose(x + 14, y + 8, labelWidth - 28, height - 16),
-  );
-  const crawlWidth = Math.max(1200, Math.round(width * 1.7));
-  const crawl = staticRecipeLayer(
-    composition,
-    'ticker',
-    `${name} · Crawl`,
-    ctx.groupId,
-    'text',
-    'ticker',
-    ['editable', 'crawl', 'qa:allow-loop-seam', 'qa:allow-offcanvas'],
-    pose(x + width, y + 8, crawlWidth, height - 16),
+    pose(x + 14 * scale, y + 8 * scale, labelWidth - 28 * scale, height - 16 * scale),
   );
   if (label.element.type === 'text') {
     label.element.content = options.content?.label ?? 'NEWS';
     label.element.autoFit = 'shrink-to-fit';
     label.element.overflowPolicy = 'clip';
+    label.element.textAlign = 'center';
+    label.element.verticalAlign = 'middle';
   }
-  if (crawl.element.type === 'text') {
-    crawl.element.content =
-      options.content?.text ??
-      'Latest headlines and information update continuously across the screen.';
-    crawl.element.autoFit = 'fixed';
-    crawl.element.overflowPolicy = 'visible';
-  }
-  for (const child of [labelPlate, label, crawl]) child.parentId = window.id;
-  const speed = Math.max(
-    40,
-    Number(options.speedPixelsPerSecond ?? 180 * (composition.height / 1080)),
+  const crawlWidth = Math.max(1, width - labelWidth - 28 * scale);
+  const crawl = staticRecipeLayer(
+    composition,
+    'ticker',
+    `${name} · Native ticker`,
+    ctx.groupId,
+    'ticker',
+    'ticker',
+    ['editable', 'native-ticker', 'qa:allow-loop-seam'],
+    pose(x + labelWidth + 14 * scale, y + 8 * scale, crawlWidth, height - 16 * scale),
   );
-  const distance = width + crawlWidth;
-  const durationFrames = Math.max(30, Math.round((distance / speed) * composition.frameRate));
-  crawl.loop = createLayerLoopClip({
-    name: `${name} Crawl`,
-    activation: { type: 'lifecycle' },
-    durationFrames,
-    repeatCount: null,
-    tracks: {
-      x: [
-        createLayerPropertyKeyframe(0, x + width, { easing: 'linear' }),
-        createLayerPropertyKeyframe(durationFrames, x - crawlWidth, { easing: 'linear' }),
-      ],
-    },
+  const content =
+    options.content?.text ??
+    'BREAKING NEWS  •  World leaders meet for global summit  •  Markets open higher as technology advances';
+  const fontSize = Math.max(20, Math.round(height * 0.43));
+  const fontFamily = ctx.color(STYLE_TOKEN_KEYS.fontFamily, 'Arial');
+  const condensed = /^['"]?Roboto Condensed['"]?(?:,|$)/i.test(fontFamily.trim());
+  const letterSpacing = condensed ? 0.2 : 0;
+  const text = createTextElement({
+    content,
+    fontFamily,
+    fontSize,
+    fontWeight: 600,
+    lineHeight: condensed ? 1.05 : 1.2,
+    letterSpacing,
+    color: ctx.color(STYLE_TOKEN_KEYS.primaryText, '#ffffff'),
+    fill: ctx.color(STYLE_TOKEN_KEYS.primaryText, '#ffffff'),
+    autoFit: 'shrink-to-fit',
+    minFontSize: Math.round(fontSize * 0.65),
+    verticalAlign: 'middle',
+    overflowPolicy: 'clip',
   });
-  const nextTickerFieldKey = fieldKeyAllocator(composition);
+  const mark = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 3 29 16 16 29 3 16Z" fill="${ctx.color(STYLE_TOKEN_KEYS.accent, '#31b7d4')}"/><path d="M16 10 22 16 16 22 10 16Z" fill="white" opacity=".7"/></svg>`;
+  const separatorAsset = options.items
+    ? undefined
+    : createAsset({
+        name: `${name} separator`,
+        kind: 'image',
+        mimeType: 'image/svg+xml',
+        dataUri: `data:image/svg+xml,${encodeURIComponent(mark)}`,
+        originalFileName: 'ticker-separator.svg',
+        byteSize: new TextEncoder().encode(mark).length,
+      });
+  if (separatorAsset) composition.assets.push(separatorAsset);
+  crawl.element = createTickerElement({
+    items: options.items
+      ? structuredClone(options.items)
+      : [
+          {
+            id: 'headline',
+            name: 'Headline',
+            width: Math.max(
+              crawlWidth,
+              Math.ceil(
+                [...content].length * (fontSize * (condensed ? 0.55 : 0.65) + letterSpacing),
+              ),
+            ),
+            element: text,
+          },
+          {
+            id: 'separator',
+            name: 'Station separator',
+            width: Math.max(24, fontSize),
+            height: Math.max(24, fontSize),
+            element: createImageElement({ src: `asset:${separatorAsset!.id}` }),
+          },
+        ],
+    speedPixelsPerSecond: Math.min(2000, Math.max(0, options.speedPixelsPerSecond ?? 150 * scale)),
+    direction: options.direction ?? 'left',
+    textDirection: options.textDirection ?? 'auto',
+    updatePolicy: options.updatePolicy ?? 'next-appearance',
+    gap: options.gap ?? 48 * scale,
+    entryFade: options.entryFade ?? 40 * scale,
+    exitFade: options.exitFade ?? 40 * scale,
+    fadeSoftness: options.fadeSoftness ?? 0.8,
+  });
+  for (const child of [labelPlate, label, crawl]) child.parentId = window.id;
+  const nextKey = fieldKeyAllocator(composition);
   const labelField = createFieldDefinition('text', {
-    key: nextTickerFieldKey(options.fieldKeys?.label ?? 'ticker_label', 'ticker_label'),
+    key: nextKey(options.fieldKeys?.label ?? 'ticker_label', 'ticker_label'),
     label: `${name} Label`,
-    description: 'Short category label preceding the crawl.',
+    description: 'Short category label preceding the native ticker.',
     defaultValue: label.element.type === 'text' ? label.element.content : 'NEWS',
     constraints: { maxLength: 16 },
   });
-  const textField = createFieldDefinition('textarea', {
-    key: nextTickerFieldKey(options.fieldKeys?.text ?? 'ticker_text', 'ticker_text'),
-    label: `${name} Text`,
-    description: 'Continuous ticker or crawl content.',
-    defaultValue: crawl.element.type === 'text' ? crawl.element.content : '',
-    constraints: { maxLength: 240 },
-  });
   label.bindings = [{ fieldId: labelField.id, targetProperty: 'content' }];
-  crawl.bindings = [{ fieldId: textField.id, targetProperty: 'content' }];
+  const fields: Record<string, ReturnType<typeof createFieldDefinition>> = { label: labelField };
+  if (options.items !== undefined || options.fieldKeys?.feed !== undefined) {
+    const feed = createFieldDefinition('array', {
+      key: nextKey(options.fieldKeys?.feed ?? 'ticker_feed', 'ticker_feed'),
+      label: `${name} Feed`,
+      description: 'Complete native ticker items. Preserve stable item IDs when editing a feed.',
+      defaultValue: crawl.element.items as unknown as import('./types').FieldValue,
+      constraints: { minItems: 0, maxItems: 128 },
+    });
+    fields.feed = feed;
+    crawl.bindings = [{ fieldId: feed.id, targetProperty: 'items' }];
+  } else {
+    const textField = createFieldDefinition('textarea', {
+      key: nextKey(options.fieldKeys?.text ?? 'ticker_text', 'ticker_text'),
+      label: `${name} Text`,
+      description:
+        'Headline content. Native next-appearance updates preserve the current visible pass.',
+      defaultValue: content,
+      constraints: { maxLength: 240 },
+    });
+    fields.text = textField;
+    crawl.bindings = [{ fieldId: textField.id, targetProperty: 'items.headline.content' }];
+  }
   return finish(
     composition,
     ctx,
     'ticker',
     name,
     { window, labelPlate, label, crawl },
-    { label: labelField, text: textField },
+    fields,
+    options.asComponent !== false,
   );
 }
 
@@ -497,7 +340,7 @@ export function materializeScoreboard(
   });
   const width = Math.max(560, Math.round(options.placement?.width ?? composition.width * 0.42));
   const height = Math.max(96, Math.round(options.placement?.height ?? composition.height * 0.12));
-  const x = Math.round(options.placement?.x ?? (composition.width - width) / 2);
+  const x = Math.round(options.placement?.x ?? composition.width * 0.05);
   const y = Math.round(options.placement?.y ?? composition.height * 0.055);
   const panel = recipeLayer(
     composition,
@@ -631,105 +474,6 @@ export function materializeScoreboard(
       awayScore: awayScoreField,
       awayName: awayNameField,
     },
-  );
-}
-
-export function materializeClock(
-  composition: Composition,
-  options: ClockRecipeOptions = {},
-): MaterializedBroadcastRecipe {
-  requireStep(composition, 'clock');
-  const name = options.name?.trim() || 'Clock';
-  const ctx = context(composition, options.stylePack, 'news', options.motion, {
-    style: 'slide',
-    entrance: 'up',
-    exit: 'up',
-  });
-  const width = Math.max(220, Math.round(options.placement?.width ?? composition.width * 0.15));
-  const height = Math.max(72, Math.round(options.placement?.height ?? composition.height * 0.09));
-  const x = Math.round(
-    options.placement?.x ?? composition.width - width - composition.width * 0.045,
-  );
-  const y = Math.round(options.placement?.y ?? composition.height * 0.055);
-  const panel = recipeLayer(
-    composition,
-    'clock',
-    `${name} · Panel`,
-    ctx.groupId,
-    'rectangle',
-    'container',
-    ['panel'],
-    pose(x, y, width, height),
-    ctx.motion,
-    0,
-    4,
-  );
-  panel.clipChildren = true;
-  const digitWidth = (width - 36) / 2;
-  const hours = staticRecipeLayer(
-    composition,
-    'clock',
-    `${name} · Hours`,
-    ctx.groupId,
-    'text',
-    'value',
-    ['hours', 'editable'],
-    pose(x + 10, y + 8, digitWidth, height - 16),
-  );
-  const separator = staticRecipeLayer(
-    composition,
-    'clock',
-    `${name} · Separator`,
-    ctx.groupId,
-    'text',
-    'value',
-    ['separator', 'qa:static-text'],
-    pose(x + 10 + digitWidth, y + 8, 16, height - 16),
-  );
-  const minutes = staticRecipeLayer(
-    composition,
-    'clock',
-    `${name} · Minutes`,
-    ctx.groupId,
-    'text',
-    'value',
-    ['minutes', 'editable'],
-    pose(x + 26 + digitWidth, y + 8, digitWidth, height - 16),
-  );
-  for (const text of [hours, separator, minutes]) {
-    if (text.element.type !== 'text') continue;
-    text.element.textAlign = 'center';
-    text.element.verticalAlign = 'middle';
-    text.element.autoFit = 'shrink-to-fit';
-    text.element.overflowPolicy = 'clip';
-  }
-  for (const child of [hours, separator, minutes]) child.parentId = panel.id;
-  if (hours.element.type === 'text') hours.element.content = options.content?.hours ?? '18';
-  if (separator.element.type === 'text') separator.element.content = ':';
-  if (minutes.element.type === 'text') minutes.element.content = options.content?.minutes ?? '42';
-  const nextClockFieldKey = fieldKeyAllocator(composition);
-  const hoursField = createFieldDefinition('text', {
-    key: nextClockFieldKey(options.fieldKeys?.hours ?? 'clock_hours', 'clock_hours'),
-    label: 'Clock Hours',
-    description: 'Two-digit 24-hour clock hour.',
-    defaultValue: hours.element.type === 'text' ? hours.element.content : '18',
-    constraints: { maxLength: 2, pattern: '^([01][0-9]|2[0-3])$' },
-  });
-  const minutesField = createFieldDefinition('text', {
-    key: nextClockFieldKey(options.fieldKeys?.minutes ?? 'clock_minutes', 'clock_minutes'),
-    label: 'Clock Minutes',
-    description: 'Two-digit clock minute.',
-    defaultValue: minutes.element.type === 'text' ? minutes.element.content : '42',
-    constraints: { maxLength: 2, pattern: '^[0-5][0-9]$' },
-  });
-  hours.bindings = [{ fieldId: hoursField.id, targetProperty: 'content' }];
-  minutes.bindings = [{ fieldId: minutesField.id, targetProperty: 'content' }];
-  return finish(
-    composition,
-    ctx,
-    'clock',
-    name,
-    { panel, hours, separator, minutes },
-    { hours: hoursField, minutes: minutesField },
+    options.asComponent !== false,
   );
 }
