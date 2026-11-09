@@ -109,6 +109,7 @@ import {
   updateComponentDefinitionFromLayers,
   createCustomActionDefinition,
   createFieldDefinition,
+  fieldExposedToOgraf,
   createFieldDefinitionFromInput,
   cloneFieldDefinitionWithFreshIds,
   defaultConstraintsForFieldType,
@@ -168,6 +169,7 @@ import {
   sortLayerPropertyKeyframes,
   type AnimatableLayerProperty,
   type Composition,
+  type FieldDefinition,
   type EasingPreset,
   type Layer,
   type MaterializedBroadcastRecipe,
@@ -1206,6 +1208,25 @@ function recordSemanticBlock(
     });
   }
   summary.semanticBlocks.push({ operationIndex, ...block });
+}
+
+function setNodosFieldExposure(
+  composition: Composition,
+  field: FieldDefinition,
+  exposed: boolean,
+): void {
+  if (exposed && !fieldExposedToOgraf(field)) {
+    throw new Error(`Expose "${field.key}" to OGraf before selecting it as a Nodos input.`);
+  }
+  const selection = new Set(
+    composition.nodosInputFieldIds ??
+      composition.dataFields.filter(fieldExposedToOgraf).map(({ id }) => id),
+  );
+  if (exposed) selection.add(field.id);
+  else selection.delete(field.id);
+  composition.nodosInputFieldIds = composition.dataFields
+    .filter(({ id }) => selection.has(id))
+    .map(({ id }) => id);
 }
 
 export function applyAuthoringOperations(
@@ -3571,6 +3592,8 @@ export function applyAuthoringOperations(
         if (operation.defaultTokenId !== undefined)
           bindFieldDefaultToken(composition, field, operation.defaultTokenId);
         composition.dataFields.push(field);
+        if (operation.exposeToNodos !== undefined)
+          setNodosFieldExposure(composition, field, operation.exposeToNodos);
         summary.generatedIds.push({ operationIndex, kind: 'field', id: field.id });
         break;
       }
@@ -3649,6 +3672,8 @@ export function applyAuthoringOperations(
         if (operation.nodosType === null) delete field.nodosType;
         else if (operation.nodosType !== undefined) field.nodosType = operation.nodosType;
         if (operation.exposeToOgraf !== undefined) field.exposeToOgraf = operation.exposeToOgraf;
+        if (operation.exposeToNodos !== undefined)
+          setNodosFieldExposure(composition, field, operation.exposeToNodos);
         if (operation.defaultTokenId !== undefined)
           bindFieldDefaultToken(composition, field, operation.defaultTokenId);
         else if (operation.defaultValue !== undefined || operation.fieldType !== undefined)

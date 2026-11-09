@@ -1873,6 +1873,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('add_data_field'),
+    exposeToNodos: z.boolean().optional(),
     nodosType: z
       .string()
       .trim()
@@ -1897,6 +1898,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('update_data_field'),
+    exposeToNodos: z.boolean().optional(),
     nodosType: z
       .string()
       .trim()

@@ -1,9 +1,11 @@
 import type {
   CompiledGraphicDescriptor,
+  CompiledNodosInputTypes,
   CompiledTransitionLogicDescriptor,
   OGrafManifest,
 } from '@ograf-editor/ograf-types';
 import {
+  compositionWithShaderParameterFields,
   isMediaPaint,
   getElementShaderPaints,
   isShaderPaint,
@@ -12,6 +14,7 @@ import {
   isElementImageSourceBinding,
   templateThumbnailName,
   type Composition,
+  type FieldDefinition,
   type Paint,
   type Project,
 } from '@ograf-editor/scene-model';
@@ -511,6 +514,22 @@ export function packageDescriptorResources(
   };
 }
 
+function compileNodosInputTypes(field: FieldDefinition): CompiledNodosInputTypes | undefined {
+  const properties = Object.fromEntries(
+    field.properties.flatMap((property) => {
+      const types = compileNodosInputTypes(property);
+      return types ? [[property.key, types]] : [];
+    }),
+  );
+  const items = field.items ? compileNodosInputTypes(field.items) : undefined;
+  const types = {
+    ...(field.nodosType ? { nodosType: field.nodosType } : {}),
+    ...(Object.keys(properties).length ? { properties } : {}),
+    ...(items ? { items } : {}),
+  };
+  return Object.keys(types).length ? types : undefined;
+}
+
 /** Shared exact-artifact compiler used by the editor and the MCP authoring host. */
 export function buildExportArtifactsWithRuntime(
   project: Project,
@@ -521,6 +540,19 @@ export function buildExportArtifactsWithRuntime(
   const outputProject = profile ? projectForExportProfile(project, profile) : project;
   const sourceDescriptor = compileDescriptor(composition);
   const packaged = packageDescriptorResources(composition, sourceDescriptor);
+  const selectedNodosFields = packaged.composition.nodosInputFieldIds;
+  if (selectedNodosFields !== undefined) {
+    const selectedIds = new Set(selectedNodosFields);
+    const fields = selectedIds.size
+      ? compositionWithShaderParameterFields(packaged.composition).dataFields
+      : [];
+    packaged.descriptor.nodosInputFields = fields
+      .filter((field) => selectedIds.has(field.id))
+      .map((field) => {
+        const nativeTypes = compileNodosInputTypes(field);
+        return { key: field.key, ...(nativeTypes ? { nativeTypes } : {}) };
+      });
+  }
   const manifest = assembleManifest(outputProject, packaged.composition, packaged.descriptor);
   const authoringPrompts = manifestAuthoringPrompts([{ project }]);
   if (authoringPrompts) manifest.v_ografStudioAuthoringPrompts = authoringPrompts;

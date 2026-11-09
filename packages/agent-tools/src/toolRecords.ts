@@ -1029,6 +1029,7 @@ function projectSnapshotProjection(
       if (sections.has('dataFields')) {
         projectedComposition.functions = composition.functions ?? [];
         projectedComposition.dataFields = composition.dataFields;
+        projectedComposition.nodosInputFieldIds = composition.nodosInputFieldIds;
         projectedComposition.runtimeCollections = composition.runtimeCollections;
       }
       if (sections.has('dataConnections')) {
@@ -3229,6 +3230,8 @@ export function createOGrafToolRecords(
               'Scalars retain their native type; object/gradient use nos.Dict, select-multiple [string], arrays [T]. Arrays of arrays use Dict items wrappers decoded before graphic updates. Data offers eligible engine structs/tables/enums from the current connected engine; saved ordinary field schemas and nodosType remain usable offline. Oversized, recursive, resource, union and dynamic shapes are unavailable. Invalid numeric ranges are rejected, not wrapped; 64-bit integers use the JavaScript safe range.',
             authoringMetadata:
               'add_data_field, nested field inputs and update_data_field preserve known nodosType names with an explicit ordinary schema. Values belong at operation top level. update_data_field nodosType:null clears the assignment; a plain fieldType change clears it unless replaced. These tools do not connect to or discover engine types. nodosType is source metadata, not an OGraf manifest extension or an exposed value.',
+            pinSelection:
+              'Set exposeToNodos:true on add_data_field or update_data_field to select a public top-level field, or false to deselect it. Omitting it preserves the selection. ograf_get_project with include:["dataFields"] shows nodosInputFieldIds when an explicit selection exists, including an empty array when no data pins are selected.',
             synchronization:
               'Stable template IDs determine new preset classes; existing unique names survive renames and re-selection. Shared controls/assets invalidate selected inactive templates too. Configuration, selection, document or connection changes cancel stale preparation before publication; already dispatched registrations may finish.',
             publication:

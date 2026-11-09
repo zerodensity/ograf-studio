@@ -7,6 +7,7 @@ import {
   createMediaPaint,
   createProject,
   createShaderPaint,
+  syncShaderParameterFields,
 } from '@ograf-editor/scene-model';
 import { buildExportArtifactsWithRuntime } from './buildExportArtifacts';
 import { buildOfflinePreviewHtml } from './offlinePreview';
@@ -115,6 +116,44 @@ describe('Nodos inputs in ordinary exports', () => {
     expect(payload.nodos.inputs).toEqual(declarations);
     expect(artifacts.manifest.schema).not.toHaveProperty('nodos');
     expect(JSON.stringify(payload.nodos)).not.toContain('Internal');
+  });
+
+  it('does not redeclare a deleted shader pin when a new parameter reuses the same field ID', () => {
+    const project = createProject({ supportsNonRealTime: false });
+    const composition = project.compositions[0]!;
+    const title = createFieldDefinition('text', { key: 'TitleInput1' });
+    const layer = createLayerOfKind('rectangle');
+    if (layer.element.type !== 'rectangle') throw new Error('Expected rectangle');
+    const shader = createShaderPaint({
+      fragmentSource:
+        '#pragma ograf gain slider min(0) max(1)\nconst float gain = 0.5;\nvoid mainImage(out vec4 c, in vec2 p) { c = vec4(gain); }',
+    });
+    layer.element.fill = shader;
+    layer.keyframes = [createLayerKeyframe(0, createDefaultTransform())];
+    composition.layers = [layer];
+    composition.dataFields = [title];
+    syncShaderParameterFields(composition, layer);
+    const gain = composition.dataFields[1]!;
+    composition.nodosInputFieldIds = [title.id, gain.id];
+    const exportInputs = () =>
+      buildExportArtifactsWithRuntime(project, composition, 'class GraphicElement {}')
+        .nodosInputContract;
+    expect(exportInputs()).toMatchObject({
+      inputs: [
+        { name: title.key, type: 'string' },
+        { name: gain.key, type: 'double' },
+      ],
+    });
+
+    shader.fragmentSource = 'void mainImage(out vec4 c, in vec2 p) { c = vec4(1.0); }';
+    syncShaderParameterFields(composition, layer);
+    expect(composition.nodosInputFieldIds).toEqual([title.id]);
+
+    shader.fragmentSource =
+      '#pragma ograf gain toggle\nconst bool gain = true;\nvoid mainImage(out vec4 c, in vec2 p) { c = vec4(gain ? 1.0 : 0.0); }';
+    syncShaderParameterFields(composition, layer);
+    expect(composition.dataFields[1]).toMatchObject({ id: gain.id, type: 'boolean' });
+    expect(exportInputs()).toMatchObject({ inputs: [{ name: title.key, type: 'string' }] });
   });
 
   it('connects an incoming texture canvas by tag and applies pin values received during load', async () => {

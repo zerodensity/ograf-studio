@@ -176,6 +176,12 @@ unless a replacement is supplied. These authoring operations do not fetch engine
 to Nodos. Preserve metadata through components, sets and standalone `.ogs`; it is not an OGraf
 manifest schema extension or an extra playout field.
 
+Set `exposeToNodos: true` on `add_data_field` or `update_data_field` to select a public top-level
+field as a Nodos input. Set it to `false` to deselect the pin. Omit it to leave the selection alone.
+`nodosType` sets the value type independently. Read `ograf_get_project` with `include: ["dataFields"]`
+to see `nodosInputFieldIds`. An empty array selects no data pins. An absent selection uses the
+legacy public fields. Check the final HTML declarations alongside any live texture tags.
+
 Preset identity follows the stable template ID, not its display name. Preserve existing unique
 assignments through rename, untick/reselect and reload; verify duplicate names stay distinct.
 Sync must include effective shared controls/assets of inactive selected templates. Invalidate
