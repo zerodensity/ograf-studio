@@ -27,8 +27,8 @@ describe('PSD import', () => {
       height: 10,
       imageData: { width: 10, height: 10, data: new Uint8ClampedArray(400) },
       children: [
-        { name: 'Top', left: 3, top: 4, opacity: 0.5, imageData: pixels(100) },
         { name: 'Bottom', left: 1, top: 2, hidden: true, imageData: pixels(200) },
+        { name: 'Top', left: 3, top: 4, opacity: 0.5, imageData: pixels(100) },
       ],
     };
     const parsed = readPsd(writePsd(source), { useImageData: true, skipThumbnail: true });
@@ -54,30 +54,35 @@ describe('PSD import', () => {
     expect(result.layers[0]?.name).toBe('PSD merged image');
     expect(result.warnings.join(' ')).toMatch(/not editable/);
   });
-  it('imports a solid rectangular vector layer alongside saved pixel layers', () => {
+  it('keeps an editable backing behind the logo in a PSD group', () => {
     const source: Psd = {
       width: 10,
       height: 10,
       children: [
-        { name: 'Logo', left: 3, top: 4, imageData: pixels(10) },
         {
-          name: 'Backing',
-          opacity: 0.5,
-          fillOpacity: 0.5,
-          vectorFill: { type: 'color', color: { r: 243, g: 240, b: 232 } },
-          vectorMask: {
-            paths: [
-              {
-                open: false,
-                operation: 'combine',
-                fillRule: 'non-zero',
-                knots: [[2, 3], [8, 3], [8, 7], [2, 7]].map(([x, y]) => ({
-                  linked: false,
-                  points: [x!, y!, x!, y!, x!, y!],
-                })),
+          name: 'Identity',
+          children: [
+            {
+              name: 'Backing',
+              opacity: 0.5,
+              fillOpacity: 0.5,
+              vectorFill: { type: 'color', color: { r: 243, g: 240, b: 232 } },
+              vectorMask: {
+                paths: [
+                  {
+                    open: false,
+                    operation: 'combine',
+                    fillRule: 'non-zero',
+                    knots: [[2, 3], [8, 3], [8, 7], [2, 7]].map(([x, y]) => ({
+                      linked: false,
+                      points: [x!, y!, x!, y!, x!, y!],
+                    })),
+                  },
+                ],
               },
-            ],
-          },
+            },
+            { name: 'Logo', left: 3, top: 4, imageData: pixels(10) },
+          ],
         },
       ],
     };
@@ -95,6 +100,8 @@ describe('PSD import', () => {
       opacity: 0.25,
     });
     expect(result.layers[1]?.element.type).toBe('image');
+    expect(result.layers[0]?.groupId).toBeTruthy();
+    expect(result.layers[1]?.groupId).toBe(result.layers[0]?.groupId);
   });
   it('retains a missing-font text layer as pixels', () => {
     const source: Psd = {
@@ -214,17 +221,19 @@ describe('PSD import', () => {
     expect(result.layers.map((layer) => layer.element)).toEqual([
       expect.objectContaining({
         type: 'text',
-        content: 'Bold',
-        fontFamily: 'Arial',
-        fontSize: 16,
-        fontWeight: 700,
-      }),
-      expect.objectContaining({
-        type: 'text',
         content: 'Regular',
         fontFamily: 'Arial',
         fontSize: 16,
         fontWeight: 400,
+        minFontSize: 8,
+      }),
+      expect.objectContaining({
+        type: 'text',
+        content: 'Bold',
+        fontFamily: 'Arial',
+        fontSize: 16,
+        fontWeight: 700,
+        minFontSize: 8,
       }),
     ]);
     expect(result.layers[0]?.keyframes[0]?.transform).toMatchObject({ x: 5, y: 7 });
@@ -237,7 +246,7 @@ describe('PSD import', () => {
     if (!regular) throw new Error('Expected parsed PSD text');
     regular.warp = { style: 'arc', value: 15 };
     const warped = mapPsdLayers(parsed, composition, png, () => true);
-    expect(warped.layers.map((layer) => layer.element.type)).toEqual(['text', 'image']);
+    expect(warped.layers.map((layer) => layer.element.type)).toEqual(['image', 'text']);
   });
   it('packages imported PNG data as an OGraf resource', () => {
     const source: Psd = {

@@ -7,6 +7,7 @@ import {
   createId,
   createLayerKeyframe,
   createLayerOfKind,
+  createTextElement,
   type BlendMode,
   type Composition,
   type Layer,
@@ -189,8 +190,8 @@ export function mapPsdLayers(
     depth: number,
   ) => {
     if (depth > 32) throw new Error('PSD groups exceed the 32-level limit.');
-    // Photoshop lists topmost first; Studio's layer list is back-to-front.
-    for (const node of [...nodes].reverse()) {
+    // PSD layer records and Studio layers both run from back to front.
+    for (const node of nodes) {
       const visible = parentVisible && !node.hidden;
       if (node.children) {
         if (depth === 0)
@@ -291,13 +292,13 @@ export function mapPsdLayers(
         'b' in color
       ) {
         const layer = createLayerOfKind('text');
-        if (layer.element.type !== 'text') throw new Error('Could not create text layer.');
         layer.name = node.name || 'PSD text';
         layer.isVisible = visible;
         layer.blendMode = blend;
         layer.groupId = groupId;
         const fontSize = style.fontSize!;
-        Object.assign(layer.element, {
+        const justification = text.paragraphStyle?.justification;
+        layer.element = createTextElement({
           content: text.text,
           fontFamily: family,
           fontSize,
@@ -305,9 +306,7 @@ export function mapPsdLayers(
           color: `rgb(${color.r}, ${color.g}, ${color.b})`,
           letterSpacing: ((style.tracking ?? 0) * fontSize) / 1000,
           lineHeight: style.leading ? style.leading / fontSize : 1.2,
-          textAlign: ['left', 'center', 'right'].includes(text.paragraphStyle?.justification ?? '')
-            ? text.paragraphStyle!.justification
-            : 'left',
+          textAlign: justification === 'center' || justification === 'right' ? justification : 'left',
           autoFit: 'fixed',
         });
         layer.keyframes = composition.keyframes.map((_, i) =>
