@@ -14,6 +14,39 @@ import {
 import { multiplySvgMatrix, parseSvgTransform, SVG_IDENTITY, type SvgMatrix } from './svgTransform';
 import { isAvailableImportFont } from './importFontAvailability';
 
+export const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+export const XMLNS_NAMESPACE = 'http://www.w3.org/2000/xmlns/';
+const INKSCAPE_NAMESPACE = 'http://www.inkscape.org/namespaces/inkscape';
+const SODIPODI_NAMESPACE = 'http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd';
+
+export function importedSvgName(node: Element): string | null {
+  return (
+    node.getAttributeNS(INKSCAPE_NAMESPACE, 'label')?.trim() ||
+    node.getAttribute('data-name')?.trim() ||
+    node.getAttribute('id')
+  );
+}
+
+/** Inkscape uses inline declarations for simple shape paints. Defer other CSS to fallback. */
+function inlinePaintDeclarations(node: Element): Map<string, string> {
+  const paint = new Map<string, string>();
+  for (const declaration of (node.getAttribute('style') ?? '').split(';')) {
+    if (!declaration.trim()) continue;
+    const match = /^\s*(fill|stroke|stroke-width)\s*:\s*(.+?)\s*$/i.exec(declaration);
+    const property = match?.[1]?.toLowerCase();
+    const value = match?.[2]?.trim();
+    if (
+      !property ||
+      !value ||
+      /[!\\]|\/\*|^(?:inherit|initial|unset|revert(?:-layer)?)$/i.test(value) ||
+      (typeof CSS !== 'undefined' && !CSS.supports(property, value))
+    )
+      throw new Error('This SVG inline style requires image fallback.');
+    paint.set(property, value);
+  }
+  return paint;
+}
+
 /** Measure the baseline of the same CSS line box used by Studio's text renderer. */
 function measureSvgTextBaseline(family: string, size: number, weight: number): number | null {
   if (typeof window === 'undefined' || !window.document.body) return null;
@@ -93,7 +126,11 @@ export function editableSvgLayers(
     throw new Error('This SVG is too large or contains a document type declaration.');
   const document = new DOMParser().parseFromString(source, 'image/svg+xml');
   const root = document.documentElement;
-  if (root.localName !== 'svg' || document.querySelector('parsererror'))
+  if (
+    root.localName !== 'svg' ||
+    (root.namespaceURI !== null && root.namespaceURI !== SVG_NAMESPACE) ||
+    document.querySelector('parsererror')
+  )
     throw new Error('The file is not a well-formed SVG.');
   const viewBox = root
     .getAttribute('viewBox')
@@ -115,8 +152,8 @@ export function editableSvgLayers(
   const layers: Layer[] = [];
   const textBaselines = new Map<string, number | null>();
   const frameNumbers = computeKeyframeFrames(composition);
-  const num = (node: Element, key: string, fallback = 0) => {
-    const raw = node.getAttribute(key);
+  const num = (node: Element, key: string, fallback = 0, inline?: string) => {
+    const raw = inline ?? node.getAttribute(key);
     if (raw == null) return fallback;
     if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:px)?$/.test(raw.trim()))
       throw new Error(`Unsupported ${key} value: ${raw}`);
@@ -131,9 +168,16 @@ export function editableSvgLayers(
   )
     throw new Error('An SVG viewport different from its viewBox is not yet supported.');
   const gradients = new Map<string, GradientPaint>();
-  for (const defs of Array.from(root.children).filter((child) => child.localName === 'defs')) {
+  for (const defs of Array.from(root.children).filter(
+    (child) => child.namespaceURI === root.namespaceURI && child.localName === 'defs',
+  )) {
     for (const gradient of Array.from(defs.children)) {
-      if (gradient.localName !== 'linearGradient' || !gradient.getAttribute('id')) continue;
+      if (
+        gradient.namespaceURI !== root.namespaceURI ||
+        gradient.localName !== 'linearGradient' ||
+        !gradient.getAttribute('id')
+      )
+        continue;
       try {
         const allowed = new Set(['id', 'x1', 'y1', 'x2', 'y2']);
         if (Array.from(gradient.attributes).some((attribute) => !allowed.has(attribute.name)))
@@ -153,6 +197,7 @@ export function editableSvgLayers(
           throw new Error('Only horizontal or vertical SVG gradients are supported.');
         const stops = Array.from(gradient.children).map((stop) => {
           if (
+            stop.namespaceURI !== root.namespaceURI ||
             stop.localName !== 'stop' ||
             Array.from(stop.attributes).some(
               (a) => !['offset', 'stop-color', 'stop-opacity'].includes(a.name),
@@ -196,6 +241,7 @@ export function editableSvgLayers(
     fontSize: number;
     fontFamily: string;
     fontWeight: number;
+    letterSpacing: number;
   };
   const visit = (
     node: Element,
@@ -207,6 +253,11 @@ export function editableSvgLayers(
     const checkpoint = layers.length;
     try {
       const tag = node.localName;
+      if (tag === 'namedview' && node.namespaceURI === SODIPODI_NAMESPACE) return;
+      if (node.namespaceURI !== root.namespaceURI)
+        throw new Error(
+          `Editable import cannot represent <${node.tagName}> in a different namespace.`,
+        );
       if (['title', 'desc', 'metadata', 'defs'].includes(tag)) return;
       if (!['svg', 'g', 'rect', 'ellipse', 'circle', 'path', 'text'].includes(tag))
         throw new Error(
@@ -214,8 +265,7 @@ export function editableSvgLayers(
         );
       const allowed = new Set([
         'id',
-        'xmlns',
-        'xmlns:xlink',
+        'data-name',
         'version',
         'width',
         'height',
@@ -235,29 +285,40 @@ export function editableSvgLayers(
         'font-size',
         'font-family',
         'font-weight',
+        'letter-spacing',
         'text-anchor',
         'transform',
+        'style',
       ]);
       for (const attribute of Array.from(node.attributes)) {
         const name = attribute.name;
+        if (
+          attribute.namespaceURI === XMLNS_NAMESPACE ||
+          (attribute.namespaceURI === INKSCAPE_NAMESPACE &&
+            ['label', 'version', 'groupmode'].includes(attribute.localName)) ||
+          (attribute.namespaceURI === SODIPODI_NAMESPACE && attribute.localName === 'docname')
+        )
+          continue;
         if (!allowed.has(name))
           throw new Error(
             `Editable import cannot faithfully represent ${name}; import as an image instead.`,
           );
       }
-      const fill = node.getAttribute('fill') ?? inherited.fill;
-      const stroke = node.getAttribute('stroke') ?? inherited.stroke;
+      const inline = inlinePaintDeclarations(node);
+      const fill = inline.get('fill') ?? node.getAttribute('fill') ?? inherited.fill;
+      const stroke = inline.get('stroke') ?? node.getAttribute('stroke') ?? inherited.stroke;
       if (/currentcolor|context-fill|context-stroke|var\s*\(/i.test(fill + stroke))
         throw new Error('Context-dependent SVG colors are not yet supported.');
       if (/url\s*\(/i.test(stroke)) throw new Error('SVG gradient strokes are not yet supported.');
       const style: Style = {
         fill,
         stroke,
-        strokeWidth: num(node, 'stroke-width', inherited.strokeWidth),
+        strokeWidth: num(node, 'stroke-width', inherited.strokeWidth, inline.get('stroke-width')),
         opacity: inherited.opacity,
         fontSize: num(node, 'font-size', inherited.fontSize),
         fontFamily: node.getAttribute('font-family') ?? inherited.fontFamily,
         fontWeight: num(node, 'font-weight', inherited.fontWeight),
+        letterSpacing: num(node, 'letter-spacing', inherited.letterSpacing),
       };
       const transform = multiplySvgMatrix(
         matrix,
@@ -282,7 +343,7 @@ export function editableSvgLayers(
               ? 'text'
               : 'path';
       const layer = createLayerOfKind(kind);
-      layer.name = node.getAttribute('id') || `${tag} ${layers.length + 1}`;
+      layer.name = importedSvgName(node) || `${tag} ${layers.length + 1}`;
       layer.groupId = groupId;
       let x = 0,
         y = 0,
@@ -354,6 +415,7 @@ export function editableSvgLayers(
           fontSize: style.fontSize,
           fontFamily: style.fontFamily,
           fontWeight: style.fontWeight,
+          letterSpacing: style.letterSpacing,
           strokeColor: color(stroke),
           strokeWidth: style.strokeWidth,
         });
@@ -377,7 +439,10 @@ export function editableSvgLayers(
       y = ty;
       w *= sx;
       h *= sy;
-      if (layer.element.type === 'text') layer.element.fontSize *= sx;
+      if (layer.element.type === 'text') {
+        layer.element.fontSize *= sx;
+        layer.element.letterSpacing *= sx;
+      }
       if ('strokeWidth' in layer.element) layer.element.strokeWidth *= sx;
       layer.keyframes = composition.keyframes.map((_, i) =>
         createLayerKeyframe(
@@ -418,6 +483,7 @@ export function editableSvgLayers(
       fontSize: 16,
       fontFamily: 'sans-serif',
       fontWeight: 400,
+      letterSpacing: 0,
     },
     null,
     SVG_IDENTITY,

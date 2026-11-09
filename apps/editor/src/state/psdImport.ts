@@ -27,7 +27,67 @@ const blendModes = new Set<BlendMode>([
   'exclusion',
 ]);
 
-/** Import Photoshop pixels losslessly. Unsupported compositing uses the PSD's merged preview. */
+/** A solid Photoshop rectangle uses a vector mask as its shape, without clipping other artwork. */
+function psdRectangle(node: PsdLayer) {
+  const mask = node.vectorMask;
+  const fill = node.vectorFill;
+  if (
+    !mask ||
+    mask.invert ||
+    mask.disable ||
+    mask.notLink ||
+    mask.fillStartsWithAllPixels ||
+    mask.paths.length !== 1 ||
+    node.children ||
+    node.text ||
+    node.vectorStroke ||
+    fill?.type !== 'color'
+  )
+    return null;
+
+  const path = mask.paths[0]!;
+  if (path.open || (path.operation && path.operation !== 'combine') || path.knots.length !== 4)
+    return null;
+  const corners = path.knots.map((knot) => knot.points);
+  if (
+    corners.some(
+      (points) =>
+        points.length !== 6 ||
+        points.some((value, index) => !Number.isFinite(value) || value !== points[index % 2]),
+    )
+  )
+    return null;
+
+  // The knots contain incoming handle, anchor and outgoing handle in document pixels.
+  const xs = corners.map((points) => points[2]!);
+  const ys = corners.map((points) => points[3]!);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  if (
+    left === right ||
+    top === bottom ||
+    new Set(xs).size !== 2 ||
+    new Set(ys).size !== 2 ||
+    new Set(xs.map((x, index) => `${x},${ys[index]}`)).size !== 4 ||
+    xs.some((x, index) => (x === xs[(index + 1) % 4]) === (ys[index] === ys[(index + 1) % 4]))
+  )
+    return null;
+
+  const color = fill.color;
+  if (!('r' in color && 'g' in color && 'b' in color) || ('a' in color && color.a !== 255))
+    return null;
+  return {
+    fill: `rgb(${color.r}, ${color.g}, ${color.b})`,
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
+/** Import supported Photoshop objects as layers. Unsupported compositing uses the merged preview. */
 export async function preparePsd(
   file: File,
   composition: Composition,
@@ -71,7 +131,7 @@ export function mapPsdLayers(
         node.mask ||
         node.realMask ||
         node.filterMask ||
-        node.vectorMask ||
+        (node.vectorMask && !psdRectangle(node)) ||
         node.knockout ||
         node.clipping ||
         node.adjustment ||
@@ -142,6 +202,30 @@ export function mapPsdLayers(
         visit(node.children, createId('group'), visible, depth + 1);
         continue;
       }
+      const rectangle = psdRectangle(node);
+      if (rectangle) {
+        const { fill, ...bounds } = rectangle;
+        const layer = createLayerOfKind('rectangle');
+        if (layer.element.type !== 'rectangle') throw new Error('Could not create rectangle layer.');
+        layer.name = node.name || 'PSD rectangle';
+        layer.element.fill = fill;
+        layer.isVisible = visible;
+        layer.blendMode = (node.blendMode ?? 'normal').replaceAll(' ', '-') as BlendMode;
+        layer.groupId = groupId;
+        layer.keyframes = composition.keyframes.map((_, i) =>
+          createLayerKeyframe(
+            frames[i]?.frame ?? 0,
+            createDefaultTransform({
+              ...bounds,
+              opacity: (node.opacity ?? 1) * (node.fillOpacity ?? 1),
+            }),
+          ),
+        );
+        layer.animationTracks = createAnimationTracksFromLegacyLayer(layer);
+        layers.push(layer);
+        if (layers.length > 512) throw new Error('PSD exceeds the 512-layer import limit.');
+        continue;
+      }
       if (!node.imageData) {
         if ((node.right ?? 0) === (node.left ?? 0) || (node.bottom ?? 0) === (node.top ?? 0))
           continue;
@@ -151,8 +235,13 @@ export function mapPsdLayers(
       const text = node.text;
       const style = text?.style;
       const color = style?.fillColor;
-      const family = style?.font?.name;
+      const face = style?.font?.name;
+      // Photoshop stores PostScript face names, but CSS looks up the family plus weight.
+      const arialFace = face?.toLowerCase();
+      const family = arialFace === 'arialmt' || arialFace === 'arial-boldmt' ? 'Arial' : face;
+      const fontWeight = style?.fauxBold || arialFace === 'arial-boldmt' ? 700 : 400;
       const transform = text?.transform;
+      const warp = text?.warp;
       const canEditText = Boolean(
         text &&
         style &&
@@ -173,7 +262,15 @@ export function mapPsdLayers(
         (!style.verticalScale || style.verticalScale === 1) &&
         (!('a' in color) || color.a === 1 || color.a === 255) &&
         !text.textPath &&
-        !text.warp &&
+        text.orientation !== 'vertical' &&
+        // The PSD text decoder returns a warp descriptor even when no warp is applied.
+        (!warp ||
+          ((!warp.style || warp.style === 'none') &&
+            (warp.value ?? 0) === 0 &&
+            (warp.perspective ?? 0) === 0 &&
+            (warp.perspectiveOther ?? 0) === 0 &&
+            !warp.values?.some((value) => value !== 0) &&
+            !warp.customEnvelopeWarp)) &&
         (!text.styleRuns || text.styleRuns.length <= 1) &&
         (!text.paragraphStyleRuns || text.paragraphStyleRuns.length <= 1) &&
         (!transform ||
@@ -204,7 +301,7 @@ export function mapPsdLayers(
           content: text.text,
           fontFamily: family,
           fontSize,
-          fontWeight: style.fauxBold ? 700 : 400,
+          fontWeight,
           color: `rgb(${color.r}, ${color.g}, ${color.b})`,
           letterSpacing: ((style.tracking ?? 0) * fontSize) / 1000,
           lineHeight: style.leading ? style.leading / fontSize : 1.2,
