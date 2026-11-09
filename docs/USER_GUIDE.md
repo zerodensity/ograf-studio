@@ -537,11 +537,12 @@ preserves its current value and connections. Missing slots and duplicate names a
 ElectroNode preview. Missing slots are not created automatically; add them in Nodos before using
 the page. URL changes retain the graph's input slots.
 
-Use **Data → Operator controls** to choose the fields the page declares. Field keys supply the
-reusable slot names. Internal fields remain available to bindings, animations and Rules and stay
-outside the public declarations and initial data. Object and array defaults also omit internal
-descendants. Changing a matched value updates the graphic through `updateAction` and its configured
-data transition.
+Use **Data → Nodos inputs** to select which operator fields become input slots. Field keys supply
+the reusable slot names. **Data → Operator controls** still controls which fields playout can edit.
+New templates start with no data slots selected. Older templates keep their existing declarations
+until you change the Nodos selection. Internal fields remain available to bindings, animations and
+Rules. Object and array defaults omit internal descendants. Changing a matched value updates the
+graphic through `updateAction` and its configured data transition.
 
 A live-media source's tag supplies a texture slot name, such as `TextureInput1`. The Nodos page
 connects matching GPU textures to the graphic's live-media renderer. Several objects can consume

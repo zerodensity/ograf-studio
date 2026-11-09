@@ -142,9 +142,11 @@ The page requires a real-time or dual profile and loads public defaults before p
 step. Use effective cropped output dimensions while preserving the authored canvas crop offset.
 
 Presets contain only `URL` and `Resolution` settings. The page's `nodos-inputs` JSON declares
-exposed field names/types and live-media texture tags. The companion ElectroNode host matches
+selected field names/types and live-media texture tags. The companion ElectroNode host matches
 these declarations to pre-existing manually created slots by name; missing slots are not created
-automatically. Only fields exposed through **Data → Operator controls** enter those declarations.
+automatically. Choose fields in **Data → Nodos inputs** from those exposed in Operator controls.
+New templates start with no data inputs selected. Older templates keep their previous declarations
+until the user changes that selection.
 Omit internal top-level fields and recursively remove internal descendants from object/array
 public defaults and incoming native values; retain internal descriptor defaults, bindings,
 animations and Rules inside the OGraf graphic. Field keys and live-media tags must not collide

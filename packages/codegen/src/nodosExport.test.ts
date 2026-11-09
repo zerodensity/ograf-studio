@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createDefaultTransform,
   createFieldDefinition,
+  createLayerKeyframe,
   createLayerOfKind,
   createMediaPaint,
   createProject,
+  createShaderPaint,
 } from '@ograf-editor/scene-model';
 import { buildExportArtifactsWithRuntime } from './buildExportArtifacts';
 import { buildOfflinePreviewHtml } from './offlinePreview';
@@ -32,7 +35,9 @@ function exportedPage() {
       exposeToOgraf: false,
       defaultValue: 'Private',
     }),
+    createFieldDefinition('text', { key: 'headline', defaultValue: 'Headline' }),
   ];
+  composition.nodosInputFieldIds = composition.dataFields.slice(0, 2).map((field) => field.id);
   const artifacts = buildExportArtifactsWithRuntime(
     project,
     composition,
@@ -46,6 +51,57 @@ function exportedPage() {
 }
 
 describe('Nodos inputs in ordinary exports', () => {
+  it('declares only a selected title and a live texture while keeping other operator controls', () => {
+    const project = createProject({ supportsNonRealTime: false });
+    const composition = project.compositions[0]!;
+    const title = createFieldDefinition('text', { key: 'TitleInput1' });
+    composition.dataFields = [title, createFieldDefinition('text', { key: 'headline' })];
+    const texture = createLayerOfKind('rectangle');
+    const shader = createLayerOfKind('rectangle');
+    if (texture.element.type !== 'rectangle' || shader.element.type !== 'rectangle')
+      throw new Error('Expected rectangles');
+    texture.element.fill = createMediaPaint({ source: { kind: 'live', tag: 'TextureInput1' } });
+    shader.element.fill = createShaderPaint({
+      fragmentSource:
+        '#pragma ograf gain slider min(0) max(1)\nconst float gain = 0.5;\nvoid mainImage(out vec4 c, in vec2 p) { c = vec4(gain); }',
+    });
+    for (const layer of [texture, shader]) {
+      layer.keyframes = [createLayerKeyframe(0, createDefaultTransform())];
+    }
+    composition.layers = [texture, shader];
+    const build = () =>
+      buildExportArtifactsWithRuntime(project, composition, 'class GraphicElement {}');
+    expect(build().nodosInputContract).toMatchObject({
+      inputs: [{ name: 'TextureInput1', type: 'nos.sys.vulkan.Texture' }],
+    });
+
+    composition.nodosInputFieldIds = [title.id];
+    const artifacts = build();
+    expect(artifacts.errors).toEqual([]);
+    const html = buildOfflinePreviewHtml(artifacts);
+    const declarations = JSON.parse(
+      html.match(/<script id="nodos-inputs" type="application\/json">([\s\S]*?)<\/script>/)![1]!,
+    );
+    expect(declarations).toEqual([
+      { name: 'TitleInput1', type: 'string' },
+      { name: 'TextureInput1', type: 'nos.sys.vulkan.Texture' },
+    ]);
+    const properties = artifacts.manifest.schema!.properties!;
+    expect(properties).toHaveProperty('headline');
+    const shaderKey = Object.keys(properties).find((key) => key.endsWith('_gain'));
+    expect(shaderKey).toBeDefined();
+
+    delete composition.nodosInputFieldIds;
+    expect(build().nodosInputContract).toMatchObject({
+      inputs: [
+        { name: 'TitleInput1', type: 'string' },
+        { name: 'headline', type: 'string' },
+        { name: shaderKey, type: 'double' },
+        { name: 'TextureInput1', type: 'nos.sys.vulkan.Texture' },
+      ],
+    });
+  });
+
   it('declares exact names, native types and live textures in the normal HTML without a preset', () => {
     const { html, payload, artifacts } = exportedPage();
     const declarations = JSON.parse(
@@ -104,7 +160,7 @@ describe('Nodos inputs in ordinary exports', () => {
     const errors = vi.fn();
     const binding = createBinding(
       payload.nodos,
-      { TitleInput1: 'Initial', Position: { x: 0, y: 0 } },
+      { TitleInput1: 'Initial', Position: { x: 0, y: 0 }, headline: 'Headline' },
       errors,
     );
     expect(document.createElement).toHaveBeenCalledExactlyOnceWith('nodos-input');
@@ -115,7 +171,12 @@ describe('Nodos inputs in ordinary exports', () => {
     expect(elements.get('zd-ograf-media')!.getFrame()).toBe(canvas);
     elements.get('zd-ograf-media')!.dataset.sourceTag = 'textureinput1';
     expect(elements.get('zd-ograf-media')!.getFrame()).toBeNull();
-    receive({ TitleInput1: 'Before load', Position: { x: 2, y: 3 }, Internal: 'Ignore' });
+    receive({
+      TitleInput1: 'Before load',
+      Position: { x: 2, y: 3 },
+      Internal: 'Ignore',
+      headline: 'Ignore',
+    });
     const graphic = { updateAction: vi.fn(async () => ({ statusCode: 200 })) };
     const play = vi.fn();
     await binding.start(graphic, async () => undefined, play);
@@ -143,6 +204,7 @@ describe('Nodos inputs in ordinary exports', () => {
     const project = createProject();
     const composition = project.compositions[0]!;
     composition.dataFields = [createFieldDefinition('text', { key: 'Resolution' })];
+    composition.nodosInputFieldIds = [composition.dataFields[0]!.id];
     const artifacts = buildExportArtifactsWithRuntime(
       project,
       composition,

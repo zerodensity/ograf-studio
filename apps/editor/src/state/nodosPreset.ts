@@ -6,7 +6,6 @@ import {
 import {
   publicDataForExport,
   publicNodosComposition,
-  checkNodosFieldKeys as checkFieldKeys,
   buildNodosInputDeclarations,
   buildNodosInputContract,
   NODOS_INPUT_RUNTIME,
@@ -67,8 +66,6 @@ function publicNodosDefaults(composition: Composition): Record<string, FieldValu
  * URLs.
  */
 export function buildNodosPresetDefinition(composition: Composition, options: NodosPresetOptions) {
-  composition = publicNodosComposition(composition);
-  checkFieldKeys(composition);
   buildNodosInputDeclarations(composition);
   const output = getCompositionOutputRect(composition);
   const pin = (name: string, typeName: string, data: string | { x: number; y: number }) => ({
@@ -104,8 +101,9 @@ function scriptJson(value: unknown): string {
  * pins arrive through `window.nodos.onData`, and each change reaches the graphic through `updateAction`.
  */
 export function buildNodosRendererPage(title: string, composition: Composition): string {
+  const contract = buildNodosInputContract(composition);
+  if ('error' in contract) throw new Error(contract.error);
   composition = publicNodosComposition(composition);
-  checkFieldKeys(composition);
   const output = getCompositionOutputRect(composition);
   const loadParams = {
     data: publicNodosDefaults(composition),
@@ -116,8 +114,6 @@ export function buildNodosRendererPage(title: string, composition: Composition):
       accessToPublicInternet: false,
     },
   };
-  const contract = buildNodosInputContract(composition);
-  if ('error' in contract) throw new Error(contract.error);
   const inputs = contract.inputs;
   const pageTitle = title.replace(/[<&]/g, '');
   return `<!doctype html>

@@ -28,6 +28,7 @@ import {
 function composition() {
   const project = createProject();
   const main = project.compositions[0]!;
+  delete main.nodosInputFieldIds;
   main.width = 1920;
   main.height = 1080;
   main.frameRate = 29.97;
@@ -550,17 +551,26 @@ describe('Nodos preset', () => {
     if (!('fill' in layer.element)) throw new Error('Expected a paint');
     layer.element.fill = createMediaPaint({ source: { kind: 'live', tag: 'TextureInput1' } });
     main.layers = [layer, structuredClone(layer)];
-    main.dataFields = [createFieldDefinition('text', { key: 'TitleInput1' })];
-    expect(buildNodosInputDeclarations(main)).toEqual([
+    const title = createFieldDefinition('text', { key: 'TitleInput1' });
+    main.dataFields = [title, createFieldDefinition('text', { key: 'headline' })];
+    main.nodosInputFieldIds = [title.id];
+    const expected = [
       { name: 'TitleInput1', type: 'string' },
       { name: 'TextureInput1', type: 'nos.sys.vulkan.Texture' },
-    ]);
+    ];
+    expect(buildNodosInputDeclarations(main)).toEqual(expected);
     const page = buildNodosRendererPage('Live', main);
+    const declaration = page.match(
+      /<script id="nodos-inputs" type="application\/json">([\s\S]*?)<\/script>/,
+    )![1]!;
+    expect(JSON.parse(declaration)).toEqual(expected);
     expect(page).toContain('"liveMediaElementTag":"zd-ograf-media"');
     expect(page).toContain(
       "targets.get(this.dataset.sourceTag)?.shadowRoot?.querySelector('canvas')",
     );
-    main.dataFields.push(createFieldDefinition('text', { key: 'TextureInput1' }));
+    const conflicting = createFieldDefinition('text', { key: 'TextureInput1' });
+    main.dataFields.push(conflicting);
+    main.nodosInputFieldIds.push(conflicting.id);
     expect(() => buildNodosInputDeclarations(main)).toThrow('conflicting types');
   });
 
