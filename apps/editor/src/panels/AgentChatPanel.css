@@ -208,6 +208,80 @@
   font-size: 10px;
 }
 
+.agent-saved-prompts {
+  flex: none;
+}
+
+.agent-saved-prompt-list {
+  display: grid;
+  gap: 4px;
+  max-height: 10rem;
+  margin: 0;
+  padding: 6px 8px;
+  overflow: auto;
+  list-style: none;
+}
+
+.agent-saved-prompt-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+}
+
+.agent-saved-prompt-list button {
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  background: var(--bg-panel-raised);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-saved-prompt-use {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+}
+
+.agent-saved-prompt-copy {
+  align-self: start;
+}
+
+.agent-saved-prompt-copy-status {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.agent-saved-prompt-copy-status:not(:empty) {
+  padding: 0 8px 6px;
+}
+
+.agent-saved-prompt-list button:enabled:hover,
+.agent-saved-prompt-list button:focus-visible {
+  border-color: var(--accent);
+}
+
+.agent-saved-prompt-list button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.agent-saved-prompt-action {
+  color: var(--text-dim);
+}
+
+.agent-saved-prompt-preview {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-chat-composer {
   flex: none;
   display: grid;
@@ -215,6 +289,13 @@
   gap: 7px;
   padding: 8px;
   border-top: 1px solid var(--border);
+}
+
+.agent-chat-prompt-disclosure {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 11px;
 }
 
 .agent-chat-references {

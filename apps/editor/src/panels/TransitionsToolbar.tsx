@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useEditorWindow } from '../layout/EditorWindow';
 import { saveProjectSetToFile } from '../state/fileIO';
 import { usePaneRequestStore } from '../state/paneRequestStore';
-import { exportProjectSetAsZip } from '../state/projectSetExport';
+import { exportSetInStudio } from '../state/studioSetExport';
 import { useProjectSetStore } from '../state/projectSetStore';
 import {
   applyTransitionLogicDefinition,
@@ -46,11 +46,11 @@ export function TransitionsToolbar({ name, ready }: { name: string; ready: boole
     });
   const exportPackage = (downloadOnly: boolean) =>
     task('Certifying the coordinated package…', async () => {
-      const result = await exportProjectSetAsZip(latest(), undefined, {
+      const result = await exportSetInStudio(latest(), undefined, {
         downloadOnly,
         ownerWindow,
       });
-      return result.saveResult === 'cancelled'
+      return !result || result.saveResult === 'cancelled'
         ? 'Export cancelled.'
         : result.saveResult === 'prepared'
           ? `Certified package “${result.fileName}” is ready. Choose Save or Download.`

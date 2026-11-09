@@ -1,6 +1,6 @@
 {
   "contractVersion": 1,
-  "server": { "name": "ograf-editor", "version": "0.30.0" },
+  "server": { "name": "ograf-editor", "version": "0.31.0" },
   "tools": [
     {
       "name": "ograf_get_capabilities",
@@ -385,7 +385,7 @@
     {
       "name": "ograf_apply_operations",
       "title": "Apply OGraf operations",
-      "description": "Atomic apply, dry-run, preview, or Accept/Reject proposal.",
+      "description": "Atomic apply, dry-run, preview, or Accept/Reject proposal. When building in a blank template with no saved prompt, include set_project_metadata.authoringPrompt with the original user request in the first layer or recipe batch.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -749,6 +749,15 @@
                         "url": { "type": "string" }
                       },
                       "required": ["name"]
+                    },
+                    "authoringPrompt": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "$ref": "#/$defs/4" },
+                        "text": { "$ref": "#/$defs/4" }
+                      },
+                      "required": ["id", "text"],
+                      "description": "Actual user prompt intended for inclusion in the template and export."
                     },
                     "supportsRealTime": { "type": "boolean" },
                     "supportsNonRealTime": { "type": "boolean" }
@@ -3157,11 +3166,19 @@
     {
       "name": "ograf_create_project",
       "title": "Create OGraf project session",
-      "description": "Create a memory session; editor is the browser session.",
+      "description": "Create a memory session with the original user prompt saved in the template. Pass the user’s request verbatim from your conversation. The editor session belongs to the browser.",
       "inputSchema": {
         "type": "object",
-        "properties": { "sessionId": { "type": "string" }, "name": { "type": "string" } },
-        "required": ["sessionId"],
+        "properties": {
+          "sessionId": { "type": "string" },
+          "name": { "type": "string" },
+          "originalPrompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Verbatim user request for this template, from the MCP client conversation."
+          }
+        },
+        "required": ["sessionId", "originalPrompt"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
@@ -3175,16 +3192,21 @@
     {
       "name": "ograf_reset_project",
       "title": "Reset an OGraf project session",
-      "description": "Reset with confirm/expectedRevision; keepDataFields retains main fields.",
+      "description": "Replace the session with a fresh template and save the supplied original user prompt verbatim. Requires confirmation and the current revision. keepDataFields retains main fields.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "sessionId": { "default": "editor", "type": "string" },
           "expectedRevision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "confirm": { "type": "boolean", "const": true },
-          "keepDataFields": { "default": false, "type": "boolean" }
+          "keepDataFields": { "default": false, "type": "boolean" },
+          "originalPrompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Verbatim user request for this template, from the MCP client conversation."
+          }
         },
-        "required": ["expectedRevision", "confirm"],
+        "required": ["expectedRevision", "confirm", "originalPrompt"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
@@ -3406,8 +3428,8 @@
     },
     {
       "name": "ograf_export_package",
-      "title": "Export OGraf ZIP and PNG",
-      "description": "Export certified .ograf.zip + thumbnail and a self-contained HTML preview named after the template.",
+      "title": "Export certified OGraf or standalone HTML",
+      "description": "Export a certified .ograf.zip with thumbnail or a self-contained .html preview. The path extension selects the output.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3436,8 +3458,8 @@
     },
     {
       "name": "ograf_export_coordinated_package",
-      "title": "Export certified coordinated OGraf package",
-      "description": "Export frozen graph/artwork with a standard PNG thumbnail and a self-contained HTML preview named after the template set. Lane-dependent state/action/loop selects have defaults. Template actions include generated clock/timer Start/Pause/Reset/Restart; commands without targets are omitted. Filtering/reset needs a conditional-aware form host; runtime still validates the current on-air template. Certifies the graphic artifacts including its thumbnail; test the extracted offline page separately. Rejects stale revisions, unapplied drafts and source changes. Explicit workspace path; no picker. Reuse operationId with identical arguments to recover uncertain results or retry the same certified bytes. IDs live for this server process (32 operations); success rechecks output hash. Reports included states/templates and unreferenced templates.",
+      "title": "Export certified coordinated OGraf or standalone HTML",
+      "description": "Export frozen graph/artwork with a PNG thumbnail. Select a .ograf.zip package or self-contained .html preview by path extension. Lane-dependent selects have defaults and the runtime checks the current on-air template. Rejects stale revisions, unapplied drafts and source changes. Explicit workspace path; no picker. Reuse operationId with identical arguments to recover uncertain results or retry the same certified bytes. IDs live for this server process (32 operations); success rechecks output hash. Reports included states/templates and unreferenced templates.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3517,7 +3539,7 @@
     {
       "name": "ograf_update_template_set",
       "title": "Manage templates and shared set defaults",
-      "description": "Apply set command using get_template_set revision. Confirm removal/replacement; file pickers use UI.",
+      "description": "Apply set command using get_template_set revision. For new_template, duplicate_template, or paste_template, pass the exact user request in originalPrompt. Confirm removal/replacement; file pickers use UI.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3713,29 +3735,8 @@
                 "additionalProperties": false
               },
               {
-                "properties": {
-                  "type": { "const": "new_template" },
-                  "targetTemplateId": { "$ref": "#/$defs/1" },
-                  "side": { "default": "after", "enum": ["before", "after"] }
-                },
-                "additionalProperties": false
-              },
-              {
-                "properties": { "type": { "const": "duplicate_template" }, "templateId": {} },
-                "required": ["templateId"],
-                "additionalProperties": false
-              },
-              {
                 "properties": { "type": { "const": "copy_template" }, "templateId": {} },
                 "required": ["templateId"],
-                "additionalProperties": false
-              },
-              {
-                "properties": {
-                  "type": { "const": "paste_template" },
-                  "targetTemplateId": { "$ref": "#/$defs/1" },
-                  "side": { "default": "after", "enum": ["before", "after"] }
-                },
                 "additionalProperties": false
               },
               {
@@ -3877,12 +3878,46 @@
                 },
                 "required": ["slotId", "assetId"],
                 "additionalProperties": false
+              },
+              {
+                "properties": {
+                  "type": { "const": "new_template" },
+                  "targetTemplateId": { "$ref": "#/$defs/1" },
+                  "side": { "default": "after", "enum": ["before", "after"] },
+                  "originalPrompt": {}
+                },
+                "required": ["originalPrompt"],
+                "additionalProperties": false
+              },
+              {
+                "properties": {
+                  "type": { "const": "duplicate_template" },
+                  "templateId": {},
+                  "originalPrompt": {}
+                },
+                "required": ["templateId", "originalPrompt"],
+                "additionalProperties": false
+              },
+              {
+                "properties": {
+                  "type": { "const": "paste_template" },
+                  "targetTemplateId": { "$ref": "#/$defs/1" },
+                  "side": { "default": "after", "enum": ["before", "after"] },
+                  "originalPrompt": {}
+                },
+                "required": ["originalPrompt"],
+                "additionalProperties": false
               }
             ],
             "type": "object",
             "required": ["type"],
             "properties": {
               "templateId": { "$ref": "#/$defs/0" },
+              "originalPrompt": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Verbatim user request for this template, from the MCP client conversation."
+              },
               "kind": { "enum": ["typography", "background"] },
               "name": { "$ref": "#/$defs/0" },
               "override": { "type": "boolean" },

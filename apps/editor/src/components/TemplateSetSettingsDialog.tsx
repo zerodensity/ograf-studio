@@ -26,6 +26,7 @@ import { CompositionSettings } from '../panels/CompositionSettings';
 import { FrameDurationControl } from '../panels/FrameDurationControl';
 import { colorPickerValue } from '../canvas/compositionBackground';
 import { WorkspacePreferences } from './WorkspaceDialogs';
+import { ExportPreferences } from './ExportPreferences';
 import { AssistantContextPreferencesPanel } from './AssistantContextPreferencesPanel';
 import { NodosPreferences } from './NodosPreferences';
 import { useCropToolStore } from '../state/cropToolStore';
@@ -41,6 +42,12 @@ const SETTINGS_PAGES = {
       id: 'workspace',
       label: 'Workspace & windows',
       keywords: 'startup layout dock detached presets application preview sync editor scrub frame',
+    },
+    {
+      id: 'export',
+      label: 'Export',
+      keywords:
+        'save defaults scope format template set coordinated standalone zip html both files',
     },
     {
       id: 'assistant',
@@ -375,6 +382,7 @@ function TemplateSetSettingsDialog() {
             className={`template-settings-content${scope === 'template' ? ' template-settings-content--template' : ''}${section === 'plugins' ? ' template-settings-content--plugins' : ''}`}
           >
             {scope === 'studio' && section === 'workspace' ? <WorkspacePreferences /> : null}
+            {scope === 'studio' && section === 'export' ? <ExportPreferences /> : null}
             {scope === 'studio' && section === 'assistant' ? (
               <AssistantContextPreferencesPanel />
             ) : null}
@@ -692,7 +700,9 @@ function TemplateSetSettingsDialog() {
                     ? 'Nodos preferences apply to this browser and are saved automatically.'
                     : section === 'assistant'
                       ? 'AI assistant preferences apply to this Studio user and are saved automatically.'
-                      : 'Workspace preferences are saved automatically.'
+                      : section === 'export'
+                        ? 'Export preferences apply to this Studio user and are saved automatically.'
+                        : 'Workspace preferences are saved automatically.'
                 : scope === 'template'
                   ? 'Changes apply immediately. Save the template or set to keep them.'
                   : 'Apply updates the open set. Save the .ogs file to keep changes.'}

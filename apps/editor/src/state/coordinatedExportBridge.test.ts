@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProject } from '@ograf-editor/scene-model';
-const packageMock = vi.hoisted(() => vi.fn());
-vi.mock('./coordinatedExport', () => ({ createCertifiedCoordinatedPackage: packageMock }));
+const { packageMock, htmlMock } = vi.hoisted(() => ({ packageMock: vi.fn(), htmlMock: vi.fn() }));
+vi.mock('./coordinatedExport', () => ({
+  createCertifiedCoordinatedPackage: packageMock,
+  createCertifiedCoordinatedHtml: htmlMock,
+}));
 import { createProjectSet, addProjectSetTemplate } from './projectSet';
 import { useProjectSetStore } from './projectSetStore';
 import { useProjectStore } from './projectStore';
@@ -22,6 +25,7 @@ beforeEach(() => {
   useProjectSetStore.setState({ projectSet: set, activeTemplateId: set.templates[0]!.id });
   useTransitionLogicDraftStore.setState({ drafts: {} });
   packageMock.mockReset();
+  htmlMock.mockReset();
   packageMock.mockImplementation(async (snapshot) => ({
     blob: new Blob(['certified bytes']),
     artifacts: {
@@ -44,12 +48,30 @@ describe('coordinated export snapshot admission', () => {
     expect(result).toMatchObject({
       outcome: 'certified',
       revision: expectedRevision,
-      previewFileName: 'News set.html',
+      format: 'zip',
       unreferencedTemplates: [{ name: 'CH01' }],
     });
     expect(result.includedTemplateIds).toHaveLength(1);
     expect(useProjectSetStore.getState().projectSet).toBe(before);
     expect(revision()).toBe(expectedRevision);
+  });
+  it('uses the HTML builder for an explicit standalone output', async () => {
+    const html = '<!doctype html><script id="ograf-package">{}</script>';
+    const set = useProjectSetStore.getState().projectSet!;
+    htmlMock.mockResolvedValue({
+      blob: new Blob([html], { type: 'text/html' }),
+      artifacts: { transitionDescriptor: { templates: [set.templates[0]] } },
+      compatibility: { valid: true },
+    });
+    const result = await exportCoordinatedSetForBridge({
+      action: 'export-coordinated',
+      expectedRevision: revision(),
+      profile: 'realtime',
+      format: 'html',
+    });
+    expect(result).toMatchObject({ outcome: 'certified', format: 'html' });
+    expect(Buffer.from(result.archiveBase64 as string, 'base64').toString('utf8')).toBe(html);
+    expect(packageMock).not.toHaveBeenCalled();
   });
   it('rejects a stale revision before compilation', async () => {
     expect(

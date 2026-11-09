@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 const runtime = readFileSync(new URL('./offlinePreviewRuntime.js', import.meta.url), 'utf8');
 const source = runtime.slice(0, runtime.indexOf('(async function ()'));
 
+type TestEvent = { key?: string; shiftKey?: boolean; preventDefault?: () => void };
+
 class ElementStub {
   hidden = false;
   value = '';
@@ -18,18 +20,22 @@ class ElementStub {
   dataset: Record<string, string> = {};
   style: Record<string, string> = {};
   attributes = new Set<string>();
-  listeners: Record<string, Array<() => unknown>> = {};
+  listeners: Record<string, Array<(event: TestEvent) => unknown>> = {};
   pause = vi.fn();
   load = vi.fn();
   play = vi.fn(() => Promise.resolve());
-  addEventListener(type: string, callback: () => unknown) {
+  focus = vi.fn();
+  contains(element: ElementStub | null) {
+    return element === this;
+  }
+  addEventListener(type: string, callback: (event: TestEvent) => unknown) {
     (this.listeners[type] ??= []).push(callback);
   }
-  removeEventListener(type: string, callback: () => unknown) {
+  removeEventListener(type: string, callback: (event: TestEvent) => unknown) {
     this.listeners[type] = (this.listeners[type] ?? []).filter((item) => item !== callback);
   }
-  async fire(type: string) {
-    for (const callback of this.listeners[type] ?? []) await callback();
+  async fire(type: string, event: TestEvent = {}) {
+    for (const callback of this.listeners[type] ?? []) await callback(event);
   }
   removeAttribute(name: string) {
     this.attributes.delete(name);
@@ -50,7 +56,7 @@ function setup() {
     if (!elements.has(id)) elements.set(id, new ElementStub());
     return elements.get(id)!;
   };
-  const classes = new Set<string>();
+  const classes = new Set(['controls-hidden']);
   const body = {
     dataset: { dock: 'right' },
     classList: {
@@ -65,13 +71,22 @@ function setup() {
   get('background-kind').value = 'solid';
   get('background-color').value = '#090d13';
   get('dock-side').value = 'right';
+  get('controls').hidden = true;
   const listeners: Record<string, () => void> = {};
   const report = vi.fn();
+  const onControlsVisibilityChange = vi.fn();
   const createObjectURL = vi.fn(() => 'blob:local-media');
   const revokeObjectURL = vi.fn();
   const getUserMedia = vi.fn();
+  const document = Object.assign(new ElementStub(), {
+    body,
+    getElementById: get,
+    activeElement: null as ElementStub | null,
+    fullscreenElement: null as ElementStub | null,
+  });
+  vi.spyOn(document, 'addEventListener');
   const context = {
-    document: { body, getElementById: get, addEventListener: vi.fn() },
+    document,
     window: {
       addEventListener: (name: string, fn: () => void) => (listeners[name] = fn),
       removeEventListener: vi.fn(),
@@ -81,12 +96,12 @@ function setup() {
   };
   const create = runInNewContext(`${source}\ncreateOfflinePreviewView`, context) as (
     reporter: (text: string, error?: boolean) => void,
+    onControlsVisibilityChange: (visible: boolean) => void,
   ) => {
     setDimensions: (width: number, height: number) => void;
-    toggleControls: () => void;
     dispose: () => void;
   };
-  const view = create(report);
+  const view = create(report, onControlsVisibilityChange);
   return {
     view,
     get,
@@ -95,6 +110,7 @@ function setup() {
     context,
     listeners,
     report,
+    onControlsVisibilityChange,
     createObjectURL,
     revokeObjectURL,
     getUserMedia,
@@ -107,7 +123,7 @@ function setup() {
 
 describe('offline preview presentation controls', () => {
   it('fits the graphic to the space beside either dock, preserving its aspect and guide alignment', async () => {
-    const { view, get, body, resize, classes } = setup();
+    const { view, get, body, resize } = setup();
     view.setDimensions(1920, 1080);
     expect(get('frame').style).toMatchObject({ width: '1280px', height: '720px', left: '0px' });
     expect(get('stage').style.transform).toBe('scale(0.6666666666666666)');
@@ -126,15 +142,46 @@ describe('offline preview presentation controls', () => {
     get('action-safe').checked = false;
     await get('action-safe').fire('change');
     expect(get('action-guide').attributes.has('hidden')).toBe(true);
+  });
+
+  it('starts unobstructed and reopens the dock using right-click or the keyboard', async () => {
+    const { get, classes, context, onControlsVisibilityChange } = setup();
+    expect(get('controls').hidden).toBe(true);
+    expect(classes.has('controls-hidden')).toBe(true);
+    const preventDefault = vi.fn();
+    await get('output').fire('contextmenu', { preventDefault });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(get('controls').hidden).toBe(false);
+    expect(classes.has('controls-hidden')).toBe(false);
+    await get('output').fire('contextmenu', { preventDefault });
+    expect(onControlsVisibilityChange).toHaveBeenCalledExactlyOnceWith(true);
     await get('hide').fire('click');
     expect(classes.has('controls-hidden')).toBe(true);
-    expect(get('show-controls').hidden).toBe(false);
-    await get('show-controls').fire('click');
-    expect(classes.has('controls-hidden')).toBe(false);
+    expect(onControlsVisibilityChange).toHaveBeenLastCalledWith(false);
+    await context.document.fire('keydown', { key: 'd' });
     expect(get('controls').hidden).toBe(false);
-    view.toggleControls();
+    await context.document.fire('keydown', { key: 'D' });
     expect(get('controls').hidden).toBe(true);
-    view.toggleControls();
+    await context.document.fire('keydown', { key: 'F10', shiftKey: true, preventDefault });
+    expect(get('controls').hidden).toBe(false);
+  });
+
+  it('clears the dock on fullscreen entry and restores it when the browser exits fullscreen', async () => {
+    const { get, context, classes } = setup();
+    const { document } = context;
+    await document.fire('keydown', { key: 'd' });
+    document.activeElement = get('controls');
+    document.fullscreenElement = get('output');
+    await document.fire('fullscreenchange');
+    expect(get('fullscreen').textContent).toBe('Exit fullscreen');
+    expect(get('controls').hidden).toBe(true);
+    expect(classes.has('controls-hidden')).toBe(true);
+    expect(get('output').focus).toHaveBeenCalledWith({ preventScroll: true });
+    await get('output').fire('contextmenu', { preventDefault: vi.fn() });
+    expect(get('controls').hidden).toBe(false);
+    document.fullscreenElement = null;
+    await document.fire('fullscreenchange');
+    expect(get('fullscreen').textContent).toBe('Fullscreen');
     expect(get('controls').hidden).toBe(false);
   });
 

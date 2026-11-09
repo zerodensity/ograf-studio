@@ -103,6 +103,48 @@ function stateSnapshot() {
   });
 }
 
+describe('Template Set MCP creation provenance', () => {
+  it('stores the exact external prompt on a new template and appends it only to copied templates', () => {
+    const sourcePrompt = { id: 'original-news', text: 'Make a news panel.' };
+    const source = createProject({ name: 'News', authoringPrompts: [sourcePrompt] });
+    const set = createProjectSet('Evening Show', source);
+    const sourceId = set.templates[0]!.id;
+    useProjectSetStore.setState({ projectSet: set, activeTemplateId: sourceId });
+    useProjectStore.getState().loadProject(resolveProjectSetTemplate(set, sourceId));
+
+    const freshPrompt = ' Build a ticker.\nUse white type. ';
+    const fresh = command({ type: 'new_template', originalPrompt: freshPrompt });
+    const duplicatePrompt = 'Duplicate the news panel to adapt its layout.';
+    const duplicate = command({
+      type: 'duplicate_template',
+      templateId: sourceId,
+      originalPrompt: duplicatePrompt,
+    });
+    command({ type: 'copy_template', templateId: sourceId });
+    const pastePrompt = 'Paste the news panel beside the ticker.';
+    const pasted = command({ type: 'paste_template', originalPrompt: pastePrompt });
+
+    const projects = read(true).templateSet.templates;
+    const prompts = (id: string | null) =>
+      projects.find((template) => template.id === id)?.project?.authoringPrompts;
+    expect(prompts(sourceId)).toEqual([sourcePrompt]);
+    expect(prompts(fresh.activeTemplateId)).toEqual([
+      { id: expect.any(String), text: freshPrompt },
+    ]);
+    expect(prompts(duplicate.activeTemplateId)).toEqual([
+      sourcePrompt,
+      { id: expect.any(String), text: duplicatePrompt },
+    ]);
+    expect(prompts(pasted.activeTemplateId)).toEqual([
+      sourcePrompt,
+      { id: expect.any(String), text: pastePrompt },
+    ]);
+    expect(useProjectStore.getState().project.authoringPrompts).toEqual(
+      prompts(pasted.activeTemplateId),
+    );
+  });
+});
+
 describe('Template Set MCP bridge inheritance and themes', () => {
   it('reports bounded shared-asset usage and replacement impact without exposing asset bytes', () => {
     const first = createProject({ name: 'News' });

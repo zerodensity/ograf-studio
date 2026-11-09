@@ -365,8 +365,9 @@ It cannot delete `editor` and does not remove saved `.ogs` or `.ograf.zip` files
   or first OGraf step (frame 0 if none). The response includes `thumbnailPath` and `thumbnailFrame`.
   Use `set_project_metadata.thumbnailFrame` to set the preference in the editable project, or null
   to follow the first step. Overwrite permission applies to both files.
-- `ograf_export_package`: certified `.ograf.zip` with a named real-time, non-real-time, or dual
-  export profile. Includes a transparent `<id>_thumb.png` referenced by `manifest.thumbnails`,
+- `ograf_export_package`: certified `.ograf.zip` or standalone `.html`, selected by the path
+  extension, with a named real-time, non-real-time, or dual export profile. Includes a transparent
+  `<id>_thumb.png` referenced by `manifest.thumbnails`,
   using the project thumbnail frame or first OGraf step (320 × 180 for 16:9).
   Optional `thumbnailFrame` overrides the frame for this export; null selects the first step.
   The response reports the effective `thumbnailFrame`. Set project metadata separately to persist it.
@@ -381,6 +382,7 @@ execute an imported third-party `main.js` merely to make conversion appear more 
 Use `ograf_export_coordinated_package` with the current set revision, explicit profile/path,
 `confirm:true`, unique `operationId`, and authorized overwrite choice. Follow the snapshot,
 recovery, and graph-inclusion rules in [template sets](./template-sets-and-crops.md).
+Choose an `.html` path for standalone browser playback or `.ograf.zip` for the playout package.
 Separate standalone imports do not verify Reality Hub host coordination; test the coordinated
 package in the actual host. Do not claim Windows runtime validation from cross-compilation.
 

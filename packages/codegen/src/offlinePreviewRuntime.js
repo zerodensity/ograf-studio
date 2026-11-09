@@ -11,13 +11,13 @@ function offlinePreviewFit(width, height, availableWidth, availableHeight) {
 }
 
 /** Presentation-only state never sends updates to the certified graphic. */
-function createOfflinePreviewView(report) {
+function createOfflinePreviewView(report, onControlsVisibilityChange) {
   const get = (id) => document.getElementById(id);
   const controls = get('controls');
   const output = get('output');
   const frame = get('frame');
   const stage = get('stage');
-  const show = get('show-controls');
+  const fullscreen = get('fullscreen');
   const side = get('dock-side');
   const kind = get('background-kind');
   const color = get('background-color');
@@ -51,10 +51,27 @@ function createOfflinePreviewView(report) {
     });
   }
   function showControls(visible) {
+    if (controls.hidden === !visible) return;
+    const returnFocus = !visible && controls.contains(document.activeElement);
     controls.hidden = !visible;
-    show.hidden = visible;
     document.body.classList.toggle('controls-hidden', !visible);
     fit();
+    if (returnFocus) output.focus({ preventScroll: true });
+    onControlsVisibilityChange?.(visible);
+  }
+  function fullscreenChanged() {
+    const active = Boolean(document.fullscreenElement);
+    fullscreen.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+    showControls(!active);
+  }
+  function handleControlsShortcut(event) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.target?.closest?.('input,select,textarea,[contenteditable="true"]')) return;
+    if (event.key.toLowerCase() === 'd') showControls(controls.hidden);
+    else if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+      event.preventDefault();
+      showControls(true);
+    }
   }
   function clearMedia() {
     mediaRevision++;
@@ -87,12 +104,13 @@ function createOfflinePreviewView(report) {
     fit();
   });
   get('hide').addEventListener('click', () => showControls(false));
-  show.addEventListener('click', () => showControls(true));
   const showAtPreview = (event) => {
     event.preventDefault();
     showControls(true);
   };
   output.addEventListener('contextmenu', showAtPreview);
+  document.addEventListener('keydown', handleControlsShortcut);
+  document.addEventListener('fullscreenchange', fullscreenChanged);
   kind.addEventListener('change', updateBackground);
   color.addEventListener('input', () => {
     background.style.backgroundColor = color.value;
@@ -160,14 +178,13 @@ function createOfflinePreviewView(report) {
       height = nextHeight;
       fit();
     },
-    toggleControls() {
-      showControls(controls.hidden);
-    },
     dispose() {
       closed = true;
       clearMedia();
       window.removeEventListener('resize', fit);
       output.removeEventListener('contextmenu', showAtPreview);
+      document.removeEventListener('keydown', handleControlsShortcut);
+      document.removeEventListener('fullscreenchange', fullscreenChanged);
     },
   };
 }
@@ -183,6 +200,7 @@ function createOfflinePreviewView(report) {
     (manifest.customActions || []).some((action) => action.id === 'transition.take'),
   );
   const stage = document.getElementById('stage');
+  const controls = document.getElementById('controls');
   const status = document.getElementById('status');
   const lanes = document.getElementById('lanes');
   const dataPanel = document.getElementById('data');
@@ -212,7 +230,7 @@ function createOfflinePreviewView(report) {
   function refreshFpsVisibility() {
     fpsMonitor?.dispose();
     fpsMonitor = undefined;
-    fpsBadge.hidden = nodosHost || !fpsToggle.checked || disposed || !graphic;
+    fpsBadge.hidden = nodosHost || controls.hidden || !fpsToggle.checked || disposed || !graphic;
     if (fpsBadge.hidden) return;
     const format = (value) => (value === null ? '—' : value.toFixed(1));
     fpsBadge.textContent = scheduler ? 'Preview FPS — · Render FPS —' : 'Preview FPS —';
@@ -229,10 +247,10 @@ function createOfflinePreviewView(report) {
     });
   }
   fpsToggle.addEventListener('change', refreshFpsVisibility);
-  const view = createOfflinePreviewView(say);
+  const view = createOfflinePreviewView(say, refreshFpsVisibility);
   const releaseControlsInteraction = installPreviewControlsInteraction(
     document.body,
-    document.getElementById('controls'),
+    controls,
     true,
     () => view.showControls(true),
     document,
@@ -348,16 +366,12 @@ function createOfflinePreviewView(report) {
       }[extension] || 'application/octet-stream'
     );
   }
-  function fullscreenLabel() {
-    fullscreen.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
-  }
   fullscreen.addEventListener('click', () => {
     const operation = document.fullscreenElement
       ? document.exitFullscreen()
       : document.documentElement.requestFullscreen();
     Promise.resolve(operation).catch((error) => say(error.message || String(error), true));
   });
-  document.addEventListener('fullscreenchange', fullscreenLabel);
 
   function refreshStepStatus() {
     stepStatus.textContent = coordinatedSet
@@ -1005,8 +1019,7 @@ function createOfflinePreviewView(report) {
     document.addEventListener('keydown', (event) => {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.target.closest('input,select,textarea,[contenteditable="true"]')) return;
-      if (event.key.toLowerCase() === 'd') view.toggleControls();
-      else if (event.key === 'ArrowRight') {
+      if (event.key === 'ArrowRight') {
         event.preventDefault();
         playButton.click();
       } else if (event.key === 'ArrowLeft') {

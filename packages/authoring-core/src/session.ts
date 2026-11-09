@@ -1,4 +1,10 @@
-import { createId, migrateProject, type Project } from '@ograf-editor/scene-model';
+import {
+  appendAuthoringPrompt,
+  createId,
+  migrateProject,
+  type AuthoringPrompt,
+  type Project,
+} from '@ograf-editor/scene-model';
 import { validateProject } from '@ograf-editor/validation';
 import { applyAuthoringOperations } from './operations';
 import type {
@@ -46,6 +52,18 @@ function changedLayerIds(previous: Project, next: Project): string[] {
   return [...new Set([...previousLayers.keys(), ...nextLayers.keys()])].filter(
     (id) => previousLayers.get(id) !== nextLayers.get(id),
   );
+}
+
+function retainPrompts(project: Project, current: Project): Project {
+  if (project.id !== current.id || !current.authoringPrompts?.length) return project;
+  const prompts = new Map(current.authoringPrompts.map((prompt) => [prompt.id, prompt]));
+  for (const prompt of project.authoringPrompts ?? []) {
+    const existing = prompts.get(prompt.id);
+    if (existing && existing.text !== prompt.text)
+      throw new Error('That authoring prompt ID is already used.');
+    if (!existing) prompts.set(prompt.id, prompt);
+  }
+  return { ...project, authoringPrompts: [...prompts.values()] };
 }
 
 export class AuthoringSession {
@@ -132,8 +150,28 @@ export class AuthoringSession {
     return this.snapshot();
   }
 
+  /** Record a Studio chat submission without creating a graphic edit to undo. */
+  recordAuthoringPrompt(projectId: string, prompt: AuthoringPrompt): number {
+    if (this.#project.id !== projectId)
+      throw new Error(
+        'The active template changed. Send the prompt again from the intended template.',
+      );
+    const next = { ...this.#project };
+    if (!appendAuthoringPrompt(next, prompt)) return this.#revision;
+    this.#project = next;
+    this.#revision++;
+    this.#emit({
+      sessionId: this.id,
+      revision: this.#revision,
+      source: 'editor',
+      reason: 'Recorded an authoring prompt',
+      project: clone(next),
+    });
+    return this.#revision;
+  }
+
   replaceExternal(project: Project, reason = 'Editor project update'): AuthoringSessionSnapshot {
-    const next = migrateProject(clone(project));
+    const next = retainPrompts(migrateProject(clone(project)), this.#project);
     const current = migrateProject(clone(this.#project));
     if (JSON.stringify(next) === JSON.stringify(current)) return this.snapshot();
     const affectedLayerIds = changedLayerIds(this.#project, next);
@@ -278,14 +316,15 @@ export class AuthoringSession {
     }
     const previous = this.#undo.at(-1);
     if (!previous) throw new Error('Nothing to undo.');
-    this.#mutationValidator?.(this.#project, previous.project);
+    const project = retainPrompts(previous.project, this.#project);
+    this.#mutationValidator?.(this.#project, project);
     this.#undo.pop();
     this.#redo.push({
       token: previous.token,
       project: clone(this.#project),
       ...(previous.summary ? { summary: previous.summary } : {}),
     });
-    this.#project = previous.project;
+    this.#project = project;
     this.#revision++;
     this.#emit({
       sessionId: this.id,
@@ -303,14 +342,15 @@ export class AuthoringSession {
     }
     const next = this.#redo.at(-1);
     if (!next) throw new Error('Nothing to redo.');
-    this.#mutationValidator?.(this.#project, next.project);
+    const project = retainPrompts(next.project, this.#project);
+    this.#mutationValidator?.(this.#project, project);
     this.#redo.pop();
     this.#undo.push({
       token: next.token,
       project: clone(this.#project),
       ...(next.summary ? { summary: next.summary } : {}),
     });
-    this.#project = next.project;
+    this.#project = project;
     this.#revision++;
     this.#emit({
       sessionId: this.id,

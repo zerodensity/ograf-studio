@@ -44,6 +44,11 @@ test values or an in-place patch to the existing combined-preview coordinator, n
 or repeated Takes. A feed patch must not start the lane's authored update transition or rebuild its
 mount. Ordinary data/change Rules and configured leaf text effects still run. Explicit authored
 Update commands, standard OGraf `updateAction`, and `transition.take` retain transition semantics.
+
+For **Current template** export, Studio starts on **Real-time playout** if a dual-mode template has
+an enabled external feed. An OGraf controller supplies live values to the exported graphic. For
+non-real-time output, provide recorded values as scheduled actions. Native ticker motion can be
+sampled at the requested timestamp, so a ticker alone does not require a real-time-only export.
 Paused/transitioning lanes retain the newest payload until safe to deliver. A settled coordinator
 may retain its `incoming` selection: determine eligibility from current state, transition and
 pending state, not from the mere presence of historical incoming/outgoing selections.

@@ -16,6 +16,32 @@ import {
 import { AuthoringSession, RevisionConflictError } from './session';
 
 describe('AuthoringSession', () => {
+  it('keeps accepted Studio prompts across stale editor updates and scene undo or redo', () => {
+    const project = createProject({ name: 'Original' });
+    const session = new AuthoringSession(project);
+    const initial = { id: 'initial', text: 'Create a news lower third.' };
+    const followUp = { id: 'follow-up', text: 'Change it to blue.' };
+    expect(session.recordAuthoringPrompt(project.id, initial)).toBe(1);
+    const edit = session.apply({
+      expectedRevision: 1,
+      operations: [{ type: 'set_project_metadata', name: 'Edited' }],
+    });
+    expect(session.recordAuthoringPrompt(project.id, followUp)).toBe(3);
+    expect(session.recordAuthoringPrompt(project.id, followUp)).toBe(3);
+    expect(() => session.recordAuthoringPrompt('another-project', followUp)).toThrow(/changed/);
+    expect(session.undo(3).project).toMatchObject({
+      name: 'Original',
+      authoringPrompts: [initial, followUp],
+    });
+    expect(session.redo(4).project).toMatchObject({
+      name: 'Edited',
+      authoringPrompts: [initial, followUp],
+    });
+    expect(session.replaceExternal(edit.project).project.authoringPrompts).toEqual([
+      initial,
+      followUp,
+    ]);
+  });
   it('authors text on an editable path atomically and protects supported combinations', () => {
     const project = createProject();
     const path = createLayerOfKind('path');

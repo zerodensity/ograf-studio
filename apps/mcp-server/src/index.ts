@@ -26,8 +26,15 @@ export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}
   const httpServer = createServer(app);
   const workspace = new AuthoringWorkspace(options.workspaceRoot);
   const bridge = new EditorBridge(httpServer, workspace);
-  const chat = new ChatAgentController(createOGrafToolRecords(workspace, bridge), (event) =>
-    bridge.sendChatEvent(event),
+  const chat = new ChatAgentController(
+    createOGrafToolRecords(workspace, bridge, { inApp: true }),
+    (event) => bridge.sendChatEvent(event),
+    (sessionId, prompt) => {
+      const prefix = 'editor:';
+      const projectId = sessionId.startsWith(prefix) ? sessionId.slice(prefix.length) : '';
+      const revision = workspace.get('editor').recordAuthoringPrompt(projectId, prompt);
+      return { projectId, revision };
+    },
   );
   bridge.setChatController(chat);
   const nodosPresets = new NodosPresetHost(httpServer);

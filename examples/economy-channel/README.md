@@ -60,7 +60,8 @@ sources](LIVE-DATA.md) for provider details and external-controller integration.
 
 The authoring scripts use Studio MCP and preserve a recovery copy of the current project before
 starting a new set. Use a fresh authoring session and keep Studio visible. They need the Studio
-source checkout and its dependencies:
+source checkout and its dependencies. Set `AXIS_ORIGINAL_PROMPT` to the verbatim user request
+that should be saved with the templates before running the scripts.
 
 ```sh
 npx tsx examples/economy-channel/build-set.mts

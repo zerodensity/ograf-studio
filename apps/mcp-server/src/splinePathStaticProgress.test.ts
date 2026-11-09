@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import {
+  createProject,
   getResolvedLayerAnimationTracks,
   getLayerPropertyValueAtFrame,
 } from '@ograf-editor/scene-model';
@@ -17,7 +18,12 @@ it('authors valid unkeyed Spline progress through the actual MCP layout operatio
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   const sessionId = 'spline-static-progress';
-  host.workspace.create(sessionId);
+  host.workspace.create(
+    sessionId,
+    createProject({
+      authoringPrompts: [{ id: 'spline-original', text: 'Build a template with a spline path.' }],
+    }),
+  );
   const call = async (arguments_: Record<string, unknown>) => {
     const result = await client.callTool({ name: 'ograf_apply_operations', arguments: arguments_ });
     expect(result.isError, JSON.stringify(result.content)).not.toBe(true);

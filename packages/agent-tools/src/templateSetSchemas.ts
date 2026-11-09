@@ -1,5 +1,6 @@
 import * as z from 'zod/v4';
 import { transitionLogicErrors } from '@ograf-editor/scene-model';
+import { originalPromptSchema } from './schemas';
 
 /** Definitions cross the JSON bridge; reject oversized or lossy values before domain validation. */
 const transitionLogicDefinition = z
@@ -105,7 +106,14 @@ const layout = z
     overflowPreview: z.enum(['visible', 'clip']).optional(),
   })
   .strict();
-export const templateSetOperationSchema = z.discriminatedUnion('type', [
+const newTemplateOperation = z.object({ type: z.literal('new_template'), ...position }).strict();
+const duplicateTemplateOperation = z
+  .object({ type: z.literal('duplicate_template'), templateId: id })
+  .strict();
+const pasteTemplateOperation = z
+  .object({ type: z.literal('paste_template'), ...position })
+  .strict();
+const sharedOperations = [
   z
     .object({
       type: z.literal('set_transition_logic'),
@@ -183,10 +191,7 @@ export const templateSetOperationSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('create'), name: id.optional() }).strict(),
-  z.object({ type: z.literal('new_template'), ...position }).strict(),
-  z.object({ type: z.literal('duplicate_template'), templateId: id }).strict(),
   z.object({ type: z.literal('copy_template'), templateId: id }).strict(),
-  z.object({ type: z.literal('paste_template'), ...position }).strict(),
   z.object({ type: z.literal('remove_template'), templateId: id }).strict(),
   z.object({ type: z.literal('undo_remove') }).strict(),
   z.object({ type: z.literal('activate_template'), templateId: id }).strict(),
@@ -242,4 +247,18 @@ export const templateSetOperationSchema = z.discriminatedUnion('type', [
   z
     .object({ type: z.literal('set_asset_slot_source'), slotId: id, assetId: id.nullable() })
     .strict(),
+] as const;
+
+export const templateSetOperationSchema = z.discriminatedUnion('type', [
+  ...sharedOperations,
+  newTemplateOperation,
+  duplicateTemplateOperation,
+  pasteTemplateOperation,
+]);
+
+export const mcpTemplateSetOperationSchema = z.discriminatedUnion('type', [
+  ...sharedOperations,
+  newTemplateOperation.extend({ originalPrompt: originalPromptSchema }),
+  duplicateTemplateOperation.extend({ originalPrompt: originalPromptSchema }),
+  pasteTemplateOperation.extend({ originalPrompt: originalPromptSchema }),
 ]);

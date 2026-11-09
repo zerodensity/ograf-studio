@@ -1,9 +1,11 @@
 import { create } from 'zustand';
-import type {
-  Composition,
-  DataConnectionDefinition,
-  FieldValue,
-  Project,
+import {
+  parseChartData,
+  valueAtSourcePath,
+  type Composition,
+  type DataConnectionDefinition,
+  type FieldValue,
+  type Project,
 } from '@ograf-editor/scene-model';
 import { createPublicMarketsReader } from '../data/publicMarketsReader';
 import { readDataConnection } from './dataConnections';
@@ -17,6 +19,7 @@ import { getActiveComposition, useProjectStore } from './projectStore';
 import { useProjectSetStore } from './projectSetStore';
 import { resolveProjectSetTemplate, type ProjectSetDocument } from './projectSet';
 import { useTestDataStore } from './testDataStore';
+import { resolvePreviewFieldValue } from './previewFieldValue';
 import {
   behaviorPreviewDataSource,
   updateBehaviorPreviewSlot,
@@ -68,6 +71,45 @@ const fieldValues = (composition: Composition, data: Record<string, unknown> = {
       (data[field.key] ?? field.defaultValue) as FieldValue,
     ]),
   );
+
+function validateChartConnectionUpdate(
+  composition: Composition,
+  values: Record<string, FieldValue>,
+  destination: 'editor' | 'coordinated',
+): void {
+  for (const layer of composition.layers) {
+    if (layer.element.type !== 'chart') continue;
+    for (const binding of layer.bindings) {
+      if (binding.targetProperty !== 'data' || !Object.hasOwn(values, binding.fieldId)) continue;
+      const field = composition.dataFields.find((candidate) => candidate.id === binding.fieldId);
+      if (!field) continue;
+      const value = values[field.id];
+      const root = destination === 'editor' ? resolvePreviewFieldValue(field, value) : value;
+      const targets = [valueAtSourcePath(root, binding.sourcePath)];
+      // The editor's frame player reads the field root. Its designer view can also read
+      // the first array item, so validate both before publishing a shared preview value.
+      if (destination === 'editor' && field.type === 'array' && Array.isArray(root))
+        targets.push(valueAtSourcePath(root[0], binding.sourcePath));
+      for (const target of new Set(targets)) {
+        if (target === undefined) continue;
+        try {
+          parseChartData(binding.valueMap?.[String(target)] ?? target);
+        } catch (error) {
+          const detail =
+            error instanceof SyntaxError
+              ? 'Expected valid chart JSON.'
+              : error instanceof Error
+                ? error.message
+                : String(error);
+          const path = [field.key, ...(binding.sourcePath ?? [])].join('.');
+          throw new Error(
+            `Chart data invalid for "${layer.name}" at "${path}". ${detail} Last valid data retained. Correct the source and refresh.`,
+          );
+        }
+      }
+    }
+  }
+}
 
 let runtime: ReturnType<typeof createDataConnectionRuntime> | null = null;
 let refreshTargets: (() => void) | null = null;
@@ -176,20 +218,20 @@ export function initializeDataConnectionRuntime(): () => void {
             current.activeCompositionId !== composition.id
           )
             return false;
+          const activeComposition = getActiveComposition(
+            current.project,
+            current.activeCompositionId,
+          );
+          const testData = useTestDataStore.getState();
           const changed = Object.fromEntries(
             Object.entries(values).filter(
-              ([id, value]) =>
-                JSON.stringify(useTestDataStore.getState().values[id]) !== JSON.stringify(value),
+              ([id, value]) => JSON.stringify(testData.values[id]) !== JSON.stringify(value),
             ),
           );
-          if (Object.keys(changed).length)
-            useTestDataStore
-              .getState()
-              .setValues(
-                changed,
-                getActiveComposition(current.project, current.activeCompositionId).layers,
-                composition.dataFields,
-              );
+          if (Object.keys(changed).length) {
+            validateChartConnectionUpdate(activeComposition, changed, 'editor');
+            testData.setValues(changed, activeComposition.layers, activeComposition.dataFields);
+          }
           return true;
         },
       });
@@ -261,6 +303,7 @@ export function initializeDataConnectionRuntime(): () => void {
                 )
               )
                 throw new Error('Replay the combined preview to use the new data fields.');
+              validateChartConnectionUpdate(frozenComposition, values, 'coordinated');
               const data = Object.fromEntries(
                 frozenComposition.dataFields.flatMap((field) =>
                   Object.hasOwn(values, field.id) ? [[field.key, values[field.id]!]] : [],

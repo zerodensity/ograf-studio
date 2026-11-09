@@ -44,9 +44,7 @@ describe('OGraf ZIP thumbnails', () => {
     expect(await zip.file(name)!.async('uint8array')).toEqual(png);
     expect(zip.file('main.js')).not.toBeNull();
     const certified = vi.mocked(certifyExportArtifacts).mock.calls[0]![0];
-    expect(await zip.file(getOfflinePreviewFileName(certified))!.async('string')).toContain(
-      '<!doctype html>',
-    );
+    expect(zip.file(getOfflinePreviewFileName(certified))).toBeNull();
     expect(await zip.file('main.js')!.async('string')).toBe(certified.mainJs);
     for (const resource of certified.resources) {
       expect(await zip.file(resource.path)!.async(resource.base64 ? 'base64' : 'string')).toBe(
@@ -64,16 +62,24 @@ describe('OGraf ZIP thumbnails', () => {
     expect(project).toEqual(source);
   });
 
-  it('includes an offline preview in a non-realtime-only package without changing its manifest', async () => {
-    const project = createProject();
-    await exportProjectAsZip(project, project.compositions[0]!, getExportProfile('non-realtime'));
-    const blob = vi.mocked(saveBlobToFile).mock.calls[0]![0];
-    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-    const certified = vi.mocked(certifyExportArtifacts).mock.calls[0]![0];
-    expect(await zip.file(getOfflinePreviewFileName(certified))!.async('string')).toContain(
-      '<!doctype html>',
+  it('saves only standalone HTML for a non-realtime template with its certified manifest', async () => {
+    const project = createProject({ name: 'Scoreboard' });
+    const result = await exportProjectAsZip(
+      project,
+      project.compositions[0]!,
+      getExportProfile('non-realtime'),
+      { format: 'html' },
     );
-    expect(JSON.parse(await zip.file(certified.manifestFileName)!.async('string'))).toEqual(
+    expect(saveBlobToFile).toHaveBeenCalledOnce();
+    const blob = vi.mocked(saveBlobToFile).mock.calls[0]![0];
+    expect(result.files).toEqual([
+      { format: 'html', fileName: 'Scoreboard-non-realtime.html', saveResult: 'saved' },
+    ]);
+    expect(blob.type).toBe('text/html;charset=utf-8');
+    const html = await blob.text();
+    const certified = vi.mocked(certifyExportArtifacts).mock.calls[0]![0];
+    expect(html).toContain('<!doctype html>');
+    expect(JSON.parse(html.match(/id="ograf-package">([\s\S]*?)<\/script>/)![1]!).manifest).toEqual(
       certified.manifest,
     );
     expect(certified.manifest.supportsRealTime).toBe(false);

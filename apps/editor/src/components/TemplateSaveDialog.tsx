@@ -8,6 +8,7 @@ import {
   type Project,
 } from '@ograf-editor/scene-model';
 import { saveProjectSourceToFile, saveProjectToFile } from '../state/fileIO';
+import { OGrafExportCertificationError } from '../state/exportPackage';
 import { useEditorWindow } from '../layout/EditorWindow';
 import { useMovableDialog } from './useMovableDialog';
 import './TemplateSaveDialog.css';
@@ -22,15 +23,19 @@ export function TemplateSaveDialog({
   onClose: () => void;
   onSaved: (mode: 'saved' | 'downloaded', snapshot: Project, bundled: boolean) => void;
   exportOptions?: {
-    fileName: string;
-    save: (snapshot: Project) => Promise<'saved' | 'cancelled' | 'downloaded'>;
+    fileNames: string[];
+    actionLabel: string;
+    save: (snapshot: Project) => Promise<'saved' | 'cancelled' | 'downloaded' | 'prepared'>;
+    onUseRealTime?: () => void;
   };
 }) {
   const { document: ownerDocument } = useEditorWindow();
   const [name, setName] = useState(project.name);
   const [frame, setFrame] = useState<number | null>(project.thumbnailFrame ?? null);
   const [preview, setPreview] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; nonRealtimeReplayFailed?: boolean } | null>(
+    null,
+  );
   const [rendering, setRendering] = useState(true);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,7 +54,7 @@ export function TemplateSaveDialog({
     let url: string | undefined;
     setRendering(true);
     setPreview('');
-    setError('');
+    setError(null);
     void import('../state/templateThumbnail')
       .then(({ createTemplateThumbnail }) => createTemplateThumbnail(snapshot))
       .then((blob) => {
@@ -60,7 +65,9 @@ export function TemplateSaveDialog({
       })
       .catch((cause) => {
         if (active) {
-          setError(cause instanceof Error ? cause.message : 'Could not render thumbnail.');
+          setError({
+            message: cause instanceof Error ? cause.message : 'Could not render thumbnail.',
+          });
           setRendering(false);
         }
       });
@@ -72,7 +79,7 @@ export function TemplateSaveDialog({
   const save = async (bundled = false) => {
     if (saving || !name.trim() || ((bundled || exportOptions) && (rendering || !preview))) return;
     setSaving(true);
-    setError('');
+    setError(null);
     try {
       const savedSnapshot = exportOptions ? snapshot : { ...snapshot, name: name.trim() };
       if (!exportOptions && !bundled) {
@@ -83,15 +90,19 @@ export function TemplateSaveDialog({
       const result = exportOptions
         ? await exportOptions.save(savedSnapshot)
         : await saveProjectToFile(savedSnapshot, { baseName, downloadOnly: true });
-      if (result !== 'cancelled') onSaved(result, savedSnapshot, bundled);
+      if (result === 'prepared') onClose();
+      else if (result !== 'cancelled') onSaved(result, savedSnapshot, bundled);
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : exportOptions
-            ? 'Could not export template.'
-            : 'Could not save template.',
-      );
+      setError({
+        message:
+          cause instanceof Error
+            ? cause.message
+            : exportOptions
+              ? 'Could not export template.'
+              : 'Could not save template.',
+        nonRealtimeReplayFailed:
+          cause instanceof OGrafExportCertificationError && cause.nonRealtimeReplayFailed,
+      });
     } finally {
       setSaving(false);
     }
@@ -102,7 +113,7 @@ export function TemplateSaveDialog({
         className="template-save-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label={exportOptions ? 'Export OGraf with thumbnail' : 'Save template'}
+        aria-label={exportOptions ? 'Export template with thumbnail' : 'Save template'}
         ref={dialogRef}
         {...movable.dialogProps}
         onKeyDown={(event) => {
@@ -126,7 +137,7 @@ export function TemplateSaveDialog({
           }
         }}
       >
-        <h2 {...movable.handleProps}>{exportOptions ? 'Export OGraf' : 'Save template'}</h2>
+        <h2 {...movable.handleProps}>{exportOptions ? 'Export template' : 'Save template'}</h2>
         {!exportOptions && (
           <label>
             Template name
@@ -208,28 +219,45 @@ export function TemplateSaveDialog({
           {composition.name} · Frame {selectedFrame} · Transparent PNG
         </small>
         <div className="template-save-filenames">
-          <span>{exportOptions ? exportOptions.fileName : `${baseName}.ogs`}</span>
+          {(exportOptions?.fileNames ?? [`${baseName}.ogs`]).map((fileName) => (
+            <span key={fileName}>{fileName}</span>
+          ))}
           <span>
             {templateThumbnailName(snapshot)}
-            {exportOptions ? ' (inside ZIP)' : ' (in ZIP)'}
+            {exportOptions ? ' (included in export)' : ' (in ZIP)'}
           </span>
         </div>
         <p>
           {exportOptions
-            ? 'Choose the thumbnail frame to include in the OGraf package.'
+            ? 'Choose the thumbnail frame to include in the export.'
             : window.showSaveFilePicker
               ? 'Choose a filename and location for the editable .ogs file. Download ZIP also includes its PNG thumbnail.'
               : 'Download the editable .ogs file, or choose Download ZIP to include its PNG thumbnail.'}
         </p>
         {error ? (
           <div role="alert" className="template-save-error">
-            {error}
+            {error.message}
+            {error.nonRealtimeReplayFailed && exportOptions?.onUseRealTime ? (
+              <p>For live output, switch to Real-time playout and export again.</p>
+            ) : null}
           </div>
         ) : null}
         <div className="template-save-actions">
           <button type="button" disabled={saving} onClick={onClose}>
             Cancel
           </button>
+          {error?.nonRealtimeReplayFailed && exportOptions?.onUseRealTime ? (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                exportOptions.onUseRealTime?.();
+                setError(null);
+              }}
+            >
+              Use Real-time playout
+            </button>
+          ) : null}
           {!exportOptions ? (
             <button
               type="button"
@@ -247,7 +275,7 @@ export function TemplateSaveDialog({
             {exportOptions
               ? saving
                 ? 'Testing & exporting…'
-                : 'Export .ograf.zip'
+                : exportOptions.actionLabel
               : saving
                 ? 'Saving…'
                 : window.showSaveFilePicker

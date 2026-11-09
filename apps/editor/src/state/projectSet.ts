@@ -24,6 +24,7 @@ import {
   transitionLogicErrors,
   compositionPlayoutActionErrors,
   validatePresenterDefinition,
+  validateAuthoringPrompts,
 } from '@ograf-editor/scene-model';
 import type {
   Asset,
@@ -2008,10 +2009,13 @@ export async function createProjectSetArchive(
           });
           asset.dataUri = '';
         }
-    const resourceRefs = compactMode ? await extractSetResources(compact, resourcePool) : [];
+    // Keep prompts inline even when their literal text looks like an embedded resource URI.
+    const { authoringPrompts, ...resourceSource } = compact;
+    const resourceRefs = compactMode ? await extractSetResources(resourceSource, resourcePool) : [];
+    if (authoringPrompts !== undefined) Object.assign(resourceSource, { authoringPrompts });
     const source = templateSource(
       compactMode && (componentRefs.length || resourceRefs.length)
-        ? Object.assign(compact, {
+        ? Object.assign(resourceSource, {
             archiveFragment: {
               format: 'ograf-template-fragment',
               schemaVersion: 1,
@@ -2022,7 +2026,7 @@ export async function createProjectSetArchive(
               ),
             },
           })
-        : compact,
+        : resourceSource,
     );
     if (new TextEncoder().encode(source).byteLength > MAX_TEMPLATE_SOURCE_BYTES)
       throw new Error(`Template source exceeds the 32 MiB limit: ${template.name}.`);
@@ -2341,6 +2345,8 @@ export async function openProjectSetArchive(
               throw new Error('Compact template fragment marker is missing.');
             if ('presenter' in raw && raw.presenter !== undefined)
               validatePresenterDefinition(raw.presenter as PresenterDefinition);
+            if ('authoringPrompts' in raw && raw.authoringPrompts !== undefined)
+              validateAuthoringPrompts(raw.authoringPrompts);
             return raw as Project;
           })()
         : parseProjectSource(source);

@@ -17,6 +17,7 @@ import {
 } from '@ograf-editor/scene-model';
 import { validateManifest, validateProject } from '@ograf-editor/validation';
 import { assembleManifest } from './assembleManifest';
+import { manifestAuthoringPrompts } from './manifestAuthoringPrompts';
 import { compileDescriptor } from './compileDescriptor';
 import { compileDataExposure, fieldValueForExport } from './compileDataSchema';
 import { projectForExportProfile, type ExportProfile } from './exportProfiles';
@@ -521,6 +522,8 @@ export function buildExportArtifactsWithRuntime(
   const sourceDescriptor = compileDescriptor(composition);
   const packaged = packageDescriptorResources(composition, sourceDescriptor);
   const manifest = assembleManifest(outputProject, packaged.composition, packaged.descriptor);
+  const authoringPrompts = manifestAuthoringPrompts([{ project }]);
+  if (authoringPrompts) manifest.v_ografStudioAuthoringPrompts = authoringPrompts;
   const projectValidation = validateProject(outputProject);
   const manifestValidation = validateManifest(manifest);
   const projectErrors = [

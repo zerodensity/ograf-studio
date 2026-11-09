@@ -1,8 +1,17 @@
 import { expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createProject } from '@ograf-editor/scene-model';
 import { createOGrafAuthoringHost } from './index';
 import { createOGrafMcpServer } from './mcpServer';
+
+function modifierFixture() {
+  return createProject({
+    authoringPrompts: [
+      { id: 'modifiers-original', text: 'Create a template with smart modifiers.' },
+    ],
+  });
+}
 
 it('discovers and authors editable smart modifiers over the real MCP transport', async () => {
   const host = createOGrafAuthoringHost();
@@ -11,7 +20,7 @@ it('discovers and authors editable smart modifiers over the real MCP transport',
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   const sessionId = 'modifiers-wire';
-  host.workspace.create(sessionId);
+  host.workspace.create(sessionId, modifierFixture());
   const call = async (name: string, args: Record<string, unknown>) => {
     const result = await client.callTool({ name, arguments: args });
     expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
@@ -154,7 +163,7 @@ it('preserves radial keys, bindings and group references and rejects invalid cha
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   const sessionId = 'modifier-animation-wire';
-  host.workspace.create(sessionId);
+  host.workspace.create(sessionId, modifierFixture());
   const call = async (name: string, args: Record<string, unknown>, failure = false) => {
     const result = await client.callTool({ name, arguments: args });
     expect(result.isError === true, JSON.stringify(result.content)).toBe(failure);
@@ -378,7 +387,7 @@ it('authors container arrangement, Look At and Spline Path orientation over MCP'
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   const sessionId = 'arrange-wire';
-  host.workspace.create(sessionId);
+  host.workspace.create(sessionId, modifierFixture());
   const call = async (name: string, args: Record<string, unknown>, failure = false) => {
     const result = await client.callTool({ name, arguments: args });
     expect(result.isError === true, JSON.stringify(result.content)).toBe(failure);

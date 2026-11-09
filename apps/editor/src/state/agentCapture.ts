@@ -1,6 +1,12 @@
 import { getFontEmbedCSS, toCanvas } from 'html-to-image';
-import { hasLoadedProjectFont, projectFontFaceCss, withProjectFonts } from './projectFonts';
+import {
+  acquireProjectFonts,
+  hasLoadedProjectFont,
+  projectFontFaceCss,
+  withProjectFonts,
+} from './projectFonts';
 import { captureMaskedCanvas } from './maskedCapture';
+import { awaitExportOperation } from './exportAbort';
 import {
   assertStudioRendererPluginsAllowed,
   useRendererPluginSettingsStore,
@@ -246,39 +252,52 @@ async function resolvedFonts(
   );
 }
 
-async function waitForRenderableDom(root: HTMLElement): Promise<void> {
+async function waitForRenderableDom(root: HTMLElement, signal?: AbortSignal): Promise<void> {
   // A certified package may reference sidecar font URLs that are intentionally unavailable while
   // its module is exercised from a temporary blob URL. Do not let one such pending face block all
   // subsequent editor captures forever; the editor's imported data-URI face is already available.
-  await Promise.race([
-    document.fonts.ready,
-    new Promise<void>((resolve) => window.setTimeout(resolve, 1_000)),
-  ]);
-  const images = [...root.querySelectorAll('img')];
-  await Promise.all(
-    images.map((image) => {
-      if (image.complete) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        image.addEventListener('load', () => resolve(), { once: true });
-        image.addEventListener('error', () => resolve(), { once: true });
-      });
-    }),
+  signal?.throwIfAborted();
+  await awaitExportOperation(
+    Promise.race([
+      document.fonts.ready,
+      new Promise<void>((resolve) => window.setTimeout(resolve, 1_000)),
+    ]),
+    signal,
   );
-  await new Promise<void>((resolve) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  const images = [...root.querySelectorAll('img')];
+  await awaitExportOperation(
+    Promise.all(
+      images.map((image) => {
+        if (image.complete) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          const options = { once: true, signal };
+          image.addEventListener('load', () => resolve(), options);
+          image.addEventListener('error', () => resolve(), options);
+        });
+      }),
+    ),
+    signal,
+  );
+  await awaitExportOperation(
+    new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    ),
+    signal,
   );
 }
 
 const captureFrameRenders = new WeakMap<HTMLElement, () => void>();
 
 /** Layout/font settling may enqueue another shader frame; the PNG must use that completed draw. */
-export async function settleCaptureContent(root: HTMLElement): Promise<void> {
-  await waitForElementContentReady(root);
-  await waitForRenderableDom(root);
+export async function settleCaptureContent(root: HTMLElement, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  await awaitExportOperation(waitForElementContentReady(root), signal);
+  await waitForRenderableDom(root, signal);
   // Font/image readiness can change intrinsic layout. Re-evaluate from authored samples so
   // repeated captures never accumulate a previous frame's modifier/path transforms.
+  signal?.throwIfAborted();
   captureFrameRenders.get(root)?.();
-  await waitForElementContentReady(root);
+  await awaitExportOperation(waitForElementContentReady(root), signal);
 }
 
 /** The same frame geometry pipeline used by Studio and exported playback, including hidden sources. */
@@ -381,27 +400,37 @@ export async function rasterize(
   maxDimension: number,
   style?: Partial<CSSStyleDeclaration>,
   fontAssets: readonly Asset[] = [],
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const output = captureDimensions(originalWidth, originalHeight, maxDimension);
   const render = root.querySelector(
     '[data-ograf-layer-mask-id], [data-ograf-pattern], [data-ograf-effect-filter]',
   )
     ? captureMaskedCanvas
     : toCanvas;
-  const fontEmbedCSS = [await getFontEmbedCSS(root), projectFontFaceCss(fontAssets)]
+  const fontEmbedCSS = [
+    await awaitExportOperation(getFontEmbedCSS(root), signal),
+    projectFontFaceCss(fontAssets),
+  ]
     .filter(Boolean)
     .join('\n');
-  const canvas = await render(root, {
-    width: originalWidth,
-    height: originalHeight,
-    canvasWidth: output.width,
-    canvasHeight: output.height,
-    pixelRatio: 1,
-    cacheBust: true,
-    skipAutoScale: true,
-    fontEmbedCSS,
-    ...(style ? { style } : {}),
-  });
+  signal?.throwIfAborted();
+  const canvas = await awaitExportOperation(
+    render(root, {
+      width: originalWidth,
+      height: originalHeight,
+      canvasWidth: output.width,
+      canvasHeight: output.height,
+      pixelRatio: 1,
+      cacheBust: true,
+      skipAutoScale: true,
+      fontEmbedCSS,
+      ...(style ? { style } : {}),
+    }),
+    signal,
+  );
+  signal?.throwIfAborted();
   const encoded = canvas.toDataURL('image/png');
   const separator = encoded.indexOf(',');
   if (separator < 0) throw new Error('Browser PNG encoder returned invalid data.');
@@ -521,7 +550,11 @@ function buildCompositionDom(
   }
 }
 
-async function captureComposition(request: AgentCaptureRequest): Promise<AgentCaptureResult> {
+async function captureComposition(
+  request: AgentCaptureRequest,
+  signal?: AbortSignal,
+): Promise<AgentCaptureResult> {
+  signal?.throwIfAborted();
   const composition = compositionFor(request.project, request.compositionId);
   const totalFrames = getTotalFrames(composition);
   if (request.frame > totalFrames) {
@@ -540,7 +573,7 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
   const output = getCompositionOutputRect(composition);
 
   try {
-    await settleCaptureContent(wrapper);
+    await settleCaptureContent(wrapper, signal);
     let raster = await rasterize(
       wrapper,
       output.width,
@@ -548,10 +581,12 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
       request.maxDimension,
       { zIndex: 'auto' },
       composition.assets,
+      signal,
     );
     // html-to-image can populate its internal transparent foreignObject/style caches during the
     // first snapshot after an expanded collection's item count changes. Rebuild the immutable DOM
     // once after that warm-up so the returned PNG never contains a partially flattened first pass.
+    signal?.throwIfAborted();
     if (composition.runtimeCollections.length > 0 && request.matte === 'transparent') {
       for (const layer of wrapper.querySelectorAll<HTMLElement>('[data-agent-capture-layer]')) {
         disposeElementContent(layer);
@@ -564,7 +599,7 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
         request.dataOverrides,
       );
       document.body.appendChild(wrapper);
-      await settleCaptureContent(wrapper);
+      await settleCaptureContent(wrapper, signal);
       raster = await rasterize(
         wrapper,
         output.width,
@@ -572,14 +607,16 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
         request.maxDimension,
         { zIndex: 'auto' },
         composition.assets,
+        signal,
       );
     }
+    signal?.throwIfAborted();
     return {
       mimeType: 'image/png',
       ...raster,
       originalWidth: output.width,
       originalHeight: output.height,
-      resolvedFonts: await resolvedFonts(composition),
+      resolvedFonts: await awaitExportOperation(resolvedFonts(composition), signal),
       runtimeCollections: composition.runtimeCollections.map((collection) => {
         const field = composition.dataFields.find(
           (candidate) => candidate.id === collection.fieldId,
@@ -604,12 +641,15 @@ async function captureComposition(request: AgentCaptureRequest): Promise<AgentCa
   }
 }
 
-async function captureViewport(request: AgentCaptureRequest): Promise<AgentCaptureResult> {
+async function captureViewport(
+  request: AgentCaptureRequest,
+  signal?: AbortSignal,
+): Promise<AgentCaptureResult> {
   const root = document.getElementById('root');
   if (!root) throw new Error('Editor root element is unavailable.');
   const originalWidth = window.innerWidth;
   const originalHeight = window.innerHeight;
-  await settleCaptureContent(root);
+  await settleCaptureContent(root, signal);
   const composition = compositionFor(request.project, request.compositionId);
   const raster = await rasterize(
     root,
@@ -618,13 +658,15 @@ async function captureViewport(request: AgentCaptureRequest): Promise<AgentCaptu
     request.maxDimension,
     undefined,
     composition.assets,
+    signal,
   );
+  signal?.throwIfAborted();
   return {
     mimeType: 'image/png',
     ...raster,
     originalWidth,
     originalHeight,
-    resolvedFonts: await resolvedFonts(compositionFor(request.project, request.compositionId)),
+    resolvedFonts: await awaitExportOperation(resolvedFonts(composition), signal),
   };
 }
 
@@ -891,18 +933,31 @@ export async function measureAgentText(
 }
 
 /** Rasterizes the real browser renderer without changing editor state or the authoring revision. */
-export async function captureAgentPng(request: AgentCaptureRequest): Promise<AgentCaptureResult> {
+export async function captureAgentPng(
+  request: AgentCaptureRequest,
+  signal?: AbortSignal,
+): Promise<AgentCaptureResult> {
   try {
+    signal?.throwIfAborted();
     const composition = compositionFor(request.project, request.compositionId);
     const plugins = compileDescriptor(composition).rendererPlugins ?? [];
     if (plugins.length) {
-      await useRendererPluginSettingsStore.getState().initialize();
+      await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
+      signal?.throwIfAborted();
       assertStudioRendererPluginsAllowed(plugins);
     }
-    return await withProjectFonts(document, composition.assets, () =>
-      request.target === 'viewport' ? captureViewport(request) : captureComposition(request),
-    );
+    const lease = acquireProjectFonts(document, composition.assets);
+    try {
+      await awaitExportOperation(lease.ready, signal);
+      signal?.throwIfAborted();
+      return await (request.target === 'viewport'
+        ? captureViewport(request, signal)
+        : captureComposition(request, signal));
+    } finally {
+      lease.dispose();
+    }
   } catch (cause) {
+    signal?.throwIfAborted();
     if (cause instanceof Error) throw cause;
     if (
       cause &&

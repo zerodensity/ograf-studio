@@ -15,7 +15,12 @@ import {
   type Composition,
   type Project,
 } from '@ograf-editor/scene-model';
-import { getExportProfile, type ExportArtifacts, type ExportProfile } from '@ograf-editor/codegen';
+import {
+  getExportProfile,
+  getOfflinePreviewFileName,
+  type ExportArtifacts,
+  type ExportProfile,
+} from '@ograf-editor/codegen';
 import {
   addProjectSetControl,
   createProjectSet,
@@ -25,7 +30,11 @@ import {
   setProjectSetControlValue,
   updateProjectSetSettings,
 } from './projectSet';
-import { buildNodosPreset, createCertifiedProjectPackage } from './exportPackage';
+import {
+  buildNodosPreset,
+  createCertifiedProjectHtml,
+  createCertifiedProjectPackage,
+} from './exportPackage';
 
 const gates = vi.hoisted(() => ({ certify: vi.fn(), thumbnail: vi.fn() }));
 
@@ -152,6 +161,45 @@ function interactiveFixture() {
 }
 
 describe('Nodos packaging on the current Studio export contract', () => {
+  it('puts the source prompt history in the standalone manifest and HTML payload', async () => {
+    const prompts = [
+      { id: 'first', text: 'Author a chart for İstanbul.\nUse a dark palette.' },
+      { id: 'follow-up', text: 'Show </script><script id="prompt-probe"></script> as text.\u2028' },
+    ];
+    const project = createProject({ name: 'Authored chart', authoringPrompts: prompts });
+    const packaged = await createCertifiedProjectPackage(
+      project,
+      project.compositions[0]!,
+      getExportProfile('realtime'),
+    );
+    const zip = await JSZip.loadAsync(await packaged.blob.arrayBuffer());
+    const manifest = JSON.parse(
+      await zip.file(packaged.artifacts.manifestFileName)!.async('string'),
+    );
+    expect(manifest.id).not.toBe(project.id);
+    expect(manifest.v_ografStudioAuthoringPrompts).toEqual({
+      version: 1,
+      templates: [{ projectId: project.id, name: project.name, prompts }],
+    });
+    expect(zip.file(getOfflinePreviewFileName(packaged.artifacts))).toBeNull();
+    const preview = await createCertifiedProjectHtml(
+      project,
+      project.compositions[0]!,
+      getExportProfile('realtime'),
+    );
+    const html = await preview.blob.text();
+    const payload = html.match(
+      /<script type="application\/json" id="ograf-package">([\s\S]*?)<\/script>/,
+    );
+    expect(JSON.parse(payload![1]!).manifest).toEqual(preview.artifacts.manifest);
+    expect(preview.artifacts.manifest.v_ografStudioAuthoringPrompts).toEqual(
+      manifest.v_ografStudioAuthoringPrompts,
+    );
+    expect(html).not.toContain('<script id="prompt-probe">');
+    expect(await zip.file('main.js')!.async('string')).not.toContain('Author a chart for');
+    expect(zip.file('authoring-prompts.json')).toBeNull();
+  });
+
   it('keeps Functions, ticker policy, Rules and internal data while exposing only public pins', async () => {
     const { project, composition, ticker } = interactiveFixture();
     const original = structuredClone(project);
@@ -163,6 +211,7 @@ describe('Nodos packaging on the current Studio export contract', () => {
     );
     const certified = gates.certify.mock.calls[0]![0] as ExportArtifacts;
     expect(certified.valid, certified.errors.join('\n')).toBe(true);
+    expect(certified.manifest.v_ografStudioAuthoringPrompts).toBeUndefined();
     expect(certified.manifest.supportsNonRealTime).toBe(false);
     expect(certified.descriptor!.functions![0]).toMatchObject({
       pointer: true,

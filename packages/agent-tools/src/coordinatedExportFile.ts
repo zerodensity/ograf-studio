@@ -32,8 +32,10 @@ export function coordinatedExportFile(workspace: AuthoringWorkspacePort, bridge:
   const registry = operations;
   return async (input: Input): Promise<Record<string, unknown>> => {
     const target = workspace.resolveAllowedPath(input.path);
-    if (!target.toLowerCase().endsWith('.ograf.zip'))
-      throw new Error('Package path must end in .ograf.zip.');
+    const lower = target.toLowerCase();
+    const format = lower.endsWith('.html') ? 'html' : 'zip';
+    if (format === 'zip' && !lower.endsWith('.ograf.zip'))
+      throw new Error('Export path must end in .ograf.zip or .html.');
     const fingerprint = JSON.stringify([
       target,
       input.expectedRevision,
@@ -83,6 +85,7 @@ export function coordinatedExportFile(workspace: AuthoringWorkspacePort, bridge:
               action: 'export-coordinated',
               expectedRevision: input.expectedRevision,
               profile: input.profile,
+              ...(format === 'html' ? { format } : {}),
             },
             600_000,
           );
@@ -91,6 +94,7 @@ export function coordinatedExportFile(workspace: AuthoringWorkspacePort, bridge:
           if (
             value.revision !== input.expectedRevision ||
             value.profile !== input.profile ||
+            (value.format ?? 'zip') !== format ||
             !value.certification ||
             (value.certification as { valid?: boolean }).valid !== true ||
             !Array.isArray(value.includedTemplateIds) ||
@@ -106,7 +110,7 @@ export function coordinatedExportFile(workspace: AuthoringWorkspacePort, bridge:
             (value.archiveBytes as number) > MAX_TEMPLATE_SET_MCP_ARCHIVE_BYTES ||
             value.archiveBase64.length > Math.ceil(MAX_TEMPLATE_SET_MCP_ARCHIVE_BYTES / 3) * 4
           )
-            throw new Error('Coordinated archive exceeds the 64 MiB transfer limit.');
+            throw new Error('Coordinated output exceeds the 64 MiB transfer limit.');
           const data = Buffer.from(value.archiveBase64, 'base64');
           if (
             data.length !== value.archiveBytes ||
@@ -114,12 +118,25 @@ export function coordinatedExportFile(workspace: AuthoringWorkspacePort, bridge:
             hash(data) !== value.sha256
           )
             throw new Error('Coordinated artifact checksum or transfer size mismatch.');
-          const zip = await JSZip.loadAsync(data, { checkCRC32: true });
-          if (
-            !zip.file('main.js') ||
-            !Object.keys(zip.files).some((name) => name.endsWith('.json'))
-          )
-            throw new Error('Coordinated package is missing its manifest or module.');
+          if (format === 'html') {
+            const html = new TextDecoder('utf-8', { fatal: true }).decode(data);
+            const embedded = html.match(/id="ograf-package">([\s\S]*?)<\/script>/)?.[1];
+            const payload = embedded && JSON.parse(embedded);
+            if (
+              !html.startsWith('<!doctype html>') ||
+              payload?.manifest?.main !== 'main.js' ||
+              typeof payload.mainJs !== 'string' ||
+              !Array.isArray(payload.resources)
+            )
+              throw new Error('Coordinated HTML is missing its embedded graphic.');
+          } else {
+            const zip = await JSZip.loadAsync(data, { checkCRC32: true });
+            if (
+              !zip.file('main.js') ||
+              !Object.keys(zip.files).some((name) => name.endsWith('.json'))
+            )
+              throw new Error('Coordinated package is missing its manifest or module.');
+          }
           const { archiveBase64: _bytes, ...metadata } = value;
           const retainedBytes = [...registry.values()].reduce(
             (sum, item) => sum + (item.data?.length ?? 0),
@@ -129,14 +146,14 @@ export function coordinatedExportFile(workspace: AuthoringWorkspacePort, bridge:
             throw new Error(
               'Retained certified artifacts exceed 128 MiB. Resolve earlier write failures first.',
             );
-          op.metadata = { ...metadata, path: target, operationId: input.operationId };
+          op.metadata = { ...metadata, format, path: target, operationId: input.operationId };
           op.data = data;
         }
         stage = 'write';
         await writeTemplateFiles([{ path: target, data: op.data }], input.overwrite, async () => {
           stage = 'verification';
           if (hash(await readFile(target)) !== op.metadata!.sha256)
-            throw new Error('Saved package checksum mismatch.');
+            throw new Error('Saved output checksum mismatch.');
         });
         op.metadata = {
           ...op.metadata!,

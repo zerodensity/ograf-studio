@@ -7,19 +7,25 @@ export async function buildCoordinatedProjectSetArtifactsTask(
   profile?: ExportProfile,
   signal?: AbortSignal,
 ): Promise<ExportArtifacts> {
-  if (signal?.aborted) throw new Error('Playout loading was cancelled.');
-  if (typeof Worker === 'undefined') return buildCoordinatedProjectSetArtifacts(set, profile);
+  signal?.throwIfAborted();
+  const compileOnMainThread = () => {
+    signal?.throwIfAborted();
+    const artifacts = buildCoordinatedProjectSetArtifacts(set, profile);
+    signal?.throwIfAborted();
+    return artifacts;
+  };
+  if (typeof Worker === 'undefined') return compileOnMainThread();
   let worker: Worker;
   try {
     worker = new Worker(new URL('./coordinatedCompile.worker.ts', import.meta.url), {
       type: 'module',
     });
   } catch {
-    return buildCoordinatedProjectSetArtifacts(set, profile);
+    return compileOnMainThread();
   }
   return new Promise((resolve, reject) => {
     let done = false;
-    const finish = (error?: Error, artifacts?: ExportArtifacts) => {
+    const finish = (result: { error: unknown } | { artifacts: ExportArtifacts }) => {
       if (done) return;
       done = true;
       clearTimeout(timeout);
@@ -28,28 +34,28 @@ export async function buildCoordinatedProjectSetArtifactsTask(
       worker.onerror = null;
       worker.onmessageerror = null;
       worker.terminate();
-      if (error) reject(error);
-      else resolve(artifacts!);
+      if ('error' in result) reject(result.error);
+      else resolve(result.artifacts);
     };
-    const cancel = () => finish(new Error('Playout loading was cancelled.'));
+    const cancel = () => finish({ error: signal!.reason });
     const timeout = setTimeout(
       () =>
-        finish(
-          new Error(
+        finish({
+          error: new Error(
             'Coordinated preview compilation exceeded two minutes. The source is preserved.',
           ),
-        ),
+        }),
       120_000,
     );
     signal?.addEventListener('abort', cancel, { once: true });
     worker.onerror = (event) =>
-      finish(new Error(event.message || 'Coordinated preview compiler failed.'));
+      finish({ error: new Error(event.message || 'Coordinated preview compiler failed.') });
     worker.onmessageerror = () =>
-      finish(new Error('Could not read coordinated preview compilation.'));
+      finish({ error: new Error('Could not read coordinated preview compilation.') });
     worker.onmessage = (event) => {
       if (done) return;
-      if (event.data.type === 'error') finish(new Error(event.data.message));
-      else if (event.data.type === 'complete') finish(undefined, event.data.artifacts);
+      if (event.data.type === 'error') finish({ error: new Error(event.data.message) });
+      else if (event.data.type === 'complete') finish({ artifacts: event.data.artifacts });
     };
     if (signal?.aborted) {
       cancel();
@@ -58,7 +64,7 @@ export async function buildCoordinatedProjectSetArtifactsTask(
     try {
       worker.postMessage({ set, profile });
     } catch (cause) {
-      finish(cause instanceof Error ? cause : new Error(String(cause)));
+      finish({ error: cause instanceof Error ? cause : new Error(String(cause)) });
     }
   });
 }

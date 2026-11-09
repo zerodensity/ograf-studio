@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { templateSetOperationSchema } from './templateSetSchemas';
+import { mcpTemplateSetOperationSchema, templateSetOperationSchema } from './templateSetSchemas';
 import type { TransitionLogicDefinition } from '@ograf-editor/scene-model';
 
 const token = {
@@ -9,6 +9,33 @@ const token = {
   type: 'color',
   value: '#1166aa',
 };
+
+describe('Template Set creation provenance', () => {
+  it.each([
+    { type: 'new_template' },
+    { type: 'duplicate_template', templateId: 'news' },
+    { type: 'paste_template' },
+  ])('requires the original user prompt for external $type only', (operation) => {
+    expect(mcpTemplateSetOperationSchema.safeParse(operation).success).toBe(false);
+    expect(
+      mcpTemplateSetOperationSchema.safeParse({ ...operation, originalPrompt: '  ' }).success,
+    ).toBe(false);
+    const originalPrompt = '  Build a new panel with two columns.\nKeep the headings.  ';
+    expect(mcpTemplateSetOperationSchema.parse({ ...operation, originalPrompt })).toMatchObject({
+      ...operation,
+      originalPrompt,
+    });
+    expect(templateSetOperationSchema.parse(operation)).toMatchObject(operation);
+    expect(templateSetOperationSchema.safeParse({ ...operation, originalPrompt }).success).toBe(
+      false,
+    );
+  });
+
+  it('can wrap an existing template in a set without claiming new provenance', () => {
+    const operation = { type: 'create', name: 'News set' };
+    expect(mcpTemplateSetOperationSchema.parse(operation)).toEqual(operation);
+  });
+});
 
 describe('Template Set theme and per-setting MCP schemas', () => {
   it('parses all five new operations with explicit stable identities', () => {

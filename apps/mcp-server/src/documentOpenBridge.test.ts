@@ -83,7 +83,13 @@ it('marks a standalone MCP file open across the live bridge without marking ordi
       arguments: {
         sessionId: 'editor',
         expectedRevision: host.workspace.get('editor').revision,
-        operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Ordinary edit' }],
+        operations: [
+          {
+            type: 'set_project_metadata',
+            authoringPrompt: { id: 'standalone-first-prompt', text: 'Add a rectangle.' },
+          },
+          { type: 'add_layer', kind: 'rectangle', name: 'Ordinary edit' },
+        ],
       },
     });
     expect(edited.isError, JSON.stringify(edited.content)).not.toBe(true);

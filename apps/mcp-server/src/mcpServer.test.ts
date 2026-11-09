@@ -30,10 +30,21 @@ import {
 describe('OGraf MCP authoring host', () => {
   const host = createOGrafAuthoringHost();
   const client = new Client({ name: 'ograf-mcp-test', version: '1.0.0' });
+  const testPrompt = 'Create a template for this test.';
+  const createProjectViaMcp = (sessionId: string, name?: string) =>
+    client.callTool({
+      name: 'ograf_create_project',
+      arguments: { sessionId, name, originalPrompt: testPrompt },
+    });
+  const createPromptedFixture = (sessionId: string) =>
+    host.workspace.create(
+      sessionId,
+      createProject({ authoringPrompts: [{ id: 'test-original-prompt', text: testPrompt }] }),
+    );
   let testEditorSocket: WebSocket | null = null;
   it('authors seeded text animators and experimental motion blur through existing operations', async () => {
     const sessionId = 'mcp-text-animators';
-    const session = host.workspace.create(sessionId);
+    const session = createPromptedFixture(sessionId);
     const animator = {
       id: 'rise',
       unit: 'character',
@@ -183,7 +194,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('authors local review comments, versions and approval atomically through MCP', async () => {
     const sessionId = 'mcp-review';
-    const session = host.workspace.create(sessionId);
+    const session = createPromptedFixture(sessionId);
     const compositionId = session.snapshot().project.mainCompositionId;
     const result = await client.callTool({
       name: 'ograf_apply_operations',
@@ -276,7 +287,7 @@ describe('OGraf MCP authoring host', () => {
     ]);
     for (const [index, recipe] of recipes.entries()) {
       const sessionId = `skill-broadcast-recipe-${index}`;
-      host.workspace.create(sessionId);
+      createPromptedFixture(sessionId);
       let revision = 0;
       for (const batch of recipe.batches) {
         const composition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
@@ -315,7 +326,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('stores and validates authoring-only test rundowns through MCP', async () => {
     const sessionId = 'mcp-test-rundown';
-    const session = host.workspace.create(sessionId);
+    const session = createPromptedFixture(sessionId);
     session.apply({
       expectedRevision: 0,
       operations: [
@@ -360,7 +371,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('resolves recipe-created layer and field selectors in the same atomic batch', async () => {
     const sessionId = 'mcp-recipe-same-batch';
-    const session = host.workspace.create(sessionId);
+    const session = createPromptedFixture(sessionId);
     const operations = [
       { type: 'create_lower_third', name: 'Election', fieldKeys: { headline: 'electionTitle' } },
       {
@@ -420,7 +431,7 @@ describe('OGraf MCP authoring host', () => {
     ['create_countdown', 'Timer'],
   ])('resolves an object created by %s during the same batch', async (type, part) => {
     const sessionId = `mcp-batch-${type}`;
-    const session = host.workspace.create(sessionId);
+    const session = createPromptedFixture(sessionId);
     const operations = [
       { type, name: 'Demo' },
       {
@@ -443,7 +454,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('keeps separate recipe identities stable when a batch contains component recipes and later selectors', async () => {
     const sessionId = 'mcp-batch-components';
-    const session = host.workspace.create(sessionId);
+    const session = createPromptedFixture(sessionId);
     const result = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -479,7 +490,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('resolves repeater-created layer names in the same batch', async () => {
     const sessionId = 'mcp-batch-repeater';
-    const session = host.workspace.create(sessionId);
+    const session = createPromptedFixture(sessionId);
     session.apply({
       expectedRevision: 0,
       operations: [{ type: 'add_layer', kind: 'rectangle', name: 'Seed', id: 'seed' }],
@@ -509,7 +520,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('bakes and clears Animate In motion through MCP without a runtime-only preset', async () => {
     const sessionId = 'mcp-layer-motion';
-    host.workspace.create(sessionId);
+    createPromptedFixture(sessionId);
     const applied = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -603,7 +614,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('authors a pointer rule without a Data field through the advertised MCP contract', async () => {
     const sessionId = 'pointer-visual-rule';
-    host.workspace.create(sessionId);
+    createPromptedFixture(sessionId);
     const capabilities = await client.callTool({
       name: 'ograf_get_capabilities',
       arguments: { sections: ['bindings'] },
@@ -690,7 +701,7 @@ describe('OGraf MCP authoring host', () => {
     ]);
     for (const preset of capabilities.tiling.presets.entries) {
       const sessionId = `advertised-pattern-${preset.id}`;
-      host.workspace.create(sessionId);
+      createPromptedFixture(sessionId);
       const applied = await client.callTool({
         name: 'ograf_apply_operations',
         arguments: {
@@ -722,7 +733,7 @@ describe('OGraf MCP authoring host', () => {
       JSON.parse(match[1]!),
     );
     const sessionId = 'skill-shader-loop-example';
-    host.workspace.create(sessionId);
+    createPromptedFixture(sessionId);
     const capabilities = await client.callTool({
       name: 'ograf_get_capabilities',
       arguments: { sections: ['shaders'] },
@@ -772,7 +783,7 @@ describe('OGraf MCP authoring host', () => {
       }
     ).composableEffects.shaderEffect.example;
     const sessionId = 'shader-effect-capability-example';
-    host.workspace.create(sessionId);
+    createPromptedFixture(sessionId);
     const result = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -817,7 +828,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('applies and edits pack colors through existing GDD bindings and restores their defaults', async () => {
     const sessionId = 'pack-colors-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const session = host.workspace.get(sessionId);
     const apply = (operations: unknown[]) =>
       client.callTool({
@@ -861,7 +872,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('exposes shared lighting, samples its clock and rejects broken links atomically', async () => {
     const sessionId = 'shared-lighting-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const session = host.workspace.get(sessionId);
     const apply = (operations: unknown[]) =>
       client.callTool({
@@ -945,7 +956,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('authors ordered effect instances with stable animation paths and atomic failures', async () => {
     const sessionId = 'effect-stack-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const session = host.workspace.get(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
@@ -1036,7 +1047,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('materializes synchronized effects across a persistent canvas group', async () => {
     const sessionId = 'group-effect-stack-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const session = host.workspace.get(sessionId);
     const grouped = await client.callTool({
       name: 'ograf_apply_operations',
@@ -1099,7 +1110,7 @@ describe('OGraf MCP authoring host', () => {
   });
   it('creates and edits a shared pattern by name and samples generated row motion', async () => {
     const sessionId = 'procedural-pattern-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const session = host.workspace.get(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
@@ -1153,7 +1164,7 @@ describe('OGraf MCP authoring host', () => {
 
   it('links Brand Kit colors to gradient stops and shadows without flattening paint', async () => {
     const sessionId = 'gradient-brand-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const session = host.workspace.get(sessionId);
     const result = await client.callTool({
       name: 'ograf_apply_operations',
@@ -1255,7 +1266,7 @@ describe('OGraf MCP authoring host', () => {
 
   it('authors gradient paths and named mask sources atomically and exposes mask relationships', async () => {
     const sessionId = 'named-mask-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const session = host.workspace.get(sessionId);
     const result = await client.callTool({
       name: 'ograf_apply_operations',
@@ -1398,9 +1409,33 @@ describe('OGraf MCP authoring host', () => {
     expect(providerToolWireBytes(records)).toBeLessThanOrEqual(75_000);
   });
 
+  it('requires and preserves the original user prompt when creating a template through MCP', async () => {
+    const sessionId = 'mcp-create-original-prompt';
+    for (const arguments_ of [{ sessionId }, { sessionId, originalPrompt: ' \n ' }]) {
+      const rejected = await client.callTool({
+        name: 'ograf_create_project',
+        arguments: arguments_,
+      });
+      expect(rejected.isError).toBe(true);
+      expect(host.workspace.sessions.has(sessionId)).toBe(false);
+    }
+
+    const originalPrompt = 'Create a navy lower third.\nUse our supplied logo.  ';
+    const created = await client.callTool({
+      name: 'ograf_create_project',
+      arguments: { sessionId, originalPrompt },
+    });
+    expect(created.isError).not.toBe(true);
+    const authoringPrompts = [{ id: expect.any(String), text: originalPrompt }];
+    expect(created.structuredContent).toMatchObject({ revision: 0, project: { authoringPrompts } });
+    expect(host.workspace.get(sessionId).snapshot().project.authoringPrompts).toEqual(
+      authoringPrompts,
+    );
+  });
+
   it('explicitly deletes temporary sessions without allowing live-editor deletion', async () => {
     const sessionId = 'temporary-cleanup-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const deleted = await client.callTool({
       name: 'ograf_delete_session',
       arguments: { sessionId, confirm: true },
@@ -1569,7 +1604,7 @@ describe('OGraf MCP authoring host', () => {
 
   it('exposes editable path geometry and rejects unknown point-edit parameters', async () => {
     const sessionId = 'editable-path-mcp';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -1626,7 +1661,7 @@ describe('OGraf MCP authoring host', () => {
 
   it('authors and inspects a shader through canonical MCP operations', async () => {
     const sessionId = 'shader-inspection-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -1698,7 +1733,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('derives Lottie compatibility details during scene inspection', async () => {
     const sessionId = 'lottie-inspection-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const result = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -1754,7 +1789,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('applies style packs and returns complete semantic recipe mappings', async () => {
     const sessionId = 'style-pack-recipe-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const result = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -1836,7 +1871,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('applies and returns deterministic design QA when browser capture is unavailable', async () => {
     const sessionId = 'apply-review-browser-free-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const result = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -1904,7 +1939,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const sessionId = 'apply-review-capture-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const captured = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -1925,10 +1960,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
     failCapture = true;
     const failedSessionId = 'apply-review-failed-capture-test';
-    await client.callTool({
-      name: 'ograf_create_project',
-      arguments: { sessionId: failedSessionId },
-    });
+    await createProjectViaMcp(failedSessionId);
     const degraded = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -1951,7 +1983,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('creates a semantic lower third and exposes its intent through inspection', async () => {
     const sessionId = 'semantic-lower-third-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const applied = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2018,7 +2050,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('authors enriched GDD field metadata through the typed MCP operation schema', async () => {
     const sessionId = 'gdd-field-mcp-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const applied = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2075,7 +2107,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('authors recursive GDD data and a deterministic runtime collection by selectors', async () => {
     const sessionId = 'runtime-collection-mcp-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const applied = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2178,7 +2210,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('authors and inspects static composition-local blend modes', async () => {
     const sessionId = 'blend-mode-mcp-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const applied = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2198,7 +2230,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('authors and inspects local multi-property loops through MCP', async () => {
     const sessionId = 'local-loop-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const applied = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2285,7 +2317,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('imports workspace assets and portable SVG companion bundles atomically', async () => {
     const sessionId = 'workspace-import-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const asset = await client.callTool({
       name: 'ograf_import_asset',
       arguments: {
@@ -2323,10 +2355,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('preserves full project reads and supports animated-only projections', async () => {
     const sessionId = 'project-filter-test';
-    await client.callTool({
-      name: 'ograf_create_project',
-      arguments: { sessionId, name: 'Project filter test' },
-    });
+    await createProjectViaMcp(sessionId, 'Project filter test');
     const createdRevision = host.workspace.get(sessionId).revision;
     await client.callTool({
       name: 'ograf_apply_operations',
@@ -2410,7 +2439,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('supports asset creation plus exact layer-name, field-key, and wildcard selectors', async () => {
     const sessionId = 'selector-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2473,7 +2502,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('resolves layers and fields created earlier in the same atomic batch', async () => {
     const sessionId = 'same-batch-selector-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const applied = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2560,7 +2589,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('sets multiple independent bindings on one layer with field-key selectors', async () => {
     const sessionId = 'multiple-binding-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const applied = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2592,7 +2621,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('matches structural editor actions for lifecycle, canvas groups, custom actions, and assets', async () => {
     const sessionId = 'editor-parity-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2684,7 +2713,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('saves and instantiates reusable components with complete generated mappings', async () => {
     const sessionId = 'component-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2740,7 +2769,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('duplicates a nine-layer cell with authored-key frame offsets and anchored lifecycle keys', async () => {
     const sessionId = 'duplicate-offset-acceptance-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const initialComposition = host.workspace.get(sessionId).snapshot().project.compositions[0]!;
     const built = await client.callTool({
       name: 'ograf_apply_operations',
@@ -2834,7 +2863,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
       ['dry-run', true],
     ] as const) {
       const sessionId = `warning-text-${suffix}`;
-      await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+      await createProjectViaMcp(sessionId);
       const result = await client.callTool({
         name: 'ograf_apply_operations',
         arguments: {
@@ -2862,24 +2891,43 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
   });
 
   it('applies an atomic operation with optimistic concurrency', async () => {
+    const before = host.workspace.get('editor').snapshot();
+    const layer = {
+      type: 'add_layer',
+      kind: 'text',
+      name: 'Agent title',
+      transform: { x: 67, y: 38 },
+    };
+    const rejected = await client.callTool({
+      name: 'ograf_apply_operations',
+      arguments: {
+        sessionId: 'editor',
+        expectedRevision: 0,
+        operations: [layer],
+        reason: 'This explanation is not the original prompt.',
+      },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.stringify(rejected.content)).toContain(
+      'This blank template needs its original prompt',
+    );
+    expect(host.workspace.get('editor').snapshot()).toEqual(before);
+
+    const authoringPrompt = { id: 'editor-original-prompt', text: 'Build a title for the editor.' };
     const result = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
         sessionId: 'editor',
         expectedRevision: 0,
-        operations: [
-          {
-            type: 'add_layer',
-            kind: 'text',
-            name: 'Agent title',
-            transform: { x: 67, y: 38 },
-          },
-        ],
+        operations: [{ type: 'set_project_metadata', authoringPrompt }, layer],
         reason: 'MCP integration test',
       },
     });
     expect(result.isError).not.toBe(true);
     expect(result.structuredContent).toMatchObject({ revision: 1, dryRun: false });
+    expect(host.workspace.get('editor').snapshot().project.authoringPrompts).toEqual([
+      authoringPrompt,
+    ]);
 
     const snapshot = await client.callTool({
       name: 'ograf_get_project',
@@ -2921,7 +2969,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('audits exposed data field usage without browser access or changing validity or revision', async () => {
     const sessionId = 'data-field-usage-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -2970,7 +3018,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('exempts bleed layers independently on each safe-area axis', async () => {
     const sessionId = 'full-frame-lint-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -3019,7 +3067,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('returns creation IDs directly and supports a follow-up mutation without a project read', async () => {
     const sessionId = 'creation-results-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -3085,7 +3133,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('exposes timeline-only grouping as revisioned MCP operations', async () => {
     const sessionId = 'timeline-group-tool-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -3195,7 +3243,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('checks contrast against full and partial backing at each step frame', async () => {
     const sessionId = 'contrast-backing-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -3278,7 +3326,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('samples complementary wipe tracks without a browser and preserves a constant right edge', async () => {
     const sessionId = 'sample-tracks-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -3332,7 +3380,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('returns projected interlace lint and generated IDs from dry run without mutation', async () => {
     const sessionId = 'dry-run-diagnostics-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const result = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -3367,7 +3415,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('authors and samples animatable gradient-stop offsets through MCP', async () => {
     const sessionId = 'gradient-stop-animation';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     const created = await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -3435,7 +3483,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('computes safe-area pixels and exposes revision history and undoable reset', async () => {
     const sessionId = 'safe-history-reset-test';
-    await client.callTool({ name: 'ograf_create_project', arguments: { sessionId } });
+    await createProjectViaMcp(sessionId);
     await client.callTool({
       name: 'ograf_apply_operations',
       arguments: {
@@ -3468,11 +3516,22 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
       ),
     ).toEqual(['agent']);
 
-    const reset = await client.callTool({
+    const previous = host.workspace.get(sessionId).snapshot();
+    const rejectedReset = await client.callTool({
       name: 'ograf_reset_project',
       arguments: { sessionId, expectedRevision: 1, confirm: true },
     });
-    expect((reset.structuredContent as { revision: number }).revision).toBe(2);
+    expect(rejectedReset.isError).toBe(true);
+    expect(host.workspace.get(sessionId).snapshot()).toEqual(previous);
+    const originalPrompt = 'Start over with a clean template for the final segment.';
+    const reset = await client.callTool({
+      name: 'ograf_reset_project',
+      arguments: { sessionId, expectedRevision: 1, confirm: true, originalPrompt },
+    });
+    expect(reset.structuredContent).toMatchObject({
+      revision: 2,
+      project: { authoringPrompts: [{ id: expect.any(String), text: originalPrompt }] },
+    });
     expect(host.workspace.get(sessionId).snapshot().project.compositions[0]!.layers).toHaveLength(
       0,
     );
@@ -3482,6 +3541,9 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
     });
     expect(host.workspace.get(sessionId).snapshot().project.compositions[0]!.layers[0]!.name).toBe(
       'Temporary',
+    );
+    expect(host.workspace.get(sessionId).snapshot().project.authoringPrompts).toEqual(
+      previous.project.authoringPrompts,
     );
   });
 
@@ -3826,7 +3888,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
     expect(certificationCount).toBe(2);
   });
 
-  it('includes the offline preview in an MCP-certified single-template export', async () => {
+  it('exports standalone HTML and ZIP separately with the same prompt metadata', async () => {
     const port = (host.httpServer.address() as AddressInfo).port;
     const socket = new WebSocket(`ws://127.0.0.1:${port}/editor`);
     testEditorSocket = socket;
@@ -3867,16 +3929,33 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
         );
       }
     });
-    socket.send(
-      JSON.stringify({
-        type: 'editor.hello',
-        project: host.workspace.get('editor').snapshot().project,
-      }),
-    );
+    const session = host.workspace.get('editor');
+    const project = session.snapshot().project;
+    project.authoringPrompts = [
+      ...(project.authoringPrompts ?? []),
+      { id: 'export-prompt', text: 'Make a navy headline.' },
+    ];
+    session.replaceExternal(project, 'Test prompt metadata');
+    socket.send(JSON.stringify({ type: 'editor.hello', project }));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    const name = `offline-preview-test-${randomUUID()}.ograf.zip`;
+    const stem = `standalone-export-test-${randomUUID()}`;
+    const name = `${stem}.ograf.zip`;
     const target = host.workspace.resolveAllowedPath(name);
+    const htmlTarget = host.workspace.resolveAllowedPath(`${stem}.html`);
     try {
+      const htmlExport = await client.callTool({
+        name: 'ograf_export_package',
+        arguments: { sessionId: 'editor', path: `${stem}.html`, profile: 'dual', confirm: true },
+      });
+      expect(htmlExport.isError, JSON.stringify(htmlExport.content)).not.toBe(true);
+      expect(htmlExport.structuredContent).toMatchObject({ format: 'html', path: htmlTarget });
+      await expect(readFile(target)).rejects.toMatchObject({ code: 'ENOENT' });
+      const html = await readFile(htmlTarget, 'utf8');
+      const payload = JSON.parse(html.match(/id="ograf-package">([\s\S]*?)<\/script>/)![1]!);
+      expect(html).toContain('OGraf Studio playback license');
+      expect(payload.manifest.v_ografStudioAuthoringPrompts.templates[0].prompts).toEqual(
+        project.authoringPrompts,
+      );
       const exported = await client.callTool({
         name: 'ograf_export_package',
         arguments: { sessionId: 'editor', path: name, profile: 'dual', confirm: true },
@@ -3887,21 +3966,19 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
       const manifest = JSON.parse(await zip.file(manifestFile)!.async('string'));
       expect(manifest.main).toBe('main.js');
       expect(zip.file('main.js')).not.toBeNull();
-      const previewFileName = (exported.structuredContent as { previewFileName: string })
-        .previewFileName;
-      expect(previewFileName).toBe(`${manifest.name}.html`);
-      expect(zip.file('index.html')).toBeNull();
-      const index = await zip.file(previewFileName)!.async('string');
+      expect(exported.structuredContent).toMatchObject({ format: 'zip', path: target });
+      expect(Object.keys(zip.files).some((path) => path.endsWith('.html'))).toBe(false);
+      expect(manifest.v_ografStudioAuthoringPrompts).toEqual(
+        payload.manifest.v_ografStudioAuthoringPrompts,
+      );
       const licensePath = 'licenses/OGRAF-STUDIO-AGPL-3.0.txt';
-      expect(index).toContain('<!doctype html>');
-      expect(index).toContain(licensePath);
       expect(await zip.file('main.js')!.async('string')).toContain(licensePath);
       expect(await zip.file(licensePath)!.async('nodebuffer')).toEqual(
         await readFile(new URL('../../../LICENSE', import.meta.url)),
       );
       expect(await zip.file(manifest.thumbnails[0].file)!.async('base64')).toBe(transparentPixel);
     } finally {
-      await unlink(target).catch(() => undefined);
+      await Promise.all([target, htmlTarget].map((file) => unlink(file).catch(() => undefined)));
     }
   });
 

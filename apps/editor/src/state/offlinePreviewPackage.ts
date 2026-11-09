@@ -1,15 +1,39 @@
-import type JSZip from 'jszip';
 import {
-  assertOfflinePreviewFileAvailable,
   buildOfflinePreviewHtml,
   getOfflinePreviewFileName,
   type ExportArtifacts,
 } from '@ograf-editor/codegen';
 
-/** Include a self-contained preview without changing any certified OGraf files. */
-export function addOfflinePreviewFile(zip: JSZip, artifacts: ExportArtifacts): string {
-  const fileName = getOfflinePreviewFileName(artifacts);
-  assertOfflinePreviewFileAvailable(Object.keys(zip.files), fileName);
-  zip.file(fileName, buildOfflinePreviewHtml(artifacts));
-  return fileName;
+export type ExportFileFormat = 'zip' | 'html' | 'both';
+export type ExportFileSaveStatus = 'saved' | 'cancelled' | 'downloaded' | 'prepared';
+
+export interface ExportFile {
+  format: Exclude<ExportFileFormat, 'both'>;
+  fileName: string;
+  blob: Blob;
+}
+
+export interface ExportFileSaveResult extends Pick<ExportFile, 'format' | 'fileName'> {
+  saveResult: ExportFileSaveStatus;
+}
+
+export const HTML_FILE_TYPES = [
+  { description: 'Standalone HTML preview', accept: { 'text/html': ['.html'] } },
+];
+
+/** The HTML player uses the exact certified manifest, code and assets. */
+export function createStandaloneHtmlFile(
+  artifacts: ExportArtifacts,
+  fileNameSuffix = '',
+): ExportFile {
+  return {
+    format: 'html',
+    fileName: getOfflinePreviewFileName({
+      manifest: {
+        ...artifacts.manifest,
+        name: `${artifacts.manifest.name}${fileNameSuffix}`,
+      },
+    }),
+    blob: new Blob([buildOfflinePreviewHtml(artifacts)], { type: 'text/html;charset=utf-8' }),
+  };
 }

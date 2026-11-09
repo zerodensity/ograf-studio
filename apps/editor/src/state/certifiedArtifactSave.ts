@@ -1,3 +1,5 @@
+import { HTML_FILE_TYPES, type ExportFile } from './offlinePreviewPackage';
+
 export class CoordinatedExportError extends Error {
   readonly outcome: string;
   readonly stage: string;
@@ -28,10 +30,94 @@ export function exportFailure(error: unknown, stage: string): CoordinatedExportE
 export type CertifiedArtifactWriter = ((blob: Blob) => Promise<'saved' | 'downloaded'>) & {
   fileName?: string;
 };
+
+type CertifiedExportFile = ExportFile & { fileTypes?: FilePickerAcceptType[] };
+
+export interface CertifiedCoordinatedSaveSnapshot {
+  fileName: string;
+  format: ExportFile['format'];
+  byteLength: number;
+  templateCount: number;
+  pendingFileCount: number;
+  ownerWindow?: Window;
+  promptRevision: number;
+  needsSave: boolean;
+}
+
+let staged:
+  | {
+      files: CertifiedExportFile[];
+      templateCount: number;
+      ownerWindow?: Window;
+    }
+  | undefined;
+let saveSnapshot: CertifiedCoordinatedSaveSnapshot | null = null;
+let promptRevision = 0;
+const saveListeners = new Set<() => void>();
+
+/** Stable metadata for React. The complete certified bytes stay in the save queue. */
+export function getCertifiedCoordinatedSaveSnapshot(): CertifiedCoordinatedSaveSnapshot | null {
+  return saveSnapshot;
+}
+
+export function subscribeCertifiedCoordinatedSave(listener: () => void): () => void {
+  saveListeners.add(listener);
+  return () => saveListeners.delete(listener);
+}
+
+function publishSaveSnapshot(needsSave: boolean): void {
+  if (!staged) return;
+  const file = staged.files[0]!;
+  if (needsSave) promptRevision++;
+  saveSnapshot = {
+    fileName: file.fileName,
+    format: file.format,
+    byteLength: file.blob.size,
+    templateCount: staged.templateCount,
+    pendingFileCount: needsSave ? staged.files.length : 0,
+    ownerWindow: staged.ownerWindow,
+    promptRevision,
+    needsSave,
+  };
+  for (const listener of saveListeners) listener();
+}
+
+export function stageCertifiedArtifacts(
+  files: CertifiedExportFile[],
+  templateCount: number,
+  ownerWindow?: Window,
+  needsSave = false,
+): void {
+  staged = { files: [...files], templateCount, ownerWindow };
+  publishSaveSnapshot(needsSave);
+}
+
+export function peekCertifiedArtifact():
+  { file: CertifiedExportFile; ownerWindow?: Window } | undefined {
+  if (staged) return { file: staged.files[0]!, ownerWindow: staged.ownerWindow };
+}
+
+export function requestCertifiedArtifactSave(file: ExportFile): void {
+  if (staged?.files[0] === file) publishSaveSnapshot(true);
+}
+
+export function completeCertifiedArtifactSave(file: ExportFile, fileName: string): void {
+  if (!staged || staged.files[0] !== file) return;
+  file.fileName = fileName;
+  const moreFiles = staged.files.length > 1;
+  if (moreFiles) staged.files.shift();
+  publishSaveSnapshot(moreFiles);
+}
+
 /** Invoke only for complete artifact bytes; callers must preserve fresh picker activation. */
 export async function chooseCertifiedArtifactWriter(
   fileName: string,
-  options: { downloadOnly?: boolean; ownerWindow?: Window } = {},
+  options: {
+    downloadOnly?: boolean;
+    ownerWindow?: Window;
+    format?: ExportFile['format'];
+    fileTypes?: FilePickerAcceptType[];
+  } = {},
 ): Promise<CertifiedArtifactWriter> {
   const owner = options.ownerWindow ?? window;
   if (!options.downloadOnly && owner.showSaveFilePicker) {
@@ -39,12 +125,16 @@ export async function chooseCertifiedArtifactWriter(
     try {
       handle = await owner.showSaveFilePicker({
         suggestedName: fileName,
-        types: [
-          {
-            description: 'Coordinated OGraf package',
-            accept: { 'application/zip': ['.ograf.zip'] },
-          },
-        ],
+        types:
+          options.fileTypes ??
+          (options.format === 'html'
+            ? HTML_FILE_TYPES
+            : [
+                {
+                  description: 'OGraf package',
+                  accept: { 'application/zip': ['.ograf.zip'] },
+                },
+              ]),
       });
     } catch (error) {
       throw exportFailure(error, 'picker');

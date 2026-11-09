@@ -12,6 +12,7 @@ import { type TemplateSetSettings } from './templateSetSettings';
 export type SettingsScope = 'studio' | 'template-set' | 'template';
 export type SettingsSection =
   | 'workspace'
+  | 'export'
   | 'assistant'
   | 'plugins'
   | 'nodos'
@@ -23,7 +24,7 @@ export type SettingsSection =
   | 'guides';
 
 export const SETTINGS_SCOPE_SECTIONS: Record<SettingsScope, readonly SettingsSection[]> = {
-  studio: ['workspace', 'assistant', 'plugins', 'nodos'],
+  studio: ['workspace', 'export', 'assistant', 'plugins', 'nodos'],
   'template-set': ['output', 'timing', 'canvas', 'inheritance', 'plugins'],
   template: ['output', 'background', 'canvas', 'guides', 'plugins'],
 };

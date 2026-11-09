@@ -1,7 +1,6 @@
 // TS mirrors of the OGraf Graphics spec (https://ograf.ebu.io/v1/specification/docs/Specification.html).
 // Hand-authored from the spec as understood at the time of writing — not generated from the live
-// JSON Schema. Vendor-extension (`v_`-prefixed) fields are permitted by the spec on most objects
-// but are not modeled here since nothing in this codebase emits or reads them yet.
+// JSON Schema. Vendor-extension (`v_`-prefixed) fields used by Studio are explicitly typed.
 
 export type RenderType = 'realtime' | 'non-realtime';
 
@@ -149,6 +148,16 @@ export interface ManifestThumbnail {
   resolution?: { width: number; height: number };
 }
 
+export interface ManifestAuthoringPrompts {
+  version: 1;
+  templates: Array<{
+    templateId?: string;
+    projectId: string;
+    name: string;
+    prompts: Array<{ id: string; text: string }>;
+  }>;
+}
+
 /** The shape of a `*.ograf.json` manifest file. */
 export interface OGrafManifest {
   $schema: string;
@@ -170,6 +179,8 @@ export interface OGrafManifest {
   /** OR-combined across entries — a Renderer needs to satisfy at least one. */
   renderRequirements?: ManifestRenderRequirement[];
   thumbnails?: ManifestThumbnail[];
+  /** Ordered user prompts for the source templates. Playout does not use this metadata. */
+  v_ografStudioAuthoringPrompts?: ManifestAuthoringPrompts;
 }
 
 export const OGRAF_MANIFEST_SCHEMA_URL =

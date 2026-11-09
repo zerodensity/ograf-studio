@@ -49,6 +49,11 @@ export function AgentChatPanel() {
   }, [pendingProposalId]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const projectId = useProjectStore((state) => state.project.id);
+  const savedPrompts = useProjectStore((state) => state.project.authoringPrompts);
+  const [promptCopyStatus, setPromptCopyStatus] = useState<{
+    projectId: string;
+    message: string;
+  } | null>(null);
   const [now, setNow] = useState(Date.now());
   const [manualReferences, setManualReferences] = useState<AgentLayerReference[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -144,11 +149,7 @@ export function AgentChatPanel() {
       );
       return;
     }
-    sendAgentChat(
-      text.trim() || 'Apply the instructions for the attached numbered areas.',
-      references,
-      areaReferences,
-    );
+    sendAgentChat(text, references, areaReferences);
     setText('');
     setManualReferences([]);
     setAreaReferences([]);
@@ -304,6 +305,65 @@ export function AgentChatPanel() {
         <span>Session: {usageLabel(chat.sessionUsage)}</span>
         <span>Project: {usageLabel(chat.projectUsage)}</span>
       </div>
+      {savedPrompts?.length ? (
+        <CollapsibleSection
+          sectionId="assistant.saved-prompts"
+          title={`Saved prompts (${savedPrompts.length})`}
+          className="agent-saved-prompts"
+        >
+          <ol className="agent-saved-prompt-list" aria-label="Template prompts">
+            {savedPrompts.map((prompt, index) => {
+              const label = index === 0 ? 'Original prompt' : `Follow-up ${index}`;
+              return (
+                <li key={prompt.id}>
+                  <button
+                    className="agent-saved-prompt-use"
+                    type="button"
+                    disabled={busy || dictating}
+                    onClick={() => {
+                      setText(prompt.text);
+                      requestAnimationFrame(() => inputRef.current?.focus());
+                    }}
+                  >
+                    <strong>{label}</strong>
+                    <span className="agent-saved-prompt-action">
+                      {text ? 'Replace draft' : 'Use prompt'}
+                    </span>
+                    <span className="agent-saved-prompt-preview">
+                      {prompt.text.length > 160 ? `${prompt.text.slice(0, 160)}…` : prompt.text}
+                    </span>
+                  </button>
+                  <button
+                    className="agent-saved-prompt-copy"
+                    type="button"
+                    aria-label={`Copy ${label.toLowerCase()}`}
+                    title="Copy full prompt to clipboard"
+                    onClick={async (event) => {
+                      const clipboard =
+                        event.currentTarget.ownerDocument.defaultView?.navigator.clipboard;
+                      let message = 'Could not copy. Open the prompt to copy it from the draft.';
+                      if (clipboard) {
+                        try {
+                          await clipboard.writeText(prompt.text);
+                          message = `${label} copied to clipboard.`;
+                        } catch {
+                          // The browser may deny clipboard access to this window.
+                        }
+                      }
+                      setPromptCopyStatus({ projectId, message });
+                    }}
+                  >
+                    Copy
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          <p className="agent-saved-prompt-copy-status" role="status">
+            {promptCopyStatus?.projectId === projectId ? promptCopyStatus.message : ''}
+          </p>
+        </CollapsibleSection>
+      ) : null}
       <div className="agent-chat-composer">
         <div className="agent-composer-tools">
           <button
@@ -434,6 +494,9 @@ export function AgentChatPanel() {
             ))}
           </div>
         ) : null}
+        <p className="agent-chat-prompt-disclosure">
+          Sent prompts are saved with the template and included in exports.
+        </p>
         <textarea
           ref={inputRef}
           value={text}
@@ -445,7 +508,7 @@ export function AgentChatPanel() {
             }
           }}
           placeholder={busy ? 'Agent is working…' : 'Ask OGraf Studio…'}
-          disabled={!enabled || busy}
+          disabled={busy}
           rows={3}
         />
         {busy ? (

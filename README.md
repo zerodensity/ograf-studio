@@ -66,7 +66,7 @@ building executables and verification.
 
 - [Using Studio](docs/USER_GUIDE.md) — authoring, media, plugins, Rules and playout.
 - [AI authoring](docs/AI_AUTHORING.md) — built-in chat, MCP clients and the authoring skill.
-- [What's new](docs/releases/0.30.0.md) — 0.30.0 features and compatibility notes.
+- [What's new](docs/releases/0.31.0.md) — 0.31.0 features and compatibility notes.
 - [Contributing](CONTRIBUTING.md) — community development and verification.
 
 Contributions target `dev`; maintainers promote tested changes into `stable`, the default branch.

@@ -301,6 +301,13 @@ describe('unified settings scopes and saved documents', () => {
   it('saves and reloads user workspaces independently of both template and set files', async () => {
     const { templateId } = fixture();
     const beforeDocument = snapshotDocument();
+    const olderProfile = serializeWorkspaceState(useWorkspaceStore.getState());
+    delete olderProfile.editorPreferences?.exportDefaults;
+    hydrateWorkspaceState(olderProfile);
+    expect(useWorkspaceStore.getState().editorPreferences.exportDefaults).toEqual({
+      scope: 'set',
+      format: 'both',
+    });
     useWorkspaceStore.getState().applyPreset('builtin-default');
     useTemplateSetSettingsStore.getState().show('studio', 'workspace');
     useWorkspaceStore.getState().updateDetached('rules', {
@@ -323,6 +330,9 @@ describe('unified settings scopes and saved documents', () => {
         maxToolResultTokens: 2048,
       },
     });
+    useWorkspaceStore.getState().updateEditorPreferences({
+      exportDefaults: { scope: 'template', format: 'html' },
+    });
     useWorkspaceStore.getState().flush();
     const savedProfile = JSON.parse(profileStorage.get(WORKSPACE_STORAGE_KEY)!);
     hydrateWorkspaceState(originalWorkspace);
@@ -334,6 +344,10 @@ describe('unified settings scopes and saved documents', () => {
       restoreDetached: false,
     });
     expect(restoredProfile.editorPreferences?.durationUnit).toBe('timecode');
+    expect(restoredProfile.editorPreferences?.exportDefaults).toEqual({
+      scope: 'template',
+      format: 'html',
+    });
     expect(restoredProfile.editorPreferences?.assistantContext).toEqual({
       contextWindowTokens: 131_072,
       maxHistoryTokens: 32_768,
@@ -355,6 +369,7 @@ describe('unified settings scopes and saved documents', () => {
       expect(text).not.toContain('Settings isolation workspace');
       expect(text).not.toContain('ograf-studio-workspaces');
       expect(text).not.toContain('assistantContext');
+      expect(text).not.toContain('exportDefaults');
     }
     const set = await openProjectSetArchive(archiveBytes);
     const standalone = parseProjectSource(

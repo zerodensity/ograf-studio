@@ -20,7 +20,7 @@ import {
   unloadLivePlayout,
   useLivePlayoutStore,
 } from '../state/livePlayoutStore';
-import { exportProjectSetAsZip } from '../state/projectSetExport';
+import { exportSetInStudio } from '../state/studioSetExport';
 import { Panel } from './Panel';
 import { CoordinatedPreviewSurface } from './CoordinatedPreviewSurface';
 import { CoordinatedDraftPreview } from './CoordinatedDraftPreview';
@@ -161,9 +161,9 @@ function LivePlayoutSession() {
     setExportStatus('');
     action(async () => {
       try {
-        const result = await exportProjectSetAsZip(projectSet, undefined, { ownerWindow });
+        const result = await exportSetInStudio(projectSet, undefined, { ownerWindow });
         setExportStatus(
-          result.saveResult === 'cancelled'
+          !result || result.saveResult === 'cancelled'
             ? 'Export cancelled.'
             : result.saveResult === 'prepared'
               ? `Certified package “${result.fileName}” is ready. Choose Save or Download.`

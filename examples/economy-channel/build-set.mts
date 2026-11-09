@@ -12,6 +12,9 @@ import {
 const endpoint = process.env.OGRAF_MCP_URL ?? 'http://127.0.0.1:5242/mcp';
 const feedUrl = process.env.AXIS_FEED_URL;
 const statePath = process.env.AXIS_BUILD_STATE ?? '.axis-build-state.json';
+const originalPrompt = process.env.AXIS_ORIGINAL_PROMPT;
+if (!originalPrompt?.trim())
+  throw new Error('Set AXIS_ORIGINAL_PROMPT to the original user request.');
 async function call(name: string, args: Record<string, unknown> = {}) {
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -154,7 +157,11 @@ if (!state.started) {
     resolve(workspace, 'AXIS Markets/previous-session-backup.json'),
     JSON.stringify(old),
   );
-  await call('ograf_reset_project', { expectedRevision: old.revision, confirm: true });
+  await call('ograf_reset_project', {
+    expectedRevision: old.revision,
+    confirm: true,
+    originalPrompt,
+  });
   await setOperation({ type: 'create', name: 'AXIS Markets · Live Economy' });
   await setOperation({
     type: 'set_defaults',
@@ -622,7 +629,8 @@ function checkpointLayer(layer: any) {
 for (const def of definitions) {
   if (state.templates[def.id]?.done) continue;
   if (!state.templates[def.id]) {
-    if (Object.keys(state.templates).length) await setOperation({ type: 'new_template' });
+    if (Object.keys(state.templates).length)
+      await setOperation({ type: 'new_template', originalPrompt });
     const s = await call('ograf_get_template_set');
     state.templates[def.id] = { templateId: s.activeTemplateId };
     await checkpoint();

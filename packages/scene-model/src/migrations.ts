@@ -37,6 +37,7 @@ import { testRundownErrors } from './testRundowns';
 import { normalizeChartAnimation } from './chartAnimation';
 import { parseChartData } from './chartData';
 import { validatePresenterDefinition } from './presenter';
+import { validateAuthoringPrompts } from './authoringPrompts';
 import {
   initializeComponentInheritance,
   reconcileComponentInstances,
@@ -611,6 +612,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
 /** Upgrade an editor project without mutating the parsed/autosaved source object. */
 export function migrateProject(project: Project | LegacyProject): Project {
   const cloned = cloneProject(project as LegacyProject);
+  if (cloned.authoringPrompts !== undefined) validateAuthoringPrompts(cloned.authoringPrompts);
   if (cloned.presenter !== undefined) validatePresenterDefinition(cloned.presenter);
   if (cloned.shaders !== undefined && !Array.isArray(cloned.shaders))
     throw new Error('Project shader library must be an array.');

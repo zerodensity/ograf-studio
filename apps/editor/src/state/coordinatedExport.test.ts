@@ -10,6 +10,7 @@ vi.mock('./coordinatedThumbnail', () => ({ createCoordinatedThumbnail: mocks.thu
 
 import {
   buildCoordinatedProjectSetArtifacts,
+  createCertifiedCoordinatedHtml,
   createCertifiedCoordinatedPackage,
 } from './coordinatedExport';
 
@@ -34,6 +35,7 @@ describe('coordinated news package assembly', () => {
     const artifacts = buildCoordinatedProjectSetArtifacts(set);
     expect(artifacts.errors).toEqual([]);
     expect(artifacts.valid).toBe(true);
+    expect(artifacts.manifest.v_ografStudioAuthoringPrompts).toBeUndefined();
     expect(artifacts.transitionDescriptor).toMatchObject({
       width: 1920,
       height: 1080,
@@ -68,11 +70,20 @@ describe('coordinated news package assembly', () => {
     expect(JSON.stringify(after)).not.toContain('PRIVATE-ROW-DO-NOT-EXPORT');
   });
 
-  it('adds the offline preview while preserving the files accepted by certification', async () => {
+  it('packs only the certified files and embeds prompt metadata in separate HTML', async () => {
     const set = createTransitionLogicNewsExample(1_760_000_000_000);
+    const first = set.templates[0]!;
+    const second = set.templates[1]!;
+    const firstPrompts = [
+      { id: 'first', text: 'Create the headline lower third.' },
+      { id: 'follow-up', text: 'Leave space for İstanbul.\nAnimate the underline.' },
+    ];
+    const secondPrompts = [{ id: 'first', text: 'Build the separate ticker.' }];
+    first.project.authoringPrompts = firstPrompts;
+    second.project.authoringPrompts = secondPrompts;
     const packaged = await createCertifiedCoordinatedPackage(set);
     expect(mocks.thumbnail).toHaveBeenCalledTimes(1);
-    expect(mocks.certify).toHaveBeenCalledExactlyOnceWith(packaged.artifacts);
+    expect(mocks.certify).toHaveBeenCalledExactlyOnceWith(packaged.artifacts, undefined);
     const thumbnailPath = packaged.artifacts.manifest.thumbnails![0]!.file;
     expect(packaged.artifacts.resources).toContainEqual({
       path: thumbnailPath,
@@ -87,18 +98,44 @@ describe('coordinated news package assembly', () => {
       [
         packaged.artifacts.manifestFileName,
         'main.js',
-        getOfflinePreviewFileName(packaged.artifacts),
         ...packaged.artifacts.resources.map((resource) => resource.path),
       ].sort(),
     );
     expect(await zip.file('main.js')!.async('string')).toBe(packaged.artifacts.mainJs);
-    expect(
-      await zip.file(getOfflinePreviewFileName(packaged.artifacts))!.async('string'),
-    ).toContain('<!doctype html>');
+    expect(zip.file(getOfflinePreviewFileName(packaged.artifacts))).toBeNull();
+    const preview = await createCertifiedCoordinatedHtml(set);
+    const html = await preview.blob.text();
+    expect(html).toContain('<!doctype html>');
+    const payload = html.match(
+      /<script type="application\/json" id="ograf-package">([\s\S]*?)<\/script>/,
+    );
+    expect(JSON.parse(payload![1]!).manifest).toEqual(preview.artifacts.manifest);
+    expect(preview.artifacts.manifest.v_ografStudioAuthoringPrompts).toEqual(
+      packaged.artifacts.manifest.v_ografStudioAuthoringPrompts,
+    );
     expect(await zip.file(thumbnailPath)!.async('uint8array')).toEqual(png);
-    expect(
-      JSON.parse(await zip.file(packaged.artifacts.manifestFileName)!.async('string')),
-    ).toEqual(packaged.artifacts.manifest);
+    const manifest = JSON.parse(
+      await zip.file(packaged.artifacts.manifestFileName)!.async('string'),
+    );
+    expect(manifest).toEqual(packaged.artifacts.manifest);
+    expect(manifest.v_ografStudioAuthoringPrompts).toEqual({
+      version: 1,
+      templates: [
+        {
+          templateId: first.id,
+          projectId: first.project.id,
+          name: first.name,
+          prompts: firstPrompts,
+        },
+        {
+          templateId: second.id,
+          projectId: second.project.id,
+          name: second.name,
+          prompts: secondPrompts,
+        },
+      ],
+    });
+    expect(packaged.artifacts.mainJs).not.toContain(firstPrompts[0]!.text);
     for (const resource of packaged.artifacts.resources) {
       expect(await zip.file(resource.path)!.async(resource.base64 ? 'base64' : 'string')).toBe(
         resource.data,
@@ -120,21 +157,19 @@ describe('coordinated news package assembly', () => {
     expect(set).toEqual(before);
   });
 
-  it('includes an offline preview for non-realtime-only coordinated exports', async () => {
-    const packaged = await createCertifiedCoordinatedPackage(
+  it('includes the non-realtime profile in standalone HTML without creating a ZIP', async () => {
+    const packaged = await createCertifiedCoordinatedHtml(
       createTransitionLogicNewsExample(),
       getExportProfile('non-realtime'),
     );
-    const zip = await JSZip.loadAsync(await packaged.blob.arrayBuffer());
     expect(packaged.artifacts.manifest.supportsRealTime).toBe(false);
     expect(packaged.artifacts.manifest.supportsNonRealTime).toBe(true);
-    expect(
-      await zip.file(getOfflinePreviewFileName(packaged.artifacts))!.async('string'),
-    ).toContain('<!doctype html>');
-    expect(await zip.file('main.js')!.async('string')).toBe(packaged.artifacts.mainJs);
-    expect(
-      JSON.parse(await zip.file(packaged.artifacts.manifestFileName)!.async('string')),
-    ).toEqual(packaged.artifacts.manifest);
+    expect(packaged.fileName).toMatch(/-non-realtime\.html$/);
+    const html = await packaged.blob.text();
+    expect(html).toContain('<!doctype html>');
+    const payload = JSON.parse(html.match(/id="ograf-package">([\s\S]*?)<\/script>/)![1]!);
+    expect(payload.mainJs).toBe(packaged.artifacts.mainJs);
+    expect(payload.manifest).toEqual(packaged.artifacts.manifest);
   });
 
   it('rejects failed certification instead of producing a downloadable archive', async () => {
@@ -159,6 +194,23 @@ describe('coordinated news package assembly', () => {
         onProgress: progress,
       }),
     ).rejects.toThrow('thumbnail-failed (thumbnail): Thumbnail render failed');
+    expect(mocks.certify).not.toHaveBeenCalled();
+    expect(progress).not.toHaveBeenCalledWith('packaging');
+  });
+
+  it('preserves cancellation as cancellation and skips the remaining export stages', async () => {
+    const abort = new AbortController();
+    const reason = new DOMException('Export cancelled.', 'AbortError');
+    const progress = vi.fn((stage: string) => {
+      if (stage === 'certification') abort.abort(reason);
+    });
+    await expect(
+      createCertifiedCoordinatedPackage(createTransitionLogicNewsExample(), undefined, {
+        signal: abort.signal,
+        onProgress: progress,
+      }),
+    ).rejects.toBe(reason);
+    expect(mocks.thumbnail).toHaveBeenCalledWith(expect.anything(), abort.signal);
     expect(mocks.certify).not.toHaveBeenCalled();
     expect(progress).not.toHaveBeenCalledWith('packaging');
   });

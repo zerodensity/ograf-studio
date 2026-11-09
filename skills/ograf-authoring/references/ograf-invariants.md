@@ -129,6 +129,10 @@ reproducible when `goToTime()` seeks backward.
 
 ## Export playback review
 
+For repeat-frame certification, copy shared GPU shader output from each retained Canvas2D surface
+into a separate readback canvas. Repeated direct reads can change Chromium's rendering backend and
+produce false pixel differences. Compare the exact pixel signatures after backward and repeated seeks.
+
 ### Nodos presets
 
 Studio's **Preferences → OGraf Studio → Nodos** keeps ticked templates set as ElectroNode presets

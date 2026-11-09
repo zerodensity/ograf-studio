@@ -24,4 +24,5 @@ export interface CoordinatedExportRequest {
   action: 'export-coordinated';
   expectedRevision: string;
   profile: 'realtime' | 'non-realtime' | 'dual';
+  format?: 'zip' | 'html';
 }

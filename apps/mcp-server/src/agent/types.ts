@@ -1,4 +1,5 @@
 import type { AgentAreaReference, ProviderToolDefinition } from '@ograf-editor/agent-tools';
+import type { AuthoringPrompt } from '@ograf-editor/scene-model';
 
 export interface ChatAmbientContext {
   selection?: { layerIds: string[]; primaryLayerId?: string | null };
@@ -70,7 +71,11 @@ export type ChatServerEvent =
       message?: string;
     }
   | { type: 'chat.external'; active: boolean }
-  | { type: 'chat.turn.start'; turnId: string }
+  | {
+      type: 'chat.turn.start';
+      turnId: string;
+      authoringPrompt?: { projectId: string; prompt: AuthoringPrompt; revision: number };
+    }
   | {
       type: 'chat.context';
       turnId: string;

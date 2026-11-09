@@ -1,4 +1,5 @@
 import type {
+  AuthoringPrompt,
   PathEdit,
   CropRect,
   AnimatableLayerProperty,
@@ -163,6 +164,8 @@ export type AuthoringOperation =
       description?: string;
       version?: string;
       author?: { name: string; email?: string; url?: string };
+      /** Actual user prompt the user intends to include in the template and export. */
+      authoringPrompt?: AuthoringPrompt;
       supportsRealTime?: boolean;
       supportsNonRealTime?: boolean;
     }

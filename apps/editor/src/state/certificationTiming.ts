@@ -99,28 +99,38 @@ export function certificationPromiseWithTimeout<T>(
   promise: Promise<T>,
   method: string,
   timing: CertificationMethodTiming,
+  signal?: AbortSignal,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timeout = setTimeout(
-      () =>
-        reject(
-          new Error(
-            `${method}() did not resolve within ${timing.timeoutMs} ms ` +
-              `(authored motion ${timing.authoredDurationMs} ms plus readiness allowance` +
-              `${timing.capped ? '; bounded certification limit reached' : ''}).`,
-          ),
+    const cleanUp = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+    };
+    const abort = () => {
+      cleanUp();
+      reject(signal!.reason);
+    };
+    const timeout = setTimeout(() => {
+      cleanUp();
+      reject(
+        new Error(
+          `${method}() did not resolve within ${timing.timeoutMs} ms ` +
+            `(authored motion ${timing.authoredDurationMs} ms plus readiness allowance` +
+            `${timing.capped ? '; bounded certification limit reached' : ''}).`,
         ),
-      timing.timeoutMs,
-    );
+      );
+    }, timing.timeoutMs);
     promise.then(
       (value) => {
-        clearTimeout(timeout);
+        cleanUp();
         resolve(value);
       },
       (error: unknown) => {
-        clearTimeout(timeout);
+        cleanUp();
         reject(error);
       },
     );
+    if (signal?.aborted) abort();
+    else signal?.addEventListener('abort', abort, { once: true });
   });
 }

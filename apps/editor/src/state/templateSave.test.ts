@@ -4,6 +4,7 @@ import { createProject } from '@ograf-editor/scene-model';
 import { downloadProjectSource, saveProjectSourceToFile, saveProjectToFile } from './fileIO';
 import { certifyProject } from './ografCompatibility';
 import { createTemplateThumbnail } from './templateThumbnail';
+import { parseStudioDocument } from './studioDocument';
 
 vi.mock('./ografCompatibility', () => ({ certifyProject: vi.fn() }));
 vi.mock('./templateThumbnail', () => ({ createTemplateThumbnail: vi.fn() }));
@@ -43,7 +44,11 @@ describe('saving a template with its thumbnail', () => {
       events.push('certify');
       return { valid: true, errors: [], checks: [] } as never;
     });
-    const project = createProject({ name: 'News Bulletin' });
+    const authoringPrompts = [
+      { id: 'initial', text: 'Create a news lower third for İstanbul.' },
+      { id: 'follow-up', text: 'Use a darker blue.\nMove the name up.' },
+    ];
+    const project = createProject({ name: 'News Bulletin', authoringPrompts });
 
     const saving = saveProjectSourceToFile(project);
     expect(events).toEqual(['picker']);
@@ -66,6 +71,11 @@ describe('saving a template with its thumbnail', () => {
     expect(JSON.parse(await output!.text())).toMatchObject({
       id: project.id,
       name: 'Morning Update',
+      authoringPrompts,
+    });
+    expect(await parseStudioDocument(output!)).toMatchObject({
+      kind: 'template',
+      project: { authoringPrompts },
     });
     expect(certifyProject).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Morning Update' }),

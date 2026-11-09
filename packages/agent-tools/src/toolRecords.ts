@@ -8,7 +8,7 @@ import {
   getShaderAnimatableProperties,
   shaderAnimationPropertySpec,
 } from '@ograf-editor/scene-model';
-import { templateSetOperationSchema } from './templateSetSchemas';
+import { mcpTemplateSetOperationSchema, templateSetOperationSchema } from './templateSetSchemas';
 import { livePlayoutOperationSchema } from './playoutSchemas';
 import {
   getElementShaderPaint,
@@ -29,8 +29,6 @@ import {
 import {
   buildExportArtifactsWithRuntime,
   buildOfflinePreviewHtml,
-  assertOfflinePreviewFileAvailable,
-  getOfflinePreviewFileName,
   getExportProfile,
   validatePackageLayout,
   withExportThumbnail,
@@ -104,6 +102,7 @@ import {
   authoringOperationSchema,
   EASING_PRESETS,
   fieldValueSchema,
+  originalPromptSchema,
   propertySchema,
   semanticLayerRoleSchema,
 } from './schemas';
@@ -376,6 +375,31 @@ const consolidatedOperationInputSchema = {
 
 type ConsolidatedOperationInput = z.output<z.ZodObject<typeof consolidatedOperationInputSchema>>;
 
+function requireOriginalPromptForFirstArtwork(
+  snapshot: { project: Project; revision: number },
+  expectedRevision: number,
+  operations: readonly AuthoringOperation[],
+): void {
+  const { project, revision } = snapshot;
+  if (revision !== expectedRevision || project.authoringPrompts?.length) return;
+  const startsArtwork = operations.some(
+    ({ type }) =>
+      type === 'add_layer' || type === 'instantiate_component' || type.startsWith('create_'),
+  );
+  if (
+    !startsArtwork ||
+    project.compositions.some((item) => item.layers.some((layer) => !layer.isGuide))
+  )
+    return;
+  const recordsPrompt = operations.some(
+    (operation) => operation.type === 'set_project_metadata' && operation.authoringPrompt,
+  );
+  if (!recordsPrompt)
+    throw new Error(
+      'This blank template needs its original prompt. Include a set_project_metadata operation with authoringPrompt: { id, text } using the exact user creation request, then retry the batch.',
+    );
+}
+
 function consolidateOperationTools(
   records: AgentToolRecord[],
   workspace: AuthoringWorkspacePort,
@@ -401,7 +425,8 @@ function consolidateOperationTools(
     name: 'ograf_apply_operations',
     config: {
       title: 'Apply OGraf operations',
-      description: 'Atomic apply, dry-run, preview, or Accept/Reject proposal.',
+      description:
+        'Atomic apply, dry-run, preview, or Accept/Reject proposal. When building in a blank template with no saved prompt, include set_project_metadata.authoringPrompt with the original user request in the first layer or recipe batch.',
       inputSchema: consolidatedOperationInputSchema,
       annotations: mutation,
     },
@@ -1954,6 +1979,7 @@ function broadcastLintWarnings(project: Project, interlacedOutput: boolean): str
 export function createOGrafToolRecords(
   workspace: AuthoringWorkspacePort,
   bridge: EditorBridgePort,
+  { inApp = false }: { inApp?: boolean } = {},
 ): AgentToolRecord[] {
   const exportCoordinated = coordinatedExportFile(workspace, bridge);
   const records: AgentToolRecord[] = [];
@@ -2067,7 +2093,7 @@ export function createOGrafToolRecords(
             contract:
               'The reusable browser module mounts a hosted, extracted OGraf package by manifest URL; it does not open .ogs sources, extract ZIPs or require Studio at playback. Use mountOGrafGraphic, then its play/next/stop/update/action/dispose methods. A coordinated export is one OGraf graphic; discover lane commands from its declared customActions and schema. Same-origin manifest/main is the default; cross-origin loading is explicit and needs CORS. Packages execute JavaScript and must be trusted or hosted in a separately isolated origin; this module is not a sandbox. Browser WebGL, media permissions and external-data policy still apply. This is a website integration module, not an MCP playback tool.',
             offlinePreview:
-              'Studio and MCP single/coordinated OGraf ZIP exports include a self-contained HTML preview named after the template or template set. Extract the archive before opening that HTML file in a browser; it loads the included graphic and builds controls from its manifest, without a URL or server. Playout Controls dock left/right beside the fitted graphic. Selecting a template immediately shows only its data fields; edits to a selected off-air state stay staged until Take. Studio dropdown/listbox selection keeps all controls visible instead of isolating its row. Preview-only settings select solid/checkerboard, local image/video or webcam backgrounds and EBU R95 action/title guides. The certified OGraf manifest, module and assets remain intact. Embedded preview data increases package size; a resource colliding with the preview filename blocks export instead of being overwritten. Graphics are executable code: use trusted packages. Browser permissions, WebGL, audio and external live feeds can still limit offline operation. Package certification does not replace testing the extracted page in the target browser.',
+              'Standalone HTML is a separate export for single templates and coordinated sets. Choose Standalone HTML in Studio or an .html path in MCP. Open the file directly in a browser; it embeds the certified graphic, manifest, assets and authoring prompt metadata. OGraf ZIP is a separate package. Playout controls dock beside the fitted graphic; off-air edits stage until Take. Preview settings include local backgrounds and EBU R95 guides. Browser permissions, WebGL, audio and external live feeds can limit offline operation. Test the HTML in the target browser.',
           },
           transitionLogic: {
             definitionVersion: TRANSITION_LOGIC_VERSION,
@@ -3234,11 +3260,11 @@ export function createOGrafToolRecords(
             scopes: {
               studio: {
                 label: 'OGraf Studio',
-                sections: ['workspace', 'assistant', 'plugins', 'nodos'],
+                sections: ['workspace', 'export', 'assistant', 'plugins', 'nodos'],
                 changes: 'immediate-user-preferences',
                 storage: 'browser-origin-profile-or-standalone-user-workspace-profile',
                 detail:
-                  'Existing workspace startup, preset and detached-window reopening preferences save automatically for this user. They do not enter .ogs source, template undo history or rendered output. Opening Preferences does not create a template set.',
+                  'Workspace and export defaults save automatically for this user. The Export section sets the initial scope and file format. These preferences do not enter .ogs source, template undo history or rendered output.',
               },
               'template-set': {
                 label: 'Template Set',
@@ -4502,6 +4528,7 @@ export function createOGrafToolRecords(
         (item) => item.id === (compositionId ?? projection.project.mainCompositionId),
       );
       if (!composition) throw new Error('Composition not found in projected project.');
+      if (!inApp) requireOriginalPromptForFirstArtwork(snapshot, expectedRevision, typedOperations);
       // Operator approval always presents one readable frame, even for legacy strip requests.
       const stepFrame = firstStepFrame(composition);
       const resolvedFrame =
@@ -4890,12 +4917,20 @@ export function createOGrafToolRecords(
     'ograf_create_project',
     {
       title: 'Create OGraf project session',
-      description: 'Create a memory session; editor is the browser session.',
-      inputSchema: { sessionId: z.string(), name: z.string().optional() },
+      description:
+        'Create a memory session with the original user prompt saved in the template. Pass the user’s request verbatim from your conversation. The editor session belongs to the browser.',
+      inputSchema: {
+        sessionId: z.string(),
+        name: z.string().optional(),
+        originalPrompt: originalPromptSchema,
+      },
       annotations: mutation,
     },
-    async ({ sessionId, name }) => {
-      const session = workspace.create(sessionId);
+    async ({ sessionId, name, originalPrompt }) => {
+      const project = createProject({
+        authoringPrompts: [{ id: createId('prompt'), text: originalPrompt }],
+      });
+      const session = workspace.create(sessionId, project);
       if (name)
         session.apply({
           expectedRevision: 0,
@@ -4909,19 +4944,23 @@ export function createOGrafToolRecords(
     'ograf_reset_project',
     {
       title: 'Reset an OGraf project session',
-      description: 'Reset with confirm/expectedRevision; keepDataFields retains main fields.',
+      description:
+        'Replace the session with a fresh template and save the supplied original user prompt verbatim. Requires confirmation and the current revision. keepDataFields retains main fields.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         expectedRevision: z.number().int().nonnegative(),
         confirm: z.literal(true),
         keepDataFields: z.boolean().default(false),
+        originalPrompt: originalPromptSchema,
       },
       annotations: mutation,
     },
-    async ({ sessionId, expectedRevision, keepDataFields }) => {
+    async ({ sessionId, expectedRevision, keepDataFields, originalPrompt }) => {
       const session = workspace.get(sessionId);
       const previous = session.snapshot().project;
-      const next = createProject();
+      const next = createProject({
+        authoringPrompts: [{ id: createId('prompt'), text: originalPrompt }],
+      });
       if (keepDataFields) {
         const previousComposition = mainComposition(previous);
         mainComposition(next).dataFields = structuredClone(previousComposition.dataFields);
@@ -5173,10 +5212,13 @@ export function createOGrafToolRecords(
     }) => {
       try {
         const session = workspace.get(sessionId);
+        const snapshot = session.snapshot();
         const typedOperations = normalizeOperationSelectors(
-          session.snapshot().project,
+          snapshot.project,
           operations as unknown[],
         );
+        if (!inApp && !dryRun)
+          requireOriginalPromptForFirstArtwork(snapshot, expectedRevision, typedOperations);
         const result = session.apply({
           expectedRevision,
           operations: typedOperations,
@@ -5401,9 +5443,9 @@ export function createOGrafToolRecords(
   server.registerTool(
     'ograf_export_package',
     {
-      title: 'Export OGraf ZIP and PNG',
+      title: 'Export certified OGraf or standalone HTML',
       description:
-        'Export certified .ograf.zip + thumbnail and a self-contained HTML preview named after the template.',
+        'Export a certified .ograf.zip with thumbnail or a self-contained .html preview. The path extension selects the output.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         path: z.string(),
@@ -5415,24 +5457,27 @@ export function createOGrafToolRecords(
       annotations: mutation,
     },
     async ({ sessionId, path, overwrite, profile, thumbnailFrame }) => {
-      if (!path.toLowerCase().endsWith('.ograf.zip'))
-        throw new Error('Package path must end in .ograf.zip.');
+      const lower = path.toLowerCase();
+      const format = lower.endsWith('.html') ? 'html' : 'zip';
+      if (format === 'zip' && !lower.endsWith('.ograf.zip'))
+        throw new Error('Export path must end in .ograf.zip or .html.');
+      const target = workspace.resolveAllowedPath(path);
       const {
         artifacts,
         certification,
         thumbnailFrame: renderedFrame,
       } = await certifiedArtifacts(workspace, bridge, sessionId, profile, true, thumbnailFrame);
-      const zip = new JSZip();
-      zip.file(artifacts.manifestFileName, JSON.stringify(artifacts.manifest, null, 2));
-      zip.file('main.js', artifacts.mainJs);
-      for (const resource of artifacts.resources) {
-        zip.file(resource.path, resource.data, { base64: resource.base64 });
+      let output: Uint8Array;
+      if (format === 'html') output = new TextEncoder().encode(buildOfflinePreviewHtml(artifacts));
+      else {
+        const zip = new JSZip();
+        zip.file(artifacts.manifestFileName, JSON.stringify(artifacts.manifest, null, 2));
+        zip.file('main.js', artifacts.mainJs);
+        for (const resource of artifacts.resources) {
+          zip.file(resource.path, resource.data, { base64: resource.base64 });
+        }
+        output = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
       }
-      const previewFileName = getOfflinePreviewFileName(artifacts);
-      assertOfflinePreviewFileAvailable(Object.keys(zip.files), previewFileName);
-      zip.file(previewFileName, buildOfflinePreviewHtml(artifacts));
-      const output = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
-      const target = workspace.resolveAllowedPath(path);
       await atomicWrite(target, output, overwrite);
       return textResult(
         {
@@ -5441,7 +5486,7 @@ export function createOGrafToolRecords(
           profile,
           certification,
           thumbnailFrame: renderedFrame,
-          previewFileName,
+          format,
         },
         `Certified and exported ${target}`,
       );
@@ -5451,9 +5496,9 @@ export function createOGrafToolRecords(
   server.registerTool(
     'ograf_export_coordinated_package',
     {
-      title: 'Export certified coordinated OGraf package',
+      title: 'Export certified coordinated OGraf or standalone HTML',
       description:
-        'Export frozen graph/artwork with a standard PNG thumbnail and a self-contained HTML preview named after the template set. Lane-dependent state/action/loop selects have defaults. Template actions include generated clock/timer Start/Pause/Reset/Restart; commands without targets are omitted. Filtering/reset needs a conditional-aware form host; runtime still validates the current on-air template. Certifies the graphic artifacts including its thumbnail; test the extracted offline page separately. Rejects stale revisions, unapplied drafts and source changes. Explicit workspace path; no picker. Reuse operationId with identical arguments to recover uncertain results or retry the same certified bytes. IDs live for this server process (32 operations); success rechecks output hash. Reports included states/templates and unreferenced templates.',
+        'Export frozen graph/artwork with a PNG thumbnail. Select a .ograf.zip package or self-contained .html preview by path extension. Lane-dependent selects have defaults and the runtime checks the current on-air template. Rejects stale revisions, unapplied drafts and source changes. Explicit workspace path; no picker. Reuse operationId with identical arguments to recover uncertain results or retry the same certified bytes. IDs live for this server process (32 operations); success rechecks output hash. Reports included states/templates and unreferenced templates.',
       inputSchema: {
         path: z.string().min(1),
         expectedRevision: z.string().min(1).max(256),
@@ -5560,10 +5605,10 @@ export function createOGrafToolRecords(
     {
       title: 'Manage templates and shared set defaults',
       description:
-        'Apply set command using get_template_set revision. Confirm removal/replacement; file pickers use UI.',
+        'Apply set command using get_template_set revision. For new_template, duplicate_template, or paste_template, pass the exact user request in originalPrompt. Confirm removal/replacement; file pickers use UI.',
       inputSchema: {
         expectedRevision: z.string().min(1),
-        operation: templateSetOperationSchema,
+        operation: inApp ? templateSetOperationSchema : mcpTemplateSetOperationSchema,
         confirm: z.boolean().default(false),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },

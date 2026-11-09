@@ -1,4 +1,5 @@
 import {
+  appendAuthoringPrompt,
   isGradientPaint,
   chartRendererFeatureErrors,
   chartAnimationErrors,
@@ -1324,6 +1325,8 @@ export function applyAuthoringOperations(
       if (operation.description !== undefined) project.description = operation.description;
       if (operation.version !== undefined) project.version = operation.version;
       if (operation.author !== undefined) project.author = clone(operation.author);
+      if (operation.authoringPrompt !== undefined)
+        appendAuthoringPrompt(project, operation.authoringPrompt);
       if (operation.supportsRealTime !== undefined)
         project.supportsRealTime = operation.supportsRealTime;
       if (operation.supportsNonRealTime !== undefined)

@@ -204,11 +204,25 @@ space for tool definitions and the reply. These user preferences save with the S
 not templates, template sets or graphic exports. They affect the built-in assistant; external MCP
 clients manage their own model context. The status panel reports context planning and paging.
 
-The retained conversation and result snapshots belong to the running server session. They are not
-an authoring prompt archive inside `.ogs` documents. Starting another project uses a separate
-conversation; a server restart does not restore previous chat history. Older image pixels have
-separate bounded retention: their text, area instructions and coordinates remain in the conversation,
-and expired image references ask for a fresh capture instead of pretending the pixels are available.
+Studio records accepted user prompts in submission order under `authoringPrompts` in the editable
+template. A template set keeps the history for each member. OGraf manifests carry the same text in
+`v_ografStudioAuthoringPrompts`, including the manifest embedded in self-contained HTML exports.
+Assistant responses, tool results, image pixels and editor context stay in the live conversation.
+A server restart starts a fresh conversation and the saved prompt metadata stays in the file.
+After reopening a template, expand **Saved prompts** in the AI Assistant pane. Select **Copy** to
+copy the full text, or **Use prompt** to load it into the composer for editing. Both are available
+without an AI provider configured.
+
+An external MCP client must supply the user's creation request as `originalPrompt` when calling
+`ograf_create_project`, `ograf_reset_project`, or creating, duplicating, or pasting a template set
+member through `ograf_update_template_set`. Studio requires a nonblank prompt and saves it with the
+new template. Duplicate and paste preserve existing prompt history and append the copy request.
+Opening or importing an existing template preserves its existing provenance.
+
+When starting from an already-open blank template, include `set_project_metadata.authoringPrompt`
+with `{ id, text }` in the first external authoring batch sent to `ograf_apply_operations`.
+Use the same operation for follow-up prompts. Send actual user text intended for inclusion in
+shared exports. Reuse the same ID and text when retrying the same prompt.
 
 External MCP clients can opt into paging without changing existing read responses:
 

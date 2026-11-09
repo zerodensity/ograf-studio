@@ -24,6 +24,7 @@ import {
   type ContextBudget,
 } from './contextManager';
 import { resolveModelContext } from './modelContext';
+import type { AuthoringPrompt } from '@ograf-editor/scene-model';
 import type {
   AgentMessage,
   AgentUsage,
@@ -39,6 +40,7 @@ export interface ChatSendMessage {
   turnId: string;
   sessionId: string;
   text: string;
+  authoringPromptText?: string;
   ambient?: ChatAmbientContext;
   areaReference?: AgentAreaReference;
   areaReferences?: AgentAreaReference[];
@@ -191,6 +193,10 @@ export class ChatAgentController {
   constructor(
     records: AgentToolRecord[],
     private readonly emit: (event: ChatServerEvent) => void,
+    private readonly recordPrompt?: (
+      sessionId: string,
+      prompt: AuthoringPrompt,
+    ) => { projectId: string; revision: number },
   ) {
     this.#pager = toolResultPagerForRecords(records) ?? new ToolResultPager();
     this.#tools = filterInAppToolRecords(records);
@@ -281,7 +287,13 @@ export class ChatAgentController {
   }
 
   async #run(message: ChatSendMessage): Promise<void> {
-    if (!message.turnId || !message.text.trim() || this.#turns.has(message.turnId)) return;
+    if (
+      !message.turnId ||
+      typeof message.text !== 'string' ||
+      !message.text.trim() ||
+      this.#turns.has(message.turnId)
+    )
+      return;
     if (message.areaReferences !== undefined || message.areaReference !== undefined) {
       try {
         if (message.areaReferences !== undefined && message.areaReference !== undefined)
@@ -319,9 +331,30 @@ export class ChatAgentController {
       await this.status();
       return;
     }
+    if (this.#turns.has(message.turnId)) return;
+    const start: Extract<ChatServerEvent, { type: 'chat.turn.start' }> = {
+      type: 'chat.turn.start',
+      turnId: message.turnId,
+    };
+    try {
+      const text = message.authoringPromptText ?? message.text;
+      if (typeof text !== 'string') throw new Error('Authoring prompt text must be a string.');
+      if (this.recordPrompt && text.trim()) {
+        const prompt = { id: message.turnId, text };
+        start.authoringPrompt = { ...this.recordPrompt(message.sessionId, prompt), prompt };
+      }
+    } catch (error) {
+      this.emit({
+        type: 'chat.error',
+        turnId: message.turnId,
+        message:
+          error instanceof Error ? error.message : 'The authoring prompt could not be saved.',
+      });
+      return;
+    }
     const controller = new AbortController();
     this.#turns.set(message.turnId, controller);
-    this.emit({ type: 'chat.turn.start', turnId: message.turnId });
+    this.emit(start);
     const history = this.#histories.get(message.sessionId) ?? [];
     const selectedModel =
       !message.areaReference &&

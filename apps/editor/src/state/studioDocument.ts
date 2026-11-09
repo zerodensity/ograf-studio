@@ -1,5 +1,5 @@
 import type { Project } from '@ograf-editor/scene-model';
-import { validatePresenterDefinition } from '@ograf-editor/scene-model';
+import { validateAuthoringPrompts, validatePresenterDefinition } from '@ograf-editor/scene-model';
 import type { ProjectSetDocument } from './projectSet';
 
 /** The editable extension identifies a Studio document; its contents identify single or set mode. */
@@ -29,6 +29,7 @@ export function parseProjectSource(text: string): Project {
       'This source is part of a compact template set. Open the complete template set, then use Save Template to export a standalone template.',
     );
   if (!isProject(parsed)) throw new Error('That source is not a valid OGraf Studio project.');
+  if (parsed.authoringPrompts !== undefined) validateAuthoringPrompts(parsed.authoringPrompts);
   if (parsed.presenter !== undefined) validatePresenterDefinition(parsed.presenter);
   return parsed;
 }
