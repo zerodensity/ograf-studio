@@ -1,5 +1,6 @@
 import {
   compositionWithShaderParameterFields,
+  fieldExposedToOgraf,
   clockTimerActionId,
   type Composition,
   type CustomActionDefinition,
@@ -9,12 +10,7 @@ import {
 } from '@ograf-editor/scene-model';
 import type { CompiledDataExposure } from '@ograf-editor/ograf-types';
 
-export function fieldExposedToOgraf(field: FieldDefinition): boolean {
-  return (
-    field.exposeToOgraf !== false &&
-    !(field.type === 'array' && field.items && field.items.exposeToOgraf === false)
-  );
-}
+export { fieldExposedToOgraf } from '@ograf-editor/scene-model';
 
 /** Keep public defaults as selective as their property schema. */
 export function publicFieldValueForExport(field: FieldDefinition, value: FieldValue): FieldValue {

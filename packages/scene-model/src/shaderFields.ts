@@ -110,11 +110,16 @@ function removeUnusedGeneratedFields(composition: Composition): void {
       .map((field) => field.id),
   );
   composition.dataFields = composition.dataFields.filter((field) => !removed.has(field.id));
-  // A removed paint/pragma also retires its generated control. Keep unrelated mappings intact,
+  // A removed paint/pragma also retires its generated control. Keep unrelated references intact,
   // including invalid imported references that ordinary validation still needs to report.
-  if (removed.size)
+  if (removed.size) {
+    if (composition.nodosInputFieldIds)
+      composition.nodosInputFieldIds = composition.nodosInputFieldIds.filter(
+        (id) => !removed.has(id),
+      );
     for (const connection of composition.dataConnections ?? [])
       connection.mappings = connection.mappings.filter((mapping) => !removed.has(mapping.fieldId));
+  }
 }
 
 /** Materialize source-marked parameters as ordinary editable fields and runtime bindings. */

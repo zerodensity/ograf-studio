@@ -29,7 +29,9 @@ function createNodosInputBinding(contract, initialData, report) {
     );
   }
   const applied = new Map(
-    Object.entries(initialData).map(([key, value]) => [key, JSON.stringify(value)]),
+    inputs
+      .filter(({ name }) => !targets.has(name))
+      .map(({ name }) => [name, JSON.stringify(initialData[name])]),
   );
   function unwrap(shape, value) {
     if (!shape || value === null || typeof value !== 'object') return value;

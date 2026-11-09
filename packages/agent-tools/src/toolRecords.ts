@@ -1029,6 +1029,7 @@ function projectSnapshotProjection(
       if (sections.has('dataFields')) {
         projectedComposition.functions = composition.functions ?? [];
         projectedComposition.dataFields = composition.dataFields;
+        projectedComposition.nodosInputFieldIds = composition.nodosInputFieldIds;
         projectedComposition.runtimeCollections = composition.runtimeCollections;
       }
       if (sections.has('dataConnections')) {
@@ -3222,13 +3223,15 @@ export function createOGrafToolRecords(
             liveInputRouting:
               'Select one unlocked visual object, then Resources > Media > Use input here beside the webcam controls, or Fill > Live input. Routing writes the object fill with Undo and does not create a playback cue. Start webcam is an explicit local permission action; selecting or routing an input does not start capture.',
             contract:
-              'Studio UI keeps ticked templates set as ElectroNode presets in Nodos and updates them as edits pause; the Studio server serves each exact certified OGraf package with nodos.html. Presets contain only URL and Resolution settings. The page declares exposed field names/types and live-media texture tags in nodos-inputs; the host matches pre-existing manually created slots by name, without creating missing slots. Uses effective cropped output dimensions, real-time playback and public defaults. Object/array defaults and incoming values omit internal descendants while internal descriptor values, bindings and Rules remain inside the graphic. URL, Resolution, ShowPreview, Output and Audio are reserved names. No dedicated MCP Nodos export tool or coordinated Nodos controller.',
+              'Studio UI keeps ticked templates set as ElectroNode presets in Nodos and updates them as edits pause; the Studio server serves each exact certified OGraf package with nodos.html. Presets contain only URL and Resolution settings. The page declares fields selected in Data → Nodos inputs and live-media texture tags. Older templates retain their public field inputs until the selection is edited. The host matches pre-existing slots by name. Uses effective cropped output dimensions, real-time playback and public defaults. Object/array defaults and incoming values omit internal descendants while internal descriptor values, bindings and Rules remain inside the graphic. URL, Resolution, ShowPreview, Output and Audio are reserved names. No dedicated MCP Nodos export tool or coordinated Nodos controller.',
             targetRequirements:
               'Nodos must run on the same machine as the Studio server, which serves the files while it runs. Protocol and serialization use Nodos Editor SDK 5.1; Studio retains bounded request/cancellation handling. Requires a companion ElectroNode host that reads nodos-inputs declarations, matches names/types to existing slots, forwards native typed values through window.nodos.onData and supplies texture canvases through nodos-input. Process SDK 21.5 supports the typed-data bridge but an SDK version alone does not establish this complete host contract. OGraf certification does not verify Nodos engine, live data or texture changes; test installed targets separately.',
             fieldTypes:
               'Scalars retain their native type; object/gradient use nos.Dict, select-multiple [string], arrays [T]. Arrays of arrays use Dict items wrappers decoded before graphic updates. Data offers eligible engine structs/tables/enums from the current connected engine; saved ordinary field schemas and nodosType remain usable offline. Oversized, recursive, resource, union and dynamic shapes are unavailable. Invalid numeric ranges are rejected, not wrapped; 64-bit integers use the JavaScript safe range.',
             authoringMetadata:
               'add_data_field, nested field inputs and update_data_field preserve known nodosType names with an explicit ordinary schema. Values belong at operation top level. update_data_field nodosType:null clears the assignment; a plain fieldType change clears it unless replaced. These tools do not connect to or discover engine types. nodosType is source metadata, not an OGraf manifest extension or an exposed value.',
+            pinSelection:
+              'Set exposeToNodos:true on add_data_field or update_data_field to select a public top-level field, or false to deselect it. Omitting it preserves the selection. ograf_get_project with include:["dataFields"] shows nodosInputFieldIds when an explicit selection exists, including an empty array when no data pins are selected.',
             synchronization:
               'Stable template IDs determine new preset classes; existing unique names survive renames and re-selection. Shared controls/assets invalidate selected inactive templates too. Configuration, selection, document or connection changes cancel stale preparation before publication; already dispatched registrations may finish.',
             publication:

@@ -21,6 +21,7 @@ import {
   createShaderPaint,
 } from '@ograf-editor/scene-model';
 import { createOGrafAuthoringHost } from './index';
+import { buildNodosInputContract } from '@ograf-editor/codegen';
 import {
   createOGrafToolRecords,
   filterInAppToolRecords,
@@ -42,6 +43,78 @@ describe('OGraf MCP authoring host', () => {
       createProject({ authoringPrompts: [{ id: 'test-original-prompt', text: testPrompt }] }),
     );
   let testEditorSocket: WebSocket | null = null;
+
+  it.each([false, true])('authors Nodos pin selection over MCP (legacy: %s)', async (legacy) => {
+    const sessionId = `mcp-nodos-pins-${legacy}`;
+    const source = createProject({
+      authoringPrompts: [{ id: 'test-original-prompt', text: testPrompt }],
+    });
+    if (legacy) delete source.compositions[0]!.nodosInputFieldIds;
+    const session = host.workspace.create(sessionId, source);
+    const apply = (expectedRevision: number, operations: Array<Record<string, unknown>>) =>
+      client.callTool({
+        name: 'ograf_apply_operations',
+        arguments: { sessionId, expectedRevision, operations },
+      });
+
+    const created = await apply(0, [
+      { type: 'add_data_field', fieldType: 'text', key: 'headline' },
+      {
+        type: 'add_data_field',
+        fieldType: 'text',
+        key: 'TitleInput1',
+        nodosType: 'string',
+        exposeToNodos: true,
+      },
+    ]);
+    expect(created.isError, JSON.stringify(created.content)).not.toBe(true);
+    const main = session.snapshot().project.compositions[0]!;
+    const title = main.dataFields.find(({ key }) => key === 'TitleInput1')!;
+    expect(title.nodosType).toBe('string');
+    expect(buildNodosInputContract(main)).toMatchObject({
+      inputs: [
+        ...(legacy ? [{ name: 'headline', type: 'string' }] : []),
+        { name: 'TitleInput1', type: 'string' },
+      ],
+    });
+    const read = await client.callTool({
+      name: 'ograf_get_project',
+      arguments: { sessionId, include: ['dataFields'] },
+    });
+    expect(read.structuredContent).toMatchObject({
+      project: { compositions: [{ nodosInputFieldIds: main.nodosInputFieldIds }] },
+    });
+
+    const cleared = await apply(1, [
+      { type: 'update_data_field', fieldKey: 'TitleInput1', exposeToNodos: false },
+      { type: 'update_data_field', fieldKey: 'headline', exposeToNodos: false },
+    ]);
+    expect(cleared.isError, JSON.stringify(cleared.content)).not.toBe(true);
+    const clearedMain = session.snapshot().project.compositions[0]!;
+    expect(clearedMain.nodosInputFieldIds).toEqual([]);
+    expect(buildNodosInputContract(clearedMain)).toMatchObject({ inputs: [] });
+
+    const invalid = await apply(2, [
+      {
+        type: 'update_data_field',
+        fieldKey: 'TitleInput1',
+        exposeToOgraf: false,
+        exposeToNodos: true,
+      },
+    ]);
+    expect(invalid.isError).toBe(true);
+    expect(JSON.stringify(invalid.content)).toContain('before selecting it as a Nodos input');
+    expect(session.snapshot().revision).toBe(2);
+
+    const selected = await apply(2, [
+      { type: 'update_data_field', fieldKey: 'headline', exposeToNodos: true },
+    ]);
+    expect(selected.isError, JSON.stringify(selected.content)).not.toBe(true);
+    expect(buildNodosInputContract(session.snapshot().project.compositions[0]!)).toMatchObject({
+      inputs: [{ name: 'headline', type: 'string' }],
+    });
+  });
+
   it('authors seeded text animators and experimental motion blur through existing operations', async () => {
     const sessionId = 'mcp-text-animators';
     const session = createPromptedFixture(sessionId);

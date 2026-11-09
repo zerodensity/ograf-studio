@@ -730,6 +730,7 @@ interface ProjectActions {
   ) => void;
   /** Expose or hide complete field schemas together as one undoable edit. */
   setDataFieldsExposure: (fieldIds: readonly string[], exposed: boolean) => void;
+  setNodosInputFields: (fieldIds: readonly string[]) => void;
   setLayerBindings: (layerId: string, bindings: LayerBinding[]) => void;
   addLayerBinding: (layerId: string) => string | null;
   /** Creates or removes the one field + binding that lets playout fill this layer's content. */
@@ -5590,6 +5591,15 @@ export const useProjectStore = create<ProjectStore>()(
           for (const field of composition.dataFields) if (selected.has(field.id)) apply(field);
         });
       },
+
+      setNodosInputFields: (fieldIds) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const selected = new Set(fieldIds);
+          composition.nodosInputFieldIds = composition.dataFields
+            .filter((field) => selected.has(field.id))
+            .map((field) => field.id);
+        }),
 
       setLayerBindings: (layerId, bindings) =>
         set((state) => {
