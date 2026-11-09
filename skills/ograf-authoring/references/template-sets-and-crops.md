@@ -411,7 +411,7 @@ Runtime packages cannot be reverse-imported
 as complete template sets; preserve the original `.ogs`.
 Use `ograf_export_coordinated_package` for coordinated file output. First read
 `ograf_get_template_set` and pass its `expectedRevision`, an explicit `profile`
-(`realtime`, `non-realtime`, or `dual`), workspace `.ograf.zip` path,
+(`realtime`, `non-realtime`, or `dual`), workspace `.ograf.zip` or `.html` path,
 `confirm:true`, and a unique `operationId`. Request `overwrite:true` only after
 replacement is authorized. The tool snapshots current unsaved artwork and the applied graph;
 unapplied drafts and source changes during certification are rejected. It uses Studio's
@@ -424,8 +424,11 @@ for this server process (up to 32 exports); concurrent retries join the existing
 completed retries recheck the output hash, and write retries reuse retained certified bytes.
 Do not restart the server to recover an uncertain export. After restart, inspect the output and
 hash before intentionally creating a new operation. Failures retain outcome, stage, and details.
-Studio chooses its destination before certification and offers **Save Certified Package Again**
-to retry unchanged certified bytes. A browser download request does not verify disk delivery.
+For template set exports from **File → Export…**, the export window shows preparation progress.
+**Cancel** stops preparation without creating an output file.
+Save and Download become available once the files are certified. In the **Preview & Export** pane's
+**Export** section, **Save Certified Export…** retries the same certified bytes. A browser download
+request does not verify disk delivery.
 
 MCP live controls are available as described below. Ordinary
 `ograf_export_package` still exports only the active composition, without the set coordinator.
@@ -558,9 +561,10 @@ resolved ordinary settings and resources; local Studio workspace preferences are
 The update tool accepts one `operation` with these `type` values:
 
 - `create`: optional `name`; starts a set from the current template. Replacing an open set needs `confirm:true`.
-- `new_template`: optional `targetTemplateId`, `side:"before"|"after"`; creates a blank member.
-- `duplicate_template`, `copy_template`, `remove_template`, `activate_template`: `templateId`.
-- `paste_template`: optional `targetTemplateId`, `side`; uses the editor template clipboard.
+- `new_template`: `originalPrompt` and optional `targetTemplateId`, `side:"before"|"after"`. Creates a blank member.
+- `duplicate_template`: `templateId` and `originalPrompt`.
+- `copy_template`, `remove_template`, `activate_template`: `templateId`.
+- `paste_template`: `originalPrompt` and optional `targetTemplateId`, `side`. Uses the editor template clipboard.
 - `rename_template`: `templateId`, `name`; `rename_set`: `name`.
 - `reorder_template`: `templateId`, `targetTemplateId`, `side`.
 - `undo_remove`: restores the last removed template. Removing the final member leaves an empty set.
@@ -648,7 +652,10 @@ sets remain readable; Studio saves use compact storage. Compatible storage can b
 Single-template `.ogs` saves, copies across sets, and OGraf exports must use fully resolved projects
 with fonts, resources and component sources embedded. Compact member sources extracted directly from
 the ZIP are not standalone templates. Never hand them to project open/save/export without hydration.
-Use Studio's **Save Template**, **Export All Templates…**, or a hydrated MCP project snapshot instead.
+Use Studio's **Save Template**, choose **Current template** in **File → Export…**, or use a
+hydrated MCP project snapshot. To export the entire set, choose **Template set** in **File → Export…**.
+Sets with Transition Logic export as one coordinated graphic. Independent sets export one OGraf
+package per template inside a `.ograf-set.zip`.
 
 For older set readers, compatible storage retains the schema **5** archive layout.
 This preserves set metadata and component links; it can be larger and does not down-convert newer
@@ -667,8 +674,9 @@ Saving a source copy does not rename the open document or certify playout output
 transfer limit is **64 MiB**; larger sets use Studio Save Template Set. Standalone
 `ograf_save_project` and `ograf_export_package` retain their ordinary certification requirements.
 
-Studio and MCP single/coordinated `.ograf.zip` exports include a supplementary self-contained
-HTML preview named after the template or set, generated from the certified graphic files.
+Studio and MCP export self-contained HTML separately from OGraf ZIP packages. Use
+**File → Export… → Standalone HTML** or an `.html` MCP output path for a single template or
+coordinated set. **Both files** in Studio prepares separate HTML and ZIP outputs.
 The HTML preview uses Studio-style compact Playout Controls while retaining left/right docking.
 Its default-on **Show FPS overlay** is presentation-only: **Preview FPS** measures browser
 animation-frame cadence, while non-real-time **Render FPS** counts completed render samples.
@@ -679,7 +687,7 @@ change project source, graph timing, graphic modules, manifests or thumbnails.
 Studio prepares/certifies/packages coordinated output before opening a destination. If browser
 activation expires, the ready dialog requires a fresh Save or Download click using the retained
 certified bytes. Never open a picker before preparation or report a merely prepared ZIP as saved.
-Extract the whole archive before opening its HTML file; it automatically loads that graphic,
+Open the standalone HTML directly in a browser. It automatically loads that graphic,
 offers playback, data and declared custom-action controls, and presents coordinated lanes where
 applicable. Selecting a lane's template immediately shows only its fields. Other templates' forms
 and template-specific actions stay hidden until selected; on-air action targets do not change.
@@ -688,17 +696,16 @@ render a second generic Current template form. Standalone and editor-synchronize
 their own data controls.
 Coordinated lane data is scoped to its state: edit the selected on-air template's fields or
 stage the selected **Next** state before Take, without mixing values between states or replacing
-untouched state presets. Only exposed OGraf fields are included in the offline player. The export
-preserves the original OGraf manifest, module and resources for playout;
-embedded preview bytes increase package size. Export fails instead of overwriting an existing
-case-insensitive resource matching the generated HTML filename. Filenames are sanitized for portable
-extraction; do not assume the preview is named `index.html`. The playout controls dock left or right
+untouched state presets. Only exposed OGraf fields are included in the offline player. The HTML
+embeds the certified manifest, module, resources and runtime license. Studio suggests a portable
+filename based on the template or set name. The playout controls dock left or right
 and reserve space beside the fitted graphic. The presentation controls provide solid/checkerboard,
 local image/video and webcam backgrounds, plus EBU R95 action-safe (3.5%) and title-safe (5%) guides.
-These are preview-only overlays and never modify the certified graphic or its timing. Hide controls
-to use the whole screen; right-click or D restores them. Only open trusted graphic code.
+These are preview-only overlays and never modify the certified graphic or its timing. The preview
+starts with controls hidden. Right-click or press **D** to open them. **Authoring prompts** shows the
+saved prompts by template. Only open trusted graphic code.
 Offline browser playback still depends on graphics features, user media permissions and external network sources; validate
-the actual extracted page in its target browser and do not claim full feature parity from a package
+the actual standalone page in its target browser and do not claim full feature parity from a package
 certificate or an HTTP-only test.
 
 Single and coordinated exports include the Studio playback runtime license at
@@ -717,6 +724,45 @@ In Studio, select one unlocked visual object, then use **Resources → Media →
 the webcam controls, or **Fill → Live input**. This writes that object's own fill with Undo instead of
 creating a playback cue. Input names must satisfy both Media source-tag and Nodos pin validation.
 Routing never starts camera capture; **Start webcam** remains an explicit local action.
+
+## Authoring prompt history
+
+Studio's AI Assistant records accepted user messages automatically. External MCP clients receive
+the conversation in their own host. When creating a project, pass the user's actual creation
+request as `originalPrompt`. Studio requires a nonblank prompt and stores it as part of creation.
+
+```json
+{
+  "sessionId": "navy-lower-third",
+  "name": "Navy lower third",
+  "originalPrompt": "Create a navy lower third."
+}
+```
+
+Pass the same `originalPrompt` field to `ograf_reset_project` or in a `new_template`,
+`duplicate_template`, or `paste_template` operation sent to `ograf_update_template_set`.
+Duplicate and paste preserve the source's prompt history and append the request that created
+the copy. Opening or importing an existing template preserves its saved provenance.
+
+If the client starts with an already-open blank template, include this metadata operation with
+its first external authoring batch in `ograf_apply_operations`, using the current project revision.
+It also records later prompts when the user asks for follow-up changes.
+
+```json
+{
+  "type": "set_project_metadata",
+  "authoringPrompt": { "id": "host-message-01", "text": "Create a navy lower third." }
+}
+```
+
+Use the actual user prompt intended for inclusion. Leave credentials, system instructions, hidden
+context and unrelated conversation out of these fields. If the client lacks the original prompt,
+it should report that requirement to the user. For metadata operations, reuse the same ID and text
+when retrying an accepted prompt with a fresh revision, and use a new ID for each intended follow-up.
+Saved `.ogs` sources retain the prompts in submission order. OGraf ZIP manifests and standalone HTML
+embed the saved prompts for the exported templates. In Studio, find the text in **AI Assistant →
+Saved prompts** and use **Copy** to copy the full prompt. In standalone HTML, open **Authoring prompts**
+from the preview controls.
 
 ## Website playback of exported graphics
 

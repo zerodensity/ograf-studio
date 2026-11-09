@@ -23,6 +23,7 @@ import {
   type Project,
 } from '@ograf-editor/scene-model';
 import { createCertificationResourceUrls } from './certificationResources';
+import { awaitExportOperation } from './exportAbort';
 import {
   certificationMethodTiming,
   certificationPromiseWithTimeout,
@@ -179,11 +180,16 @@ export async function canvasPixelSignatures(
       if (isShader && canvas.dataset?.ografShaderBackend === 'canvas2d') {
         if (canvas.dataset.ografShaderPaused === 'true')
           throw new Error('Shader WebGL context is unavailable.');
-        // The runtime shares one GPU context per graphic, and retains each shader's result on
-        // this 2D presentation surface. Reading it does not allocate another WebGL context or
-        // sample the shared GPU canvas after a different layer has drawn into it.
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('Shader Canvas2D presentation context is unavailable.');
+        // Copy the retained image for this shader. Reading the live Canvas2D surface directly
+        // can switch Chromium's backing renderer between samples and alter the pixels we compare.
+        if (!canvas.getContext('2d'))
+          throw new Error('Shader Canvas2D presentation context is unavailable.');
+        const snapshot = canvas.ownerDocument.createElement('canvas');
+        snapshot.width = canvas.width;
+        snapshot.height = canvas.height;
+        const context = snapshot.getContext('2d', { willReadFrequently: true });
+        if (!context) throw new Error('Could not create a 2D pixel inspection context.');
+        context.drawImage(canvas, 0, 0);
         pixels = new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
       } else if (isShader) {
         // Inspect the actual preserved GPU buffer, without a browser presentation/alpha conversion.
@@ -255,20 +261,32 @@ export function createCertificationRealm(): CertificationRealm {
 export async function importModuleInRealm(
   realm: CertificationRealm,
   moduleUrl: string,
+  signal?: AbortSignal,
 ): Promise<{ default?: CustomElementConstructor }> {
+  signal?.throwIfAborted();
   const resultKey = `__ografCertification_${crypto.randomUUID().replaceAll('-', '_')}`;
   const eventName = `${resultKey}_ready`;
   return new Promise((resolve, reject) => {
-    const finish = () => {
+    const script = realm.document.createElement('script');
+    const cleanUp = () => {
       realm.window.removeEventListener(eventName, finish);
+      signal?.removeEventListener('abort', abort);
+      delete (realm.window as unknown as Record<string, unknown>)[resultKey];
+      script.remove();
+    };
+    const abort = () => {
+      cleanUp();
+      reject(signal!.reason);
+    };
+    const finish = () => {
       const result = (realm.window as unknown as Record<string, unknown>)[resultKey] as
         { module?: { default?: CustomElementConstructor }; error?: string } | undefined;
-      delete (realm.window as unknown as Record<string, unknown>)[resultKey];
+      cleanUp();
       if (result?.module) resolve(result.module);
       else reject(new Error(result?.error || 'The certification module did not return a result.'));
     };
     realm.window.addEventListener(eventName, finish, { once: true });
-    const script = realm.document.createElement('script');
+    signal?.addEventListener('abort', abort, { once: true });
     script.type = 'module';
     script.textContent = `
       import(${JSON.stringify(moduleUrl)}).then(
@@ -276,7 +294,12 @@ export async function importModuleInRealm(
         (error) => { window[${JSON.stringify(resultKey)}] = { error: error instanceof Error ? error.message : String(error) }; window.dispatchEvent(new Event(${JSON.stringify(eventName)})); }
       );
     `;
-    realm.document.head.appendChild(script);
+    try {
+      realm.document.head.appendChild(script);
+    } catch (error) {
+      cleanUp();
+      reject(error);
+    }
   });
 }
 
@@ -292,7 +315,9 @@ async function callGraphicMethod(
     'realtime',
   ),
   requireSuccess = false,
+  signal?: AbortSignal,
 ): Promise<string[]> {
+  signal?.throwIfAborted();
   const fn = graphic[method];
   if (typeof fn !== 'function') return [`Graphic does not have a ${method}() method.`];
   try {
@@ -300,7 +325,9 @@ async function callGraphicMethod(
       (fn as (params: unknown) => Promise<unknown>).call(graphic, params),
       method,
       timing,
+      signal,
     );
+    signal?.throwIfAborted();
     return [
       ...validateReturnPayload(method, payload, extraKeys),
       ...(requireSuccess
@@ -308,6 +335,7 @@ async function callGraphicMethod(
         : []),
     ];
   } catch (error) {
+    signal?.throwIfAborted();
     return [`${method}() failed: ${error instanceof Error ? error.message : String(error)}`];
   }
 }
@@ -318,7 +346,9 @@ async function validateCoordinatedLifecycle(
   tagName: string,
   manifest: OGrafManifest,
   descriptor: CompiledTransitionLogicDescriptor,
+  signal?: AbortSignal,
 ): Promise<string[]> {
+  signal?.throwIfAborted();
   const errors: string[] = [];
   const definition = descriptor.definition;
   const sharedDescriptors = descriptor.sharedInstances.map((instance) => instance.descriptor);
@@ -344,6 +374,7 @@ async function validateCoordinatedLifecycle(
     ...(manifest.supportsNonRealTime ? (['non-realtime'] as const) : []),
   ];
   for (const renderType of modes) {
+    signal?.throwIfAborted();
     const graphic = realm.document.createElement(tagName) as CallableGraphic;
     graphic.style.cssText = 'position:fixed;left:-100000px;top:-100000px;visibility:hidden;';
     realm.document.body.appendChild(graphic);
@@ -360,6 +391,7 @@ async function validateCoordinatedLifecycle(
         extra,
         certificationMethodTiming(descriptor, method, params, renderType),
         requireSuccess,
+        signal,
       );
       errors.push(...issues.map((issue) => `Coordinated ${renderType}: ${issue}`));
       return issues.length === 0;
@@ -403,6 +435,7 @@ async function validateCoordinatedLifecycle(
       };
     };
     const rejectPlayWithoutChangingOutput = async (name: string) => {
+      signal?.throwIfAborted();
       const before = snapshot();
       try {
         const params = { goto: 0, skipAnimation: true };
@@ -410,6 +443,7 @@ async function validateCoordinatedLifecycle(
           graphic.playAction(params),
           'playAction',
           certificationMethodTiming(descriptor, 'playAction', params, renderType),
+          signal,
         );
         errors.push(
           ...coordinatedCertificationRejectionErrors(payload, before, snapshot()).map(
@@ -417,12 +451,14 @@ async function validateCoordinatedLifecycle(
           ),
         );
       } catch (cause) {
+        signal?.throwIfAborted();
         errors.push(
           `Coordinated ${renderType} ${name}: rejected Play must return an error payload: ${cause instanceof Error ? cause.message : String(cause)}`,
         );
       }
     };
     const inspect = async (templateId: string, label: string) => {
+      signal?.throwIfAborted();
       const template = templates.get(templateId);
       if (!template) return null;
       if (
@@ -432,7 +468,7 @@ async function validateCoordinatedLifecycle(
       )
         errors.push(`Coordinated ${renderType}: ${label} did not mount its template.`);
       const expected = coordinatedCertificationCanvasCounts(template, sharedDescriptors);
-      const pixels = await canvasPixelSignatures(graphic);
+      const pixels = await awaitExportOperation(canvasPixelSignatures(graphic), signal);
       errors.push(...pixels.errors.map((issue) => `${label}: ${issue}`));
       if (pixels.signatures.length < expected.canvases)
         errors.push(`${label}: expected at least ${expected.canvases} rendered canvases.`);
@@ -687,8 +723,12 @@ async function validateCoordinatedLifecycle(
         }
       }
     } finally {
-      await call('dispose', {});
-      graphic.remove();
+      try {
+        if (signal?.aborted) void graphic.dispose({}).catch(() => undefined);
+        else await call('dispose', {});
+      } finally {
+        graphic.remove();
+      }
     }
   }
   return errors;
@@ -696,12 +736,15 @@ async function validateCoordinatedLifecycle(
 
 async function validateModuleAndLifecycle(
   artifacts: ExportArtifacts,
+  signal?: AbortSignal,
 ): Promise<{ moduleErrors: string[]; lifecycleErrors: string[] }> {
+  signal?.throwIfAborted();
   const moduleErrors: string[] = [];
   const lifecycleErrors: string[] = [];
   const moduleUrl = URL.createObjectURL(new Blob([artifacts.mainJs], { type: 'text/javascript' }));
   let realm: CertificationRealm | null = null;
   let resources: ReturnType<typeof createCertificationResourceUrls> | null = null;
+  let activeGraphic: CallableGraphic | null = null;
   try {
     resources = createCertificationResourceUrls(artifacts.resources);
     realm = createCertificationRealm();
@@ -713,7 +756,8 @@ async function validateModuleAndLifecycle(
     (realm.window as unknown as Record<string, unknown>)[EXPORTED_RESOURCE_URLS_KEY] = {
       [moduleUrl]: resources.urls,
     };
-    const graphicModule = await importModuleInRealm(realm, moduleUrl);
+    const graphicModule = await importModuleInRealm(realm, moduleUrl, signal);
+    signal?.throwIfAborted();
     if (typeof graphicModule.default !== 'function') {
       moduleErrors.push('main.js must default-export a Graphic custom-element class.');
       return { moduleErrors, lifecycleErrors };
@@ -758,7 +802,13 @@ async function validateModuleAndLifecycle(
         return { moduleErrors, lifecycleErrors };
       }
       lifecycleErrors.push(
-        ...(await validateCoordinatedLifecycle(realm, tagName, artifacts.manifest, compiled)),
+        ...(await validateCoordinatedLifecycle(
+          realm,
+          tagName,
+          artifacts.manifest,
+          compiled,
+          signal,
+        )),
       );
       return { moduleErrors, lifecycleErrors };
     }
@@ -817,7 +867,9 @@ async function validateModuleAndLifecycle(
     ];
 
     for (const renderType of renderTypes) {
+      signal?.throwIfAborted();
       const graphic = realm.document.createElement(tagName) as CallableGraphic;
+      activeGraphic = graphic;
       graphic.style.cssText = 'position:fixed;left:-100000px;top:-100000px;visibility:hidden;';
       realm.document.body.appendChild(graphic);
       const call = (method: keyof Graphic, params: unknown, extraKeys: string[] = []) =>
@@ -827,6 +879,8 @@ async function validateModuleAndLifecycle(
           params,
           extraKeys,
           certificationMethodTiming(compiledDescriptor, method, params, renderType),
+          false,
+          signal,
         );
       lifecycleErrors.push(...(await call('load', { renderType })));
       if (renderType === 'realtime') {
@@ -857,7 +911,7 @@ async function validateModuleAndLifecycle(
             timestamp: seekTimestamps.target,
           })),
         );
-        const canvasSnapshot = await canvasPixelSignatures(graphic);
+        const canvasSnapshot = await awaitExportOperation(canvasPixelSignatures(graphic), signal);
         lifecycleErrors.push(...canvasSnapshot.errors);
         if (canvasSnapshot.signatures.length < expectedCanvases) {
           lifecycleErrors.push(
@@ -900,7 +954,10 @@ async function validateModuleAndLifecycle(
             'Non-realtime collection visibility changed after backward and repeated goToTime seeking.',
           );
         }
-        const replayedCanvasSnapshot = await canvasPixelSignatures(graphic);
+        const replayedCanvasSnapshot = await awaitExportOperation(
+          canvasPixelSignatures(graphic),
+          signal,
+        );
         lifecycleErrors.push(...replayedCanvasSnapshot.errors);
         if (replayedCanvasSnapshot.signatures.length < expectedCanvases) {
           lifecycleErrors.push(
@@ -927,17 +984,24 @@ async function validateModuleAndLifecycle(
       }
       lifecycleErrors.push(...(await call('dispose', { renderType })));
       graphic.remove();
+      activeGraphic = null;
     }
   } catch (error) {
+    signal?.throwIfAborted();
     const detail = error instanceof Error ? error.message : String(error);
     const recovery = /CustomElementRegistry|already been used|custom element/i.test(detail)
       ? ' Reload the editor tab to restore a fresh certification registry, then retry.'
       : '';
     moduleErrors.push(`main.js could not be imported: ${detail}${recovery}`);
   } finally {
-    realm?.frame.remove();
-    resources?.dispose();
-    URL.revokeObjectURL(moduleUrl);
+    try {
+      if (activeGraphic) void activeGraphic.dispose({}).catch(() => undefined);
+    } finally {
+      activeGraphic?.remove();
+      realm?.frame.remove();
+      resources?.dispose();
+      URL.revokeObjectURL(moduleUrl);
+    }
   }
   return { moduleErrors, lifecycleErrors };
 }
@@ -945,7 +1009,9 @@ async function validateModuleAndLifecycle(
 /** Mandatory pre-save gate: no file writer is called unless every OGraf devtool-equivalent check passes. */
 export async function certifyExportArtifacts(
   artifacts: ExportArtifacts,
+  signal?: AbortSignal,
 ): Promise<OGrafCompatibilityResult> {
+  signal?.throwIfAborted();
   const policyErrors: string[] = [];
   const snapshots = [
     ...(artifacts.descriptor?.rendererPlugins ?? []),
@@ -956,7 +1022,9 @@ export async function certifyExportArtifacts(
       (instance) => instance.descriptor.rendererPlugins ?? [],
     ) ?? []),
   ];
-  if (snapshots.length) await useRendererPluginSettingsStore.getState().initialize();
+  if (snapshots.length)
+    await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
+  signal?.throwIfAborted();
   try {
     assertStudioRendererPluginsAllowed(snapshots);
   } catch (cause) {
@@ -968,11 +1036,12 @@ export async function certifyExportArtifacts(
   const staticChecksPassed =
     artifacts.valid && packageErrors.length === 0 && policyErrors.length === 0;
   const { moduleErrors, lifecycleErrors } = staticChecksPassed
-    ? await validateModuleAndLifecycle(artifacts)
+    ? await validateModuleAndLifecycle(artifacts, signal)
     : {
         moduleErrors: ['Not run because project, manifest, or package validation failed.'],
         lifecycleErrors: ['Not run because project, manifest, or package validation failed.'],
       };
+  signal?.throwIfAborted();
   const checks: OGrafCompatibilityCheck[] = [
     {
       id: 'project',

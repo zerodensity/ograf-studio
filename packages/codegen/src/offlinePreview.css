@@ -48,6 +48,9 @@ body[data-dock='left'] #output {
 body.controls-hidden #output {
   inset: 0;
 }
+body.controls-hidden #fps-overlay {
+  display: none;
+}
 body[data-nodos] {
   background: transparent;
 }
@@ -55,7 +58,6 @@ body[data-nodos] #output {
   inset: 0;
 }
 body[data-nodos] #controls,
-body[data-nodos] #show-controls,
 body[data-nodos] #background,
 body[data-nodos] #safe-guides,
 body[data-nodos] #fps-overlay {
@@ -131,16 +133,6 @@ body[data-nodos] #fps-overlay {
 }
 body[data-dock='left'] #controls {
   left: 0;
-  right: auto;
-}
-#show-controls {
-  position: fixed;
-  z-index: 20;
-  top: 8px;
-  right: 8px;
-}
-body[data-dock='left'] #show-controls {
-  left: 8px;
   right: auto;
 }
 #controls[hidden] {

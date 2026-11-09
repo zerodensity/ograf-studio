@@ -19,6 +19,10 @@ export function DataConnectionsSection() {
   const update = useProjectStore((state) => state.updateDataConnection);
   const remove = useProjectStore((state) => state.removeDataConnection);
   const statuses = useDataConnectionRuntimeStore((state) => state.statuses);
+  const refreshDeferred = (connectionId: string) => {
+    const status = statuses[connectionRuntimeKey(projectId, composition.id, connectionId)];
+    return status?.pending && status.phase !== 'error';
+  };
   const fileInputs = useRef(new Map<string, HTMLInputElement>());
   const connections = useMemo(
     () => composition.dataConnections ?? [],
@@ -267,9 +271,7 @@ export function DataConnectionsSection() {
             <div className="resources-tree-actions wrap">
               <button
                 type="button"
-                disabled={
-                  statuses[connectionRuntimeKey(projectId, composition.id, connection.id)]?.pending
-                }
+                disabled={refreshDeferred(connection.id)}
                 onClick={() =>
                   void refreshDataConnection(projectId, composition.id, connection.id).catch(
                     () => undefined,

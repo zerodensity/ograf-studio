@@ -2,7 +2,16 @@ import JSZip from 'jszip';
 import type { Composition, Project } from '@ograf-editor/scene-model';
 import { withExportThumbnail, type ExportProfile } from '@ograf-editor/codegen';
 import { saveBlobToFile } from './fileIO';
-import { addOfflinePreviewFile } from './offlinePreviewPackage';
+import {
+  createStandaloneHtmlFile,
+  HTML_FILE_TYPES,
+  type ExportFile,
+  type ExportFileFormat,
+  type ExportFileSaveResult,
+  type ExportFileSaveStatus,
+} from './offlinePreviewPackage';
+import { stageCertifiedArtifacts } from './certifiedArtifactSave';
+import { generateExportZip } from './exportZip';
 import {
   buildNodosPresetDefinition,
   buildNodosRendererPage,
@@ -19,6 +28,7 @@ import {
 } from './ografCompatibility';
 
 export { buildExportArtifacts } from './ografCompatibility';
+export type { ExportFileFormat } from './offlinePreviewPackage';
 
 const ZIP_FILE_TYPES = [
   { description: 'OGraf Package', accept: { 'application/zip': ['.ograf.zip'] } },
@@ -26,7 +36,8 @@ const ZIP_FILE_TYPES = [
 
 export type ExportZipResult = ExportArtifacts & {
   compatibility: OGrafCompatibilityResult;
-  saveResult: 'saved' | 'cancelled' | 'downloaded';
+  saveResult: ExportFileSaveStatus;
+  files: ExportFileSaveResult[];
 };
 
 export interface CertifiedProjectPackage {
@@ -35,32 +46,58 @@ export interface CertifiedProjectPackage {
   blob: Blob;
 }
 
+export class OGrafExportCertificationError extends Error {
+  readonly nonRealtimeReplayFailed: boolean;
+
+  constructor(compatibility: OGrafCompatibilityResult) {
+    super(`Export blocked by OGraf compatibility gate: ${compatibility.errors.join(' ')}`);
+    this.name = 'OGrafExportCertificationError';
+    const failedChecks = compatibility.checks.filter((check) => !check.valid);
+    const firstFailure = failedChecks[0];
+    this.nonRealtimeReplayFailed =
+      failedChecks.length === 1 &&
+      firstFailure?.id === 'lifecycle' &&
+      firstFailure.errors.length > 0 &&
+      firstFailure.errors.every((error) =>
+        error.startsWith(
+          'Canvas pixels changed after backward and repeated non-realtime goToTime seeking',
+        ),
+      );
+  }
+}
+
 /** Builds the package of a snapshot of the project, with its thumbnail, and throws unless it is OGraf-certified. */
 async function buildCertifiedArtifacts(
   project: Project,
   composition: Composition,
   profile?: ExportProfile,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const snapshot = structuredClone(project);
   const snapshotComposition = structuredClone(composition);
   let artifacts = buildExportArtifacts(snapshot, snapshotComposition, profile);
   if (artifacts.valid) {
     const { createTemplateThumbnail } = await import('./templateThumbnail');
-    const thumbnail = await createTemplateThumbnail({
+    signal?.throwIfAborted();
+    const thumbnailProject = {
       ...snapshot,
       mainCompositionId: snapshotComposition.id,
       compositions: [snapshotComposition],
-    });
+    };
+    const thumbnail = signal
+      ? await createTemplateThumbnail(thumbnailProject, signal)
+      : await createTemplateThumbnail(thumbnailProject);
     const bytes = new Uint8Array(await thumbnail.arrayBuffer());
+    signal?.throwIfAborted();
     const base64 = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''));
     artifacts = withExportThumbnail(artifacts, snapshot, base64);
   }
-  const compatibility = await certifyExportArtifacts(artifacts);
-  if (!compatibility.valid) {
-    throw new Error(
-      `Export blocked by OGraf compatibility gate: ${compatibility.errors.join(' ')}`,
-    );
-  }
+  const compatibility = signal
+    ? await certifyExportArtifacts(artifacts, signal)
+    : await certifyExportArtifacts(artifacts);
+  signal?.throwIfAborted();
+  if (!compatibility.valid) throw new OGrafExportCertificationError(compatibility);
   return { snapshot, snapshotComposition, artifacts, compatibility };
 }
 
@@ -71,7 +108,13 @@ export function addPackageFiles(zip: JSZip, artifacts: ExportArtifacts): void {
   for (const resource of artifacts.resources) {
     zip.file(resource.path, resource.data, { base64: resource.base64 });
   }
-  addOfflinePreviewFile(zip, artifacts);
+}
+
+function packageBlob(artifacts: ExportArtifacts, signal?: AbortSignal): Promise<Blob> {
+  signal?.throwIfAborted();
+  const zip = new JSZip();
+  addPackageFiles(zip, artifacts);
+  return generateExportZip(zip, signal);
 }
 
 /** Builds a standalone certified OGraf ZIP without opening a save dialog. */
@@ -79,33 +122,71 @@ export async function createCertifiedProjectPackage(
   project: Project,
   composition: Composition,
   profile?: ExportProfile,
+  { signal }: { signal?: AbortSignal } = {},
 ): Promise<CertifiedProjectPackage> {
-  const { artifacts, compatibility } = await buildCertifiedArtifacts(project, composition, profile);
-  const zip = new JSZip();
-  addPackageFiles(zip, artifacts);
-  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  const { artifacts, compatibility } = await buildCertifiedArtifacts(
+    project,
+    composition,
+    profile,
+    signal,
+  );
+  const blob = await packageBlob(artifacts, signal);
+  signal?.throwIfAborted();
   return { artifacts, compatibility, blob };
 }
 
-/** Packages only an OGraf-certified project; no save/download starts before all checks pass. */
+/** Builds a certified standalone HTML player without creating a ZIP or starting a save. */
+export async function createCertifiedProjectHtml(
+  project: Project,
+  composition: Composition,
+  profile?: ExportProfile,
+): Promise<CertifiedProjectPackage> {
+  const { artifacts, compatibility } = await buildCertifiedArtifacts(project, composition, profile);
+  return { artifacts, compatibility, blob: createStandaloneHtmlFile(artifacts).blob };
+}
+
+/** Exports certified package files or an independent HTML player. */
 export async function exportProjectAsZip(
   project: Project,
   composition: Composition,
   profile?: ExportProfile,
-  options: { downloadOnly?: boolean; ownerWindow?: Window } = {},
+  options: { downloadOnly?: boolean; ownerWindow?: Window; format?: ExportFileFormat } = {},
 ): Promise<ExportZipResult> {
-  const { artifacts, compatibility, blob } = await createCertifiedProjectPackage(
-    project,
-    composition,
-    profile,
-  );
+  const { format = 'zip', ...saveOptions } = options;
+  const { artifacts, compatibility } = await buildCertifiedArtifacts(project, composition, profile);
+  const suffix = profile?.fileNameSuffix ?? '';
+  const files: ExportFile[] = [];
+  if (format !== 'html') {
+    files.push({
+      format: 'zip',
+      blob: await packageBlob(artifacts),
+      fileName: `${project.name || 'untitled'}${suffix}.ograf.zip`,
+    });
+  }
+  if (format !== 'zip') files.push(createStandaloneHtmlFile(artifacts, suffix));
+  if (files.length > 1) {
+    // Each file gets a fresh user gesture. Certification and preparation happen only once.
+    stageCertifiedArtifacts(files, 1, saveOptions.ownerWindow, true);
+    return {
+      ...artifacts,
+      compatibility,
+      saveResult: 'prepared',
+      files: files.map(({ format, fileName }) => ({ format, fileName, saveResult: 'prepared' })),
+    };
+  }
+  const file = files[0]!;
   const saveResult = await saveBlobToFile(
-    blob,
-    `${project.name || 'untitled'}${profile?.fileNameSuffix ?? ''}.ograf.zip`,
-    ZIP_FILE_TYPES,
-    ...(Object.keys(options).length ? [options] : []),
+    file.blob,
+    file.fileName,
+    file.format === 'html' ? HTML_FILE_TYPES : ZIP_FILE_TYPES,
+    ...(Object.keys(saveOptions).length ? [saveOptions] : []),
   );
-  return { ...artifacts, compatibility, saveResult };
+  return {
+    ...artifacts,
+    compatibility,
+    saveResult,
+    files: [{ format: file.format, fileName: file.fileName, saveResult }],
+  };
 }
 
 const textToBase64 = (text: string) => bytesToBase64(new TextEncoder().encode(text));

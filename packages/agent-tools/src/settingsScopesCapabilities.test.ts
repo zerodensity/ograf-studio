@@ -58,7 +58,7 @@ describe('unified settings scope capability guidance', () => {
           propertiesSettings: { scope: 'template', section: 'output' },
         },
         scopes: {
-          studio: { sections: ['workspace', 'assistant', 'plugins', 'nodos'] },
+          studio: { sections: ['workspace', 'export', 'assistant', 'plugins', 'nodos'] },
           'template-set': { sections: ['output', 'timing', 'canvas', 'inheritance', 'plugins'] },
           template: { sections: ['output', 'background', 'canvas', 'guides', 'plugins'] },
         },

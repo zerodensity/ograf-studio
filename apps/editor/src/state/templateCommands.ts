@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import { createProject, createId, type Project } from '@ograf-editor/scene-model';
+import {
+  appendAuthoringPrompt,
+  createProject,
+  createId,
+  type Project,
+} from '@ograf-editor/scene-model';
 import {
   addProjectSetTemplate,
   reorderProjectSetTemplate,
@@ -109,6 +114,7 @@ function insertSnapshot(
   targetId?: string | null,
   side: 'before' | 'after' = 'after',
   duplicate = false,
+  originalPrompt?: string,
 ) {
   if (set.templates.length >= 256)
     throw new Error('A template set can contain at most 256 templates.');
@@ -120,6 +126,8 @@ function insertSnapshot(
     ) &&
     source.assets.every((item) => set.assetSlots.some((slot) => slot.id === item.slotId));
   const project = structuredClone(keepInheritance ? source.template.project : source.resolved);
+  if (originalPrompt !== undefined)
+    appendAuthoringPrompt(project, { id: createId('prompt'), text: originalPrompt });
   const compositionIds = new Map(
     project.compositions.map((composition) => [composition.id, createId('composition')]),
   );
@@ -200,15 +208,19 @@ export function copyTemplate(templateId: string) {
   return copied.template.name;
 }
 
-export function duplicateTemplate(templateId: string) {
+export function duplicateTemplate(templateId: string, originalPrompt?: string) {
   const set = currentSet();
-  return insertSnapshot(set, snapshot(set, templateId), templateId, 'after', true);
+  return insertSnapshot(set, snapshot(set, templateId), templateId, 'after', true, originalPrompt);
 }
 
-export function pasteTemplate(targetId?: string | null, side: 'before' | 'after' = 'after') {
+export function pasteTemplate(
+  targetId?: string | null,
+  side: 'before' | 'after' = 'after',
+  originalPrompt?: string,
+) {
   const copied = useTemplateClipboardStore.getState().copied;
   if (!copied) throw new Error('Copy a template first.');
-  return insertSnapshot(currentSet(), copied, targetId, side);
+  return insertSnapshot(currentSet(), copied, targetId, side, false, originalPrompt);
 }
 
 export function insertTemplateProject(
@@ -244,8 +256,11 @@ export function newTemplate(
   targetId?: string | null,
   side: 'before' | 'after' = 'after',
   settings?: { width: number; height: number; frameRate: number },
+  originalPrompt?: string,
 ) {
   const project = createUiProject();
+  if (originalPrompt !== undefined)
+    appendAuthoringPrompt(project, { id: createId('prompt'), text: originalPrompt });
   const set = currentSet();
   const source = useProjectStore
     .getState()

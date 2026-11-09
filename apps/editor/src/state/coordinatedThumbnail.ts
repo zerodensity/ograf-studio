@@ -4,6 +4,7 @@ import { THUMBNAIL_MAX_DIMENSION } from '@ograf-editor/scene-model';
 import { captureMaskedCanvas } from './maskedCapture';
 import { createCertificationResourceUrls } from './certificationResources';
 import { coordinatedCertificationCases } from './coordinatedCertification';
+import { awaitExportOperation } from './exportAbort';
 import { createCertificationRealm, importModuleInRealm } from './ografCompatibility';
 import {
   assertStudioRendererPluginsAllowed,
@@ -11,13 +12,14 @@ import {
   useRendererPluginSettingsStore,
 } from './pluginSettingsStore';
 
-async function thumbnailFontCss(artifacts: ExportArtifacts): Promise<string> {
+async function thumbnailFontCss(artifacts: ExportArtifacts, signal: AbortSignal): Promise<string> {
   const descriptor = artifacts.transitionDescriptor!;
   const fonts = [...descriptor.templates, ...descriptor.sharedInstances].flatMap(
     (entry) => entry.descriptor.fonts ?? [],
   );
   const faces = new Map<string, string>();
   for (const font of fonts) {
+    signal.throwIfAborted();
     const resource = artifacts.resources.find((entry) => entry.path === font.source);
     const key = JSON.stringify([
       font.family,
@@ -37,7 +39,7 @@ async function thumbnailFontCss(artifacts: ExportArtifacts): Promise<string> {
           );
       source = `data:${font.mimeType};base64,${encoded}`;
     } else if (!source.startsWith('data:')) {
-      const response = await fetch(source);
+      const response = await fetch(source, { signal });
       if (!response.ok) throw new Error(`Thumbnail font is unavailable: ${font.family}.`);
       const bytes = new Uint8Array(await response.arrayBuffer());
       source = `data:${font.mimeType};base64,${btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))}`;
@@ -51,21 +53,32 @@ async function thumbnailFontCss(artifacts: ExportArtifacts): Promise<string> {
 }
 
 /** Render the exact compiled coordinator in a disposable realm, then freeze its catalog pose. */
-export async function createCoordinatedThumbnail(artifacts: ExportArtifacts): Promise<Blob> {
+export async function createCoordinatedThumbnail(
+  artifacts: ExportArtifacts,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  signal?.throwIfAborted();
   const descriptor = artifacts.transitionDescriptor;
   if (!descriptor) throw new Error('A coordinated descriptor is required for its thumbnail.');
   const plugins = [...descriptor.templates, ...descriptor.sharedInstances].flatMap(
     (entry) => entry.descriptor.rendererPlugins ?? [],
   );
-  if (plugins.length) await useRendererPluginSettingsStore.getState().initialize();
+  if (plugins.length)
+    await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
+  signal?.throwIfAborted();
   assertStudioRendererPluginsAllowed(plugins);
   let resourcesToDispose: ReturnType<typeof createCertificationResourceUrls> | undefined;
   let moduleUrlToDispose: string | undefined;
   let realmToDispose: ReturnType<typeof createCertificationRealm> | undefined;
   let globals: Record<string, unknown> | undefined;
   let graphic: CoordinatedGraphicElement | undefined;
-  let disposed = false;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const capture = new AbortController();
+  const abort = () => capture.abort(signal!.reason);
+  signal?.addEventListener('abort', abort, { once: true });
+  const timeout = setTimeout(
+    () => capture.abort(new Error('Coordinated thumbnail capture timed out.')),
+    30_000,
+  );
   try {
     const resources = (resourcesToDispose = createCertificationResourceUrls(artifacts.resources));
     const moduleUrl = (moduleUrlToDispose = URL.createObjectURL(
@@ -79,12 +92,9 @@ export async function createCoordinatedThumbnail(artifacts: ExportArtifacts): Pr
     globals = realm.window as unknown as Record<string, unknown>;
     globals.__OGRAF_STUDIO_RENDERER_PLUGIN_POLICY__ = rendererPluginAllowed;
     globals[EXPORTED_RESOURCE_URLS_KEY] = { [moduleUrl]: resources.urls };
-    const check = () => {
-      if (disposed) throw new Error('Coordinated thumbnail capture was cancelled.');
-    };
     const work = async (): Promise<Blob> => {
-      const module = await importModuleInRealm(realm, moduleUrl);
-      check();
+      const module = await importModuleInRealm(realm, moduleUrl, capture.signal);
+      capture.signal.throwIfAborted();
       if (!module.default) throw new Error('Coordinated thumbnail module has no default export.');
       const tag = `ograf-coordinated-thumbnail-${crypto.randomUUID()}`;
       realm.window.customElements.define(tag, module.default);
@@ -97,9 +107,9 @@ export async function createCoordinatedThumbnail(artifacts: ExportArtifacts): Pr
           frameRate: descriptor.frameRate,
         },
       });
+      capture.signal.throwIfAborted();
       if (loaded.statusCode >= 400)
         throw new Error(loaded.statusMessage || 'Could not load thumbnail graphic.');
-      check();
       const cases = coordinatedCertificationCases(descriptor.definition);
       const selected = new Map<string, string>();
       // Keep the first compatible state in each lane; takeover states cannot remove an earlier lane.
@@ -128,11 +138,11 @@ export async function createCoordinatedThumbnail(artifacts: ExportArtifacts): Pr
               payload: { slotId: state.slotId, stateId: state.id },
               skipAnimation: true,
             });
+            capture.signal.throwIfAborted();
             if (result.statusCode >= 400)
               throw new Error(
                 result.statusMessage || `Could not render thumbnail state ${state.name}.`,
               );
-            check();
             selected.set(state.slotId, state.id);
           }
           break;
@@ -141,8 +151,8 @@ export async function createCoordinatedThumbnail(artifacts: ExportArtifacts): Pr
       if (!selected.size)
         throw new Error('No reachable state is available for the coordinated thumbnail.');
       graphic.pausePlayout();
-      const fontEmbedCSS = await thumbnailFontCss(artifacts);
-      check();
+      const fontEmbedCSS = await thumbnailFontCss(artifacts, capture.signal);
+      capture.signal.throwIfAborted();
       const scale = Math.min(
         1,
         THUMBNAIL_MAX_DIMENSION / Math.max(descriptor.width, descriptor.height),
@@ -156,7 +166,7 @@ export async function createCoordinatedThumbnail(artifacts: ExportArtifacts): Pr
         skipAutoScale: true,
         fontEmbedCSS,
       });
-      check();
+      capture.signal.throwIfAborted();
       return new Promise<Blob>((resolve, reject) =>
         canvas.toBlob(
           (blob) =>
@@ -165,20 +175,13 @@ export async function createCoordinatedThumbnail(artifacts: ExportArtifacts): Pr
         ),
       );
     };
-    return await Promise.race([
-      work(),
-      new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(
-          () => reject(new Error('Coordinated thumbnail capture timed out.')),
-          30_000,
-        );
-      }),
-    ]);
+    return await awaitExportOperation(work(), capture.signal);
   } finally {
-    disposed = true;
-    if (timeout !== undefined) clearTimeout(timeout);
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
     try {
-      await graphic?.dispose();
+      if (capture.signal.aborted) void graphic?.dispose().catch(() => undefined);
+      else await graphic?.dispose();
     } finally {
       graphic?.remove();
       realmToDispose?.frame.remove();

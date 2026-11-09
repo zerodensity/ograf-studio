@@ -11,6 +11,7 @@ import type { ExportArtifacts } from './ografCompatibility';
 const mocks = vi.hoisted(() => ({
   createPackage: vi.fn(),
   createCoordinatedPackage: vi.fn(),
+  createCoordinatedHtml: vi.fn(),
   saveBlob: vi.fn(),
   chooseWriter: vi.fn(),
 }));
@@ -21,6 +22,7 @@ vi.mock('./exportPackage', () => ({
 
 vi.mock('./coordinatedExport', () => ({
   createCertifiedCoordinatedPackage: mocks.createCoordinatedPackage,
+  createCertifiedCoordinatedHtml: mocks.createCoordinatedHtml,
 }));
 
 vi.mock('./certifiedArtifactSave', async (importOriginal) => ({
@@ -62,6 +64,7 @@ describe('template-set batch export', () => {
   beforeEach(() => {
     mocks.createPackage.mockReset();
     mocks.createCoordinatedPackage.mockReset();
+    mocks.createCoordinatedHtml.mockReset();
     mocks.saveBlob.mockReset();
     mocks.chooseWriter.mockReset();
     mocks.chooseWriter.mockImplementation(
@@ -84,6 +87,9 @@ describe('template-set batch export', () => {
     mocks.createCoordinatedPackage.mockImplementation(async (set) => ({
       artifacts: {
         transitionDescriptor: { templates: set.templates },
+        manifest: { name: set.name },
+        mainJs: 'export default class {}',
+        resources: [],
       } as unknown as ExportArtifacts,
       compatibility: { valid: true, errors: [], checks: [] },
       blob: new Blob(['coordinated package']),
@@ -169,6 +175,54 @@ describe('template-set batch export', () => {
     expect(mocks.saveBlob).not.toHaveBeenCalled();
   });
 
+  it('prepares an independent bundle before offering to save the certified archive', async () => {
+    const set = addProjectSetTemplate(
+      createProjectSet('Evening', createProject({ name: 'News' })),
+      createProject({ name: 'Sports' }),
+    );
+    const ownerWindow = { closed: false } as Window;
+    const stages: string[] = [];
+    const result = await exportProjectSetAsZip(set, undefined, {
+      ownerWindow,
+      prepareOnly: true,
+      onProgress: (stage) => stages.push(stage),
+    });
+    expect(result).toMatchObject({
+      mode: 'independent',
+      saveResult: 'prepared',
+      files: [{ format: 'zip', fileName: 'Evening.ograf-set.zip', saveResult: 'prepared' }],
+    });
+    expect(stages).toEqual(['template 1 of 2', 'template 2 of 2', 'packaging', 'ready']);
+    expect(mocks.chooseWriter).not.toHaveBeenCalled();
+    expect(mocks.saveBlob).not.toHaveBeenCalled();
+    expect(getCertifiedCoordinatedSaveSnapshot()).toMatchObject({
+      fileName: 'Evening.ograf-set.zip',
+      templateCount: 2,
+      ownerWindow,
+      needsSave: true,
+    });
+
+    set.name = 'Later source edit';
+    await expect(retryCertifiedCoordinatedSave()).resolves.toMatchObject({
+      fileName: 'Evening.ograf-set.zip',
+      saveResult: 'downloaded',
+    });
+    expect(mocks.chooseWriter).toHaveBeenCalledExactlyOnceWith('Evening.ograf-set.zip', {
+      ownerWindow,
+      fileTypes: [
+        {
+          description: 'OGraf template set export',
+          accept: { 'application/zip': ['.ograf-set.zip'] },
+        },
+      ],
+    });
+    expect(mocks.createPackage).toHaveBeenCalledTimes(2);
+    const blob = mocks.saveBlob.mock.calls[0]![0] as Blob;
+    const outer = await JSZip.loadAsync(await blob.arrayBuffer());
+    const index = JSON.parse(await outer.file('set-export.json')!.async('string'));
+    expect(index).toMatchObject({ name: 'Evening', templates: result.templates });
+  });
+
   it('routes applied Transition Logic to one coordinated package and forwards the profile', async () => {
     const set = coordinatedFixture();
     const profile = getExportProfile('non-realtime');
@@ -188,6 +242,77 @@ describe('template-set batch export', () => {
     expect(mocks.saveBlob).toHaveBeenCalledWith(expect.any(Blob), result.fileName, [
       { description: 'Coordinated OGraf package', accept: { 'application/zip': ['.ograf.zip'] } },
     ]);
+  });
+
+  it('saves a coordinated HTML export through the HTML-only build and writer', async () => {
+    const set = coordinatedFixture();
+    const blob = new Blob(['<!doctype html>'], { type: 'text/html' });
+    mocks.createCoordinatedHtml.mockResolvedValueOnce({
+      artifacts: { transitionDescriptor: { templates: set.templates } },
+      compatibility: { valid: true, errors: [], checks: [] },
+      blob,
+      fileName: 'Evening News.html',
+    });
+
+    const result = await exportProjectSetAsZip(set, undefined, { format: 'html' });
+    expect(mocks.createCoordinatedPackage).not.toHaveBeenCalled();
+    expect(mocks.chooseWriter).toHaveBeenCalledExactlyOnceWith('Evening News.html', {
+      format: 'html',
+    });
+    expect(mocks.saveBlob.mock.calls[0]![0]).toBe(blob);
+    expect(result.files).toEqual([
+      { format: 'html', fileName: 'Evening News.html', saveResult: 'downloaded' },
+    ]);
+  });
+
+  it('prepares a coordinated ZIP without opening the writer when requested', async () => {
+    const ownerWindow = {
+      showSaveFilePicker: vi.fn(),
+      navigator: { userActivation: { isActive: true } },
+    } as unknown as Window;
+    await expect(
+      exportProjectSetAsZip(coordinatedFixture(), undefined, { ownerWindow, prepareOnly: true }),
+    ).resolves.toMatchObject({ mode: 'coordinated', saveResult: 'prepared' });
+    expect(mocks.chooseWriter).not.toHaveBeenCalled();
+    expect(getCertifiedCoordinatedSaveSnapshot()).toMatchObject({
+      fileName: 'Evening-News.ograf.zip',
+      ownerWindow,
+      needsSave: true,
+    });
+  });
+
+  it('saves both files from one certified build with a fresh gesture per file', async () => {
+    const result = await exportProjectSetAsZip(coordinatedFixture(), undefined, { format: 'both' });
+    expect(result.saveResult).toBe('prepared');
+    expect(result.files.map(({ format }) => format)).toEqual(['zip', 'html']);
+    expect(mocks.chooseWriter).not.toHaveBeenCalled();
+    expect(getCertifiedCoordinatedSaveSnapshot()).toMatchObject({
+      format: 'zip',
+      pendingFileCount: 2,
+    });
+
+    await expect(retryCertifiedCoordinatedSave()).resolves.toMatchObject({ format: 'zip' });
+    const pendingHtml = getCertifiedCoordinatedSaveSnapshot();
+    expect(pendingHtml).toMatchObject({ format: 'html', pendingFileCount: 1 });
+
+    mocks.chooseWriter.mockRejectedValueOnce(
+      exportFailure(new DOMException('Cancelled', 'AbortError'), 'picker'),
+    );
+    await expect(retryCertifiedCoordinatedSave()).rejects.toMatchObject({
+      outcome: 'user-cancelled',
+    });
+    expect(mocks.saveBlob).toHaveBeenCalledOnce();
+    expect(getCertifiedCoordinatedSaveSnapshot()).toBe(pendingHtml);
+
+    await expect(retryCertifiedCoordinatedSave()).resolves.toMatchObject({ format: 'html' });
+    const html = mocks.saveBlob.mock.calls[1]![0] as Blob;
+    expect(await html.text()).toContain('<!doctype html>');
+    expect(mocks.createCoordinatedPackage).toHaveBeenCalledOnce();
+    expect(mocks.createCoordinatedHtml).not.toHaveBeenCalled();
+    expect(getCertifiedCoordinatedSaveSnapshot()).toMatchObject({
+      needsSave: false,
+      pendingFileCount: 0,
+    });
   });
 
   it.each(['enable', 'modify', 'remove'] as const)(
@@ -292,6 +417,67 @@ describe('template-set batch export', () => {
     expect(mocks.chooseWriter).not.toHaveBeenCalled();
     expect(mocks.saveBlob).not.toHaveBeenCalled();
     await expect(exportProjectSetAsZip(set)).resolves.toMatchObject({ mode: 'coordinated' });
+  });
+
+  it.each(['coordinated', 'independent'] as const)(
+    'cancels %s preparation without staging a file and permits another export after cleanup',
+    async (mode) => {
+      const set = coordinatedFixture();
+      if (mode === 'independent') delete set.transitionLogic;
+      const compile = mode === 'coordinated' ? mocks.createCoordinatedPackage : mocks.createPackage;
+      const stagedBefore = getCertifiedCoordinatedSaveSnapshot();
+      const controller = new AbortController();
+      const reason = new DOMException('Export cancelled', 'AbortError');
+      let finish!: () => void;
+      compile.mockImplementationOnce(async () => {
+        // Simulate a non-interruptible operation that finishes after the user cancels.
+        await new Promise<void>((resolve) => (finish = resolve));
+        return {
+          artifacts: { transitionDescriptor: { templates: set.templates } },
+          blob: new Blob(['late certified output']),
+          compatibility: { valid: true, errors: [], checks: [] },
+        };
+      });
+
+      const pending = exportProjectSetAsZip(set, undefined, {
+        prepareOnly: true,
+        signal: controller.signal,
+      });
+      expect(compile.mock.calls[0]!.at(-1)).toMatchObject({ signal: controller.signal });
+      controller.abort(reason);
+      await expect(exportProjectSetAsZip(set)).rejects.toThrow('already in progress');
+      finish();
+      await expect(pending).rejects.toBe(reason);
+      expect(getCertifiedCoordinatedSaveSnapshot()).toBe(stagedBefore);
+      expect(mocks.chooseWriter).not.toHaveBeenCalled();
+      expect(mocks.saveBlob).not.toHaveBeenCalled();
+
+      await expect(
+        exportProjectSetAsZip(set, undefined, { prepareOnly: true }),
+      ).resolves.toMatchObject({
+        mode,
+        saveResult: 'prepared',
+      });
+    },
+  );
+
+  it('does not start another independent template after preparation is cancelled', async () => {
+    const set = addProjectSetTemplate(
+      createProjectSet('Evening', createProject({ name: 'News' })),
+      createProject({ name: 'Sports' }),
+    );
+    const controller = new AbortController();
+    const reason = new DOMException('Export cancelled', 'AbortError');
+    await expect(
+      exportProjectSetAsZip(set, undefined, {
+        signal: controller.signal,
+        onProgress: (stage) => {
+          if (stage === 'template 2 of 2') controller.abort(reason);
+        },
+      }),
+    ).rejects.toBe(reason);
+    expect(mocks.createPackage).toHaveBeenCalledOnce();
+    expect(mocks.saveBlob).not.toHaveBeenCalled();
   });
 
   it('reports picker cancellation and permits another export', async () => {

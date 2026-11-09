@@ -1,5 +1,8 @@
-import { getExportProfile, getOfflinePreviewFileName } from '@ograf-editor/codegen';
-import { createCertifiedCoordinatedPackage } from './coordinatedExport';
+import { getExportProfile } from '@ograf-editor/codegen';
+import {
+  createCertifiedCoordinatedHtml,
+  createCertifiedCoordinatedPackage,
+} from './coordinatedExport';
 import { exportFailure } from './certifiedArtifactSave';
 import type { CoordinatedExportRequest } from '@ograf-editor/agent-tools/template-set-storage';
 import {
@@ -377,6 +380,8 @@ export function handleTemplateSetRequest(request: {
   const templateId = String(operation.templateId ?? '');
   const target = typeof operation.targetTemplateId === 'string' ? operation.targetTemplateId : null;
   const side = operation.side === 'before' ? 'before' : 'after';
+  const originalPrompt =
+    typeof operation.originalPrompt === 'string' ? operation.originalPrompt : undefined;
   const change = (updated: ProjectSetDocument, refresh = false) => {
     validateProjectSetDocument(updated);
     applyProjectSetChange(updated, refresh);
@@ -557,16 +562,16 @@ export function handleTemplateSetRequest(request: {
       break;
     }
     case 'new_template':
-      newTemplate(target, side);
+      newTemplate(target, side, undefined, originalPrompt);
       break;
     case 'duplicate_template':
-      duplicateTemplate(templateId);
+      duplicateTemplate(templateId, originalPrompt);
       break;
     case 'copy_template':
       copyTemplate(templateId);
       break;
     case 'paste_template':
-      pasteTemplate(target, side);
+      pasteTemplate(target, side, originalPrompt);
       break;
     case 'remove_template':
       if (!request.confirm) throw new Error('Template removal requires confirm:true.');
@@ -741,24 +746,24 @@ export async function exportCoordinatedSetForBridge(
       throw new Error('Playout transitions have unapplied edits. Apply or Revert before export.');
     if (!['realtime', 'non-realtime', 'dual'].includes(request.profile))
       throw new Error('Invalid export profile.');
+    const format = request.format ?? 'zip';
+    if (format !== 'zip' && format !== 'html') throw new Error('Invalid export format.');
     options.onProgress?.('Compiling and certifying frozen coordinated snapshot');
     stage = 'certification';
-    const { blob, artifacts, compatibility } = await createCertifiedCoordinatedPackage(
-      set,
-      getExportProfile(request.profile),
-      {
-        onProgress: (next) => {
-          stage = next;
-          progress.push(next);
-          options.onProgress?.(`Coordinated export: ${next}`);
-        },
+    const build =
+      format === 'html' ? createCertifiedCoordinatedHtml : createCertifiedCoordinatedPackage;
+    const { blob, artifacts, compatibility } = await build(set, getExportProfile(request.profile), {
+      onProgress: (next) => {
+        stage = next;
+        progress.push(next);
+        options.onProgress?.(`Coordinated export: ${next}`);
       },
-    );
+    });
     stage = 'snapshot';
     check();
     stage = 'verification';
     if (blob.size > MAX_TEMPLATE_SET_MCP_ARCHIVE_BYTES)
-      throw new Error('Coordinated package exceeds the 64 MiB MCP transfer limit.');
+      throw new Error('Coordinated output exceeds the 64 MiB MCP transfer limit.');
     const buffer = await blob.arrayBuffer();
     const bytes = new Uint8Array(buffer);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
@@ -777,13 +782,13 @@ export async function exportCoordinatedSetForBridge(
       revision: request.expectedRevision,
       snapshotPolicy: 'frozen-unsaved-artwork-applied-graph-reject-changes',
       profile: request.profile,
+      format,
       includedTemplateIds,
       includedStateIds: set.transitionLogic!.states.map((state) => state.id),
       unreferencedTemplates: set.templates
         .filter((template) => !includedTemplateIds.includes(template.id))
         .map(({ id, name }) => ({ id, name })),
       certification: compatibility,
-      previewFileName: getOfflinePreviewFileName(artifacts),
       archiveBase64: chunks.join(''),
       archiveBytes: bytes.length,
       sha256,

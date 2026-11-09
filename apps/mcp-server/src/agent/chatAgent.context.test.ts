@@ -130,6 +130,61 @@ const lastTool = (request: ProviderRequest) => {
 };
 
 describe('assistant context through the real shared-tool loop', () => {
+  it('records the user prompt before model execution and attaches it to the accepted turn', async () => {
+    const host = createOGrafAuthoringHost();
+    const session = host.workspace.get('editor');
+    const projectId = session.snapshot().project.id;
+    const events: ChatServerEvent[] = [];
+    vi.spyOn(host.bridge, 'sendChatEvent').mockImplementation((event) => events.push(event));
+    const promptTexts = [
+      '  Build a score graphic for İstanbul.  ',
+      'Use blue.\nKeep the team names.',
+    ];
+    let providerCalls = 0;
+    vi.mocked(createProviderAdapter).mockImplementation(() => ({
+      complete: async () => {
+        const index = providerCalls++;
+        expect(session.snapshot().project.authoringPrompts?.map((prompt) => prompt.text)).toEqual(
+          promptTexts.slice(0, index + 1),
+        );
+        return answer('Assistant response is separate.');
+      },
+    }));
+    for (const [index, text] of promptTexts.entries()) {
+      const turnId = `authored-${index}`;
+      host.chat.handle({
+        type: 'chat.send',
+        turnId,
+        sessionId: `editor:${projectId}`,
+        text: text.trim(),
+        authoringPromptText: text,
+        ambient: { recentEdits: ['Transient editor context'] },
+      });
+      await vi.waitFor(() =>
+        expect(events).toContainEqual(expect.objectContaining({ type: 'chat.turn.end', turnId })),
+      );
+      expect(events).toContainEqual({
+        type: 'chat.turn.start',
+        turnId,
+        authoringPrompt: { projectId, revision: index + 1, prompt: { id: turnId, text } },
+      });
+    }
+    host.chat.handle({
+      type: 'chat.send',
+      turnId: 'wrong-template',
+      sessionId: 'editor:closed',
+      text: 'Other template',
+    });
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'chat.error', turnId: 'wrong-template' }),
+      ),
+    );
+    expect(providerCalls).toBe(2);
+    expect(session.snapshot().project.authoringPrompts?.map((prompt) => prompt.text)).toEqual(
+      promptTexts,
+    );
+  });
   it('reads a large project page in the same conversation without accepting a forged owner', async () => {
     let resultId = '';
     const test = fixture((request, index) => {

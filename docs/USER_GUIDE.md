@@ -180,7 +180,7 @@ text finishes, transparent overlays, and the effect-only **Signal Glitch**. Buil
 | `.ogp`                     | Legacy editable template-set archive             | **File → Open…**                                                                                       |
 | Remote `.ogs` / `.ogp` URL | Public/CORS-enabled editable document            | **File → Open from URL…**                                                                              |
 | `.ograf.zip`               | Certified playout package                        | **File → Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
-| `.ograf-set.zip`           | Bundle of certified template outputs             | **File → Export All Templates…**                                                                       |
+| `.ograf-set.zip`           | Bundle of certified template outputs             | In **File → Export…**, choose **Template set** for a set without Transition Logic                      |
 | Loose OGraf package files  | Manifest, `main.js`, and resources               | Select them together with **File → Import OGraf**                                                      |
 | SVG and raster images      | Reusable image assets                            | **Add Image** above the canvas, or drop files onto the canvas                                          |
 | Lottie `.json`             | Looping vector animation layer                   | **+ Lottie JSON** above the canvas                                                                     |
@@ -203,7 +203,8 @@ creates one using the setup window; **Add existing template…** opens an editab
 sources, shared controls and dependencies. Compact saves store identical font/resource bytes and set
 component sources once. Opening restores complete editable templates with the same IDs, bindings,
 animation and overrides. Extracted compact member files require the set's shared data; use **Save
-Template** or **Export All Templates…** for independent output.
+Template** for a standalone editable document or choose **Current template** in **File → Export…**
+for a standalone playout export.
 Saving shows template/resource/compression progress and runs archive generation in a worker, so
 the editor and its bridge can keep responding. Edits made during saving remain in the open document.
 
@@ -253,9 +254,10 @@ source for the selected slot. Cancel leaves the set unchanged. Shared components
 source/instance and override behavior. A previously exported or on-air package remains a snapshot;
 export and deploy it again to use later changes.
 
-**Export All Templates…** certifies each resolved template and saves the resulting standalone
-`.ograf.zip` files inside one `.ograf-set.zip`. If any template fails certification, the bundle is
-not saved. Each `.ograf.zip` remains a regular OGraf playout package.
+For a set without Transition Logic, choose **Template set** in **File → Export…**. Studio
+certifies each resolved template and saves the standalone `.ograf.zip` files inside one
+`.ograf-set.zip`. If any template fails certification, the bundle is not saved. Each
+`.ograf.zip` remains a regular OGraf playout package.
 
 ### Cropping
 
@@ -415,22 +417,35 @@ use previous/next-frame buttons, or select **First OGraf step**. A successful ex
 choice for the template; cancelling leaves it unchanged. The ZIP includes `<id>_thumb.png` and
 references it in the OGraf manifest's `thumbnails` list.
 
-Coordinated export prepares and certifies the complete ZIP before choosing a destination. If the
-browser needs a fresh click after preparation, **Coordinated package ready** offers **Save…** or
-**Download**. Save verifies the written bytes; Download requests browser delivery. Failed compilation
-or certification does not create an empty destination file. **File → Save Certified Package Again…**
-reuses the prepared bytes without compiling changed artwork.
+When you export a template set from **File → Export…**, Studio opens a progress window before
+preparing the output. Choose **Cancel** or press **Esc** during preparation to stop the export.
+Once the files pass certification, the window offers **Save…** or **Download**. Save verifies the
+written bytes. Download requests browser delivery. A failed build or certification creates no
+destination file. **Save Certified Export…** in the **Preview & Export** pane's **Export** section
+reuses the prepared bytes without compiling again.
 
-Studio also includes a self-contained HTML preview named after the template or template set
-(for example, `Signal Blue.html`) in single and coordinated OGraf ZIP exports. Extract the entire
-ZIP and open that HTML file in a browser to load
-the included graphic without choosing a manifest or starting Studio. The preview provides playback,
+For **Current template**, Studio starts with the template's authored render modes. A dual-mode
+template with an enabled external data connection starts on **Real-time playout**. Choose **Dual**
+or **Non-real-time render** when you need frame-by-frame output with scheduled input. If only the
+repeat-frame canvas check fails, the export window offers an explicit switch to real-time so you
+can certify and export that version for live playout.
+
+In **File → Export…**, choose **Standalone HTML** to export one browser-ready `.html` file.
+The default choices are **Template set** and **Both files**. Change them in **File → Preferences →
+OGraf Studio → Export**. Studio saves the HTML and ZIP separately. A single open template uses
+**Current template**. An independent set exports as a ZIP when selected as a whole. Select its
+member and choose **Current template** to export that member as HTML.
+
+Open the HTML file directly in a browser. It contains the graphic, assets, manifest and saved
+authoring prompt metadata. Expand **Authoring prompts** in the playout controls to read the saved
+prompts for each template. The preview provides playback,
 data and declared custom-action controls; coordinated graphics also provide lane controls. Each lane
 immediately shows only the selected template's exposed fields. Select another template to edit its
 fields. Changes to the selected **Next** template are staged
 until Take; untouched fields retain their state presets.
-Dock the controls to the left or right; the graphic fits the remaining space. Hide the controls
-for an unobstructed output and right-click the preview or press **D** to show them again.
+The preview starts with its controls hidden. Right-click the graphic or press **D** to open them.
+Dock the controls to the left or right and the graphic fits the remaining space. Entering fullscreen
+hides the controls for an unobstructed output.
 The exported controls use Studio's compact Playout Controls styling, typography, transport and
 lane/data sections, with a separate scrolling body. Left/right docking remains available in
 **View settings**.
@@ -438,17 +453,17 @@ Presentation controls select a solid color, checkerboard, local image/video or w
 and toggle EBU R95 action-safe and title-safe guides. Backgrounds and guides affect this preview
 only; they do not change the exported graphic. **Fullscreen** and **Escape** enter and leave fullscreen.
 The normal OGraf manifest, graphic module and packaged assets remain available for playout.
-**Show FPS overlay** is on by default in **View settings**. **Preview FPS** measures the browser's
+**Show FPS overlay** is on by default in **View settings** and is visible while the controls are
+open. **Preview FPS** measures the browser's
 animation-frame cadence, not the authored frame rate or GPU throughput. A non-real-time preview
 also shows **Render FPS** for successful completed render samples. Hidden pages and offscreen
 previews reset sampling; disabling the overlay releases its monitor. The badge is preview-only
 and never becomes part of the graphic or its thumbnail.
-The preview duplicates package data and can make the ZIP larger. Unsafe filename characters are
-replaced; a resource matching the generated HTML filename blocks export instead of being overwritten.
+Studio suggests a filename based on the template or set name and replaces unsafe filename characters.
 
 OGraf exports include the Studio playback runtime's AGPL-3.0 license at
-`licenses/OGRAF-STUDIO-AGPL-3.0.txt`. The exported module and preview refer to that file; other
-packaged assets and third-party components can have their own license notices.
+`licenses/OGRAF-STUDIO-AGPL-3.0.txt`. Standalone HTML displays the same license in its controls.
+Packaged assets and third-party components can have their own license notices.
 
 The preview runs executable graphic code, so open only packages you trust. Browser capabilities and
 permissions still apply: WebGL, audio, webcam, external data and other network resources may require
@@ -1548,12 +1563,12 @@ coordinator; keep the editable template set in `.ogs`.
 
 #### Coordinated package export
 
-Choose **Export package…** or **Download package** in the Transitions tab's toolbar, or **File
-→ Export Coordinated Package…**. Studio exports one `.ograf.zip` containing the controller,
-referenced templates, shared components and their resources. Sets without Transition Logic
-continue to use the independent `.ograf-set.zip` delivery format. An older unapplied draft must be
-applied or discarded before export. The exporter snapshots current edits and certifies the exact
-package before saving.
+In **File → Export…**, choose **Template set** and select the output format. When the set has
+Transition Logic, the OGraf ZIP is one coordinated `.ograf.zip` containing the controller,
+referenced templates, shared components and their resources. **Standalone HTML** plays the
+coordinated set in a browser. You can also use **Export package…** or **Download package** in the
+Transitions tab's toolbar. Apply or discard any unapplied transition draft before exporting. Studio
+snapshots current edits and certifies the exact package before saving.
 
 The exported graphic starts Off. Its public data is a `slots` object: each slot contains a
 `stateId` and that template's `data`; the empty string `""` selects Off. The manifest supplies default selections and typed data
@@ -1855,7 +1870,7 @@ time/value edit. Property easing applies to the selected property's key. Deletin
 
 For vector points and handles, see the [path-editing guide](../skills/ograf-authoring/references/path-editing.md).
 Clicking blank canvas keeps path editing active. Choose **Done** or press **Escape** to finish.
-For recent changes, see the [0.30.0 release notes](releases/0.30.0.md).
+For recent changes, see the [0.31.0 release notes](releases/0.31.0.md).
 
 To let playout change a text or image layer, turn on **Properties → Editable in playout**. Studio
 creates a data field named after the layer, starting with its current text or image, and binds it,

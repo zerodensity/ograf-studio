@@ -3,7 +3,7 @@ name: ograf-authoring
 description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, Lottie layers, shader and Media paints, exposed shader animation, procedural pattern presets, composable effects stacks, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, single/multi-template .ogs documents, legacy .ogp sets, inherited defaults, layer/source/canvas crops, .ograf.zip packages, per-property animation, Animate In/Out motion, data binding, interactive visual rules, and OGraf compliance work.
 ---
 
-# OGraf Authoring 0.30.0
+# OGraf Authoring 0.31.0
 
 Use OGraf Studio's canonical editable model. Require final OGraf certification.
 
@@ -89,6 +89,10 @@ For numbered canvas references, match each annotation to its rectangle or freeha
 For whole-set source saves use `ograf_save_template_set` with the opaque set revision and `confirm:true`.
 Compact storage shares dependencies once; compatible mode targets older set readers. Standalone saves
 must embed resolved fonts/resources/components. See the [set storage contract](./references/template-sets-and-crops.md#portable-set-storage).
+External MCP clients pass the user's original request as `originalPrompt` on `ograf_create_project`,
+reset, or a new, duplicated, or pasted template set member. When starting from an already-open blank
+template, include `set_project_metadata.authoringPrompt: {id, text}` in the first authoring batch.
+See [authoring prompt history](./references/template-sets-and-crops.md#authoring-prompt-history).
 
 The live browser editor must be open for visual operation previews/proposals, PNG capture/strips,
 certification, save, and export.

@@ -30,7 +30,6 @@ async function fixture() {
   const zip = new JSZip();
   zip.file('main.js', 'certified module');
   zip.file('graphic.json', '{}');
-  zip.file('News set.html', '<!doctype html>');
   const bytes = await zip.generateAsync({ type: 'nodebuffer' });
   const payload = {
     outcome: 'certified',
@@ -40,7 +39,7 @@ async function fixture() {
     includedTemplateIds: ['headline'],
     includedStateIds: ['on'],
     unreferencedTemplates: [{ id: 'CH01', name: 'CH01' }],
-    previewFileName: 'News set.html',
+    format: 'zip',
     archiveBase64: bytes.toString('base64'),
     archiveBytes: bytes.length,
     sha256: createHash('sha256').update(bytes).digest('hex'),
@@ -66,21 +65,39 @@ describe('coordinated MCP output transaction', () => {
     const { root, bytes, run, input, requestTemplateSet } = await fixture();
     const results = await Promise.all([run(input), run(input)]);
     expect(results.map((result) => result.outcome)).toEqual(['saved', 'saved']);
-    expect(results.map((result) => result.previewFileName)).toEqual([
-      'News set.html',
-      'News set.html',
-    ]);
+    expect(results.map((result) => result.format)).toEqual(['zip', 'zip']);
     expect(await readFile(join(root, input.path))).toEqual(bytes);
     expect(requestTemplateSet).toHaveBeenCalledOnce();
     expect(await run(input)).toMatchObject({
       outcome: 'saved',
       replayed: true,
-      previewFileName: 'News set.html',
+      format: 'zip',
       unreferencedTemplates: [{ id: 'CH01' }],
     });
     await writeFile(join(root, input.path), 'changed externally');
     expect(await run(input)).toMatchObject({ outcome: 'verification-failed' });
     expect(await readFile(join(root, input.path), 'utf8')).toBe('changed externally');
+  });
+  it('writes and verifies standalone HTML on an .html path with no companion ZIP', async () => {
+    const { root, payload, run, input, requestTemplateSet } = await fixture();
+    const graphic = { manifest: { main: 'main.js' }, mainJs: 'certified module', resources: [] };
+    const html = `<!doctype html><script type="application/json" id="ograf-package">${JSON.stringify(graphic)}</script>`;
+    const data = Buffer.from(html);
+    Object.assign(payload, {
+      format: 'html',
+      archiveBase64: data.toString('base64'),
+      archiveBytes: data.length,
+      sha256: createHash('sha256').update(data).digest('hex'),
+    });
+    const request = { ...input, path: 'news.html' };
+    expect(await run(request)).toMatchObject({ outcome: 'saved', format: 'html' });
+    expect(requestTemplateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'export-coordinated', format: 'html' }),
+      expect.any(Number),
+    );
+    expect(await readFile(join(root, request.path), 'utf8')).toBe(html);
+    await expect(readFile(join(root, input.path))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await run(request)).toMatchObject({ outcome: 'saved', replayed: true, format: 'html' });
   });
   it('retains operation recovery when HTTP transport recreates its tool records', async () => {
     const { run, recreate, input, requestTemplateSet } = await fixture();

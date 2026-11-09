@@ -2030,7 +2030,14 @@ export interface ProjectReview {
   approval?: { author: string; at: string; fingerprint?: string };
 }
 
+export interface AuthoringPrompt {
+  id: string;
+  text: string;
+}
+
 export interface Project {
+  /** User prompts in submission order, shared as project and export metadata. */
+  authoringPrompts?: AuthoringPrompt[];
   /** Editor-only review, omitted when generating OGraf output. */
   review?: ProjectReview;
   /** Optional presentation sequence and notes; absent documents use their natural order. */

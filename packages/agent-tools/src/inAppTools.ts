@@ -1,6 +1,7 @@
 import * as z from 'zod/v4';
 import type { AgentToolRecord } from './toolRecords';
 import { compactProviderSchema } from './compactProviderSchema';
+import { templateSetOperationSchema } from './templateSetSchemas';
 
 export const IN_APP_AGENT_TOOL_NAMES = [
   'ograf_get_capabilities',
@@ -85,10 +86,16 @@ export function providerToolDefinition(record: AgentToolRecord): ProviderToolDef
             ['resultId', 'path', 'offset'].includes(key),
           ),
         )
-      : record.config.inputSchema;
+      : record.name === 'ograf_update_template_set'
+        ? { ...record.config.inputSchema, operation: templateSetOperationSchema }
+        : record.config.inputSchema;
   const schema = z.toJSONSchema(z.object(input), {
     target: 'draft-7',
     unrepresentable: 'any',
+    // Studio records its own user messages. Explicit prompt provenance is for external clients.
+    override: ({ jsonSchema }) => {
+      if (record.name === 'ograf_apply_operations') delete jsonSchema.properties?.authoringPrompt;
+    },
     // Compact the large operation union without changing canonical validation or other tools.
     reused: [
       'ograf_apply_operations',
@@ -138,8 +145,16 @@ export function withInAppToolDefaults(
   toolName: string,
   input: Record<string, unknown>,
 ): Record<string, unknown> {
+  if (toolName !== 'ograf_apply_operations') return input;
   if (
-    toolName !== 'ograf_apply_operations' ||
+    Array.isArray(input.operations) &&
+    input.operations.some(
+      (operation) =>
+        operation?.type === 'set_project_metadata' && Object.hasOwn(operation, 'authoringPrompt'),
+    )
+  )
+    throw new Error('Studio records user prompts automatically. Omit authoringPrompt.');
+  if (
     input.includeReview !== undefined ||
     (input.mode !== undefined && input.mode !== 'apply' && input.mode !== 'dry-run')
   ) {

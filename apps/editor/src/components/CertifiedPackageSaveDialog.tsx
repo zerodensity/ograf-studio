@@ -9,32 +9,52 @@ import {
 } from '../state/projectSetExport';
 import { useMovableDialog } from './useMovableDialog';
 import { CoordinatedExportError } from '../state/certifiedArtifactSave';
+import { useExportPreparationStore, type ExportPreparation } from '../state/exportPreparationStore';
 import './WorkspaceDialogs.css';
 
-/** A fresh Save gesture is requested only after the exact certified ZIP is ready. */
+type ExportDialogView =
+  ExportPreparation | { phase: 'ready'; snapshot: CertifiedCoordinatedSaveSnapshot };
+
+/** Show preparation immediately, then ask for a fresh Save gesture once the export is verified. */
 export function CertifiedPackageSaveDialogHost() {
   const snapshot = useSyncExternalStore(
     subscribeCertifiedCoordinatedSave,
     getCertifiedCoordinatedSaveSnapshot,
     () => null,
   );
+  const preparation = useExportPreparationStore((state) => state.preparation);
+  const previousPromptRevision = preparation?.previousPromptRevision;
   const [dismissed, setDismissed] = useState(0);
   const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (previousPromptRevision) {
+      setDismissed((revision) => Math.max(revision, previousPromptRevision));
+    }
+  }, [previousPromptRevision]);
   useEffect(() => {
     if (!notice) return;
     const timeout = window.setTimeout(() => setNotice(''), 6000);
     return () => window.clearTimeout(timeout);
   }, [notice]);
-  const owner =
-    snapshot?.ownerWindow && !snapshot.ownerWindow.closed ? snapshot.ownerWindow : window;
+  const pending = snapshot?.needsSave && snapshot.promptRevision > dismissed ? snapshot : null;
+  const view = preparation ?? (pending ? { phase: 'ready' as const, snapshot: pending } : null);
+  const requestedOwner = preparation?.ownerWindow ?? snapshot?.ownerWindow;
+  const owner = requestedOwner && !requestedOwner.closed ? requestedOwner : window;
   return createPortal(
     <EditorWindowContext.Provider value={owner as EditorWindow}>
-      {snapshot?.needsSave && snapshot.promptRevision > dismissed && (
-        <ReadyPackageDialog
-          key={snapshot.promptRevision}
-          snapshot={snapshot}
+      {view && (
+        <ExportDialog
+          view={view}
           owner={owner}
-          onClose={() => setDismissed(snapshot.promptRevision)}
+          onClose={() => {
+            if (view.phase === 'preparing') {
+              useExportPreparationStore.getState().cancel(view.id);
+            } else if (view.phase === 'failed') {
+              useExportPreparationStore.getState().finish(view.id);
+            } else if (view.phase === 'ready') {
+              setDismissed((revision) => Math.max(revision, view.snapshot.promptRevision));
+            }
+          }}
           onComplete={setNotice}
         />
       )}
@@ -48,32 +68,62 @@ export function CertifiedPackageSaveDialogHost() {
   );
 }
 
-function ReadyPackageDialog({
-  snapshot,
+function ExportDialog({
+  view,
   owner,
   onClose,
   onComplete,
 }: {
-  snapshot: CertifiedCoordinatedSaveSnapshot;
+  view: ExportDialogView;
   owner: Window;
   onClose: () => void;
   onComplete: (message: string) => void;
 }) {
   const dialog = useRef<HTMLElement>(null);
-  const saveButton = useRef<HTMLButtonElement>(null);
+  const handle = useRef<HTMLElement>(null);
+  const primaryButton = useRef<HTMLButtonElement>(null);
   const movable = useMovableDialog(dialog);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [savingRevision, setSavingRevision] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<{ revision: number; message: string } | null>(null);
+  const snapshot = view.phase === 'ready' ? view.snapshot : null;
+  const preparing = view.phase === 'preparing';
+  const cancelling = view.phase === 'cancelling';
+  const format = snapshot?.format === 'html' ? 'HTML' : 'ZIP';
+  const moreFiles = (snapshot?.pendingFileCount ?? 0) > 1;
+  const promptRevision = snapshot?.promptRevision;
+  const busy = promptRevision === savingRevision;
+  const canClose = !busy && !cancelling;
+  const error = saveError && saveError.revision === promptRevision ? saveError.message : undefined;
+  const title = snapshot
+    ? moreFiles
+      ? 'Export files ready'
+      : `${format} export ready`
+    : cancelling
+      ? 'Cancelling export'
+      : preparing
+        ? 'Preparing export'
+        : 'Export could not be prepared';
+  const description = snapshot
+    ? `Choose how to save this verified ${format} file.`
+    : cancelling
+      ? 'Studio is stopping the export.'
+      : preparing
+        ? 'Studio is preparing and verifying the export files.'
+        : 'Check the error below and try exporting again.';
   useEffect(() => {
     const previous = owner.document.activeElement as HTMLElement | null;
-    saveButton.current?.focus();
     return () => {
       if (previous?.isConnected) previous.focus();
     };
   }, [owner]);
+  useEffect(() => {
+    const target = primaryButton.current?.disabled ? handle.current : primaryButton.current;
+    (target ?? handle.current)?.focus({ preventScroll: true });
+  }, [owner, view.phase, promptRevision]);
   const save = async (downloadOnly: boolean) => {
-    setBusy(true);
-    setError('');
+    if (!snapshot) return;
+    setSavingRevision(snapshot.promptRevision);
+    setSaveError(null);
     try {
       const result = await retryCertifiedCoordinatedSave({ downloadOnly, ownerWindow: owner });
       onComplete(
@@ -84,9 +134,12 @@ function ReadyPackageDialog({
       onClose();
     } catch (cause) {
       if (cause instanceof CoordinatedExportError && cause.outcome === 'user-cancelled') return;
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setSaveError({
+        revision: snapshot.promptRevision,
+        message: cause instanceof Error ? cause.message : String(cause),
+      });
     } finally {
-      setBusy(false);
+      setSavingRevision((revision) => (revision === snapshot.promptRevision ? null : revision));
     }
   };
   return (
@@ -98,11 +151,12 @@ function ReadyPackageDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="certified-package-title"
+        aria-describedby="certified-package-description"
         onKeyDown={(event) => {
           event.stopPropagation();
           if (event.key === 'Escape') {
             event.preventDefault();
-            if (!busy) onClose();
+            if (canClose) onClose();
           }
           if (event.key === 'Tab') {
             const controls = [
@@ -112,7 +166,8 @@ function ReadyPackageDialog({
             ].filter((element) => element.getClientRects().length > 0);
             const index = controls.indexOf(owner.document.activeElement as HTMLElement);
             if (
-              (event.shiftKey && index <= 0) ||
+              index < 0 ||
+              (event.shiftKey && index === 0) ||
               (!event.shiftKey && index === controls.length - 1)
             ) {
               event.preventDefault();
@@ -121,53 +176,89 @@ function ReadyPackageDialog({
           }
         }}
       >
-        <header {...movable.handleProps}>
+        <header ref={handle} {...movable.handleProps}>
           <div>
-            <h2 id="certified-package-title">Coordinated package ready</h2>
-            <p>Choose how to save your verified export.</p>
+            <h2 id="certified-package-title">{title}</h2>
+            <p id="certified-package-description">{description}</p>
           </div>
           <button
             type="button"
-            aria-label="Close export save window"
-            disabled={busy}
+            aria-label={preparing ? 'Cancel export preparation' : 'Close export save window'}
+            disabled={!canClose}
             onClick={onClose}
           >
             ×
           </button>
         </header>
-        <div className="workspace-dialog-content">
-          <strong style={{ overflowWrap: 'anywhere' }}>{snapshot.fileName}</strong>
-          <p>
-            {(snapshot.byteLength / 1024 / 1024).toFixed(2)} MB · {snapshot.templateCount}{' '}
-            {snapshot.templateCount === 1 ? 'template' : 'templates'}
-          </p>
-          <p>
-            The complete package is ready. You can save it again from the File menu while Studio
-            remains open.
-          </p>
-          {error && (
-            <p role="alert" className="workspace-dialog-error">
-              {error}
-            </p>
-          )}
-        </div>
-        <footer>
-          <button type="button" disabled={busy} onClick={onClose}>
-            Later
-          </button>
-          <button type="button" disabled={busy} onClick={() => void save(true)}>
-            Download
-          </button>
-          <button
-            ref={saveButton}
-            type="button"
-            className="workspace-primary-action"
-            disabled={busy}
-            onClick={() => void save(false)}
-          >
-            {busy ? 'Saving…' : 'Save…'}
-          </button>
-        </footer>
+        {view.phase === 'ready' ? (
+          <>
+            <div className="workspace-dialog-content">
+              <strong style={{ overflowWrap: 'anywhere' }}>{view.snapshot.fileName}</strong>
+              <p>
+                {(view.snapshot.byteLength / 1024 / 1024).toFixed(2)} MB ·{' '}
+                {view.snapshot.templateCount}{' '}
+                {view.snapshot.templateCount === 1 ? 'template' : 'templates'}
+              </p>
+              <p>
+                {moreFiles
+                  ? 'Studio will offer the next file after this one. Each file is saved separately.'
+                  : 'Use Save Certified Export in Preview & Export to save this file later.'}
+              </p>
+              {error && (
+                <p role="alert" className="workspace-dialog-error">
+                  {error}
+                </p>
+              )}
+            </div>
+            <footer>
+              <button type="button" disabled={busy} onClick={onClose}>
+                Later
+              </button>
+              <button type="button" disabled={busy} onClick={() => void save(true)}>
+                Download {format}
+              </button>
+              <button
+                ref={primaryButton}
+                type="button"
+                className="workspace-primary-action"
+                disabled={busy}
+                onClick={() => void save(false)}
+              >
+                {busy ? 'Saving…' : `Save ${format}…`}
+              </button>
+            </footer>
+          </>
+        ) : (
+          <>
+            <div className="workspace-dialog-content">
+              <strong style={{ overflowWrap: 'anywhere' }}>{view.name}</strong>
+              {preparing || cancelling ? (
+                <>
+                  <p>
+                    {view.templateCount} {view.templateCount === 1 ? 'template' : 'templates'}
+                  </p>
+                  <progress aria-label="Export preparation" style={{ width: '100%' }} />
+                  <p role="status">{view.message}</p>
+                </>
+              ) : (
+                <p role="alert" className="workspace-dialog-error">
+                  {view.message}
+                </p>
+              )}
+            </div>
+            <footer>
+              <button
+                ref={primaryButton}
+                type="button"
+                disabled={cancelling}
+                className={view.phase === 'failed' ? 'workspace-primary-action' : undefined}
+                onClick={onClose}
+              >
+                {cancelling ? 'Cancelling…' : preparing ? 'Cancel' : 'Close'}
+              </button>
+            </footer>
+          </>
+        )}
       </section>
     </div>
   );

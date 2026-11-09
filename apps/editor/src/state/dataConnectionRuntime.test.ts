@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  createChartLayer,
   createFieldDefinition,
   createProject,
   type DataConnectionDefinition,
 } from '@ograf-editor/scene-model';
 import type { CoordinatedPlayoutSnapshot } from '@ograf-editor/ograf-types';
 import type { ProjectSetDocument } from './projectSet';
+import { resolveDesignerElement } from './dataBinding';
 
 const mocks = vi.hoisted(() => ({
   source: null as { sessionId: string; source: ProjectSetDocument } | null,
@@ -32,8 +34,12 @@ vi.mock('./behaviorPreviewStore', async () => {
     useBehaviorPreviewStore: create(() => ({ requestId: null, loading: false, snapshot: null })),
   };
 });
-const { initializeDataConnectionRuntime, useDataConnectionRuntimeStore, connectionRuntimeKey } =
-  await import('./dataConnectionRuntime');
+const {
+  initializeDataConnectionRuntime,
+  useDataConnectionRuntimeStore,
+  connectionRuntimeKey,
+  refreshDataConnection,
+} = await import('./dataConnectionRuntime');
 const { useBehaviorPreviewStore } = await import('./behaviorPreviewStore');
 const { useProjectStore } = await import('./projectStore');
 const { useProjectSetStore } = await import('./projectSetStore');
@@ -43,6 +49,72 @@ const flush = async () => {
   for (let i = 0; i < 30; i++) await Promise.resolve();
 };
 let stop: (() => void) | undefined;
+
+const chartData = (value: number) => ({
+  labels: ['Team'],
+  datasets: [{ label: 'Score', data: [value], backgroundColor: '#f0e0d0', borderColor: '#010203' }],
+});
+const missingBorderColor = JSON.stringify({
+  ...chartData(50),
+  datasets: [{ label: 'Score', data: [50], backgroundColor: '#f0e0d0' }],
+});
+
+function chartConnectionFixture(nested = false) {
+  const project = createProject({ name: 'Chart data import' });
+  const composition = project.compositions[0]!;
+  const chart = createChartLayer();
+  chart.name = 'Scores';
+  const chartField = nested
+    ? createFieldDefinition('object', {
+        id: 'chart-field',
+        key: 'chart_data',
+        defaultValue: { scores: JSON.stringify(chartData(10)), status: 'Ready' },
+        properties: [
+          createFieldDefinition('textarea', {
+            key: 'scores',
+            defaultValue: JSON.stringify(chartData(10)),
+          }),
+          createFieldDefinition('text', { key: 'status', defaultValue: 'Ready' }),
+        ],
+      })
+    : createFieldDefinition('textarea', {
+        id: 'chart-field',
+        key: 'chart_data',
+        defaultValue: JSON.stringify(chartData(10)),
+      });
+  chart.bindings = [
+    {
+      fieldId: chartField.id,
+      targetProperty: 'data',
+      ...(nested
+        ? { sourcePath: ['scores'], valueMap: { final: JSON.stringify(chartData(80)) } }
+        : {}),
+    },
+  ];
+  composition.layers = [chart];
+  composition.dataFields = [
+    chartField,
+    createFieldDefinition('number', { id: 'count-field', key: 'count', defaultValue: 0 }),
+  ];
+  const connection: DataConnectionDefinition = {
+    id: 'chart-import',
+    name: 'Imported scores',
+    source: 'embedded',
+    format: 'json',
+    url: '',
+    embeddedText: JSON.stringify({ chart_data: chartField.defaultValue, count: 1 }),
+    refreshMs: 0,
+    missing: 'keep-last',
+    enabled: true,
+    mappings: [
+      { fieldId: chartField.id, sourcePath: 'chart_data' },
+      { fieldId: 'count-field', sourcePath: 'count' },
+    ],
+  };
+  composition.dataConnections = [connection];
+  useProjectStore.getState().loadProject(project);
+  return { project, composition, chart, chartField, connection };
+}
 
 function fixture() {
   const projects = [0, 1].map((index) => {
@@ -139,6 +211,147 @@ afterEach(() => {
 });
 
 describe('native connection routing to Studio', () => {
+  it.each([
+    ['missing border color', missingBorderColor, /border color/],
+    [
+      'invalid color',
+      JSON.stringify({
+        ...chartData(50),
+        datasets: [{ ...chartData(50).datasets[0], backgroundColor: 'red' }],
+      }),
+      /Background colors/,
+    ],
+    [
+      'mismatched array lengths',
+      JSON.stringify({ ...chartData(50), labels: ['Team', 'Other'] }),
+      /finite number per label/,
+    ],
+    [
+      'non-finite number',
+      JSON.stringify(chartData(50)).replace('[50]', '[1e999]'),
+      /finite number per label/,
+    ],
+    ['malformed chart JSON', '{', /valid chart JSON/],
+  ])('holds the previous chart and allows repair after %s', async (_label, invalid, detail) => {
+    const { project, composition, chart, chartField, connection } = chartConnectionFixture();
+    stop = initializeDataConnectionRuntime();
+    const key = connectionRuntimeKey(project.id, composition.id, connection.id);
+    const refresh = async () => {
+      await refreshDataConnection(project.id, composition.id, connection.id);
+      await flush();
+    };
+    const setSource = (chart_data: string, count: number) =>
+      useProjectStore.getState().updateDataConnection(connection.id, {
+        embeddedText: JSON.stringify({ chart_data, count }),
+      });
+    const resolvedChart = () =>
+      resolveDesignerElement(chart, useTestDataStore.getState().values, composition.dataFields);
+
+    await refresh();
+    expect(resolvedChart()).toMatchObject({ data: chartData(10) });
+    const lastGood = useTestDataStore.getState().values;
+
+    setSource(invalid, 2);
+    await refresh();
+    const rejected = useDataConnectionRuntimeStore.getState().statuses[key];
+    expect(rejected).toMatchObject({ phase: 'error', pending: false });
+    expect(rejected?.message).toContain('Chart data invalid for "Scores" at "chart_data"');
+    expect(rejected?.message).toMatch(detail);
+    expect(useTestDataStore.getState().values).toBe(lastGood);
+    expect(resolvedChart()).toMatchObject({ data: chartData(10) });
+
+    setSource(JSON.stringify(chartData(80)), 3);
+    await refresh();
+    expect(useTestDataStore.getState().values).toEqual({
+      [chartField.id]: JSON.stringify(chartData(80)),
+      'count-field': 3,
+    });
+    expect(resolvedChart()).toMatchObject({ data: chartData(80) });
+    expect(useDataConnectionRuntimeStore.getState().statuses[key]).toMatchObject({
+      phase: 'live',
+      pending: false,
+    });
+    expect(useProjectStore.getState().project.id).toBe(project.id);
+  });
+
+  it('validates the effective nested value after merging defaults and applying the value map', async () => {
+    const { project, composition, chart, connection } = chartConnectionFixture(true);
+    stop = initializeDataConnectionRuntime();
+    for (const [chart_data, expected] of [
+      [{ status: 'Connected' }, 10],
+      [{ scores: 'final' }, 80],
+    ] as const) {
+      useProjectStore.getState().updateDataConnection(connection.id, {
+        embeddedText: JSON.stringify({ chart_data }),
+      });
+      await refreshDataConnection(project.id, composition.id, connection.id);
+      await flush();
+      expect(
+        resolveDesignerElement(chart, useTestDataStore.getState().values, composition.dataFields),
+      ).toMatchObject({ data: chartData(expected) });
+    }
+  });
+
+  it('rejects an invalid coordinated chart update before applying any of its fields to a lane', async () => {
+    const { projects, set, snapshot } = fixture();
+    const project = structuredClone(projects[0]!);
+    const composition = project.compositions[0]!;
+    const chart = createChartLayer();
+    const chartField = createFieldDefinition('textarea', {
+      id: 'chart-field',
+      key: 'chart_data',
+      defaultValue: JSON.stringify(chartData(10)),
+    });
+    chart.bindings = [{ fieldId: chartField.id, targetProperty: 'data' }];
+    composition.layers.push(chart);
+    composition.dataFields.push(chartField);
+    const connection = composition.dataConnections[0]!;
+    connection.source = 'embedded';
+    connection.target = 'coordinated-preview';
+    connection.embeddedText = JSON.stringify({ chart_data: missingBorderColor, price: 50 });
+    connection.mappings.push({ fieldId: chartField.id, sourcePath: 'chart_data' });
+    const nextSet = structuredClone(set);
+    nextSet.templates[0]!.project = project;
+    useProjectStore.getState().loadProject(project);
+    useProjectSetStore.setState({
+      projectSet: nextSet,
+      activeTemplateId: nextSet.templates[0]!.id,
+    });
+    mocks.source = { sessionId: 'visible-preview', source: structuredClone(nextSet) };
+    const lane = snapshot.slots['lane-0']!;
+    snapshot.slots['lane-also-on-air'] = { ...structuredClone(lane), slotId: 'lane-also-on-air' };
+    useBehaviorPreviewStore.setState({ requestId: 'visible-preview', snapshot });
+    stop = initializeDataConnectionRuntime();
+    const refresh = async () => {
+      await refreshDataConnection(project.id, composition.id, connection.id);
+      await flush();
+    };
+    const chartLaneUpdates = () =>
+      mocks.update.mock.calls.filter(([slotId]) => slotId !== 'lane-1');
+
+    await refresh();
+    expect(chartLaneUpdates()).toEqual([]);
+    expect(
+      useDataConnectionRuntimeStore.getState().statuses[
+        connectionRuntimeKey(project.id, composition.id, connection.id)
+      ],
+    ).toMatchObject({
+      phase: 'error',
+      pending: false,
+      message: expect.stringContaining('border color'),
+    });
+
+    const repaired = { chart_data: JSON.stringify(chartData(80)), price: 80 };
+    useProjectStore.getState().updateDataConnection(connection.id, {
+      embeddedText: JSON.stringify(repaired),
+    });
+    await refresh();
+    expect(chartLaneUpdates()).toEqual([
+      ['lane-0', repaired, 'state-0', 'in-place'],
+      ['lane-also-on-air', repaired, 'state-0', 'in-place'],
+    ]);
+  });
+
   it('preserves fields from two concurrent connection patches targeting one lane', async () => {
     const { projects, set, snapshot } = fixture();
     const next = structuredClone(projects[0]!);

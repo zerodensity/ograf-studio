@@ -8,7 +8,11 @@ import {
   createProject,
   lottiePlayerFrameAtTime,
 } from '@ograf-editor/scene-model';
-import { buildExportArtifacts, exportProjectAsZip } from './exportPackage';
+import {
+  buildExportArtifacts,
+  exportProjectAsZip,
+  OGrafExportCertificationError,
+} from './exportPackage';
 import { RUNTIME_PACKAGE_LICENSES } from '@ograf-editor/codegen';
 import {
   certificationSeekTimestamps,
@@ -17,11 +21,34 @@ import {
   certifyProject,
 } from './ografCompatibility';
 
+it('offers real-time export recovery only for an isolated non-real-time replay failure', () => {
+  const replayError =
+    'Canvas pixels changed after backward and repeated non-realtime goToTime seeking (canvases 1).';
+  const errors = [replayError];
+  const lifecycle = {
+    id: 'lifecycle' as const,
+    label: 'Real-time and non-real-time lifecycle',
+    valid: false,
+    errors,
+  };
+  expect(
+    new OGrafExportCertificationError({ valid: false, errors, checks: [lifecycle] })
+      .nonRealtimeReplayFailed,
+  ).toBe(true);
+  expect(
+    new OGrafExportCertificationError({
+      valid: false,
+      errors,
+      checks: [{ ...lifecycle, errors: [...errors, 'load() returned error 500'] }],
+    }).nonRealtimeReplayFailed,
+  ).toBe(false);
+});
+
 describe('canvas pixel certification', () => {
   function webglFixture() {
     const pixels = new Uint8ClampedArray([10, 20, 30, 255]);
     const drawImage = vi.fn();
-    const snapshotContext = { drawImage, getImageData: () => ({ data: pixels }) };
+    const snapshotContext = { drawImage, getImageData: vi.fn(() => ({ data: pixels })) };
     const snapshot = { width: 0, height: 0, getContext: vi.fn(() => snapshotContext) };
     const binding = {};
     const gl = {
@@ -57,7 +84,7 @@ describe('canvas pixel certification', () => {
     const graphic = {
       shadowRoot: { querySelectorAll: () => [source] },
     } as unknown as Parameters<typeof canvasPixelSignatures>[0];
-    return { pixels, drawImage, source, graphic, gl, binding };
+    return { pixels, drawImage, source, graphic, gl, binding, snapshot, snapshotContext };
   }
 
   function sharedShaderFixture() {
@@ -165,8 +192,10 @@ describe('canvas pixel certification', () => {
     expect(changed.signatures[0]).not.toEqual(initial.signatures[0]);
     expect(changed.signatures[1]).toEqual(initial.signatures[1]);
     expect(first.source.getContext).not.toHaveBeenCalledWith('webgl2');
-    expect(first.context.getImageData).toHaveBeenCalledWith(0, 0, 1, 1);
-    expect(first.drawImage).not.toHaveBeenCalled();
+    expect(first.context.getImageData).not.toHaveBeenCalled();
+    expect(first.snapshot.getContext).toHaveBeenCalledWith('2d', { willReadFrequently: true });
+    expect(first.drawImage).toHaveBeenCalledWith(first.source, 0, 0);
+    expect(first.snapshotContext.getImageData).toHaveBeenCalledWith(0, 0, 1, 1);
   });
 
   it('does not certify shared shaders with a lost GPU, unreadable pixels or missing presentation context', async () => {
@@ -177,7 +206,7 @@ describe('canvas pixel certification', () => {
     expect(lost.errors[0]).toContain('Shader WebGL context is unavailable');
     expect(fixture.context.getImageData).not.toHaveBeenCalled();
     delete fixture.source.dataset.ografShaderPaused;
-    fixture.context.getImageData.mockImplementation(() => {
+    fixture.snapshotContext.getImageData.mockImplementation(() => {
       throw new Error('Canvas pixels are tainted');
     });
     const unreadable = await canvasPixelSignatures(fixture.graphic);

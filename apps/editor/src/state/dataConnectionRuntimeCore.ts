@@ -111,7 +111,8 @@ export function createDataConnectionRuntime(options: {
         phase: 'error',
         message: cause instanceof Error ? cause.message : String(cause),
         updatedAt: entry.updatedAt,
-        pending: true,
+        // A rejected update is finished. Keep manual refresh available after a repair.
+        pending: false,
       });
     } finally {
       entry.delivering.delete(consumer.key);

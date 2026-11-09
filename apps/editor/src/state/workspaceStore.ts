@@ -12,6 +12,7 @@ import {
   normalizeWorkspaceName,
   normalizeWorkspaceSizes,
   normalizeAssistantContextPreferences,
+  normalizeStudioExportDefaults,
   parseDetachedPanePlacement,
   parseWorkspacePresetImport,
   parseWorkspaceSnapshot,
@@ -85,6 +86,7 @@ function restoredState(persisted: PersistedWorkspaceState) {
       assistantContext: normalizeAssistantContextPreferences(
         persisted.editorPreferences?.assistantContext,
       ),
+      exportDefaults: normalizeStudioExportDefaults(persisted.editorPreferences?.exportDefaults),
     },
     modified: !workspaceSnapshotsEqual(current, active.snapshot),
   };
@@ -108,6 +110,7 @@ function initialState() {
       durationUnit: 'seconds' as const,
       showWelcomeOnStartup: true,
       assistantContext: normalizeAssistantContextPreferences(null),
+      exportDefaults: normalizeStudioExportDefaults(null),
     },
     modified: false,
     storageError: null as string | null,
@@ -348,6 +351,8 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => {
       const syncEditorPreview = next.syncEditorPreview === true;
       const showWelcomeOnStartup = next.showWelcomeOnStartup !== false;
       const assistantContext = normalizeAssistantContextPreferences(next.assistantContext);
+      const exportDefaults = normalizeStudioExportDefaults(next.exportDefaults);
+      const previousExportDefaults = normalizeStudioExportDefaults(previous.exportDefaults);
       const previousAssistantContext = normalizeAssistantContextPreferences(
         previous.assistantContext,
       );
@@ -359,6 +364,8 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => {
         syncEditorPreview === previous.syncEditorPreview &&
         durationUnit === (previous.durationUnit ?? 'seconds') &&
         showWelcomeOnStartup === (previous.showWelcomeOnStartup !== false) &&
+        exportDefaults.scope === previousExportDefaults.scope &&
+        exportDefaults.format === previousExportDefaults.format &&
         Object.entries(assistantContext).every(
           ([key, value]) =>
             value === previousAssistantContext[key as keyof typeof assistantContext],
@@ -371,6 +378,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => {
           durationUnit,
           showWelcomeOnStartup,
           assistantContext,
+          exportDefaults,
         },
       });
       get().flush();

@@ -196,6 +196,89 @@ export interface RemoteHistoryUpdate {
   summary?: { operationCount?: number; operationTypes?: string[] };
 }
 
+export interface AuthoringPromptTarget {
+  projectId: string;
+  documentLoadRevision: number;
+  setId: string | null;
+  templateId: string | null;
+}
+
+export function currentAuthoringPromptTarget(): AuthoringPromptTarget {
+  const { project, documentLoadRevision } = useProjectStore.getState();
+  const { projectSet, activeTemplateId } = useProjectSetStore.getState();
+  return {
+    projectId: project.id,
+    documentLoadRevision,
+    setId: projectSet?.id ?? null,
+    templateId: projectSet ? activeTemplateId : null,
+  };
+}
+
+/** Sent prompts are document provenance. Keep them through artwork undo and redo. */
+export function recordAuthoringPrompts(
+  target: AuthoringPromptTarget,
+  prompts: NonNullable<Project['authoringPrompts']>,
+): void {
+  const current = currentAuthoringPromptTarget();
+  if (
+    !prompts.length ||
+    current.documentLoadRevision !== target.documentLoadRevision ||
+    current.setId !== target.setId
+  )
+    return;
+
+  const append = (project: Project): Project => {
+    if (project.id !== target.projectId) return project;
+    const existing = project.authoringPrompts ?? [];
+    const seen = new Set(existing.map((prompt) => prompt.id));
+    const additions = prompts.flatMap(({ id, text }) => {
+      if (seen.has(id)) return [];
+      seen.add(id);
+      return [{ id, text }];
+    });
+    return additions.length
+      ? { ...project, authoringPrompts: [...existing, ...additions] }
+      : project;
+  };
+  const appendToSet = (set: ProjectSetDocument | null | undefined) => {
+    if (!set || set.id !== target.setId) return set;
+    const template = set.templates.find((item) => item.id === target.templateId);
+    if (!template) return set;
+    const project = append(template.project);
+    if (project === template.project) return set;
+    return {
+      ...set,
+      templates: set.templates.map((item) => (item === template ? { ...item, project } : item)),
+    };
+  };
+  const matchesTarget = (setId: string | null, templateId: string | null) =>
+    setId === target.setId && templateId === target.templateId;
+
+  for (const entry of [...past, ...future, ...(pendingEntry ? [pendingEntry] : [])]) {
+    if (matchesTarget(entry.templateSet?.id ?? null, entry.activeTemplateId ?? null))
+      entry.project = append(entry.project);
+    entry.templateSet = appendToSet(entry.templateSet);
+  }
+
+  const project = useProjectStore.getState().project;
+  const next = matchesTarget(current.setId, current.templateId) ? append(project) : project;
+  const session = useProjectSetStore.getState();
+  const nextSet = appendToSet(session.projectSet);
+  if (nextSet && nextSet !== session.projectSet) {
+    const alreadyRestoring = restoringSet;
+    restoringSet = true;
+    try {
+      session.setProjectSet(nextSet);
+    } finally {
+      restoringSet = alreadyRestoring;
+    }
+  }
+  if (next !== project) {
+    suppressNextCapture = true;
+    useProjectStore.setState({ project: next });
+  }
+}
+
 export function remoteHistoryLabel(update: RemoteHistoryUpdate): string {
   const acceptedTitle = update.reason?.match(/^Accepted proposal:\s*(.+)$/)?.[1];
   const prefix = acceptedTitle
@@ -229,7 +312,7 @@ export function applyRemoteProjectUpdate(project: Project, update: RemoteHistory
       })),
     };
   }
-  const current = useProjectStore.getState().project;
+  let current = useProjectStore.getState().project;
   // A standalone file can share its project ID with an exported set child. Its explicit open
   // boundary must still close the old set, before snapshot/autosave readers can copy it back.
   if (update.documentContext === 'standalone') {
@@ -240,13 +323,24 @@ export function applyRemoteProjectUpdate(project: Project, update: RemoteHistory
     resetHistory();
     return;
   }
-  if (JSON.stringify(current) === JSON.stringify(project)) return;
   if (current.id !== project.id) {
     useProjectStore.getState().loadProject(project);
     useSelectionStore.getState().select(null);
     resetHistory();
     return;
   }
+  if (project.authoringPrompts?.length) {
+    const known = new Set(current.authoringPrompts?.map((prompt) => prompt.id));
+    recordAuthoringPrompts(
+      currentAuthoringPromptTarget(),
+      project.authoringPrompts.filter((prompt) => !known.has(prompt.id)),
+    );
+    current = useProjectStore.getState().project;
+  }
+  // A project echo or artwork undo may have been prepared before a prompt was recorded.
+  if (current.authoringPrompts?.length)
+    project = { ...project, authoringPrompts: current.authoringPrompts };
+  if (JSON.stringify(current) === JSON.stringify(project)) return;
   const session = useProjectSetStore.getState();
   const template = session.projectSet?.templates.find(
     (item) => item.id === session.activeTemplateId,

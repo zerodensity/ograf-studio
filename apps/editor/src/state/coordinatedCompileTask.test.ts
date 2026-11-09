@@ -83,7 +83,7 @@ describe('responsive coordinated compilation task', () => {
     abort.abort();
     await expect(
       buildCoordinatedProjectSetArtifactsTask(fixture(), undefined, abort.signal),
-    ).rejects.toThrow('cancelled');
+    ).rejects.toBe(abort.signal.reason);
     expect(CompileWorker.instances).toHaveLength(0);
     expect(compile).not.toHaveBeenCalled();
   });
@@ -98,8 +98,9 @@ describe('responsive coordinated compilation task', () => {
     const worker = CompileWorker.instances[0]!;
     const lateSuccess = worker.onmessage!,
       lateError = worker.onerror!;
-    const rejected = expect(task).rejects.toThrow('cancelled');
-    abort.abort();
+    const reason = new DOMException('Export cancelled by the operator.', 'AbortError');
+    const rejected = expect(task).rejects.toBe(reason);
+    abort.abort(reason);
     await rejected;
     lateSuccess({ data: { type: 'complete', artifacts } } as MessageEvent);
     lateError({ message: 'late failure' });

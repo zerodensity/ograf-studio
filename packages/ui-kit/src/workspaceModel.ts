@@ -62,6 +62,29 @@ export interface StudioEditorPreferences {
   showWelcomeOnStartup?: boolean;
   /** Assistant context budgets belong to this user, never template or set source files. */
   assistantContext?: AssistantContextPreferences;
+  /** Initial choices in Studio's export dialog. */
+  exportDefaults?: StudioExportDefaults;
+}
+
+export interface StudioExportDefaults {
+  scope: 'template' | 'set';
+  format: 'zip' | 'html' | 'both';
+}
+
+export const DEFAULT_STUDIO_EXPORT_DEFAULTS: Readonly<StudioExportDefaults> = {
+  scope: 'set',
+  format: 'both',
+};
+
+export function normalizeStudioExportDefaults(value: unknown): StudioExportDefaults {
+  const preferences = record(value) ? value : {};
+  return {
+    scope: preferences.scope === 'template' ? 'template' : DEFAULT_STUDIO_EXPORT_DEFAULTS.scope,
+    format:
+      preferences.format === 'zip' || preferences.format === 'html'
+        ? preferences.format
+        : DEFAULT_STUDIO_EXPORT_DEFAULTS.format,
+  };
 }
 
 export interface PersistedWorkspaceState {
@@ -422,6 +445,9 @@ export function parseWorkspaceState(value: unknown): PersistedWorkspaceState | n
       assistantContext: normalizeAssistantContextPreferences(
         record(value.editorPreferences) ? value.editorPreferences.assistantContext : null,
       ),
+      exportDefaults: normalizeStudioExportDefaults(
+        record(value.editorPreferences) ? value.editorPreferences.exportDefaults : null,
+      ),
     },
   };
 }
@@ -458,6 +484,7 @@ export function serializeWorkspaceState(state: {
       assistantContext: normalizeAssistantContextPreferences(
         state.editorPreferences?.assistantContext,
       ),
+      exportDefaults: normalizeStudioExportDefaults(state.editorPreferences?.exportDefaults),
     },
   };
 }

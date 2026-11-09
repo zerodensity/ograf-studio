@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useProjectStore } from './projectStore';
 import { useSelectionStore } from './selectionStore';
 import { useProjectSetStore } from './projectSetStore';
+import { createProjectSet } from './projectSet';
 import { createProject, createRectangleLayer } from '@ograf-editor/scene-model';
 
 vi.useFakeTimers();
@@ -64,6 +65,62 @@ describe('editor history store', () => {
       past: [{ label: 'AI: Rename' }],
       future: [],
     });
+  });
+
+  it('retains the ordered prompt history through stale artwork updates and undo/redo', () => {
+    const before = structuredClone(useProjectStore.getState().project);
+    const target = history.currentAuthoringPromptTarget();
+    const initial = { id: 'initial', text: 'Build the graphic.\nUse navy.' };
+    const followUp = { id: 'follow-up', text: 'Make the headline larger.' };
+    history.recordAuthoringPrompts(target, [initial]);
+    expect(history.getHistorySnapshot().canUndo).toBe(false);
+
+    const after = { ...before, name: 'Updated artwork' };
+    history.applyRemoteProjectUpdate(after, { source: 'agent', reason: 'Rename' });
+    history.recordAuthoringPrompts(target, [initial, followUp]);
+    expect(useProjectStore.getState().project.authoringPrompts).toEqual([initial, followUp]);
+    expect(history.getHistorySnapshot().past).toHaveLength(1);
+
+    history.applyRemoteProjectUpdate(before, { source: 'undo' });
+    expect(useProjectStore.getState().project).toEqual({
+      ...before,
+      authoringPrompts: [initial, followUp],
+    });
+    history.redo();
+    expect(useProjectStore.getState().project).toEqual({
+      ...after,
+      authoringPrompts: [initial, followUp],
+    });
+  });
+
+  it('records an accepted prompt in its sending template after navigation within the set', () => {
+    const original = useProjectStore.getState().project;
+    const other = createProject({ name: 'Other' });
+    const set = createProjectSet('Prompt history', original);
+    const originalTemplate = set.templates[0]!;
+    set.templates.push({ id: 'other-template', name: other.name, project: other });
+    const session = useProjectSetStore.getState();
+    session.setProjectSet(set);
+    session.setActiveTemplateId(originalTemplate.id);
+    const target = history.currentAuthoringPromptTarget();
+    try {
+      session.setActiveTemplateId('other-template');
+      useProjectStore.getState().loadProject(other, {
+        setNavigationId: set.id,
+        setTemplateId: 'other-template',
+        previousTemplateId: originalTemplate.id,
+      });
+      history.resetHistory();
+      const prompt = { id: 'sent-before-navigation', text: 'Add a line chart.' };
+      history.recordAuthoringPrompts(target, [prompt]);
+      expect(useProjectStore.getState().project.authoringPrompts).toBeUndefined();
+      expect(
+        useProjectSetStore.getState().projectSet?.templates[0]?.project.authoringPrompts,
+      ).toEqual([prompt]);
+      expect(history.getHistorySnapshot().canUndo).toBe(false);
+    } finally {
+      session.clearProjectSet();
+    }
   });
 
   it('preserves history on duplicate synchronization and resets it for a different project', () => {

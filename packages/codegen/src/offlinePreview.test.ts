@@ -94,7 +94,11 @@ describe('self-contained offline OGraf preview', () => {
       resources: [],
     } as unknown as ExportArtifacts);
     expect(html).toContain('id="controls" class="preview-fullscreen-data"');
-    expect(html).toContain('class="ograf-offline-preview preview-stage-wrap" data-preview-overlay');
+    expect(html.match(/<body\b[^>]*>/)?.[0]).toContain(
+      'class="ograf-offline-preview preview-stage-wrap controls-hidden" data-preview-overlay',
+    );
+    expect(html.match(/<aside id="controls"[^>]*>/)?.[0]).toContain(' hidden>');
+    expect(html.includes('id="show-controls"')).toBe(false);
     expect(html).toContain('class="preview-fullscreen-data-heading"');
     expect(html).toContain('<strong>Preview controls</strong>');
     expect(html).toContain('class="preview-popup-body playout-controls-panel"');
@@ -118,7 +122,7 @@ describe('self-contained offline OGraf preview', () => {
     expect(OFFLINE_PREVIEW_RUNTIME).toContain('data-preview-active-control');
   });
 
-  it('references the ZIP license without duplicating it in the embedded player payload', () => {
+  it('includes the runtime license in the standalone page alongside embedded assets', () => {
     const licenseText = 'FULL LICENSE TEXT SENTINEL';
     const media = { path: 'assets/logo.png', data: 'AAEC', base64: true, mimeType: 'image/png' };
     const thirdParty = {
@@ -145,10 +149,52 @@ describe('self-contained offline OGraf preview', () => {
       /<script type="application\/json" id="ograf-package">([\s\S]*?)<\/script>/,
     )!;
     expect(JSON.parse(match[1]!).resources).toEqual([media, thirdParty]);
-    expect(html).toContain(`href="./${STUDIO_RUNTIME_LICENSE_PATH}"`);
-    expect(html).toContain('OGraf Studio playback components');
+    expect(html).toContain('OGraf Studio playback license');
     expect(html).toContain('AGPL-3.0-only');
-    expect(html).not.toContain(licenseText);
+    expect(html).toContain(licenseText);
+  });
+
+  it('shows the saved prompt history as plain text in a closed disclosure', () => {
+    const history = {
+      version: 1,
+      templates: [
+        {
+          templateId: 'one',
+          projectId: 'project-one',
+          name: '<Title & subtitle>',
+          prompts: [
+            { id: 'prompt-one', text: 'Build a title\n</div><img src=x onerror=bad()>' },
+            { id: 'prompt-two', text: 'Adjust the animation' },
+          ],
+        },
+      ],
+    };
+    const artifacts = {
+      manifest: { id: 'test', name: 'Example' },
+      mainJs: '',
+      resources: [],
+    } as unknown as ExportArtifacts;
+    expect(buildOfflinePreviewHtml(artifacts)).toContain(
+      'No authoring prompts were saved with this graphic.',
+    );
+    const html = buildOfflinePreviewHtml({
+      ...artifacts,
+      manifest: {
+        ...artifacts.manifest,
+        v_ografStudioAuthoringPrompts: { ...history, version: 1 },
+      },
+    });
+    const section = html.match(/<details id="authoring-prompts"[^>]*>[\s\S]*?<\/details>/)?.[0];
+    expect(section).toContain(
+      '<details id="authoring-prompts" class="preview-background-controls">',
+    );
+    expect(section).toContain('<summary>Authoring prompts</summary>');
+    expect(section).toContain('&lt;Title &amp; subtitle&gt;');
+    expect(section).toContain('Build a title\n&lt;/div&gt;&lt;img src=x onerror=bad()&gt;');
+    expect(section).not.toContain('<img');
+    expect(section).toContain('Original prompt');
+    expect(section).toContain('Follow-up 1');
+    expect(section).toContain('Adjust the animation');
   });
 
   it('includes optional public state schemas only in the local preview payload', () => {

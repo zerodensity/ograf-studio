@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
+import { mcpTemplateSetOperationSchema } from './templateSetSchemas';
 import {
   IN_APP_AGENT_TOOL_NAMES,
   filterInAppToolRecords,
+  providerToolDefinition,
   providerToolDefinitions,
   withInAppToolDefaults,
   type AgentToolRecord,
@@ -44,5 +46,15 @@ describe('in-app agent tool surface', () => {
     expect(playout.description).toContain('target:preview');
     expect(playout.description).toContain('requestId');
     expect(playout.description).toContain('without restore');
+  });
+
+  it('keeps external creation prompt fields out of the in-app template commands', () => {
+    const definition = providerToolDefinition({
+      ...record('ograf_update_template_set'),
+      config: { inputSchema: { operation: mcpTemplateSetOperationSchema } },
+    });
+    const schema = JSON.stringify(definition.inputSchema);
+    expect(schema).toContain('new_template');
+    expect(schema).not.toContain('originalPrompt');
   });
 });

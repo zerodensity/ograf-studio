@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import JSZip from 'jszip';
 import {
   createAsset,
   createLayerOfKind,
@@ -254,7 +255,14 @@ describe('remote OGraf Studio project loading', () => {
 
 describe('editable Studio set save format', () => {
   it('defaults to .ogs and applies the exact native filename to the saved set name', async () => {
-    const set = createProjectSet('Old title.ogp', createProject({ name: 'First' }));
+    const authoringPrompts = [
+      { id: 'initial', text: 'Make a scoreboard.' },
+      { id: 'follow-up', text: 'data:text/plain,Keep%20four%20team%20colors.' },
+    ];
+    const set = createProjectSet(
+      'Old title.ogp',
+      createProject({ name: 'First', authoringPrompts }),
+    );
     const write = vi.fn();
     const close = vi.fn();
     const picker = vi.fn(async () => ({
@@ -277,8 +285,16 @@ describe('editable Studio set save format', () => {
       projectSet: { name: 'New title' },
     });
     expect(set.name).toBe('Old title.ogp');
-    const document = await parseStudioDocument(write.mock.calls[0]![0] as Blob);
-    expect(document).toMatchObject({ kind: 'template-set', projectSet: { name: 'New title' } });
+    const blob = write.mock.calls[0]![0] as Blob;
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const manifest = JSON.parse(await zip.file('manifest.json')!.async('text'));
+    const savedSource = JSON.parse(await zip.file(manifest.templates[0].source)!.async('text'));
+    expect(savedSource.authoringPrompts).toEqual(authoringPrompts);
+    const document = await parseStudioDocument(blob);
+    expect(document).toMatchObject({
+      kind: 'template-set',
+      projectSet: { name: 'New title', templates: [{ project: { authoringPrompts } }] },
+    });
     expect(close).toHaveBeenCalledOnce();
   });
 

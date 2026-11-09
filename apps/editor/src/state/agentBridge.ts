@@ -14,7 +14,12 @@ import {
 import type { ExportArtifacts } from '@ograf-editor/codegen';
 import { create } from 'zustand';
 import { certifyExportArtifacts } from './ografCompatibility';
-import { applyRemoteProjectUpdate } from './historyStore';
+import {
+  applyRemoteProjectUpdate,
+  currentAuthoringPromptTarget,
+  recordAuthoringPrompts,
+  type AuthoringPromptTarget,
+} from './historyStore';
 import { useProjectStore } from './projectStore';
 import { useProjectSetStore } from './projectSetStore';
 import { componentLibraryFromTemplates } from './componentSetLibrary';
@@ -183,7 +188,8 @@ export const useAgentChatStore = create<AgentChatState>((set) => ({
 }));
 
 let sendProposalDecision: ((payload: unknown) => void) | null = null;
-let sendChatPayload: ((payload: unknown) => void) | null = null;
+let sendChatPayload: ((payload: { type: string; [key: string]: unknown }) => boolean) | null = null;
+let pendingPrompt: { turnId: string; target: AuthoringPromptTarget } | null = null;
 let sendNodosPayload: ((payload: unknown) => boolean) | null = null;
 const pendingNodosSends = new Map<string, (result: NodosSendResult) => void>();
 const pendingNodosTypes = new Map<string, (result: NodosTypesResult) => void>();
@@ -272,18 +278,61 @@ export function sendAgentChat(
   references: AgentLayerReference[] = [],
   areaReferences: AgentAreaReference[] = [],
 ): void {
-  if (!sendChatPayload || !text.trim()) return;
+  const promptText = [text, ...areaReferences.map((area) => area.instruction ?? '')]
+    .filter((part) => part.trim())
+    .join('\n\n');
+  const messageText =
+    text.trim() ||
+    (areaReferences.length ? 'Apply the instructions for the attached numbered areas.' : '');
+  if (!sendChatPayload || !messageText) return;
   const turnId = crypto.randomUUID();
   const selection = useSelectionStore.getState();
   const timeline = useTimelineStore.getState();
   const activity = useAgentBridgeStatus.getState().activity;
-  const projectId = useProjectStore.getState().project.id;
+  const target = currentAuthoringPromptTarget();
   const referencedLayerIds = references.map((reference) => reference.layerId);
+  if (
+    !sendChatPayload({
+      type: 'chat.send',
+      turnId,
+      sessionId: `editor:${target.projectId}`,
+      text: messageText,
+      authoringPromptText: promptText,
+      contextPreferences: normalizeAssistantContextPreferences(
+        useWorkspaceStore.getState().editorPreferences.assistantContext,
+      ),
+      ...(areaReferences.length ? { areaReferences } : {}),
+      ambient: {
+        selection: {
+          layerIds: areaReferences.length
+            ? []
+            : referencedLayerIds.length
+              ? referencedLayerIds
+              : selection.selectedLayerIds,
+          primaryLayerId: areaReferences.length
+            ? null
+            : (referencedLayerIds[0] ?? selection.selectedLayerId),
+        },
+        ...(references.length ? { references } : {}),
+        frame: timeline.currentFrame,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          zoom: Number(
+            document.querySelector<HTMLElement>('.canvas-stage-viewport')?.dataset.ografZoom ?? 1,
+          ),
+        },
+        recentEdits: activity && activity !== 'Agent connected' ? [activity] : [],
+      },
+    })
+  )
+    return;
+  pendingPrompt = { turnId, target };
   useAgentChatStore.getState().addEntry({
     id: `user-${turnId}`,
     turnId,
     kind: 'user',
-    text: text.trim(),
+    text: messageText,
     ...(areaReferences.length
       ? {
           areaSummaries: areaReferences.map((area, index) => ({
@@ -305,38 +354,6 @@ export function sendAgentChat(
       message: 'Sending request to the model',
       round: 0,
       updatedAt: Date.now(),
-    },
-  });
-  sendChatPayload({
-    type: 'chat.send',
-    turnId,
-    sessionId: `editor:${projectId}`,
-    text: text.trim(),
-    contextPreferences: normalizeAssistantContextPreferences(
-      useWorkspaceStore.getState().editorPreferences.assistantContext,
-    ),
-    ...(areaReferences.length ? { areaReferences } : {}),
-    ambient: {
-      selection: {
-        layerIds: areaReferences.length
-          ? []
-          : referencedLayerIds.length
-            ? referencedLayerIds
-            : selection.selectedLayerIds,
-        primaryLayerId: areaReferences.length
-          ? null
-          : (referencedLayerIds[0] ?? selection.selectedLayerId),
-      },
-      ...(references.length ? { references } : {}),
-      frame: timeline.currentFrame,
-      viewport: {
-        width: window.innerWidth,
-        height: window.innerHeight,
-        zoom: Number(
-          document.querySelector<HTMLElement>('.canvas-stage-viewport')?.dataset.ografZoom ?? 1,
-        ),
-      },
-      recentEdits: activity && activity !== 'Agent connected' ? [activity] : [],
     },
   });
 }
@@ -474,7 +491,15 @@ type BridgeMessage =
       message?: string;
     }
   | { type: 'chat.external'; active: boolean }
-  | { type: 'chat.turn.start'; turnId: string }
+  | {
+      type: 'chat.turn.start';
+      turnId: string;
+      authoringPrompt?: {
+        projectId: string;
+        prompt: NonNullable<Project['authoringPrompts']>[number];
+        revision: number;
+      };
+    }
   | ChatContextReport
   | {
       type: 'chat.progress';
@@ -527,8 +552,10 @@ export function useAgentBridge(): void {
     proposalCapture = queuedProposalCapture;
     const status = useAgentBridgeStatus.getState().setStatus;
 
-    const send = (payload: unknown) => {
-      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
+    const send = (payload: unknown): boolean => {
+      if (socket?.readyState !== WebSocket.OPEN) return false;
+      socket.send(JSON.stringify(payload));
+      return true;
     };
     const componentGraphContext = () => {
       const { projectSet, activeTemplateId } = useProjectSetStore.getState();
@@ -549,14 +576,25 @@ export function useAgentBridge(): void {
         return;
       send({ type: 'editor.component-graph', componentGraphContext: componentGraphContext() });
     });
-    const sendNodos = (payload: unknown) => {
-      if (socket?.readyState !== WebSocket.OPEN) return false;
-      socket.send(JSON.stringify(payload));
-      return true;
+    const syncProject = () => {
+      window.clearTimeout(syncTimer);
+      syncTimer = undefined;
+      send({
+        type: 'editor.project',
+        project: useProjectStore.getState().project,
+        componentGraphContext: componentGraphContext(),
+        reason: 'UI edit',
+      });
+    };
+    const sendChat = (payload: { type: string; [key: string]: unknown }) => {
+      if (socket?.readyState !== WebSocket.OPEN || replaced) return false;
+      // The next turn must target the template and edits already visible to the user.
+      if (payload.type === 'chat.send' && syncTimer !== undefined) syncProject();
+      return send(payload);
     };
     sendProposalDecision = send;
-    sendChatPayload = send;
-    sendNodosPayload = sendNodos;
+    sendChatPayload = sendChat;
+    sendNodosPayload = send;
 
     const unsubscribe = useProjectStore.subscribe((state, previous) => {
       if (state.project === previous.project || applyingRemote) return;
@@ -567,15 +605,7 @@ export function useAgentBridge(): void {
         useAgentChatStore.getState().setState({ projectUsage: readProjectUsage(state.project.id) });
       }
       window.clearTimeout(syncTimer);
-      syncTimer = window.setTimeout(() => {
-        syncTimer = undefined;
-        send({
-          type: 'editor.project',
-          project: useProjectStore.getState().project,
-          componentGraphContext: componentGraphContext(),
-          reason: 'UI edit',
-        });
-      }, 150);
+      syncTimer = window.setTimeout(syncProject, 150);
     });
 
     const connect = () => {
@@ -663,6 +693,21 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'chat.turn.start') {
+          if (pendingPrompt?.turnId === message.turnId) {
+            const { target } = pendingPrompt;
+            pendingPrompt = null;
+            const accepted = message.authoringPrompt;
+            if (accepted?.projectId === target.projectId) {
+              applyingRemote = true;
+              try {
+                recordAuthoringPrompts(target, [accepted.prompt]);
+              } finally {
+                applyingRemote = false;
+              }
+              const revision = useAgentBridgeStatus.getState().revision ?? -1;
+              if (accepted.revision > revision) status({ revision: accepted.revision });
+            }
+          }
           const chat = useAgentChatStore.getState();
           chat.setState({
             activeTurnId: message.turnId,
@@ -691,6 +736,7 @@ export function useAgentBridge(): void {
           return;
         }
         if (message.type === 'chat.error') {
+          if (pendingPrompt?.turnId === message.turnId) pendingPrompt = null;
           const chat = useAgentChatStore.getState();
           chat.setState({
             activeTurnId: null,
@@ -966,6 +1012,7 @@ export function useAgentBridge(): void {
         // React StrictMode intentionally mounts, cleans up, and remounts effects in development.
         // The disposed bridge must not overwrite the status of its replacement connection.
         if (stopped) return;
+        pendingPrompt = null;
         useAgentReviewStore
           .getState()
           .invalidate('Connection lost. Reconnect before reviewing this proposal.');
@@ -1007,8 +1054,11 @@ export function useAgentBridge(): void {
       unsubscribe();
       unsubscribeGraph();
       if (sendProposalDecision === send) sendProposalDecision = null;
-      if (sendChatPayload === send) sendChatPayload = null;
-      if (sendNodosPayload === sendNodos) sendNodosPayload = null;
+      if (sendChatPayload === sendChat) {
+        sendChatPayload = null;
+        pendingPrompt = null;
+      }
+      if (sendNodosPayload === send) sendNodosPayload = null;
       if (proposalCapture === queuedProposalCapture) proposalCapture = directProposalCapture;
       socket?.close();
     };

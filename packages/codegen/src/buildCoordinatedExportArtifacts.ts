@@ -27,6 +27,7 @@ import {
 import { validateManifest, validateProject } from '@ograf-editor/validation';
 import { buildNodosInputContract } from './nodosInputs';
 import { assembleManifest } from './assembleManifest';
+import { manifestAuthoringPrompts } from './manifestAuthoringPrompts';
 import {
   EXPORTED_RESOURCE_URLS_KEY,
   packageDescriptorResources,
@@ -1560,12 +1561,14 @@ export function buildCoordinatedExportArtifactsWithRuntime(
     default: '',
     gddOptions: { labels: { ...stateSelect.gddOptions.labels, '': 'Current on-air template' } },
   };
+  const authoringPrompts = manifestAuthoringPrompts(templates);
   const manifest: OGrafManifest & { v_ografTransitionLogic: { version: 1 } } = {
     $schema: OGRAF_MANIFEST_SCHEMA_URL,
     id: project.id,
     name: input.name,
     main: 'main.js',
     v_ografTransitionLogic: { version: 1 },
+    ...(authoringPrompts ? { v_ografStudioAuthoringPrompts: authoringPrompts } : {}),
     version: project.version,
     supportsRealTime: project.supportsRealTime,
     supportsNonRealTime: project.supportsNonRealTime,

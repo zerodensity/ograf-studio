@@ -27,6 +27,12 @@ import {
   type LayerMotionStyle,
 } from '@ograf-editor/scene-model';
 
+export const originalPromptSchema = z
+  .string()
+  .min(1)
+  .refine((text) => text.trim().length > 0, 'Supply the original user prompt as nonblank text.')
+  .describe('Verbatim user request for this template, from the MCP client conversation.');
+
 const logicFunctionMappingSchema = (maximum: number) =>
   z
     .unknown()
@@ -815,6 +821,10 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     version: z.string().optional(),
     author: z
       .object({ name: z.string(), email: z.string().optional(), url: z.string().optional() })
+      .optional(),
+    authoringPrompt: z
+      .object({ id: z.string().min(1), text: z.string().min(1) })
+      .describe('Actual user prompt intended for inclusion in the template and export.')
       .optional(),
     supportsRealTime: z.boolean().optional(),
     supportsNonRealTime: z.boolean().optional(),

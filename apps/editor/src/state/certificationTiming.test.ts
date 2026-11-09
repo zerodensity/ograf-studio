@@ -88,6 +88,22 @@ describe('authored certification timing', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('stops waiting for a stalled graphics operation when export is cancelled', async () => {
+    vi.useFakeTimers();
+    const abort = new AbortController();
+    const reason = new DOMException('Export cancelled.', 'AbortError');
+    const timing = certificationMethodTiming(fixture(), 'playAction', {}, 'realtime');
+    const result = certificationPromiseWithTimeout(
+      new Promise(() => {}),
+      'playAction',
+      timing,
+      abort.signal,
+    );
+    abort.abort(reason);
+    await expect(result).rejects.toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('caps very long authored actions and promptly clears the timer on method rejection', async () => {
     vi.useFakeTimers();
     const descriptor = fixture();

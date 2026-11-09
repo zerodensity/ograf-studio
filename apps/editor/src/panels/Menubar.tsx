@@ -13,12 +13,6 @@ import { flushSync } from 'react-dom';
 import { useProjectStore } from '../state/projectStore';
 import { useProjectSetStore } from '../state/projectSetStore';
 import { insertTemplateProject } from '../state/templateCommands';
-import {
-  exportProjectSetAsZip,
-  retryCertifiedCoordinatedSave,
-  hasCertifiedCoordinatedSave,
-  subscribeCertifiedCoordinatedSave,
-} from '../state/projectSetExport';
 import { useSelectionStore } from '../state/selectionStore';
 import {
   openProjectFromFile,
@@ -71,7 +65,6 @@ import { useWorkspaceStore } from '../state/workspaceStore';
 import { openWorkspaceDialog } from '../components/WorkspaceDialogs';
 import { useEditorWindow } from '../layout/EditorWindow';
 import { requestPreviewPresentation } from '../state/previewPresentationStore';
-import { CoordinatedExportError } from '../state/certifiedArtifactSave';
 import {
   readRecentDocument,
   readRecentDocuments,
@@ -113,12 +106,6 @@ export function Menubar({
   const selectMany = useSelectionStore((s) => s.selectMany);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const [status, setStatus] = useState('');
-  const certifiedSaveAvailable = useSyncExternalStore(
-    subscribeCertifiedCoordinatedSave,
-    hasCertifiedCoordinatedSave,
-    () => false,
-  );
-  const [setExportBusy, setSetExportBusy] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
@@ -525,46 +512,6 @@ export function Menubar({
     }
   };
 
-  const handleExportTemplateSet = async () => {
-    const current = useProjectSetStore.getState().projectSet;
-    if (!current || setExportBusy) return;
-    setSetExportBusy(true);
-    setStatus(
-      current.transitionLogic
-        ? 'Preparing and verifying the coordinated playout package…'
-        : 'Certifying and exporting every template…',
-    );
-    try {
-      const result = await exportProjectSetAsZip(current, undefined, {
-        ownerWindow,
-        onProgress: (stage) => setStatus(`Coordinated export: ${stage}…`),
-      });
-      if (result.saveResult === 'prepared') {
-        setStatus(`Certified package “${result.fileName}” is ready to save.`);
-        return;
-      }
-      if (result.saveResult === 'cancelled') {
-        setStatus('Template-set export cancelled.');
-        return;
-      }
-      setStatus(
-        result.mode === 'coordinated'
-          ? `${result.saveResult === 'saved' ? 'Saved and verified' : 'Download requested for'} certified coordinated package "${result.fileName}" (${result.templates.length} overlays).${result.unreferencedTemplates?.length ? ` Unreferenced: ${result.unreferencedTemplates.map((template) => template.name).join(', ')}.` : ''}`
-          : `${result.saveResult === 'saved' ? 'Exported' : 'Downloaded'} ${result.templates.length} certified templates in "${result.fileName}".`,
-      );
-    } catch (err) {
-      setStatus(
-        err instanceof CoordinatedExportError && err.outcome === 'user-cancelled'
-          ? 'Export save cancelled. The certified package remains available from File.'
-          : err instanceof Error
-            ? err.message
-            : 'Failed to export template set',
-      );
-    } finally {
-      setSetExportBusy(false);
-    }
-  };
-
   return (
     <header className="menubar" style={style}>
       <TemplateSetSettingsDialogHost />
@@ -843,59 +790,10 @@ export function Menubar({
                   revealPane('export', 'preview.export');
                 }}
                 title="Open the export options for the current template or template set."
-                disabled={!!projectSet && !activeTemplateId}
               >
                 <span aria-hidden="true" />
                 Export…
               </button>
-              {projectSet ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    closeMenus();
-                    void handleExportTemplateSet();
-                  }}
-                  disabled={!projectSet.templates.length || setExportBusy}
-                  title={
-                    projectSet.transitionLogic
-                      ? 'Export one certified .ograf.zip graphic with coordinated slots, transitions and shared scene.'
-                      : 'Export one certified .ograf.zip package for each template inside a .ograf-set.zip archive.'
-                  }
-                >
-                  <span aria-hidden="true" />
-                  {setExportBusy
-                    ? 'Exporting Template Set…'
-                    : projectSet.transitionLogic
-                      ? 'Export Coordinated Package…'
-                      : 'Export All Templates…'}
-                </button>
-              ) : null}
-              {certifiedSaveAvailable ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={setExportBusy}
-                  onClick={() => {
-                    closeMenus();
-                    setSetExportBusy(true);
-                    void retryCertifiedCoordinatedSave({ ownerWindow })
-                      .then((result) => {
-                        setStatus(
-                          result.saveResult === 'saved'
-                            ? `Saved and verified certified package "${result.fileName}".`
-                            : `Download requested for certified package "${result.fileName}"; check browser downloads.`,
-                        );
-                      })
-                      .catch((error: unknown) =>
-                        setStatus(error instanceof Error ? error.message : String(error)),
-                      )
-                      .finally(() => setSetExportBusy(false));
-                  }}
-                >
-                  Save Certified Package Again…
-                </button>
-              ) : null}
               <div className="menubar-menu-separator" role="separator" />
               <button
                 type="button"

@@ -67,6 +67,7 @@ export * from './modifierReferences';
 export * from './blendModes';
 export * from './fieldSchema';
 export * from './projectSource';
+export * from './authoringPrompts';
 export * from './projectThumbnail';
 export * from './textAnimation';
 export * from './textCrawl';
