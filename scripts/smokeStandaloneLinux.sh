@@ -3,6 +3,7 @@ set -eu
 
 binary=${1:-./release/OGrafStudioServer-linux-x64}
 port=${2:-4398}
+node scripts/verifyStandaloneSkill.mjs "$binary" "${3:-./skills/ograf-authoring/ograf-authoring.zip}"
 temporary_root=$(mktemp -d)
 server_pid=''
 

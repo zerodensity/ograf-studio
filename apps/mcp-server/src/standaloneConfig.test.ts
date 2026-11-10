@@ -44,6 +44,22 @@ describe('standalone server configuration', () => {
     expect(() => parseStandaloneServerOptions(['--network'], {})).toThrow(/Unknown option/);
   });
 
+  it('parses setup commands and retains the requested prompt port', () => {
+    expect(
+      parseStandaloneServerOptions(['--print-setup-prompt', '--port', '4400'], {}),
+    ).toMatchObject({
+      printSetupPrompt: true,
+      port: 4400,
+    });
+    expect(parseStandaloneServerOptions(['--export-skill=My Skill.zip'], {})).toMatchObject({
+      exportSkillPath: resolve('My Skill.zip'),
+    });
+    expect(() => parseStandaloneServerOptions(['--export-skill='], {})).toThrow(/requires a value/);
+    expect(() =>
+      parseStandaloneServerOptions(['--export-skill', 'skill.zip', '--print-setup-prompt'], {}),
+    ).toThrow(/Choose either/);
+  });
+
   it('includes the product version in standalone output', () => {
     expect(OGRAF_STUDIO_STANDALONE_VERSION).toBe('0.32.0');
     expect(STANDALONE_HELP).toContain('OGraf Studio 0.32.0 standalone server');

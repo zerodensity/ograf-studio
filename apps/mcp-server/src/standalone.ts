@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { OGRAF_CLIENT_SETUP } from '@ograf-editor/agent-tools';
 import { createOGrafAuthoringHost } from './index';
 import { assertStaticEditorRoot } from './staticEditor';
+import { exportBundledAuthoringSkill, formatStandaloneSetupPrompt } from './standaloneSetup';
 import {
   OGRAF_STUDIO_REPOSITORY_URL,
   OGRAF_STUDIO_STANDALONE_VERSION,
@@ -45,6 +47,22 @@ async function main(): Promise<void> {
     return;
   }
 
+  const embeddedSkillAsset = (globalThis as { __OGRAF_STANDALONE_SKILL__?: string })
+    .__OGRAF_STANDALONE_SKILL__;
+  if (options.printSetupPrompt || options.exportSkillPath) {
+    if (!embeddedSkillAsset)
+      throw new Error(
+        'This command requires the packaged OGraf Studio executable. A source checkout has the archive at skills/ograf-authoring/ograf-authoring.zip.',
+      );
+    if (options.printSetupPrompt) {
+      console.log(formatStandaloneSetupPrompt(process.execPath, options.port));
+    } else if (options.exportSkillPath) {
+      await exportBundledAuthoringSkill(embeddedSkillAsset, options.exportSkillPath);
+      console.log(`Exported the authoring skill to ${options.exportSkillPath}`);
+    }
+    return;
+  }
+
   const embeddedEditorAssets = resolveEmbeddedEditorAssets();
   const editorRoot = fileURLToPath(new URL('../../editor/dist/', import.meta.url));
   if (!embeddedEditorAssets) await assertStaticEditorRoot(editorRoot);
@@ -53,6 +71,7 @@ async function main(): Promise<void> {
   const { httpServer, workspace } = createOGrafAuthoringHost({
     ...(embeddedEditorAssets ? { embeddedEditorAssets } : { editorRoot }),
     workspaceRoot: options.workspaceRoot,
+    bundledAuthoringSkill: Boolean(embeddedSkillAsset),
   });
   await new Promise<void>((resolve, reject) => {
     httpServer.once('error', reject);
@@ -72,6 +91,10 @@ async function main(): Promise<void> {
   console.log(`MCP:       ${baseUrl}/mcp`);
   console.log(`Health:    ${baseUrl}/health`);
   console.log(`Workspace: ${workspace.root}`);
+  if (embeddedSkillAsset)
+    console.log(
+      `AI setup:  Run this executable with ${OGRAF_CLIENT_SETUP.promptFlag} --port ${options.port}`,
+    );
   console.log('Press Ctrl+C to stop.');
   if (options.openBrowser) openDefaultBrowser(`${baseUrl}/`);
 

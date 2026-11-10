@@ -75,9 +75,9 @@ writes stdout/stderr logs under `.logs`.
 ### Single-executable server
 
 The optional standalone distributions serve the production editor, MCP endpoint, editor WebSocket,
-health endpoint, fonts, icons, and application assets from one headless executable per operating
-system and architecture. They do not replace or change the normal `npm run dev`,
-`npm run mcp:start`, or `npm run start:all` workflows.
+health endpoint, fonts, icons, application assets, and matching OGraf Authoring skill from one
+headless executable per operating system and architecture. Source checkouts can use `npm run dev`,
+`npm run mcp:start`, or `npm run start:all`.
 
 Install [Bun](https://bun.sh/) on the build machine, then run:
 
@@ -118,6 +118,20 @@ workspace is `Documents\OGraf Studio\Projects`; `--workspace` and the existing
 `OGRAF_WORKSPACE_ROOT` environment variable can override it. `--open` launches the system browser,
 while the default remains suitable for a console or background process. Run
 `OGrafStudioServer.exe --help` for the complete option list.
+
+### Export the bundled skill or print the setup prompt
+
+The executable contains the full version-matched `ograf-authoring.zip`. The startup hint shows
+how to print a setup prompt for an external AI client. On Windows, for example:
+
+```powershell
+.\OGrafStudioServer.exe --print-setup-prompt
+.\OGrafStudioServer.exe --export-skill .\ograf-authoring.zip
+```
+
+Each command exits after printing the prompt or writing the archive. The export requires a fresh
+path and preserves existing files. Use the filename for your platform. See the client install
+locations and source setup fallback in the [AI authoring guide](AI_AUTHORING.md#set-up-an-external-ai-client).
 
 For source-level testing of the same combined host, use `npm run server:start`. This command requires
 Bun because it runs the TypeScript entry point directly; only the generated executable is
@@ -167,6 +181,8 @@ bundle so tests work in a fresh clone.
 Build commands regenerate `skills/ograf-authoring/ograf-authoring.zip` from the canonical skill,
 references, and metadata. Entries are sorted, line endings normalized, and timestamps fixed, so
 unchanged sources produce the same archive. The archive excludes itself.
+Standalone builds embed these exact bytes. The separate release ZIP uses the same archive for
+manual installs and clients that accept ZIP uploads.
 
 ```powershell
 npm run skill:package

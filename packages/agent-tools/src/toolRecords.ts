@@ -108,6 +108,7 @@ import {
   semanticLayerRoleSchema,
 } from './schemas';
 import type { AuthoringWorkspacePort, EditorBridgePort } from './ports';
+import { OGRAF_CLIENT_SETUP } from './ografSetup';
 
 export interface AgentToolAnnotations {
   readOnlyHint?: boolean;
@@ -323,6 +324,7 @@ const CAPABILITY_SECTION_KEYS: Record<CapabilitySection, readonly string[]> = {
   plugins: ['rendererPlugins', 'animationPresetPlugins', 'shaderPacks'],
   editor: [
     'editor',
+    'clientSetup',
     'liveEditorConnected',
     'liveEditorConnectedDeprecated',
     'requiresBrowser',
@@ -1981,7 +1983,10 @@ function broadcastLintWarnings(project: Project, interlacedOutput: boolean): str
 export function createOGrafToolRecords(
   workspace: AuthoringWorkspacePort,
   bridge: EditorBridgePort,
-  { inApp = false }: { inApp?: boolean } = {},
+  {
+    inApp = false,
+    bundledAuthoringSkill = false,
+  }: { inApp?: boolean; bundledAuthoringSkill?: boolean } = {},
 ): AgentToolRecord[] {
   const exportCoordinated = coordinatedExportFile(workspace, bridge);
   const records: AgentToolRecord[] = [];
@@ -2048,6 +2053,41 @@ export function createOGrafToolRecords(
         protocolVersion: 1,
         defaultSessionId: 'editor',
         editor,
+        clientSetup: {
+          mcp: {
+            preferredServerName: OGRAF_CLIENT_SETUP.mcpServerName,
+            transport: 'streamable-http',
+            path: '/mcp',
+          },
+          authoringSkill: {
+            archiveName: OGRAF_CLIENT_SETUP.archiveName,
+            retrieval: bundledAuthoringSkill
+              ? {
+                  kind: 'standalone-executable',
+                  exportFlag: OGRAF_CLIENT_SETUP.exportFlag,
+                  setupPromptFlag: OGRAF_CLIENT_SETUP.promptFlag,
+                }
+              : {
+                  kind: 'source-tree',
+                  archivePath: `skills/ograf-authoring/${OGRAF_CLIENT_SETUP.archiveName}`,
+                },
+            clients: {
+              codex: {
+                surfaces: ['Codex CLI', 'ChatGPT Desktop local Codex'],
+                install: 'extract-folder',
+                location: OGRAF_CLIENT_SETUP.codexSkillPath,
+              },
+              claudeCode: {
+                install: 'extract-folder',
+                location: OGRAF_CLIENT_SETUP.claudeCodeSkillPath,
+              },
+              claudeDesktop: {
+                install: 'upload-zip',
+                location: OGRAF_CLIENT_SETUP.claudeDesktopSkillMenu,
+              },
+            },
+          },
+        },
         liveEditorConnected: editor.connected && editor.responsive,
         liveEditorConnectedDeprecated:
           'Deprecated alias for editor.connected && editor.responsive. Use the editor object.',
