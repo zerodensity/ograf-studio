@@ -199,11 +199,11 @@ extension. Studio detects contents automatically, preserving every member of a m
 
 Add a second template in the Templates pane to create a set from the open project. **New template…**
 creates one using the setup window; **Add existing template…** opens an editable source. In a set,
-**Add .ogs Template…** adds another source. **Save Template Set…** writes one portable `.ogs` containing template
+**Add .ogs Template…** adds another source. **File → Save** writes one portable `.ogs` containing template
 sources, shared controls and dependencies. Compact saves store identical font/resource bytes and set
 component sources once. Opening restores complete editable templates with the same IDs, bindings,
-animation and overrides. Extracted compact member files require the set's shared data; use **Save
-Template** for a standalone editable document or choose **Current template** in **File → Export…**
+animation and overrides. Extracted compact member files require the set's shared data. Use **Save
+Template Copy…** for a standalone editable document or choose **Current template** in **File → Export…**
 for a standalone playout export.
 Saving shows template/resource/compression progress and runs archive generation in a worker, so
 the editor and its bridge can keep responding. Edits made during saving remain in the open document.
@@ -392,14 +392,20 @@ removal. Removing the last template leaves the set open and empty, ready for a n
 When a thumbnail has focus, Ctrl/Cmd+C, X, V, and D copy,
 cut, paste, and duplicate; Delete removes it and F2 renames it.
 
-**File → Save Template** includes a thumbnail preview and frame selector. By default it uses the first
+**File → Save** writes to the current `.ogs` for a single template or a complete template set. When
+there is no current file, Save asks for a destination. **Save As…** opens the file picker so you can
+choose a filename and location. After a successful write, Save uses that file. Browsers without
+a file save picker download an editable `.ogs` on each save. Use Save As if access to the current
+file is denied or the file is in an older format.
+
+**File → Save Template Copy…** includes a thumbnail preview and frame selector. By default it uses the first
 OGraf step of the main composition, or frame 0 when there are no steps. Enter another frame to
 override it, or use the previous/next-frame buttons; the choice is stored in the `.ogs` file.
 The preview keeps a fixed size while changing frames.
 
 **Save .ogs…** opens a file save dialog where you choose the filename and location for the editable
 source. Browsers without a file save dialog offer **Download .ogs** instead.
-Changing the filename in the save dialog also updates the template name after saving succeeds.
+The copy has its own filename. The active document keeps its title and save destination.
 **Download ZIP** saves `Template Name.ogs` together with
 `<id>_thumb.png`, using the top-level project `id` from the saved JSON. Renaming the template does
 not change its thumbnail filename. The PNG has a transparent canvas background, excludes editor guides,

@@ -26,7 +26,7 @@ export function parseProjectSource(text: string): Project {
   }
   if (parsed && typeof parsed === 'object' && 'archiveFragment' in parsed)
     throw new Error(
-      'This source is part of a compact template set. Open the complete template set, then use Save Template to export a standalone template.',
+      'This source is part of a compact template set. Open the complete template set, then use Save Template Copy to save a standalone template.',
     );
   if (!isProject(parsed)) throw new Error('That source is not a valid OGraf Studio project.');
   if (parsed.authoringPrompts !== undefined) validateAuthoringPrompts(parsed.authoringPrompts);
