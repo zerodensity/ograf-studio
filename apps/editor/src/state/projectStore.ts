@@ -14,6 +14,9 @@ import {
   textPathReferenceErrors,
   textPathCompatibilityErrors,
   layerExportKeyError,
+  frameCueErrors,
+  MAX_FRAME_CUES,
+  type FrameCue,
 } from '@ograf-editor/scene-model';
 import { immer } from 'zustand/middleware/immer';
 import { useProjectSetStore } from './projectSetStore';
@@ -403,6 +406,9 @@ interface ProjectActions {
   addLiveMediaCue: () => string;
   updateMediaCue: (cueId: string, patch: Partial<MediaCue>) => void;
   removeMediaCue: (cueId: string) => void;
+  addFrameCue: (frame: number) => string;
+  updateFrameCue: (cueId: string, cue: Omit<FrameCue, 'id'>) => void;
+  removeFrameCue: (cueId: string) => void;
 
   addLayer: (
     kind: NewLayerKind,
@@ -2392,6 +2398,43 @@ export const useProjectStore = create<ProjectStore>()(
           assertLogicFunctionReferenceRemovable(composition, 'cue', cueId);
           composition.mediaCues = (composition.mediaCues ?? []).filter((cue) => cue.id !== cueId);
           pruneVisualRuleReferences(composition);
+        }),
+
+      addFrameCue: (frame) => {
+        const id = createId('frame-cue');
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const cues = (composition.frameCues ??= []);
+          if (cues.length >= MAX_FRAME_CUES)
+            throw new Error(`A template supports at most ${MAX_FRAME_CUES} frame cues.`);
+          const endFrame = getTotalFrames(composition);
+          const cue = {
+            id,
+            name: `Cue ${cues.length + 1}`,
+            frame: Math.max(0, Math.min(endFrame, Math.round(frame))),
+          };
+          const [error] = frameCueErrors([cue], endFrame);
+          if (error) throw new Error(error);
+          cues.push(cue);
+        });
+        return id;
+      },
+
+      updateFrameCue: (cueId, input) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const index = composition.frameCues?.findIndex((cue) => cue.id === cueId) ?? -1;
+          if (index < 0 || !composition.frameCues) throw new Error('Frame cue not found.');
+          const cue = { ...input, id: cueId, name: input.name.trim() };
+          const [error] = frameCueErrors([cue], getTotalFrames(composition));
+          if (error) throw new Error(error);
+          composition.frameCues[index] = structuredClone(cue);
+        }),
+
+      removeFrameCue: (cueId) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          composition.frameCues = (composition.frameCues ?? []).filter((cue) => cue.id !== cueId);
         }),
 
       addDrawnPath: (path) => {

@@ -10,6 +10,7 @@ import {
   isVisualRuleMouseFieldId,
   isVisualRuleStateAction,
   computeKeyframeFrames,
+  frameCueErrors,
   assessStaticExitHold,
   compositionWithShaderParameterFields,
   compositionLayersWithBackground,
@@ -467,6 +468,11 @@ export function compileDescriptor(
         weight: asset.fontWeight || '100 900',
         style: asset.fontStyle || 'normal',
       })),
+    ...(Array.isArray(composition.frameCues) &&
+    composition.frameCues.length &&
+    !frameCueErrors(composition.frameCues, keyframeFrames.at(-1)?.frame ?? 0).length
+      ? { frameCues: structuredClone(composition.frameCues) }
+      : {}),
     mediaCues: composition.mediaCues.map((cue) => ({
       ...structuredClone(cue),
       sources: cue.sources.map((source) =>

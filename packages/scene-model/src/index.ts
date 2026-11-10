@@ -37,6 +37,7 @@ export * from './transformBindings';
 export * from './paint';
 export * from './mediaPaint';
 export * from './mediaCue';
+export * from './frameCue';
 export * from './cornerRadii';
 export * from './clipping';
 export * from './masking';

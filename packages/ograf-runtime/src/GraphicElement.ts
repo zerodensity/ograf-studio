@@ -2220,6 +2220,27 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       tl.seek(keyframe.frame, true);
       if (includeAudio) this.#mediaCueRuntime?.renderAtTime(targetSeconds * 1000);
     } else {
+      const fromFrame = tl.frame();
+      const directOut =
+        this.#directLifecycleTransition !== null && keyframe.id === this.descriptor.endKeyframeId;
+      // A direct Out interpolates from the current pose and skips the intervening Steps.
+      const cueStart = directOut ? keyframe.frame - exitDurationFrames(this.descriptor) : fromFrame;
+      const includeStart =
+        !directOut &&
+        this.descriptor.keyframes.some(
+          (key) => key.id === this.descriptor.startKeyframeId && key.frame === fromFrame,
+        );
+      const cues =
+        this.#renderType === 'realtime' && keyframe.frame > fromFrame && durationSeconds !== 0
+          ? (this.activeDescriptor.frameCues ?? [])
+              .filter(
+                (cue) =>
+                  (cue.frame > cueStart || (includeStart && cue.frame === cueStart)) &&
+                  cue.frame <= keyframe.frame,
+              )
+              .sort((a, b) => a.frame - b.frame)
+          : [];
+      let nextCue = 0;
       await new Promise<void>((resolve, reject) => {
         let settled = false;
         const finish = () => {
@@ -2251,6 +2272,24 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
               this.#mediaCueRuntime?.renderAtTime(
                 (tl.frame() / this.activeDescriptor.frameRate) * 1000,
               );
+            if (nextCue < cues.length) {
+              const frame = tl.frame();
+              const cueFrame = directOut
+                ? cueStart +
+                  ((frame - fromFrame) / (keyframe.frame - fromFrame)) * (keyframe.frame - cueStart)
+                : frame;
+              const EventClass = this.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+              while (nextCue < cues.length && cues[nextCue]!.frame <= cueFrame) {
+                const cue = cues[nextCue++]!;
+                this.dispatchEvent(
+                  new EventClass('ograf-studio-cue', {
+                    detail: structuredClone(cue),
+                    bubbles: true,
+                    composed: true,
+                  }),
+                );
+              }
+            }
           },
           onComplete: finish,
           onInterrupt: finish,

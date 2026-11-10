@@ -2167,6 +2167,25 @@ const scoreline = graphic.shadowRoot.querySelector('[data-ograf-layer-key="score
 
 Use the graphic's data fields and OGraf `updateAction()` to change values during playout.
 
+#### Receive a frame cue during playback
+
+Move the playhead to the desired frame and choose **+ Cue** in the Timeline. Set the cue's name,
+frame, and optional JSON payload, then click **Apply**. Select its marker to edit or delete it.
+
+In a single-template export, the graphic dispatches `ograf-studio-cue` on forward real-time
+playback. The event detail contains the cue's `id`, `name`, `frame`, and optional `payload`.
+
+```js
+graphic.addEventListener('ograf-studio-cue', ({ detail }) => {
+  if (detail.name === 'score-revealed') console.log(detail.payload);
+});
+```
+
+Each cue fires once when playback crosses its frame, even if the browser misses a display frame.
+Playback from Start includes a cue on frame zero. Take Out fires cues in the portion of the
+Out phase that plays. Scrubbing, reverse playback, skips and non-real-time frame renders stay
+silent. A host in a separate renderer or cross-origin iframe needs a bridge to receive the event.
+
 ### Workspace, motion and review
 
 New browser profiles start in the **Essentials** workspace with Layers, Properties and Timeline.

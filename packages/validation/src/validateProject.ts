@@ -46,6 +46,7 @@ import {
   validateLogicFunctionDefinitions,
   layerTransformBindingErrors,
   layerExportKeyError,
+  frameCueErrors,
   type VisualRuleOperator,
   type VisualRuleTrigger,
 } from '@ograf-editor/scene-model';
@@ -498,6 +499,8 @@ function validateComposition(composition: Composition, errors: string[], warning
   for (const error of validateLogicFunctionDefinitions(composition.functions, composition))
     errors.push(`Composition "${composition.name}": ${error}`);
   const prefix = `Composition "${composition.name}"`;
+  for (const error of frameCueErrors(composition.frameCues, getTotalFrames(composition)))
+    errors.push(`${prefix}: ${error}`);
   const connections = composition.dataConnections ?? [];
   if (!Array.isArray(connections) || connections.length > MAX_DATA_CONNECTIONS)
     errors.push(

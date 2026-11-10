@@ -21,12 +21,14 @@ import {
   getLayerAnimatableProperties,
   getLayerPropertyValueAtFrame,
   getTrackValueAtFrame,
+  MAX_FRAME_CUES,
   mediaCueStartFrame,
   parseShaderAnimationProperty,
   shaderAnimationPropertySpec,
   getShaderTrackValueAtFrame,
   type AnimatableLayerProperty,
   type MediaCue,
+  type FrameCue,
 } from '@ograf-editor/scene-model';
 import { ContextMenu } from '../components/ContextMenu';
 import { selectionIdsForLayer } from '../canvas/groupSelection';
@@ -49,6 +51,7 @@ import { TimelineDisplayUnits } from './TimelineDisplayUnits';
 import { AnimationGraphEditor, type TimelineGraphViewport } from './AnimationGraphEditor';
 import { timelineViewAfterSelectionChange, type TimelineViewMode } from './timelineViewMode';
 import { SoundEventEditor } from './SoundEventEditor';
+import { FrameCueEditor } from './FrameCueEditor';
 import { easingLabel } from './easingOptions';
 import { EasingPicker } from './EasingPicker';
 import { handleMotionClipboardShortcut, type CopiedMotionKey } from './motionClipboard';
@@ -220,6 +223,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const moveLifecycleKeyframe = useProjectStore((s) => s.moveLifecycleKeyframe);
   const addSoundEventFromAsset = useProjectStore((s) => s.addSoundEventFromAsset);
   const updateMediaCue = useProjectStore((s) => s.updateMediaCue);
+  const addFrameCue = useProjectStore((s) => s.addFrameCue);
   const retimeAnimationPhase = useProjectStore((s) => s.retimeAnimationPhase);
   const addLayerKeyframe = useProjectStore((s) => s.addLayerKeyframe);
   const addLayerHoldFrame = useProjectStore((s) => s.addLayerHoldFrame);
@@ -344,6 +348,10 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
     keyframeId: string;
     frame: number;
   } | null>(null);
+  const [frameCueSelection, setFrameCueSelection] = useState<{
+    context: string;
+    id: string;
+  } | null>(null);
   const [lifecycleRetimeNotice, setLifecycleRetimeNotice] = useState<{
     message: string;
     warnings: string[];
@@ -382,6 +390,22 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   // Displayed top-to-bottom, matching the Layers panel's z-order convention (topmost first).
   const layers = [...composition.layers].reverse();
   const soundEvents = (composition.mediaCues ?? []).filter(isSoundEventCue);
+  const frameCues = Array.isArray(composition.frameCues) ? composition.frameCues : [];
+  const cueEndFrame = keyframeFrames.at(-1)?.frame ?? 0;
+  const cueContext = `${projectId}:${composition.id}`;
+  const frameCueMarkers = new Map<number, FrameCue[]>();
+  for (const cue of frameCues) {
+    if (!cue || !Number.isSafeInteger(cue.frame)) continue;
+    const frame = Math.min(cueEndFrame, Math.max(0, cue.frame));
+    const atFrame = frameCueMarkers.get(frame) ?? [];
+    atFrame.push(cue);
+    frameCueMarkers.set(frame, atFrame);
+  }
+  const selectFrameCue = (id: string) => {
+    selectLayer(null);
+    selectSoundEvent(null);
+    setFrameCueSelection({ context: cueContext, id });
+  };
   const timelineEntries = buildTimelineEntries(
     layers,
     composition.layout.timelineFolders,
@@ -461,6 +485,10 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const selectedSoundEvent = selectedLayerId
     ? null
     : (soundEvents.find((cue) => cue.id === selectedSoundEventId) ?? null);
+  const selectedFrameCue =
+    !selectedLayerId && frameCueSelection?.context === cueContext
+      ? (frameCues.find((cue) => cue?.id === frameCueSelection.id) ?? null)
+      : null;
   const selectedLayerKeyframe = selectedLayer
     ? timelineLayerKeyframes(selectedLayer).find(
         (keyframe) => keyframe.id === selectedLayerKeyframeId,
@@ -499,7 +527,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
   const showKeyEditor = Boolean(
     selectedLayer && (selectedPropertyKeyframe || selectedLayerKeyframe || selectedLayerProperty),
   );
-  const showTimelineInspector = showKeyEditor || Boolean(selectedSoundEvent);
+  const showTimelineInspector = showKeyEditor || Boolean(selectedSoundEvent || selectedFrameCue);
   const channelId =
     selectedLayer && selectedLayerProperty ? `${selectedLayer.id}:${selectedLayerProperty}` : null;
   const channelAnimated = selectedPropertyTrack.length > 0;
@@ -1012,6 +1040,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
     event.preventDefault();
     event.stopPropagation();
     selectLayer(null);
+    setFrameCueSelection(null);
     selectSoundEvent(cue.id);
     const startX = event.clientX;
     const initialFrame = mediaCueStartFrame(cue, composition) ?? 0;
@@ -1297,6 +1326,26 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                 title="Add an OGraf playout Step before the final Out"
               >
                 {'+ Step'}
+              </button>
+              <button
+                type="button"
+                aria-label="Add cue at playhead"
+                title="Add a named real-time cue at the playhead"
+                disabled={frameCues.length >= MAX_FRAME_CUES}
+                onClick={() => {
+                  try {
+                    const id = runDiscreteHistoryStep(
+                      () => addFrameCue(displayedFrame),
+                      'Add frame cue',
+                    );
+                    selectFrameCue(id);
+                  } catch (cause) {
+                    const message = cause instanceof Error ? cause.message : String(cause);
+                    setLifecycleRetimeNotice({ message, warnings: [message] });
+                  }
+                }}
+              >
+                + Cue
               </button>
               <button
                 type="button"
@@ -1682,7 +1731,7 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
               )}
 
               <div
-                className={`timeline-ruler${isScrubbing ? ' scrubbing' : ''}`}
+                className={`timeline-ruler${isScrubbing ? ' scrubbing' : ''}${frameCueMarkers.size ? ' has-frame-cues' : ''}`}
                 ref={rulerRef}
                 onPointerDown={handleScrubPointerDown}
                 onDragOver={handleAudioDragOver}
@@ -1824,11 +1873,35 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
                       onClick={(event) => {
                         event.stopPropagation();
                         selectLayer(null);
+                        setFrameCueSelection(null);
                         selectSoundEvent(cue.id);
                       }}
                     >
                       <span aria-hidden="true">🔊</span>
                       {stackIndex > 0 ? <small>{stackIndex + 1}</small> : null}
+                    </button>
+                  );
+                })}
+                {[...frameCueMarkers].map(([frame, cues]) => {
+                  const cue =
+                    cues.find((candidate) => candidate.id === selectedFrameCue?.id) ?? cues[0]!;
+                  return (
+                    <button
+                      type="button"
+                      key={frame}
+                      className="timeline-frame-cue-marker"
+                      style={{ left: frame * pixelsPerFrame }}
+                      aria-label={`Frame cue ${cue.name} at frame ${cue.frame}`}
+                      aria-pressed={cue.id === selectedFrameCue?.id}
+                      title={cues.map((item) => `${item.name} · frame ${item.frame}`).join('\n')}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        selectFrameCue(cue.id);
+                        seekTimelineFrame(frame);
+                      }}
+                    >
+                      <span aria-hidden="true">⚑{cues.length > 1 ? ` ${cues.length}` : ''}</span>
                     </button>
                   );
                 })}
@@ -2241,7 +2314,21 @@ export function TimelinePanel({ style }: { style?: CSSProperties }) {
             </div>
           </div>
         </div>
-        {selectedSoundEvent ? (
+        {selectedFrameCue ? (
+          <CollapsibleSection
+            sectionId="timeline.frame-cue-editor"
+            title="Frame Cue"
+            className="timeline-key-editor"
+          >
+            <FrameCueEditor
+              cue={selectedFrameCue}
+              cues={frameCues}
+              endFrame={cueEndFrame}
+              onSelect={selectFrameCue}
+              onDelete={() => setFrameCueSelection(null)}
+            />
+          </CollapsibleSection>
+        ) : selectedSoundEvent ? (
           <CollapsibleSection
             sectionId="timeline.sound-event-editor"
             title="Sound Event"

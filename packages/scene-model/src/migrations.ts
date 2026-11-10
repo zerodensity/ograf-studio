@@ -537,6 +537,7 @@ function normalizeComposition(composition: LegacyComposition): Composition {
     dataConnections: composition.dataConnections ?? [],
     // Media Cue is the first released media transport model. Do not infer cues from experimental
     // audio layers or media paints created by unreleased development builds.
+    frameCues: composition.frameCues ?? [],
     mediaCues: (composition.mediaCues ?? []).map((cue) => ({
       ...cue,
       durationFrames: cue.durationFrames ?? null,

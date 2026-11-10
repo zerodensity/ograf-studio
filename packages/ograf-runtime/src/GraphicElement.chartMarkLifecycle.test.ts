@@ -21,7 +21,12 @@ const fixture = vi.hoisted(() => {
     shadowRoot: Host | null = null;
     firstElementChild: Host | null = null;
     ownerDocument = {};
+    dispatchedEvents: Event[] = [];
     attributes = new Map<string, string>();
+    dispatchEvent(event: Event) {
+      this.dispatchedEvents.push(event);
+      return true;
+    }
     hasAttribute(name: string) {
       return this.attributes.has(name);
     }
@@ -219,6 +224,100 @@ beforeEach(() => {
   fixture.frames.length = 0;
   fixture.control.pending = null;
   fixture.control.frame = 0;
+});
+
+describe('single-template frame cues', () => {
+  class Graphic extends GraphicElement {
+    static descriptor: CompiledGraphicDescriptor = {
+      ...descriptor(),
+      exitTailStartFrame: 108,
+      frameCues: [
+        { id: 'start-cue', name: 'start', frame: 0 },
+        { id: 'second-step-cue', name: 'step-two', frame: 100 },
+        { id: 'first', name: 'first', frame: 5, payload: { score: 2 } },
+        { id: 'second', name: 'second', frame: 5 },
+        { id: 'first-step-cue', name: 'step-one', frame: 20 },
+        { id: 'middle', name: 'middle', frame: 40 },
+        { id: 'skipped-hold', name: 'skipped-hold', frame: 104 },
+        { id: 'out-cue', name: 'out', frame: 110 },
+        { id: 'end-cue', name: 'end', frame: 120 },
+      ],
+    };
+  }
+  const load = async (renderType: 'realtime' | 'non-realtime' = 'realtime') => {
+    const graphic = new Graphic();
+    graphic.connectedCallback();
+    expect(
+      await graphic.load({
+        renderType,
+        renderCharacteristics: { resolution: { width: 640, height: 360 }, frameRate: 10 },
+        data: {},
+      }),
+    ).toMatchObject({ statusCode: 200 });
+    const events = () =>
+      (graphic as unknown as InstanceType<typeof fixture.Host>).dispatchedEvents
+        .filter((event) => event.type === 'ograf-studio-cue')
+        .map((event) => (event as CustomEvent<{ name: string }>).detail);
+    return { graphic, events, names: () => events().map((event) => event.name) };
+  };
+  const waitForMotion = () => vi.waitFor(() => expect(fixture.control.pending).not.toBeNull());
+
+  it('fires crossed cues in order without repeating a held frame or visiting skipped Out frames', async () => {
+    const { graphic, events, names } = await load();
+    expect(names()).toEqual([]);
+    const take = graphic.playAction({});
+    await waitForMotion();
+    fixture.advance(0.5);
+    fixture.advance(0.5);
+    expect(names()).toEqual(['start', 'first', 'second']);
+    expect(events()[1]).toEqual({
+      id: 'first',
+      name: 'first',
+      frame: 5,
+      payload: { score: 2 },
+    });
+    fixture.advance(1);
+    expect(await take).toMatchObject({ currentStep: 0 });
+    expect(names().at(-1)).toBe('step-one');
+
+    const next = graphic.playAction({});
+    await waitForMotion();
+    fixture.advance(1);
+    expect(await next).toMatchObject({ currentStep: 1 });
+    expect(names()).toEqual(['start', 'first', 'second', 'step-one', 'middle', 'step-two']);
+
+    const back = graphic.playAction({ goto: 0 });
+    await waitForMotion();
+    fixture.advance(1);
+    expect(await back).toMatchObject({ currentStep: 0 });
+    expect(names()).toHaveLength(6);
+
+    const out = graphic.stopAction({});
+    await waitForMotion();
+    fixture.advance(0.5);
+    expect(names().slice(6)).toEqual(['out']);
+    fixture.advance(1);
+    expect(await out).toMatchObject({ statusCode: 200 });
+    expect(names().slice(6)).toEqual(['out', 'end']);
+    await graphic.dispose();
+  });
+
+  it('keeps skip-animation and non-real-time seeks silent', async () => {
+    const live = await load();
+    await live.graphic.playAction({ skipAnimation: true });
+    await live.graphic.stopAction({ skipAnimation: true });
+    expect(live.events()).toEqual([]);
+    await live.graphic.dispose();
+
+    const offline = await load('non-realtime');
+    await offline.graphic.setActionsSchedule({
+      schedule: [{ timestamp: 0, action: { type: 'playAction', params: {} } }],
+    });
+    await offline.graphic.goToTime({ timestamp: 2000 });
+    await offline.graphic.goToTime({ timestamp: 500 });
+    expect(offline.events()).toEqual([]);
+    await offline.graphic.dispose();
+  });
 });
 
 describe('standalone keyboard Rules transport', () => {
