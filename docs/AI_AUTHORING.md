@@ -13,7 +13,7 @@ its opaque `expectedRevision`, `confirm:true` and optional `overwrite:true`. `ar
 (default, schema 6) stores shared fonts, resources and component sources once; `"compatible"` writes
 the schema 5 archive layout for older set readers without down-converting newer features.
 The compressed MCP transfer limit is
-64 MiB; use Studio's Save Template Set dialog for larger sets. The tool saves a snapshot copy without
+64 MiB; open the set in Studio and use File → Save for larger sets. The tool saves a snapshot copy without
 renaming the open document or changing its revision; an edit during generation fails before writing.
 Open `.ogs` and Insert Template remain visible file actions; legacy `.ogp` and archive schemas 1–5
 remain readable. MCP project open/save use standalone JSON source with resolved dependencies.

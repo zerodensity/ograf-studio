@@ -7,6 +7,7 @@ declare global {
     readonly name: string;
     getFile(): Promise<File>;
     createWritable(): Promise<FileSystemWritableFileStream>;
+    requestPermission?(options: { mode: 'read' | 'readwrite' }): Promise<PermissionState>;
   }
 
   interface FileSystemWritableFileStream {

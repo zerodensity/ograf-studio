@@ -18,11 +18,11 @@ import {
   openProjectFromFile,
   openStudioDocumentFromFile,
   openStudioDocumentFromUrl,
-  saveProjectSetToFile,
 } from '../state/fileIO';
 import type { StudioDocument } from '../state/studioDocument';
 import { applyOpenedStudioDocument } from '../state/openStudioDocument';
-import { renameProjectSet, saveProjectSetTemplateEdits } from '../state/projectSet';
+import { saveStudioDocument } from '../state/saveStudioDocument';
+import { saveProjectSetTemplateEdits } from '../state/projectSet';
 import { TemplateSaveDialog } from '../components/TemplateSaveDialog';
 import {
   getHistorySnapshot,
@@ -100,12 +100,14 @@ export function Menubar({
   const activeWorkspace = workspacePresets.find((preset) => preset.id === activeWorkspaceId);
   const loadProject = useProjectStore((s) => s.loadProject);
   const project = useProjectStore((s) => s.project);
+  const documentLoadRevision = useProjectStore((s) => s.documentLoadRevision);
   const activeCompositionId = useProjectStore((s) => s.activeCompositionId);
   const select = useSelectionStore((s) => s.select);
   const deselectAll = useSelectionStore((s) => s.deselectAll);
   const selectMany = useSelectionStore((s) => s.selectMany);
   const selectedLayerIds = useSelectionStore((s) => s.selectedLayerIds);
   const [status, setStatus] = useState('');
+  const [savingDocument, setSavingDocument] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
@@ -134,7 +136,6 @@ export function Menubar({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const projectSet = useProjectSetStore((state) => state.projectSet);
   const activeTemplateId = useProjectSetStore((state) => state.activeTemplateId);
-  const setProjectSet = useProjectSetStore((state) => state.setProjectSet);
   const clearProjectSet = useProjectSetStore((state) => state.clearProjectSet);
   const fileMenuRef = useRef<HTMLDivElement>(null);
   const recentMenuRef = useRef<HTMLDivElement>(null);
@@ -473,8 +474,6 @@ export function Menubar({
     }
   };
 
-  const handleSave = () => setSaveDialogOpen(true);
-
   const handleAddTemplate = async () => {
     if (!projectSet) return;
     try {
@@ -487,28 +486,23 @@ export function Menubar({
     }
   };
 
-  const handleSaveTemplateSet = async () => {
-    if (!projectSet) return;
+  const handleSave = async (mode: 'save' | 'save-as') => {
+    if (savingDocument) return;
+    setSavingDocument(true);
+    setStatus('Saving editable document…');
     try {
-      const current = activeTemplateId
-        ? saveProjectSetTemplateEdits(projectSet, activeTemplateId, project)
-        : projectSet;
-      const result = await saveProjectSetToFile(current, {
-        archiveMode: 'compact',
-        onProgress: (progress) =>
-          setStatus(`${Math.floor(progress.percent)}% · ${progress.message}`),
-      });
-      if (result.status === 'cancelled') return;
-      const latest = useProjectSetStore.getState().projectSet;
-      if (latest?.id === current.id)
-        setProjectSet(renameProjectSet(latest, result.projectSet.name));
-      setStatus(
-        result.status === 'saved'
-          ? `Saved template set "${result.projectSet.name}"`
-          : 'Template set downloaded',
+      const result = await saveStudioDocument(mode, ownerWindow, (progress) =>
+        setStatus(`${Math.floor(progress.percent)}% · ${progress.message}`),
       );
+      if (result.status === 'cancelled') {
+        setStatus('Save cancelled.');
+        return;
+      }
+      setStatus(`${result.status === 'saved' ? 'Saved' : 'Downloaded'} “${result.fileName}”.`);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : 'Failed to save template set');
+      setStatus(err instanceof Error ? err.message : 'Failed to save the document');
+    } finally {
+      setSavingDocument(false);
     }
   };
 
@@ -521,22 +515,16 @@ export function Menubar({
           onClose={() => setSaveDialogOpen(false)}
           onSaved={(mode, savedProject, bundled) => {
             const current = useProjectStore.getState();
-            if (current.project.id === savedProject.id) {
-              current.setProjectMeta({
-                name: savedProject.name,
-                thumbnailFrame: savedProject.thumbnailFrame ?? null,
-              });
+            if (
+              current.documentLoadRevision === documentLoadRevision &&
+              current.project.id === savedProject.id
+            ) {
+              current.setProjectMeta({ thumbnailFrame: savedProject.thumbnailFrame ?? null });
               syncActiveTemplateEdits();
             }
             setSaveDialogOpen(false);
             setStatus(
-              bundled
-                ? mode === 'saved'
-                  ? 'Template + PNG saved (certified)'
-                  : 'Template + PNG ZIP downloaded'
-                : mode === 'saved'
-                  ? 'Editable .ogs file saved'
-                  : 'Editable .ogs file downloaded',
+              `${mode === 'saved' ? 'Saved' : 'Downloaded'} template copy${bundled ? ' with PNG' : ''}.`,
             );
           }}
         />
@@ -754,32 +742,41 @@ export function Menubar({
               <button
                 type="button"
                 role="menuitem"
+                disabled={savingDocument}
                 onClick={() => {
                   closeMenus();
-                  handleSave();
+                  void handleSave('save');
                 }}
-                title="Choose a filename and location for editable .ogs source."
-                disabled={!!projectSet && !activeTemplateId}
+                title="Save the current document. Choose a destination on the first save."
               >
                 <span aria-hidden="true" />
-                Save Template
+                Save
               </button>
               <button
                 type="button"
                 role="menuitem"
-                disabled={!projectSet}
+                disabled={savingDocument}
                 onClick={() => {
                   closeMenus();
-                  void handleSaveTemplateSet();
+                  void handleSave('save-as');
                 }}
-                title={
-                  projectSet
-                    ? 'Save all templates and shared set data as an .ogs document.'
-                    : 'Create or open a template set to save it.'
-                }
+                title="Choose a new filename and location for the current document."
               >
                 <span aria-hidden="true" />
-                Save Template Set…
+                Save As…
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={savingDocument || (!!projectSet && !activeTemplateId)}
+                onClick={() => {
+                  closeMenus();
+                  setSaveDialogOpen(true);
+                }}
+                title="Save the active template as a separate .ogs file, with optional thumbnail."
+              >
+                <span aria-hidden="true" />
+                Save Template Copy…
               </button>
               <div className="menubar-menu-separator" role="separator" />
               <button

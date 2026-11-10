@@ -211,6 +211,14 @@ function isAbort(err: unknown): boolean {
   return typeof err === 'object' && err !== null && 'name' in err && err.name === 'AbortError';
 }
 
+async function requestWritePermission(handle: FileSystemFileHandle): Promise<void> {
+  if (
+    handle.requestPermission &&
+    (await handle.requestPermission({ mode: 'readwrite' })) !== 'granted'
+  )
+    throw new Error('Write access was not granted. Use Save As to choose a destination.');
+}
+
 async function writeBlobToHandle(handle: FileSystemFileHandle, blob: Blob): Promise<void> {
   const writable = await handle.createWritable();
   try {
@@ -240,37 +248,43 @@ export async function downloadProjectSource(
   return 'downloaded';
 }
 
-export type ProjectSourceSaveResult =
-  { status: 'cancelled' } | { status: 'saved' | 'downloaded'; project: Project; fileName: string };
+type EditableSaveDestination =
+  | { status: 'saved'; fileName: string; handle: FileSystemFileHandle }
+  | { status: 'downloaded'; fileName: string };
 
-/** Opens the file save dialog during the click, then verifies and writes the chosen .ogs file. */
+export type ProjectSourceSaveResult =
+  { status: 'cancelled' } | (EditableSaveDestination & { project: Project });
+
+/** Requests access during the click, then verifies and writes the editable source. */
 export async function saveProjectSourceToFile(
   project: Project,
-  options: { baseName?: string; ownerWindow?: Window } = {},
+  options: { baseName?: string; handle?: FileSystemFileHandle; ownerWindow?: Window } = {},
 ): Promise<ProjectSourceSaveResult> {
   const ownerWindow = options.ownerWindow ?? window;
   const snapshot = JSON.parse(JSON.stringify(project)) as Project;
   const baseName = templateBaseName(options.baseName ?? snapshot.name);
   const suggestedName = `${baseName}${PROJECT_SOURCE_EXTENSION}`;
-  if (!ownerWindow.showSaveFilePicker) {
+  let handle = options.handle;
+  if (handle) {
+    await requestWritePermission(handle);
+  } else if (ownerWindow.showSaveFilePicker) {
+    try {
+      handle = await ownerWindow.showSaveFilePicker({
+        suggestedName,
+        types: [SINGLE_TEMPLATE_FILE_TYPE],
+      });
+    } catch (error) {
+      if (isAbort(error)) return { status: 'cancelled' };
+      throw error;
+    }
+    // Keep the chosen title in the exact snapshot sent to certification.
+    snapshot.name = handle.name.replace(/\.ogs$/i, '').trim() || snapshot.name;
+  } else {
     await downloadProjectSource(snapshot, { baseName, ownerWindow });
     return { status: 'downloaded', project: snapshot, fileName: suggestedName };
   }
 
-  let handle: FileSystemFileHandle;
-  try {
-    handle = await ownerWindow.showSaveFilePicker({
-      suggestedName,
-      types: [SINGLE_TEMPLATE_FILE_TYPE],
-    });
-  } catch (error) {
-    if (isAbort(error)) return { status: 'cancelled' };
-    throw error;
-  }
-
-  // The native picker can change the suggested filename. Certify and persist that exact name.
   const fileName = handle.name;
-  snapshot.name = fileName.replace(/\.ogs$/i, '').trim() || snapshot.name;
   const compatibility = await certifyProject(snapshot);
   if (!compatibility.valid)
     throw new Error(`Save blocked by OGraf compatibility gate: ${compatibility.errors.join(' ')}`);
@@ -279,20 +293,20 @@ export async function saveProjectSourceToFile(
     new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' }),
   );
   void rememberRecentDocument(handle);
-  return { status: 'saved', project: snapshot, fileName };
+  return { status: 'saved', project: snapshot, fileName, handle };
 }
 
 export type ProjectSetSaveResult =
-  | { status: 'cancelled' }
-  | { status: 'saved' | 'downloaded'; projectSet: ProjectSetDocument; fileName: string };
+  { status: 'cancelled' } | (EditableSaveDestination & { projectSet: ProjectSetDocument });
 
-/** Chooses the set filename before generating the archive so its root name matches the saved file. */
+/** Resolves the save destination before generating the set archive. */
 export async function saveProjectSetToFile(
   set: ProjectSetDocument,
   options: {
     legacyFormat?: boolean;
     archiveMode?: 'compact' | 'compatible';
     downloadOnly?: boolean;
+    handle?: FileSystemFileHandle;
     ownerWindow?: Window;
     onProgress?: (progress: ProjectSetArchiveProgress) => void;
   } = {},
@@ -311,8 +325,12 @@ export async function saveProjectSetToFile(
       .trim() || 'Untitled Template Set';
   const extension = options.legacyFormat ? '.ogp' : PROJECT_SOURCE_EXTENSION;
   let fileName = `${baseName}${extension}`;
-  let handle: FileSystemFileHandle | undefined;
-  if (ownerWindow.showSaveFilePicker && !options.downloadOnly) {
+  const currentHandle = options.downloadOnly ? undefined : options.handle;
+  let handle = currentHandle;
+  if (handle) {
+    await requestWritePermission(handle);
+    fileName = handle.name;
+  } else if (ownerWindow.showSaveFilePicker && !options.downloadOnly) {
     try {
       handle = await ownerWindow.showSaveFilePicker({
         suggestedName: fileName,
@@ -331,23 +349,24 @@ export async function saveProjectSetToFile(
       throw error;
     }
   }
-  const { renameProjectSet } = await import('./projectSet');
-  snapshot = renameProjectSet(snapshot, fileName.replace(/\.(ogs|ogp)$/i, ''));
+  if (!currentHandle) {
+    const { renameProjectSet } = await import('./projectSet');
+    snapshot = renameProjectSet(snapshot, fileName.replace(/\.(ogs|ogp)$/i, ''));
+  }
   if (options.legacyFormat) snapshot = await legacyTemplateSetCopy(snapshot);
   const blob = await createProjectSetArchiveTask(snapshot, {
     legacyFormat: options.legacyFormat,
     archiveMode: options.archiveMode,
     onProgress: options.onProgress,
   });
+  const projectSet = options.legacyFormat ? set : snapshot;
   if (handle) {
     await writeBlobToHandle(handle, blob);
     void rememberRecentDocument(handle);
-  } else downloadBlob(blob, fileName, ownerWindow);
-  return {
-    status: handle ? 'saved' : 'downloaded',
-    projectSet: options.legacyFormat ? set : snapshot,
-    fileName,
-  };
+    return { status: 'saved', projectSet, fileName, handle };
+  }
+  downloadBlob(blob, fileName, ownerWindow);
+  return { status: 'downloaded', projectSet, fileName };
 }
 
 /**

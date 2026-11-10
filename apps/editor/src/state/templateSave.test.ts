@@ -35,9 +35,10 @@ describe('saving a template with its thumbnail', () => {
       }),
       abort: vi.fn(async () => {}),
     };
+    const handle = { name: 'Morning Update.ogs', createWritable: async () => writable };
     const filePicker = vi.fn(async () => {
       events.push('picker');
-      return { name: 'Morning Update.ogs', createWritable: async () => writable };
+      return handle;
     });
     vi.stubGlobal('window', { showSaveFilePicker: filePicker, showDirectoryPicker: folderPicker });
     vi.mocked(certifyProject).mockImplementation(async () => {
@@ -52,11 +53,14 @@ describe('saving a template with its thumbnail', () => {
 
     const saving = saveProjectSourceToFile(project);
     expect(events).toEqual(['picker']);
-    expect(await saving).toMatchObject({
+    const result = await saving;
+    expect(result).toMatchObject({
       status: 'saved',
       fileName: 'Morning Update.ogs',
       project: { id: project.id, name: 'Morning Update' },
     });
+    if (result.status !== 'saved') throw new Error('Expected a saved file');
+    expect(result.handle).toBe(handle);
     expect(filePicker).toHaveBeenCalledWith({
       suggestedName: 'News Bulletin.ogs',
       types: [
@@ -81,6 +85,53 @@ describe('saving a template with its thumbnail', () => {
       expect.objectContaining({ name: 'Morning Update' }),
     );
     expect(project.name).toBe('News Bulletin');
+  });
+
+  it('requests write access during Save and reopens the updated current file', async () => {
+    const picker = vi.fn();
+    const write = vi.fn();
+    const close = vi.fn();
+    const requestPermission = vi.fn(async () => 'granted');
+    const handle = {
+      name: 'Existing file.ogs',
+      requestPermission,
+      createWritable: async () => ({ write, close, abort: vi.fn() }),
+    } as unknown as FileSystemFileHandle;
+    vi.stubGlobal('window', { showSaveFilePicker: picker });
+    vi.mocked(certifyProject).mockClear();
+    const project = createProject({ name: 'Edited title', thumbnailFrame: 7 });
+
+    const saving = saveProjectSourceToFile(project, { handle });
+    expect(requestPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
+    expect(certifyProject).not.toHaveBeenCalled();
+    const result = await saving;
+
+    expect(picker).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ status: 'saved', fileName: 'Existing file.ogs' });
+    if (result.status !== 'saved') throw new Error('Expected a saved file');
+    expect(result.handle).toBe(handle);
+    expect(await parseStudioDocument(write.mock.calls[0]![0] as Blob)).toMatchObject({
+      kind: 'template',
+      project: { id: project.id, name: 'Edited title', thumbnailFrame: 7 },
+    });
+  });
+
+  it('leaves the current file alone when write access is denied', async () => {
+    const picker = vi.fn();
+    const createWritable = vi.fn();
+    const handle = {
+      name: 'Read only.ogs',
+      requestPermission: async () => 'denied',
+      createWritable,
+    } as unknown as FileSystemFileHandle;
+    vi.stubGlobal('window', { showSaveFilePicker: picker });
+
+    await expect(saveProjectSourceToFile(createProject(), { handle })).rejects.toThrow(
+      'Use Save As',
+    );
+    expect(createWritable).not.toHaveBeenCalled();
+    expect(picker).not.toHaveBeenCalled();
   });
 
   it('leaves the project untouched when the file save dialog is cancelled', async () => {
