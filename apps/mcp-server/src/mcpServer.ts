@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   createOGrafToolRecords,
+  OGRAF_CLIENT_SETUP,
   type AgentToolConfig,
   type AgentToolHandler,
 } from '@ograf-editor/agent-tools';
@@ -13,10 +14,11 @@ type RegisterTool = (name: string, config: AgentToolConfig, handler: AgentToolHa
 export function createOGrafMcpServer(
   workspace: AuthoringWorkspace,
   bridge: EditorBridge,
+  options: { bundledAuthoringSkill?: boolean } = {},
 ): McpServer {
-  const server = new McpServer({ name: 'ograf-editor', version: '0.32.0' });
+  const server = new McpServer({ name: OGRAF_CLIENT_SETUP.mcpServerName, version: '0.32.0' });
   const registerTool = server.registerTool.bind(server) as unknown as RegisterTool;
-  for (const tool of createOGrafToolRecords(workspace, bridge)) {
+  for (const tool of createOGrafToolRecords(workspace, bridge, options)) {
     registerTool(tool.name, tool.config, tool.handler);
   }
   return server;

@@ -1,7 +1,37 @@
 # Local editor and MCP setup
 
 Read this reference when the `ograf-editor` MCP dependency is unavailable, the editor bridge is
-disconnected, or a local MCP client needs configuration.
+disconnected, or a local AI client needs the matching skill and MCP configuration.
+
+## Install the bundled skill
+
+Standalone builds with bundled skill support include the full `ograf-authoring.zip` that matches
+the executable. The startup hint shows how to print a setup prompt. For example, on Windows:
+
+```powershell
+.\OGrafStudioServer.exe --print-setup-prompt
+.\OGrafStudioServer.exe --export-skill .\ograf-authoring.zip
+```
+
+Use the downloaded executable's filename on your platform. Each command exits after printing the
+prompt or writing the archive. Choose a fresh export path because the command preserves an existing
+file. Pass the running server's `--port` value when printing the prompt if it differs from the
+default. Start Studio separately to use the tools.
+
+- **Codex CLI or a local ChatGPT Desktop session** — Extract the entire `ograf-authoring` folder
+  into `~/.agents/skills/`, leaving `SKILL.md` at `~/.agents/skills/ograf-authoring/SKILL.md`.
+- **Claude Code** — Extract the entire folder into `~/.claude/skills/`, leaving `SKILL.md` at
+  `~/.claude/skills/ograf-authoring/SKILL.md`.
+- **Claude Desktop** — Upload the ZIP in **Customize → Skills** and enable it if prompted.
+  Follow [Claude's skill upload guide](https://support.claude.com/en/articles/12512180-use-skills-in-claude)
+  if the upload control is unavailable.
+
+`~` means the home directory of the user running the local client. Keep the supporting files
+alongside `SKILL.md`. Check the client's skill list and start a fresh session if needed.
+
+For an older executable without `--export-skill`, get `ograf-authoring.zip` from the same release.
+For a source checkout, run `npm run skill:package` and use
+`skills/ograf-authoring/ograf-authoring.zip`.
 
 ## Start the services
 
@@ -39,7 +69,8 @@ disconnected.
 ## Health and recovery
 
 1. Check `/health` before retrying a failed connection.
-2. If the server is unavailable, start or restart `npm run mcp:start`.
+2. If the server is unavailable, start the standalone executable or restart `npm run mcp:start`
+   for a source checkout.
 3. If the socket is connected but capabilities report the editor as unresponsive, focus the editor
    tab and recheck `ograf_get_capabilities`.
 4. Rebuild `packages/ograf-runtime` after runtime source changes; root `dev`, `mcp:start`, `test`,
@@ -56,7 +87,22 @@ for later execution. Keep Studio visible, recheck readiness and the relevant rev
 deliberately. This contract does not apply to execution timeouts or uncertain playout outcomes:
 read their status and preserve the original request ID instead of repeating a mutation.
 
-## Claude Desktop on Windows
+## Connect a local MCP client
+
+Use `ograf-editor` as the server name and Streamable HTTP as the transport. Use the running server's
+MCP URL. For local Codex and ChatGPT Desktop sessions, configure the local Codex MCP server. For
+Claude Code, use an HTTP MCP server in the desired scope. These commands register the default
+endpoint for the current user:
+
+```sh
+codex mcp add ograf-editor --url http://127.0.0.1:4318/mcp
+claude mcp add --transport http --scope user ograf-editor http://127.0.0.1:4318/mcp
+```
+
+Reuse a working OGraf entry if one is already configured. Preserve unrelated settings. In a fresh
+session, check that `ograf-editor` connects and call `ograf_get_capabilities` before authoring.
+
+### Claude Desktop on Windows
 
 Claude Desktop's JSON configuration launches local stdio processes. This server uses Streamable
 HTTP, so a local compatibility bridge is required:
