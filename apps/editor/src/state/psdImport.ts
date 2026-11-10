@@ -207,7 +207,8 @@ export function mapPsdLayers(
       if (rectangle) {
         const { fill, ...bounds } = rectangle;
         const layer = createLayerOfKind('rectangle');
-        if (layer.element.type !== 'rectangle') throw new Error('Could not create rectangle layer.');
+        if (layer.element.type !== 'rectangle')
+          throw new Error('Could not create rectangle layer.');
         layer.name = node.name || 'PSD rectangle';
         layer.element.fill = fill;
         layer.isVisible = visible;
@@ -306,7 +307,8 @@ export function mapPsdLayers(
           color: `rgb(${color.r}, ${color.g}, ${color.b})`,
           letterSpacing: ((style.tracking ?? 0) * fontSize) / 1000,
           lineHeight: style.leading ? style.leading / fontSize : 1.2,
-          textAlign: justification === 'center' || justification === 'right' ? justification : 'left',
+          textAlign:
+            justification === 'center' || justification === 'right' ? justification : 'left',
           autoFit: 'fixed',
         });
         layer.keyframes = composition.keyframes.map((_, i) =>

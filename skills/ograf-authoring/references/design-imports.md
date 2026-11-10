@@ -14,7 +14,8 @@ They are separate from the MCP asset-import operations.
   Nested SVG/Figma groups share the outer editable group; independent inner group boundaries
   cannot be represented yet and the import report warns about flattening.
   Do not claim fallback pixels are individually editable.
-- PSD imports supported pixel layers and simple text when its font is available. Unsupported
+- PSD retains layer stacking and imports supported pixel layers, solid rectangles and simple text
+  when its font is available. Unsupported
   masks, effects, adjustments, clipping or compositing use the PSD's merged image; without a
   usable merged image, import fails with a message. Nested groups may be flattened. Review the
   warnings and never promise every Photoshop layer remains editable.

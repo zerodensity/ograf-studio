@@ -3,7 +3,7 @@ name: ograf-authoring
 description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, Lottie layers, shader and Media paints, exposed shader animation, procedural pattern presets, composable effects stacks, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, single/multi-template .ogs documents, legacy .ogp sets, inherited defaults, layer/source/canvas crops, .ograf.zip packages, per-property animation, Animate In/Out motion, data binding, interactive visual rules, and OGraf compliance work.
 ---
 
-# OGraf Authoring 0.31.0
+# OGraf Authoring 0.32.0
 
 Use OGraf Studio's canonical editable model. Require final OGraf certification.
 

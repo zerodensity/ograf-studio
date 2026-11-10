@@ -73,7 +73,12 @@ describe('PSD import', () => {
                     open: false,
                     operation: 'combine',
                     fillRule: 'non-zero',
-                    knots: [[2, 3], [8, 3], [8, 7], [2, 7]].map(([x, y]) => ({
+                    knots: [
+                      [2, 3],
+                      [8, 3],
+                      [8, 7],
+                      [2, 7],
+                    ].map(([x, y]) => ({
                       linked: false,
                       points: [x!, y!, x!, y!, x!, y!],
                     })),
