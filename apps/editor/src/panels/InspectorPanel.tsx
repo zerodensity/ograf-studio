@@ -80,6 +80,7 @@ import type {
 } from '@ograf-editor/scene-model';
 import {
   BLEND_MODES,
+  MAX_TEXT_CLIP_MARGIN,
   createCornerRadii,
   createLayerPropertyKeyframe,
   findLayerKeyframeAtFrame,
@@ -2046,6 +2047,56 @@ export function InspectorPanel() {
                   <option value="ellipsis">Ellipsis</option>
                 </select>
               </PropertyRow>
+              {layer.element.overflowPolicy === 'clip' &&
+                !layer.element.crawl &&
+                !layer.textPath && (
+                  <>
+                    <PropertyRow
+                      help="Expand the clipping box on the left and right without moving the text."
+                      className="inspector-row"
+                    >
+                      <span>Horizontal clip margin</span>
+                      <input
+                        aria-label="Horizontal clip margin"
+                        type="number"
+                        min={0}
+                        max={MAX_TEXT_CLIP_MARGIN}
+                        step="any"
+                        value={layer.element.clipMarginX ?? 0}
+                        disabled={layer.isLocked}
+                        onChange={(event) => {
+                          const value = Number(event.currentTarget.value);
+                          if (Number.isFinite(value))
+                            setElement({
+                              clipMarginX: Math.max(0, Math.min(MAX_TEXT_CLIP_MARGIN, value)),
+                            });
+                        }}
+                      />
+                    </PropertyRow>
+                    <PropertyRow
+                      help="Expand the clipping box above and below without moving the text."
+                      className="inspector-row"
+                    >
+                      <span>Vertical clip margin</span>
+                      <input
+                        aria-label="Vertical clip margin"
+                        type="number"
+                        min={0}
+                        max={MAX_TEXT_CLIP_MARGIN}
+                        step="any"
+                        value={layer.element.clipMarginY ?? 0}
+                        disabled={layer.isLocked}
+                        onChange={(event) => {
+                          const value = Number(event.currentTarget.value);
+                          if (Number.isFinite(value))
+                            setElement({
+                              clipMarginY: Math.max(0, Math.min(MAX_TEXT_CLIP_MARGIN, value)),
+                            });
+                        }}
+                      />
+                    </PropertyRow>
+                  </>
+                )}
               <p className="inspector-hint">
                 Auto size changes the authored box. Shrink only reduces text to its minimum-size
                 floor. Fit to width scales proportionally. Squeeze fills the box by deforming glyph

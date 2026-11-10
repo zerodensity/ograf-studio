@@ -9,6 +9,7 @@ import {
   type TextElement,
 } from '@ograf-editor/scene-model';
 import { paintTextTintGlyph } from './textTintMask';
+import { getTextClipMargins, localTextClipMargins } from './textClipMargins';
 
 export interface ShaderPaintMask {
   ready: Promise<void>;
@@ -436,6 +437,11 @@ function paintTextMask(
   copyTextMaskStyles(original, content, view, styles);
   const transform = computed.transform;
   const transformOrigin = computed.transformOrigin;
+  const transformMatrix = transform && transform !== 'none' ? new DOMMatrix(transform) : null;
+  const margins = getTextClipMargins(element);
+  const localMargins = margins
+    ? localTextClipMargins(margins, transformMatrix?.a, transformMatrix?.d)
+    : null;
   content.style.transform = 'none';
   content.style.color = '#ffffff';
   content.style.webkitTextFillColor = '#ffffff';
@@ -465,27 +471,29 @@ function paintTextMask(
           target.height / (layout.height + padding * 2),
         );
         if (padding > 0) context.translate(padding, padding);
-        if (transform && transform !== 'none') {
-          const matrix = new DOMMatrix(transform);
+        if (transformMatrix) {
           const [ox = 0, oy = 0] = transformOrigin
             .split(' ')
             .map((part) => Number.parseFloat(part) || 0);
           const x = contentBounds.left - origin.left + ox,
             y = contentBounds.top - origin.top + oy;
           context.translate(x, y);
-          context.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+          const { a, b, c, d, e, f } = transformMatrix;
+          context.transform(a, b, c, d, e, f);
           context.translate(-x, -y);
         }
         const clips = (overflow: string) => ['hidden', 'clip', 'scroll', 'auto'].includes(overflow);
-        const clipX = clips(paintStyle.overflowX),
-          clipY = clips(paintStyle.overflowY);
+        const clipX = localMargins !== null || clips(paintStyle.overflowX),
+          clipY = localMargins !== null || clips(paintStyle.overflowY);
+        const marginX = localMargins?.x ?? 0;
+        const marginY = localMargins?.y ?? 0;
         if (clipX || clipY) {
           context.beginPath();
           context.rect(
-            clipX ? contentBounds.left - origin.left : -padding,
-            clipY ? contentBounds.top - origin.top : -padding,
-            clipX ? contentBounds.width : layout.width + padding * 2,
-            clipY ? contentBounds.height : layout.height + padding * 2,
+            clipX ? contentBounds.left - origin.left - marginX : -padding,
+            clipY ? contentBounds.top - origin.top - marginY : -padding,
+            clipX ? contentBounds.width + marginX * 2 : layout.width + padding * 2,
+            clipY ? contentBounds.height + marginY * 2 : layout.height + padding * 2,
           );
           context.clip();
         }

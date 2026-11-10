@@ -11,6 +11,16 @@ import {
   resolveModifierElement,
   type CompiledModifierContext,
 } from './modifierRendering';
+import { getTextClipMargins } from './textClipMargins';
+
+export function hasAutoSizedTextClip(layer: CompiledGraphicDescriptor['layers'][number]): boolean {
+  return (
+    !layer.textPath &&
+    layer.element.type === 'text' &&
+    layer.element.autoFit === 'auto-size' &&
+    !!getTextClipMargins(layer.element)
+  );
+}
 
 function naturalTextSize(content: HTMLElement): { width: number; height: number } | null {
   const document = content.ownerDocument;
@@ -47,16 +57,24 @@ export function applyCompiledAutoLayout(
 ): void {
   prepareCompiledModifierVisibility(descriptor, states, data, context);
   prepareCompiledModifierTextFits(descriptor, states, data, elements, context);
-  if (!descriptor.layers.some((layer) => layer.autoLayout && layer.autoLayout.direction !== 'none'))
-    return;
+  const hasFlow = descriptor.layers.some(
+    (layer) => layer.autoLayout && layer.autoLayout.direction !== 'none',
+  );
+  const textLayers = descriptor.layers.filter(
+    (layer) =>
+      layer.element.type === 'text' &&
+      layer.element.autoFit === 'auto-size' &&
+      (hasFlow || hasAutoSizedTextClip(layer)),
+  );
+  if (!hasFlow && !textLayers.length) return;
   const measured = new Map<string, { width: number; height: number }>();
   for (const [id, state] of states) {
     if (state.textFit)
       measured.set(id, { width: state.transform.width, height: state.transform.height });
   }
-  if (elements) {
+  if (elements && textLayers.length) {
     const resolvedElements = new Map(
-      descriptor.layers.map((layer) => [layer.id, resolveModifierElement(layer, data, context)]),
+      textLayers.map((layer) => [layer.id, resolveModifierElement(layer, data, context)]),
     );
     primeModifierTextMeasurements(
       elements.values().next().value?.ownerDocument,
@@ -64,7 +82,7 @@ export function applyCompiledAutoLayout(
         (element) => element.type === 'text' && element.autoFit === 'auto-size',
       ),
     );
-    for (const layer of descriptor.layers) {
+    for (const layer of textLayers) {
       if (measured.has(layer.id)) continue;
       const resolvedElement = resolvedElements.get(layer.id)!;
       if (resolvedElement.type !== 'text' || resolvedElement.autoFit !== 'auto-size') continue;
@@ -76,23 +94,29 @@ export function applyCompiledAutoLayout(
         : null;
       if (naturalCached) {
         measured.set(layer.id, naturalCached);
-        continue;
+      } else {
+        const host = outer.querySelector<HTMLElement>('.layer-content-host') ?? outer;
+        const content = [...host.children].find(
+          (child) => child.getAttribute('data-ograf-runtime-auxiliary') !== 'true',
+        ) as HTMLElement | undefined;
+        const natural = content ? naturalTextSize(content) : null;
+        if (!natural) continue;
+        const stroke = Math.max(0, resolvedElement.strokeWidth) * 2;
+        measured.set(layer.id, {
+          width: Math.ceil(natural.width + stroke),
+          height: Math.ceil(natural.height + stroke),
+        });
       }
-      const host = outer?.querySelector<HTMLElement>('.layer-content-host') ?? outer ?? undefined;
-      const content = host
-        ? ([...host.children].find(
-            (child) => child.getAttribute('data-ograf-runtime-auxiliary') !== 'true',
-          ) as HTMLElement | undefined)
-        : undefined;
-      if (!content) continue;
-      const natural = naturalTextSize(content);
-      if (!natural) continue;
-      const stroke = Math.max(0, resolvedElement.strokeWidth) * 2;
-      const width = Math.ceil(natural.width + stroke);
-      const height = Math.ceil(natural.height + stroke);
-      if (width > 0 && height > 0) measured.set(layer.id, { width, height });
+      // Standalone Auto Size text also needs the current measured box when it opts into a
+      // clipping margin. The margin itself changes paint bounds, not layout dimensions.
+      if (state && hasAutoSizedTextClip(layer)) {
+        const size = measured.get(layer.id)!;
+        state.transform.width = size.width;
+        state.transform.height = size.height;
+      }
     }
   }
+  if (!hasFlow) return;
   applyAutoLayoutTransforms(
     descriptor.layers.map((layer) => ({
       id: layer.id,

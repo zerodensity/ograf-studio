@@ -18,6 +18,7 @@ import {
   shaderAnimationPropertySpec,
   shaderAnimationValueErrors,
   normalizeTextAnimation,
+  MAX_TEXT_CLIP_MARGIN,
   textAnimationErrors,
   textCrawlErrors,
   tickerErrors,
@@ -2436,6 +2437,19 @@ function validateComposition(composition: Composition, errors: string[], warning
       }
       if (!Number.isFinite(layer.element.baselineShift)) {
         errors.push(`${prefix}: text layer "${layer.name}" baseline shift must be finite.`);
+      }
+      for (const [axis, margin] of [
+        ['horizontal', layer.element.clipMarginX],
+        ['vertical', layer.element.clipMarginY],
+      ] as const) {
+        if (
+          margin !== undefined &&
+          (!Number.isFinite(margin) || margin < 0 || margin > MAX_TEXT_CLIP_MARGIN)
+        ) {
+          errors.push(
+            `${prefix}: text layer "${layer.name}" ${axis} clip margin must be between 0 and ${MAX_TEXT_CLIP_MARGIN} pixels.`,
+          );
+        }
       }
       if (
         !Number.isFinite(layer.element.minFontSize) ||

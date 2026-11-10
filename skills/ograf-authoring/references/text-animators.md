@@ -45,3 +45,10 @@ Validation reports unsupported combinations before export.
 # Color sampling
 
 The system eyedropper is preferred. If unavailable, Studio samples a preserved, origin-clean shader canvas using a one-shot live-stage capture. It cancels pending samples on project, composition, selection or control changes; video/live media, restricted canvases and external images are explicitly rejected. Do not replace those errors with a silently blank or reconstructed frame, and never add a continuous per-frame readback for the picker.
+
+## Text clipping margins
+
+For a text box with `overflowPolicy: "clip"`, set `clipMarginX` and `clipMarginY` in an
+`update_element` patch. Each value expands both edges of its axis by 0–512 composition pixels.
+A nonzero margin on Auto Size text follows the measured box of the current bound text. Keep both
+values at zero to use the original clip. Verify short and long data values in the exported graphic.

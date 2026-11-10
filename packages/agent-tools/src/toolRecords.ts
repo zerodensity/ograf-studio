@@ -75,6 +75,7 @@ import {
   inspectDataFieldUsage,
   MAX_SHADER_IMAGE_BYTES,
   MAX_SHADER_SOURCE_BYTES,
+  MAX_TEXT_CLIP_MARGIN,
   LOTTIE_READY_TIMEOUT_MS,
   PROJECT_SOURCE_EXTENSION,
   MOTION_PRESET_NAMES,
@@ -2535,6 +2536,22 @@ export function createOGrafToolRecords(
               type: 'enum',
               values: ['visible', 'clip', 'ellipsis'],
               default: 'visible',
+            },
+            clipMarginX: {
+              type: 'number',
+              minimum: 0,
+              maximum: MAX_TEXT_CLIP_MARGIN,
+              default: 0,
+              description:
+                'Extra composition pixels on both horizontal sides of ordinary text with overflowPolicy:clip.',
+            },
+            clipMarginY: {
+              type: 'number',
+              minimum: 0,
+              maximum: MAX_TEXT_CLIP_MARGIN,
+              default: 0,
+              description:
+                'Extra composition pixels on both vertical sides of ordinary text with overflowPolicy:clip.',
             },
             autoFit: {
               type: 'enum',

@@ -464,6 +464,10 @@ export interface TextElement {
   /** Absolute legibility floor used by shrink-to-fit. */
   minFontSize: number;
   overflowPolicy: 'visible' | 'clip' | 'ellipsis';
+  /** Extra space on each horizontal side of the text clipping box, in composition pixels. */
+  clipMarginX?: number;
+  /** Extra space on each vertical side of the text clipping box, in composition pixels. */
+  clipMarginY?: number;
   /** Squeeze deliberately scales glyph width and height independently to fill the authored box. */
   autoFit: 'auto-size' | 'shrink-to-fit' | 'fit-to-width' | 'squeeze' | 'fixed';
   runs: TextRun[];

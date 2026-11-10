@@ -1255,6 +1255,14 @@ layer retains one transform, outline, animation, and data identity. A content bi
 styled runs while its value matches the authored text. New operator text replaces them with plain
 text to avoid applying stale character ranges.
 
+### Text clipping margins
+
+Select a text object and set **Overflow** to **Clip** in Properties. **Horizontal clip
+margin** expands the clip on both sides, and **Vertical clip margin** expands it above and below.
+The values are composition pixels from 0 to 512. Margins leave wrapping and font fitting intact.
+With **Auto Size**, a nonzero margin follows the measured text box as bound data changes.
+The controls apply to text boxes. Crawls and text on a path use their own clipping behavior.
+
 ### Native ticker
 
 Choose **Ticker** in the add-object toolbar. Its layer box is the scrolling viewport; resize or

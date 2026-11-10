@@ -13,6 +13,7 @@ import {
   visualRulePlayoutActionErrors,
   visualRulePlayoutDataErrors,
   MAX_TIMER_VALUE_MS,
+  MAX_TEXT_CLIP_MARGIN,
   isLogicFunctionAlias,
   logicFunctionJsonErrors,
   MAX_LOGIC_FUNCTION_SOURCE_BYTES,
@@ -217,6 +218,8 @@ const elementPatchSchema = z
       .optional(),
     clock: clockTimerSettingsPatchSchema.nullable().optional(),
     textAnimation: textAnimationPatchSchema.optional(),
+    clipMarginX: z.number().finite().min(0).max(MAX_TEXT_CLIP_MARGIN).optional(),
+    clipMarginY: z.number().finite().min(0).max(MAX_TEXT_CLIP_MARGIN).optional(),
   })
   .catchall(z.unknown());
 

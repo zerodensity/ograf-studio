@@ -106,7 +106,7 @@ export {
   sampleCompiledLayerVisualState,
   type CompiledLayerVisualState,
 } from './loopRendering';
-export { applyCompiledAutoLayout } from './autoLayoutRendering';
+export { applyCompiledAutoLayout, hasAutoSizedTextClip } from './autoLayoutRendering';
 export { applyCompiledMotionPaths } from './motionPathRendering';
 export { getTextGradientSource } from './textGradientTint';
 export {
