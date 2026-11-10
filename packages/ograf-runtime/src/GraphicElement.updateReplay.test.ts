@@ -347,15 +347,20 @@ it('retains the export key on authored layer wrappers across data updates', asyn
   const graphic = await loaded(descriptor, 'realtime', { score: OLD, items: [{}, {}] });
   const host = layerHost(graphic, 'score');
   expect(host.dataset.ografLayerKey).toBe('scoreline');
+  expect(Object.keys(graphic.instances)).toEqual(['single']);
+  expect(graphic.instances.single?.layers.scoreline).toBe(host);
+  expect(Object.keys(graphic.instances.single!.layers)).toEqual(['scoreline']);
   expect(layerHost(graphic, 'unkeyed').dataset.ografLayerKey).toBeUndefined();
   expect(layerHost(graphic, 'rows::0::row').dataset.ografLayerKey).toBeUndefined();
   expect(layerHost(graphic, 'rows::1::row').dataset.ografLayerKey).toBeUndefined();
 
   expect(await graphic.updateAction({ data: { score: NEW } })).toMatchObject({ statusCode: 200 });
   expect(layerHost(graphic, 'score')).toBe(host);
+  expect(graphic.instances.single?.layers.scoreline).toBe(host);
   expect(host.dataset.ografLayerKey).toBe('scoreline');
   expect(renderedContent(host)).toBe(NEW);
   await graphic.dispose();
+  expect(Object.keys(graphic.instances)).toEqual([]);
 });
 
 describe('scheduled replay of a layer with style none', () => {

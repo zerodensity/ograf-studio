@@ -3,6 +3,7 @@ import { GraphicElement } from './GraphicElement';
 
 export { GraphicElement } from './GraphicElement';
 export { CoordinatedGraphicElement } from './CoordinatedGraphicElement';
+export type { GraphicInstance, GraphicInstances, StudioFrameCueDetail } from './graphicInstances';
 export {
   applyLayerBackdropFilter,
   backdropBorderRadius,

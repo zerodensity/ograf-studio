@@ -194,6 +194,7 @@ export interface TransitionLogicDataStage {
 
 export interface TransitionLogicMount {
   host: HTMLDivElement;
+  layerElement(id: string): HTMLElement | undefined;
   ready: Promise<void>;
   startFrame: number;
   /** Rebase an unused, Off-air resource probe before handing it to a real request. */
@@ -1124,6 +1125,7 @@ export function mountTransitionLogicComposition(options: {
 
   const mount: TransitionLogicMount = {
     host,
+    layerElement: (id) => layerEls.get(id),
     get startFrame() {
       return startFrame;
     },

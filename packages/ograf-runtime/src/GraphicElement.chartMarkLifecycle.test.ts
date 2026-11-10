@@ -142,6 +142,7 @@ vi.mock('./renderElement', async (importOriginal) => ({
 }));
 vi.mock('lottie-web/build/player/lottie_light_canvas.js', () => ({ default: {} }));
 import { GraphicElement } from './GraphicElement';
+import type { StudioFrameCueDetail } from './graphicInstances';
 
 function descriptor(): CompiledGraphicDescriptor {
   const key = (frame: number, value: number) => ({
@@ -247,6 +248,7 @@ describe('single-template frame cues', () => {
   const load = async (renderType: 'realtime' | 'non-realtime' = 'realtime') => {
     const graphic = new Graphic();
     graphic.connectedCallback();
+    expect(Object.keys(graphic.instances)).toEqual([]);
     expect(
       await graphic.load({
         renderType,
@@ -257,7 +259,7 @@ describe('single-template frame cues', () => {
     const events = () =>
       (graphic as unknown as InstanceType<typeof fixture.Host>).dispatchedEvents
         .filter((event) => event.type === 'ograf-studio-cue')
-        .map((event) => (event as CustomEvent<{ name: string }>).detail);
+        .map((event) => (event as CustomEvent<StudioFrameCueDetail>).detail);
     return { graphic, events, names: () => events().map((event) => event.name) };
   };
   const waitForMotion = () => vi.waitFor(() => expect(fixture.control.pending).not.toBeNull());
@@ -275,7 +277,9 @@ describe('single-template frame cues', () => {
       name: 'first',
       frame: 5,
       payload: { score: 2 },
+      instanceId: 'single',
     });
+    expect(graphic.instances[events()[1]!.instanceId]?.instanceId).toBe('single');
     fixture.advance(1);
     expect(await take).toMatchObject({ currentStep: 0 });
     expect(names().at(-1)).toBe('step-one');
