@@ -80,6 +80,7 @@ import {
   renderTextAnimationAtFrame,
   setTextAnimationPrevious,
 } from './textAnimationRendering';
+import { applyTextClipMargins, getTextClipMargins } from './textClipMargins';
 import { rememberBackdropElement } from './backdropEffectRendering';
 import { prepareModifierTextElement } from './modifierTextRendering';
 import {
@@ -769,6 +770,7 @@ export function renderElementContent(
         content.dir = element.direction;
         if (element.language.trim()) content.lang = element.language.trim();
         const squeeze = element.autoFit === 'squeeze' && !element.crawl;
+        const clipMargins = getTextClipMargins(element);
         content.style.display = squeeze ? 'block' : 'flex';
         content.style.flexDirection = squeeze ? '' : 'column';
         content.style.justifyContent = squeeze
@@ -816,7 +818,7 @@ export function renderElementContent(
             transformOrigin: '0 0',
             overflow: 'visible',
           });
-        }
+        } else if (clipMargins) applyTextClipMargins(content.style, clipMargins);
         if (hasTextAnimation(element)) {
           mountTextAnimationContent(content, element);
         } else if (element.runs.length > 0) {
@@ -926,6 +928,8 @@ export function renderElementContent(
                 }),
               );
               content.style.transform = `scale(${result.scaleX}, ${result.scaleY}) translateY(${element.baselineShift}px)`;
+              if (clipMargins)
+                applyTextClipMargins(content.style, clipMargins, result.scaleX, result.scaleY);
               content.dataset.ografAppliedFontSize = String(element.fontSize);
               content.dataset.ografFitRatio = String(Math.min(result.scaleX, result.scaleY));
               content.dataset.ografFitDegenerate = String(result.degenerate);

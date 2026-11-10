@@ -446,6 +446,18 @@ function nestedTextFixture() {
 }
 
 describe('shader fill coverage', () => {
+  it('clips painted text to the same two-axis margins as native text', async () => {
+    const { host, element, contexts } = nativeTextFixture();
+    element.overflowPolicy = 'clip';
+    element.clipMarginX = 12;
+    element.clipMarginY = 5;
+    const mask = createShaderPaintMask(host, element, { width: 224, height: 124 }, { padding: 12 });
+    await mask.update();
+    expect(contexts[0]!.rect).toHaveBeenCalledWith(-12, -5, 224, 110);
+    expect(contexts[0]!.clip).toHaveBeenCalled();
+    mask.dispose();
+  });
+
   it.each(['flip', 'rotate', 'stretch'] as const)(
     'replays %s glyph matrices around their native center after a backward seek',
     async (type) => {

@@ -6,6 +6,7 @@ import {
   type MediaPaint,
 } from '@ograf-editor/scene-model';
 import { createShaderPaintMask } from './shaderPaintMask';
+import { textClipPadding } from './textClipMargins';
 import { renderTextAnimationAtFrame } from './textAnimationRendering';
 import { renderChartAnimationAtFrame } from './chartRendering';
 import { resolveMediaTimelinePosition } from './mediaTimeline';
@@ -38,6 +39,7 @@ interface MountedMediaPaint {
   paint: MediaPaint;
   paintIdentity: string;
   canvas: HTMLCanvasElement;
+  padding: number;
   context: CanvasRenderingContext2D;
   source: HTMLVideoElement | HTMLImageElement | LiveMediaElement;
   fallback?: HTMLImageElement;
@@ -66,21 +68,26 @@ export function mediaFitRect(
   fit: MediaPaint['fit'],
   positionX: number,
   positionY: number,
+  inset?: { x: number; y: number },
 ) {
   if (source.width <= 0 || source.height <= 0)
     throw new Error('Media paint source has no decoded dimensions.');
-  if (fit === 'fill') return { x: 0, y: 0, width: target.width, height: target.height };
+  const x = inset?.x ?? 0;
+  const y = inset?.y ?? 0;
+  const width = target.width - x * 2;
+  const height = target.height - y * 2;
+  if (fit === 'fill') return { x, y, width, height };
   const scale =
     fit === 'cover'
-      ? Math.max(target.width / source.width, target.height / source.height)
-      : Math.min(target.width / source.width, target.height / source.height);
-  const width = source.width * scale;
-  const height = source.height * scale;
+      ? Math.max(width / source.width, height / source.height)
+      : Math.min(width / source.width, height / source.height);
+  const paintedWidth = source.width * scale;
+  const paintedHeight = source.height * scale;
   return {
-    x: (target.width - width) * positionX,
-    y: (target.height - height) * positionY,
-    width,
-    height,
+    x: x + (width - paintedWidth) * positionX,
+    y: y + (height - paintedHeight) * positionY,
+    width: paintedWidth,
+    height: paintedHeight,
   };
 }
 
@@ -323,13 +330,24 @@ function drawRequestedFrame(mounted: MountedMediaPaint): void {
     // A decoder or live source can temporarily have no frame. Keep the last complete output
     // instead of exposing a transparent canvas between decoded frames.
     if (!source) return;
-    const { canvas, context, paint } = mounted;
+    const { baseHost, canvas, context, padding, paint } = mounted;
     context.resetTransform();
     context.globalCompositeOperation = 'source-over';
     context.clearRect(0, 0, canvas.width, canvas.height);
     if (source && mounted.coverage) {
       const crop = sourceCropPixels(sourceSize(source), paint.crop);
-      const rect = mediaFitRect(crop, canvas, paint.fit, paint.positionX, paint.positionY);
+      // Padding expands the coverage surface without stretching the media inside the text box.
+      const inset = padding
+        ? {
+            x:
+              (canvas.width * padding) /
+              (baseHost.clientWidth ? baseHost.clientWidth + padding * 2 : canvas.width),
+            y:
+              (canvas.height * padding) /
+              (baseHost.clientHeight ? baseHost.clientHeight + padding * 2 : canvas.height),
+          }
+        : undefined;
+      const rect = mediaFitRect(crop, canvas, paint.fit, paint.positionX, paint.positionY, inset);
       if (paint.crop)
         context.drawImage(
           source,
@@ -413,15 +431,17 @@ export function mountMediaPaintContent(
   if (['image', 'image-sequence', 'lottie'].includes(element.type)) baseHost.style.opacity = '0';
   native.render(baseHost, baseElement, { ...options, requiresImageAlpha: true });
   const size = requestedSize(container, options);
+  const padding = textClipPadding(element);
+  const canvasSize = { width: size.width + padding * 2, height: size.height + padding * 2 };
   const canvas = container.ownerDocument.createElement('canvas');
-  canvas.width = size.width;
-  canvas.height = size.height;
+  canvas.width = canvasSize.width;
+  canvas.height = canvasSize.height;
   canvas.dataset.ografMediaCanvas = 'true';
   Object.assign(canvas.style, {
     position: 'absolute',
-    inset: '0',
-    width: '100%',
-    height: '100%',
+    inset: padding ? `-${padding}px` : '0',
+    width: padding ? `calc(100% + ${padding * 2}px)` : '100%',
+    height: padding ? `calc(100% + ${padding * 2}px)` : '100%',
     zIndex: element.type === 'chart' ? '1' : '0',
   });
   visualHost.appendChild(canvas);
@@ -486,7 +506,8 @@ export function mountMediaPaintContent(
     }
     ready = fallback ? waitForImage(fallback, abort.signal) : Promise.resolve();
   }
-  const mask = createShaderPaintMask(baseHost, element, size, {
+  const mask = createShaderPaintMask(baseHost, element, canvasSize, {
+    padding,
     refreshTextLayout: () => native.refreshLayout(baseHost),
   });
   const mounted: MountedMediaPaint = {
@@ -497,6 +518,7 @@ export function mountMediaPaintContent(
     paint,
     paintIdentity: JSON.stringify(paint),
     canvas,
+    padding,
     context,
     source,
     ...(fallback ? { fallback } : {}),

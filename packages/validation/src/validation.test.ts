@@ -14,6 +14,7 @@ import {
   createLayerVisualRule,
   createTransition,
   defaultTransformForRole,
+  MAX_TEXT_CLIP_MARGIN,
   syncShaderParameterFields,
   createAsset,
 } from '@ograf-editor/scene-model';
@@ -21,6 +22,37 @@ import { validateManifest } from './validateManifest';
 import { validateProject } from './validateProject';
 
 describe('canonical OGraf validation', () => {
+  it('validates optional clipping margins and carries valid text margins into exports', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('text');
+    if (layer.element.type !== 'text') throw new Error('Expected text layer.');
+    const frames = computeKeyframeFrames(composition);
+    layer.keyframes = composition.keyframes.map((keyframe, index) =>
+      createLayerKeyframe(frames[index]!.frame, defaultTransformForRole('text', keyframe.role)),
+    );
+    composition.layers.push(layer);
+
+    expect(validateProject(project).errors).toEqual([]);
+    layer.element.overflowPolicy = 'clip';
+    layer.element.clipMarginX = 12.5;
+    layer.element.clipMarginY = 4;
+    expect(validateProject(project).errors).toEqual([]);
+    expect(compileDescriptor(composition).layers[0]?.element).toMatchObject({
+      clipMarginX: 12.5,
+      clipMarginY: 4,
+    });
+
+    layer.element.clipMarginX = -1;
+    layer.element.clipMarginY = MAX_TEXT_CLIP_MARGIN + 1;
+    expect(validateProject(project).errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('horizontal clip margin must be between'),
+        expect.stringContaining('vertical clip margin must be between'),
+      ]),
+    );
+  });
+
   it('accepts interactive keyboard rules and rejects missing or malformed keys', () => {
     const project = createProject();
     const layer = createLayerOfKind('rectangle');

@@ -68,6 +68,7 @@ import {
   applyCompiledMasks,
   applyCompiledLayerVisualState,
   applyCompiledAutoLayout,
+  hasAutoSizedTextClip,
   applyCompiledMotionPaths,
   applyCompiledModifiers,
   MediaCueRuntime,
@@ -1335,6 +1336,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
         layer.element.type === 'pattern' ||
         layer.layoutParentId ||
         layer.autoLayout?.direction !== 'none' ||
+        hasAutoSizedTextClip(layer) ||
         layer.modifiers?.length ||
         layer.motionPath,
     );
