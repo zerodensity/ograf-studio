@@ -11,6 +11,7 @@ import {
   defaultValueForFieldType,
   getResolvedLayerAnimationTracks,
   isMediaPaint,
+  isNodosTypeName,
   isProjectSourcePath,
   migrateProject,
   validateRendererPluginSnapshot,
@@ -738,6 +739,46 @@ function makeAssetResolver(
   };
 }
 
+function restoreNodosInputTypes(field: FieldDefinition, types: unknown): void {
+  if (!isRecord(types)) return;
+  if (isNodosTypeName(types.nodosType)) field.nodosType = types.nodosType;
+  const properties = types.properties;
+  if (isRecord(properties)) {
+    for (const property of field.properties) {
+      if (Object.hasOwn(properties, property.key))
+        restoreNodosInputTypes(property, properties[property.key]);
+    }
+  }
+  if (field.items) restoreNodosInputTypes(field.items, types.items);
+}
+
+function restoreNodosInputFields(
+  metadata: unknown,
+  fields: ReadonlyMap<string, FieldDefinition>,
+  warnings: string[],
+): string[] | undefined {
+  if (metadata === undefined) return undefined;
+  if (!Array.isArray(metadata)) {
+    warnings.push('The Nodos input selection was malformed and was cleared.');
+    return [];
+  }
+  const ids = new Set<string>();
+  for (const entry of metadata) {
+    if (!isRecord(entry) || typeof entry.key !== 'string') {
+      warnings.push('A malformed entry in the Nodos input selection was skipped.');
+      continue;
+    }
+    const field = fields.get(entry.key);
+    if (!field) {
+      warnings.push(`Nodos input "${entry.key}" was absent from the imported data fields.`);
+      continue;
+    }
+    restoreNodosInputTypes(field, entry.nativeTypes);
+    ids.add(field.id);
+  }
+  return [...ids];
+}
+
 function projectFromDescriptor(
   manifest: OGrafManifest,
   descriptor: CompiledGraphicDescriptor,
@@ -936,6 +977,11 @@ function projectFromDescriptor(
     ];
   });
 
+  const nodosInputFieldIds = restoreNodosInputFields(
+    descriptor.nodosInputFields,
+    fieldByKey,
+    warnings,
+  );
   const composition = createComposition({
     name: manifest.name,
     width: descriptor.width,
@@ -946,6 +992,7 @@ function projectFromDescriptor(
     keyframes: lifecycle.keyframes,
     transitions: lifecycle.transitions,
     dataFields,
+    ...(nodosInputFieldIds === undefined ? {} : { nodosInputFieldIds }),
     runtimeCollections,
     rendererPlugins,
     patterns: [

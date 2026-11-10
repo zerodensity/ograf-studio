@@ -1,6 +1,6 @@
 {
   "contractVersion": 1,
-  "server": { "name": "ograf-editor", "version": "0.31.0" },
+  "server": { "name": "ograf-editor", "version": "0.32.0" },
   "tools": [
     {
       "name": "ograf_get_capabilities",
@@ -2196,6 +2196,7 @@
                 {
                   "properties": {
                     "type": { "const": "add_data_field" },
+                    "exposeToNodos": { "type": "boolean" },
                     "nodosType": { "$ref": "#/$defs/13" },
                     "defaultTokenId": { "$ref": "#/$defs/2" },
                     "compositionId": { "type": "string" },
@@ -2217,6 +2218,7 @@
                 {
                   "properties": {
                     "type": { "const": "update_data_field" },
+                    "exposeToNodos": { "type": "boolean" },
                     "nodosType": { "anyOf": [{ "$ref": "#/$defs/13" }, { "type": "null" }] },
                     "defaultTokenId": { "$ref": "#/$defs/2" },
                     "compositionId": { "type": "string" },

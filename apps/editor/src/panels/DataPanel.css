@@ -331,3 +331,15 @@
   color: var(--text-dim);
   font-size: 11px;
 }
+.data-nodos-fields {
+  display: grid;
+  gap: 6px;
+  padding: 6px 9px;
+}
+
+.data-nodos-field {
+  display: flex;
+  align-items: start;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}

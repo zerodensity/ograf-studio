@@ -7,7 +7,12 @@ import {
   type Composition,
   type Layer,
 } from '@ograf-editor/scene-model';
-import { editableSvgLayers } from './editableSvgImport';
+import {
+  editableSvgLayers,
+  importedSvgName,
+  SVG_NAMESPACE,
+  XMLNS_NAMESPACE,
+} from './editableSvgImport';
 
 /** Safely rasterize only unsupported subtrees, retaining their SVG ancestors and definitions. */
 export async function prepareEditableSvg(
@@ -18,7 +23,11 @@ export async function prepareEditableSvg(
     throw new Error('This SVG is too large or contains a document type declaration.');
   const document = new DOMParser().parseFromString(source, 'image/svg+xml');
   const root = document.documentElement;
-  if (root.localName !== 'svg' || document.querySelector('parsererror'))
+  if (
+    root.localName !== 'svg' ||
+    (root.namespaceURI !== null && root.namespaceURI !== SVG_NAMESPACE) ||
+    document.querySelector('parsererror')
+  )
     throw new Error('The file is not a well-formed SVG.');
   const hasExternalUrl = (value: string) => {
     for (const match of value.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)) {
@@ -31,9 +40,10 @@ export async function prepareEditableSvg(
     if (['script', 'foreignObject'].includes(element.localName))
       throw new Error('SVG scripts and foreign objects cannot be imported safely.');
     for (const attribute of Array.from(element.attributes)) {
-      if (/^on/i.test(attribute.name))
+      if (attribute.namespaceURI === XMLNS_NAMESPACE) continue;
+      if (/^on/i.test(attribute.localName))
         throw new Error('SVG event handlers cannot be imported safely.');
-      if (/^(?:href|xlink:href|src)$/i.test(attribute.name) && !isLocalResource(attribute.value))
+      if (/^(?:href|src)$/i.test(attribute.localName) && !isLocalResource(attribute.value))
         throw new Error('SVG external resources must be embedded before import.');
       if (hasExternalUrl(attribute.value))
         throw new Error('SVG external resources must be embedded before import.');
@@ -79,7 +89,7 @@ export async function prepareEditableSvg(
       throw new Error('SVG has too many unsupported parts to rasterize safely.');
     const wholeDocument = ancestors.length === 0;
     const copy = root.cloneNode(wholeDocument) as Element;
-    copy.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    copy.setAttribute('xmlns', SVG_NAMESPACE);
     copy.setAttribute('width', String(width));
     copy.setAttribute('height', String(height));
     if (!wholeDocument) {
@@ -96,7 +106,7 @@ export async function prepareEditableSvg(
       parent.appendChild(node.cloneNode(true));
     }
     const layer = createLayerOfKind('image');
-    layer.name = `${node.getAttribute('id') || node.localName} (image fallback)`;
+    layer.name = `${importedSvgName(node) || node.localName} (image fallback)`;
     if (layer.element.type !== 'image') throw new Error('Could not prepare SVG fallback.');
     pending.set(layer.id, new XMLSerializer().serializeToString(copy));
     layer.keyframes = composition.keyframes.map((_, index) =>

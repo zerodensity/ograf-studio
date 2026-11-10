@@ -15,6 +15,14 @@ export function isFieldExposedToOgraf(field: Pick<FieldDefinition, 'exposeToOgra
   return field.exposeToOgraf !== false;
 }
 
+/** Public array controls also require an exposed item schema. */
+export function fieldExposedToOgraf(field: FieldDefinition): boolean {
+  return (
+    isFieldExposedToOgraf(field) &&
+    !(field.type === 'array' && field.items && !isFieldExposedToOgraf(field.items))
+  );
+}
+
 export function valueAtSourcePath(value: unknown, sourcePath: readonly string[] = []): unknown {
   let current = value;
   for (const segment of sourcePath) {

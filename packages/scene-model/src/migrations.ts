@@ -277,6 +277,14 @@ function normalizeRoles(keyframes: LegacyKeyframe[]): Keyframe[] {
 }
 
 function normalizeComposition(composition: LegacyComposition): Composition {
+  const { nodosInputFieldIds } = composition;
+  if (
+    nodosInputFieldIds !== undefined &&
+    (!Array.isArray(nodosInputFieldIds) ||
+      nodosInputFieldIds.some((id) => typeof id !== 'string' || !id))
+  ) {
+    throw new Error('Nodos input field IDs must be an array of nonempty strings.');
+  }
   if (composition.testRundowns !== undefined) {
     const errors = testRundownErrors(
       { dataFields: composition.dataFields ?? [] },
@@ -499,6 +507,9 @@ function normalizeComposition(composition: LegacyComposition): Composition {
 
   return {
     ...composition,
+    ...(nodosInputFieldIds === undefined
+      ? {}
+      : { nodosInputFieldIds: [...new Set(nodosInputFieldIds)] }),
     updateTransitionFrames: Math.max(0, Math.round(composition.updateTransitionFrames ?? 0)),
     updateInterruption: composition.updateInterruption ?? 'queue',
     keyframes: normalizedKeyframes,

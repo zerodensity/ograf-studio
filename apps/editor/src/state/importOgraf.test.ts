@@ -8,6 +8,7 @@ import {
   createFieldDefinition,
   createLayerKeyframe,
   createLayerOfKind,
+  createMediaPaint,
   createProject,
   createTilingPattern,
   addTilingPatternLayer,
@@ -26,6 +27,7 @@ import {
 } from '@ograf-editor/codegen';
 import { OGRAF_MANIFEST_SCHEMA_URL, type OGrafManifest } from '@ograf-editor/ograf-types';
 import { importOgrafData } from './importOgraf';
+import { addPackageFiles } from './exportPackage';
 import { createTransitionLogicNewsExample } from '../examples/transitionLogicNews';
 import { resolveProjectSetTemplate } from './projectSet';
 
@@ -34,6 +36,74 @@ async function packageBytes(files: Record<string, string>): Promise<Uint8Array> 
   for (const [path, contents] of Object.entries(files)) zip.file(path, contents);
   return zip.generateAsync({ type: 'uint8array' });
 }
+
+describe('Nodos input selection in single-template packages', () => {
+  it.each(['selected', 'empty', 'legacy'] as const)(
+    'preserves the %s selection through ZIP export, import and re-export',
+    async (selection) => {
+      const project = createProject({ supportsNonRealTime: false });
+      const composition = project.compositions[0]!;
+      const title = createFieldDefinition('text', { key: 'TitleInput1' });
+      const positions = createFieldDefinition('array', {
+        key: 'Positions',
+        defaultValue: [3],
+        items: createFieldDefinition('integer', {
+          key: 'item',
+          defaultValue: 0,
+          ...(selection === 'selected' ? { nodosType: 'ushort' } : {}),
+        }),
+      });
+      const headline = createFieldDefinition('text', { key: 'headline' });
+      const hidden = createFieldDefinition('text', { key: 'hidden', exposeToOgraf: false });
+      const live = createLayerOfKind('rectangle');
+      if (live.element.type !== 'rectangle') throw new Error('Expected a rectangle');
+      live.element.fill = createMediaPaint({ source: { kind: 'live', tag: 'TextureInput1' } });
+      live.keyframes = [createLayerKeyframe(0, defaultTransformFor('rectangle'))];
+      composition.layers = [live];
+      composition.dataFields = [title, positions, headline, hidden];
+      if (selection === 'selected')
+        composition.nodosInputFieldIds = [title.id, positions.id, hidden.id];
+      else if (selection === 'legacy') delete composition.nodosInputFieldIds;
+
+      const build = (source: typeof project) =>
+        buildExportArtifactsWithRuntime(source, source.compositions[0]!, 'class GraphicElement {}');
+      const first = build(project);
+      expect(first.errors).toEqual([]);
+      const zip = new JSZip();
+      addPackageFiles(zip, first);
+      const imported = await importOgrafData(
+        'nodos.ograf.zip',
+        await zip.generateAsync({ type: 'uint8array' }),
+      );
+      expect(imported.mode).toBe('compiled-descriptor');
+      const restored = imported.project.compositions[0]!;
+      expect(restored.dataFields.find((field) => field.key === title.key)?.id).not.toBe(title.id);
+      const selectionKeys = restored.nodosInputFieldIds?.map(
+        (id) => restored.dataFields.find((field) => field.id === id)?.key,
+      );
+      expect(selectionKeys).toEqual(
+        selection === 'selected'
+          ? ['TitleInput1', 'Positions', 'hidden']
+          : selection === 'empty'
+            ? []
+            : undefined,
+      );
+      const second = build(imported.project);
+      expect(second.errors).toEqual([]);
+      expect(second.manifest.schema?.properties).toHaveProperty('headline');
+      expect(second.nodosInputContract).toEqual(first.nodosInputContract);
+      if (selection === 'selected') {
+        expect(second.nodosInputContract).toMatchObject({
+          inputs: [
+            { name: 'TitleInput1', type: 'string' },
+            { name: 'Positions', type: '[ushort]' },
+            { name: 'TextureInput1', type: 'nos.sys.vulkan.Texture' },
+          ],
+        });
+      }
+    },
+  );
+});
 
 describe('coordinated package import protection', () => {
   const manifest = {

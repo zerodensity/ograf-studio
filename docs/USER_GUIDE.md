@@ -537,11 +537,15 @@ preserves its current value and connections. Missing slots and duplicate names a
 ElectroNode preview. Missing slots are not created automatically; add them in Nodos before using
 the page. URL changes retain the graph's input slots.
 
-Use **Data → Operator controls** to choose the fields the page declares. Field keys supply the
-reusable slot names. Internal fields remain available to bindings, animations and Rules and stay
-outside the public declarations and initial data. Object and array defaults also omit internal
-descendants. Changing a matched value updates the graphic through `updateAction` and its configured
-data transition.
+Use **Data → Nodos inputs** to select which operator fields become input slots. Field keys supply
+the reusable slot names. **Data → Operator controls** still controls which fields playout can edit.
+New templates start with no data slots selected. Older templates keep their existing declarations
+until you change the Nodos selection. Internal fields remain available to bindings, animations and
+Rules. Object and array defaults omit internal descendants. Changing a matched value updates the
+graphic through `updateAction` and its configured data transition.
+
+MCP clients can set `exposeToNodos` on `add_data_field` and `update_data_field` to select or
+deselect a public field. The field's `nodosType` controls its native value type separately.
 
 A live-media source's tag supplies a texture slot name, such as `TextureInput1`. The Nodos page
 connects matching GPU textures to the graphic's live-media renderer. Several objects can consume
@@ -1870,7 +1874,7 @@ time/value edit. Property easing applies to the selected property's key. Deletin
 
 For vector points and handles, see the [path-editing guide](../skills/ograf-authoring/references/path-editing.md).
 Clicking blank canvas keeps path editing active. Choose **Done** or press **Escape** to finish.
-For recent changes, see the [0.31.0 release notes](releases/0.31.0.md).
+For recent changes, see the [0.32.0 release notes](releases/0.32.0.md).
 
 To let playout change a text or image layer, turn on **Properties → Editable in playout**. Studio
 creates a data field named after the layer, starting with its current text or image, and binds it,

@@ -160,6 +160,7 @@ describe('Nodos types for data fields', () => {
         ...fieldStructureForNodosType('nos.fb.vec4', 'tint'),
       },
     ];
+    main.nodosInputFieldIds = [main.dataFields[0]!.id];
     expect(buildNodosInputDeclarations(main)).toContainEqual({ name: 'tint', type: 'nos.fb.vec4' });
   });
 

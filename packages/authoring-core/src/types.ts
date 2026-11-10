@@ -730,6 +730,7 @@ export type AuthoringOperation =
   | {
       type: 'add_data_field';
       nodosType?: string;
+      exposeToNodos?: boolean;
       defaultTokenId?: string | null;
       compositionId?: string;
       /** Internally preallocated so later operations in the same atomic batch can resolve it. */
@@ -751,6 +752,7 @@ export type AuthoringOperation =
       type: 'update_data_field';
       /** Null clears the engine-specific type while retaining the ordinary field schema. */
       nodosType?: string | null;
+      exposeToNodos?: boolean;
       defaultTokenId?: string | null;
       compositionId?: string;
       fieldId: string;

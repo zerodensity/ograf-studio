@@ -694,7 +694,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
 export const PROJECT_DOCUMENT_VERSION = 37;
 
 export function createProject(overrides: Partial<Project> = {}): Project {
-  const mainComposition = createComposition({ name: 'Main' });
+  const mainComposition = createComposition({ name: 'Main', nodosInputFieldIds: [] });
   return {
     documentVersion: PROJECT_DOCUMENT_VERSION,
     id: createId('project'),

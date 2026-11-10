@@ -27,8 +27,8 @@ describe('PSD import', () => {
       height: 10,
       imageData: { width: 10, height: 10, data: new Uint8ClampedArray(400) },
       children: [
-        { name: 'Top', left: 3, top: 4, opacity: 0.5, imageData: pixels(100) },
         { name: 'Bottom', left: 1, top: 2, hidden: true, imageData: pixels(200) },
+        { name: 'Top', left: 3, top: 4, opacity: 0.5, imageData: pixels(100) },
       ],
     };
     const parsed = readPsd(writePsd(source), { useImageData: true, skipThumbnail: true });
@@ -53,6 +53,60 @@ describe('PSD import', () => {
     const result = mapPsdLayers(source, createComposition(), png);
     expect(result.layers[0]?.name).toBe('PSD merged image');
     expect(result.warnings.join(' ')).toMatch(/not editable/);
+  });
+  it('keeps an editable backing behind the logo in a PSD group', () => {
+    const source: Psd = {
+      width: 10,
+      height: 10,
+      children: [
+        {
+          name: 'Identity',
+          children: [
+            {
+              name: 'Backing',
+              opacity: 0.5,
+              fillOpacity: 0.5,
+              vectorFill: { type: 'color', color: { r: 243, g: 240, b: 232 } },
+              vectorMask: {
+                paths: [
+                  {
+                    open: false,
+                    operation: 'combine',
+                    fillRule: 'non-zero',
+                    knots: [
+                      [2, 3],
+                      [8, 3],
+                      [8, 7],
+                      [2, 7],
+                    ].map(([x, y]) => ({
+                      linked: false,
+                      points: [x!, y!, x!, y!, x!, y!],
+                    })),
+                  },
+                ],
+              },
+            },
+            { name: 'Logo', left: 3, top: 4, imageData: pixels(10) },
+          ],
+        },
+      ],
+    };
+    const result = mapPsdLayers(source, createComposition(), png);
+    expect(result.layers.map((layer) => layer.name)).toEqual(['Backing', 'Logo']);
+    expect(result.layers[0]?.element).toMatchObject({
+      type: 'rectangle',
+      fill: 'rgb(243, 240, 232)',
+    });
+    expect(result.layers[0]?.keyframes[0]?.transform).toMatchObject({
+      x: 2,
+      y: 3,
+      width: 6,
+      height: 4,
+      opacity: 0.25,
+    });
+    expect(result.layers[1]?.element.type).toBe('image');
+    expect(result.layers[0]?.groupId).toBeTruthy();
+    expect(result.layers[1]?.groupId).toBe(result.layers[0]?.groupId);
   });
   it('retains a missing-font text layer as pixels', () => {
     const source: Psd = {
@@ -127,6 +181,77 @@ describe('PSD import', () => {
       lineHeight: 1.5,
     });
     expect(result.warnings.join(' ')).toMatch(/baseline or kerning/);
+  });
+  it('keeps real regular and bold Arial PSD text editable despite the default warp descriptor', () => {
+    initializeCanvas(
+      () => ({}) as HTMLCanvasElement,
+      (width, height) =>
+        ({
+          width,
+          height,
+          data: new Uint8ClampedArray(width * height * 4),
+          colorSpace: 'srgb',
+        }) as ImageData,
+    );
+    const source: Psd = {
+      width: 100,
+      height: 100,
+      children: [
+        { name: 'Regular', face: 'ArialMT' },
+        { name: 'Bold', face: 'Arial-BoldMT' },
+      ].map(({ name, face }) => ({
+        name,
+        left: 5,
+        top: 7,
+        imageData: pixels(10),
+        text: {
+          text: name,
+          style: {
+            font: { name: face },
+            fontSize: 16,
+            fillColor: { r: 255, g: 128, b: 0 },
+          },
+        },
+      })),
+    };
+    const parsed = readPsd(writePsd(source), { useImageData: true, skipThumbnail: true });
+    expect(parsed.children?.map((layer) => layer.text?.warp?.style)).toEqual(['none', 'none']);
+    const checkedFonts: string[] = [];
+    const composition = createComposition();
+    const result = mapPsdLayers(parsed, composition, png, (family) => {
+      checkedFonts.push(family);
+      return family === 'Arial';
+    });
+    expect(checkedFonts).toEqual(['Arial', 'Arial']);
+    expect(result.layers.map((layer) => layer.element)).toEqual([
+      expect.objectContaining({
+        type: 'text',
+        content: 'Regular',
+        fontFamily: 'Arial',
+        fontSize: 16,
+        fontWeight: 400,
+        minFontSize: 8,
+      }),
+      expect.objectContaining({
+        type: 'text',
+        content: 'Bold',
+        fontFamily: 'Arial',
+        fontSize: 16,
+        fontWeight: 700,
+        minFontSize: 8,
+      }),
+    ]);
+    expect(result.layers[0]?.keyframes[0]?.transform).toMatchObject({ x: 5, y: 7 });
+    expect(
+      mapPsdLayers(parsed, composition, png, () => false).layers.map((layer) => layer.element.type),
+    ).toEqual(['image', 'image']);
+
+    // An actual non-neutral warp must still use its saved pixel fallback.
+    const regular = parsed.children?.[0]?.text;
+    if (!regular) throw new Error('Expected parsed PSD text');
+    regular.warp = { style: 'arc', value: 15 };
+    const warped = mapPsdLayers(parsed, composition, png, () => true);
+    expect(warped.layers.map((layer) => layer.element.type)).toEqual(['image', 'text']);
   });
   it('packages imported PNG data as an OGraf resource', () => {
     const source: Psd = {

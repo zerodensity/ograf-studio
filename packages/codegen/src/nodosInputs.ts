@@ -8,7 +8,7 @@ import {
   type FieldDefinition,
   type FieldValue,
 } from '@ograf-editor/scene-model';
-import { fieldExposedToOgraf, publicDataForExport } from './compileDataSchema';
+import { fieldExposedToOgraf, publicFieldValueForExport } from './compileDataSchema';
 
 /** Pins every ElectroNode has; page inputs cannot take their names. */
 export const NODOS_ELECTRONODE_PINS = ['URL', 'Resolution', 'ShowPreview', 'Output', 'Audio'];
@@ -134,19 +134,20 @@ export function publicNodosComposition(composition: Composition): Composition {
   return { ...normalized, dataFields: normalized.dataFields.filter(fieldExposedToOgraf) };
 }
 
-function reservedFieldError(composition: Composition): string | undefined {
-  const taken = composition.dataFields.filter((field) =>
-    NODOS_ELECTRONODE_PINS.includes(field.key),
+export function nodosDataFields(composition: Composition): FieldDefinition[] {
+  const ids = composition.nodosInputFieldIds;
+  const selected = ids === undefined ? undefined : new Set(ids);
+  return composition.dataFields.filter(
+    (field) => fieldExposedToOgraf(field) && (selected === undefined || selected.has(field.id)),
   );
+}
+
+function reservedFieldError(fields: readonly FieldDefinition[]): string | undefined {
+  const taken = fields.filter((field) => NODOS_ELECTRONODE_PINS.includes(field.key));
   return taken.length
     ? `Rename the data field${taken.length > 1 ? 's' : ''} ${taken.map((field) => `"${field.key}"`).join(', ')}: ` +
         `Nodos ElectroNodes already have pins named ${NODOS_ELECTRONODE_PINS.join(', ')}.`
     : undefined;
-}
-
-export function checkNodosFieldKeys(composition: Composition): void {
-  const error = reservedFieldError(composition);
-  if (error) throw new Error(error);
 }
 
 /** Host metadata is kept outside the OGraf manifest and its public data schema. */
@@ -154,13 +155,10 @@ export function buildNodosInputContract(
   composition: Composition,
   liveCompositions: readonly Composition[] = [composition],
 ): NodosInputContract {
-  composition = publicNodosComposition(composition);
-  const reserved = reservedFieldError(composition);
+  composition = compositionWithShaderParameterFields(composition);
+  const fields = nodosDataFields(composition);
+  const reserved = reservedFieldError(fields);
   if (reserved) return { error: reserved };
-  const defaults = publicDataForExport(
-    composition,
-    Object.fromEntries(composition.dataFields.map((field) => [field.key, field.defaultValue])),
-  );
   const inputs = new Map<string, string>();
   const add = (name: string, type: string): string | undefined => {
     const nameError = nodosInputNameError(name);
@@ -171,9 +169,9 @@ export function buildNodosInputContract(
     if (inputs.size > 64) return 'A Nodos page supports at most 64 input slots.';
     return undefined;
   };
-  for (const field of composition.dataFields) {
+  for (const field of fields) {
     const error =
-      validateNodosDefault(field, (defaults[field.key] ?? null) as FieldValue) ??
+      validateNodosDefault(field, publicFieldValueForExport(field, field.defaultValue)) ??
       add(field.key, nodosTypeName(field));
     if (error) return { error };
   }
@@ -204,13 +202,13 @@ export function buildNodosInputContract(
   return {
     inputs: [...inputs].map(([name, type]) => ({ name, type })),
     wrapped: Object.fromEntries(
-      composition.dataFields.flatMap((field) => {
+      fields.flatMap((field) => {
         const shape = wrappedArrays(field);
         return shape ? [[field.key, shape]] : [];
       }),
     ),
     exposure: Object.fromEntries(
-      composition.dataFields.flatMap((field) => {
+      fields.flatMap((field) => {
         const shape = publicValueShape(field);
         return shape === undefined ? [] : [[field.key, shape]];
       }),

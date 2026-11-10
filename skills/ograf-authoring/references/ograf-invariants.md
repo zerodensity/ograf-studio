@@ -142,9 +142,11 @@ The page requires a real-time or dual profile and loads public defaults before p
 step. Use effective cropped output dimensions while preserving the authored canvas crop offset.
 
 Presets contain only `URL` and `Resolution` settings. The page's `nodos-inputs` JSON declares
-exposed field names/types and live-media texture tags. The companion ElectroNode host matches
+selected field names/types and live-media texture tags. The companion ElectroNode host matches
 these declarations to pre-existing manually created slots by name; missing slots are not created
-automatically. Only fields exposed through **Data → Operator controls** enter those declarations.
+automatically. Choose fields in **Data → Nodos inputs** from those exposed in Operator controls.
+New templates start with no data inputs selected. Older templates keep their previous declarations
+until the user changes that selection.
 Omit internal top-level fields and recursively remove internal descendants from object/array
 public defaults and incoming native values; retain internal descriptor defaults, bindings,
 animations and Rules inside the OGraf graphic. Field keys and live-media tags must not collide
@@ -173,6 +175,12 @@ ordinary field schema. `update_data_field` takes these values at the operation's
 unless a replacement is supplied. These authoring operations do not fetch engine types or connect
 to Nodos. Preserve metadata through components, sets and standalone `.ogs`; it is not an OGraf
 manifest schema extension or an extra playout field.
+
+Set `exposeToNodos: true` on `add_data_field` or `update_data_field` to select a public top-level
+field as a Nodos input. Set it to `false` to deselect the pin. Omit it to leave the selection alone.
+`nodosType` sets the value type independently. Read `ograf_get_project` with `include: ["dataFields"]`
+to see `nodosInputFieldIds`. An empty array selects no data pins. An absent selection uses the
+legacy public fields. Check the final HTML declarations alongside any live texture tags.
 
 Preset identity follows the stable template ID, not its display name. Preserve existing unique
 assignments through rename, untick/reselect and reload; verify duplicate names stay distinct.

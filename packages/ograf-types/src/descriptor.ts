@@ -201,6 +201,12 @@ export interface CompiledDataExposure {
   items?: CompiledDataExposure;
 }
 
+export interface CompiledNodosInputTypes {
+  nodosType?: string;
+  properties?: Record<string, CompiledNodosInputTypes>;
+  items?: CompiledNodosInputTypes;
+}
+
 /** A flattened, runtime-ready representation of a Composition — what `GraphicElement` interprets. */
 export interface CompiledGraphicDescriptor {
   functions?: CompiledLogicFunctionDefinition[];
@@ -218,6 +224,8 @@ export interface CompiledGraphicDescriptor {
   dataDefaults?: Record<string, unknown>;
   /** Editable field identity/ownership retained for package recovery, outside public GDD. */
   sourceDataFields?: FieldDefinition[];
+  /** Studio import metadata. Absent preserves legacy selection; an empty list selects no fields. */
+  nodosInputFields?: Array<{ key: string; nativeTypes?: CompiledNodosInputTypes }>;
   fonts?: CompiledFontResource[];
   rendererPlugins?: Array<RendererPluginSnapshot & { moduleUrl?: string }>;
   mediaCues?: MediaCue[];

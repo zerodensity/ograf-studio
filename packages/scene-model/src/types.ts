@@ -1977,6 +1977,8 @@ export interface Composition {
   keyframes: Keyframe[];
   transitions: Transition[];
   dataFields: FieldDefinition[];
+  /** Data fields declared as Nodos pins. Older templates with no selection use public fields. */
+  nodosInputFieldIds?: string[];
   /** Named authoring-only preview rows; omitted from all OGraf exports. */
   testRundowns?: TestDataRundown[];
   /** Runtime-expanded GDD array prototypes. */

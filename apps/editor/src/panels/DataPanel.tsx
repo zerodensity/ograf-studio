@@ -17,7 +17,12 @@ import {
   type FieldOption,
   type FieldType,
 } from '@ograf-editor/scene-model';
-import { compileCustomActions, compileDataSchema } from '@ograf-editor/codegen';
+import {
+  compileCustomActions,
+  compileDataSchema,
+  fieldExposedToOgraf,
+  nodosDataFields,
+} from '@ograf-editor/codegen';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useTestDataStore, type TestValue } from '../state/testDataStore';
 import { fieldStructureForNodosType, useNodosTypes } from '../state/nodosTypes';
@@ -80,7 +85,15 @@ function optionalNumber(value: string): number | undefined {
   return Number.isFinite(number) ? number : undefined;
 }
 
-type DataTab = 'fields' | 'expose' | 'lists' | 'actions' | 'connections' | 'test-data' | 'schema';
+type DataTab =
+  | 'fields'
+  | 'expose'
+  | 'nodos-inputs'
+  | 'lists'
+  | 'actions'
+  | 'connections'
+  | 'test-data'
+  | 'schema';
 
 const DATA_TABS: Array<{ id: DataTab; label: string; intro: string }> = [
   {
@@ -94,6 +107,12 @@ const DATA_TABS: Array<{ id: DataTab; label: string; intro: string }> = [
     label: 'Operator controls',
     intro:
       'Choose which controls playout can edit. Internal controls still work in bindings and Rules.',
+  },
+  {
+    id: 'nodos-inputs',
+    label: 'Nodos inputs',
+    intro:
+      'Choose which operator fields become data input pins in Nodos. Live textures use their source tags.',
   },
   {
     id: 'lists',
@@ -140,6 +159,7 @@ export function DataPanel() {
   const addDataField = useProjectStore((s) => s.addDataField);
   const removeDataField = useProjectStore((s) => s.removeDataField);
   const updateDataField = useProjectStore((s) => s.updateDataField);
+  const setNodosInputFields = useProjectStore((s) => s.setNodosInputFields);
   const nodosTypeChoices = useNodosTypes((state) => state.choices);
   const nodosTypesMessage = useNodosTypes((state) => state.message);
   const addCustomAction = useProjectStore((s) => s.addCustomAction);
@@ -164,6 +184,8 @@ export function DataPanel() {
 
   const schema = compileDataSchema(composition);
   const compiledCustomActions = compileCustomActions(composition);
+  const nodosFields = new Set(nodosDataFields(composition).map((field) => field.id));
+  const operatorFields = composition.dataFields.filter(fieldExposedToOgraf);
 
   return (
     <Panel title="Data">
@@ -443,6 +465,35 @@ export function DataPanel() {
           </>
         ) : null}
         {tab === 'expose' ? <DataExposureSection key={composition.id} /> : null}
+        {tab === 'nodos-inputs' ? (
+          operatorFields.length ? (
+            <div className="data-nodos-fields">
+              {operatorFields.map((field) => (
+                <label key={field.id} className="data-nodos-field" title={field.key}>
+                  <input
+                    type="checkbox"
+                    checked={nodosFields.has(field.id)}
+                    onChange={(event) => {
+                      const selection = new Set(composition.nodosInputFieldIds ?? nodosFields);
+                      if (event.target.checked) selection.add(field.id);
+                      else selection.delete(field.id);
+                      setNodosInputFields([...selection]);
+                    }}
+                  />
+                  <span>
+                    {field.label && field.label !== field.key
+                      ? `${field.label} (${field.key})`
+                      : field.key}
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="panel-placeholder">
+              Expose a field in Operator controls to select it here.
+            </p>
+          )
+        ) : null}
         {tab === 'lists' ? <RuntimeCollectionsSection /> : null}
         {tab === 'actions' ? (
           <>
