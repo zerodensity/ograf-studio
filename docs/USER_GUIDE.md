@@ -2151,6 +2151,22 @@ and narrowly scoped communication. Playback also depends on browser support and 
 features such as WebGL, audio, webcam and external data. Validate the real hosted package in the
 target browser before publishing a tutorial.
 
+#### Find a layer by export key
+
+Select a layer and set **Export key** in Properties to give it a stable identifier in
+single-template exports. Use up to 64 letters, digits, underscores or hyphens, starting with a
+letter. Keys are case sensitive and unique within the template. Renaming or moving the layer keeps
+its key, and duplicating it leaves the new layer's key blank.
+
+After the exported graphic loads, JavaScript with access to its web component can query its
+shadow root. This query finds a layer with the key `scoreline`.
+
+```js
+const scoreline = graphic.shadowRoot.querySelector('[data-ograf-layer-key="scoreline"]');
+```
+
+Use the graphic's data fields and OGraf `updateAction()` to change values during playout.
+
 ### Workspace, motion and review
 
 New browser profiles start in the **Essentials** workspace with Layers, Properties and Timeline.

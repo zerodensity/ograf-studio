@@ -986,6 +986,7 @@ function duplicateGroup(
 
     const clones = sources.map((source) => {
       const layer = clone(source);
+      delete layer.exportKey;
       layer.id = layerIds[source.id]!;
       const rewrittenName = literalRewrite(source.name, operation.labelRewrite, n);
       if (operation.namePattern !== undefined) {

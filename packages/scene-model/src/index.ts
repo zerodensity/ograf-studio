@@ -1,6 +1,7 @@
 export * from './types';
 export * from './crop';
 export * from './layerCrop';
+export * from './layerExportKey';
 export * from './pathEditing';
 export * from './textPathGeometry';
 export * from './textPathReference';

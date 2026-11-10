@@ -87,7 +87,7 @@ const record = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
 function snapshot(layer: Layer): Omit<Layer, 'componentLink'> {
-  const { componentLink: _link, ...properties } = layer;
+  const { componentLink: _link, exportKey: _exportKey, ...properties } = layer;
   const copy = cloneComponentValue(properties);
   copy.animationTracks = cloneComponentValue(
     layer.animationTrackMode === 'independent'
@@ -565,6 +565,7 @@ function materializeLayer(
   context?: ReturnType<typeof instanceContext>,
 ): Layer {
   const layer = cloneComponentValue(source);
+  delete layer.exportKey;
   layer.id = layerIds[source.id]!;
   layer.name = `${definition.name} — ${source.name}`;
   layer.groupId = groupId;
@@ -1150,6 +1151,7 @@ function referencesOutside(composition: Composition, removed: Set<string>): Set<
 
 function retainRemovedChildAsPrivateAsset(composition: Composition, layer: Layer): void {
   const source = cloneComponentValue(layer);
+  delete source.exportKey;
   source.componentLink = null;
   source.parentId = null;
   source.mask = null;
@@ -1371,6 +1373,7 @@ export function reconcileComponentInstances(
       if (existing) {
         resolved.id = existing.id;
         resolved.groupId = existing.groupId;
+        if (existing.exportKey !== undefined) resolved.exportKey = existing.exportKey;
       }
       preserveRequiredEffects(resolved, existing ?? inherited);
       aggregate(resolved, existing, keyIds);
@@ -1497,6 +1500,8 @@ export function resetComponentInstanceOverrides(
       layer,
       keep,
     );
+    if (layer.exportKey === undefined) delete restored.exportKey;
+    else restored.exportKey = layer.exportKey;
     if (paths) restoreDeletedPoseTracks(restored, baseline, all.filter(matches));
     restored.componentLink = { ...cloneComponentValue(link), overridePaths: keep };
     assignJson(layer, restored);

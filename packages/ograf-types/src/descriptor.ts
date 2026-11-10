@@ -70,6 +70,8 @@ export interface CompiledFontResource {
 
 export interface CompiledLayer {
   id: string;
+  /** Optional author-chosen DOM key, separate from the renderer's internal identity. */
+  exportKey?: string;
   /** Optional operator-facing label for runtime ticker queue feedback. */
   name?: string;
   /** Persistent membership retained only for deterministic modifier references. */

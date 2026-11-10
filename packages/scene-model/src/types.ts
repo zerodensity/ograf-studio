@@ -1501,6 +1501,8 @@ export interface Layer {
   typographyBinding?: TypographyBinding;
   id: string;
   name: string;
+  /** Author-chosen DOM key for this layer in a single-template export. */
+  exportKey?: string;
   isVisible: boolean;
   isGuide: boolean;
   /** Static blend against earlier layers inside the isolated OGraf composition only. */

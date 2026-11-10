@@ -326,6 +326,38 @@ beforeEach(() => {
   mock.hooks.contentReady = null;
 });
 
+it('retains the export key on authored layer wrappers across data updates', async () => {
+  const descriptor = compiled([{ ...text('score'), exportKey: 'scoreline' }, text('unkeyed')], 0);
+  descriptor.collections = [
+    {
+      id: 'rows',
+      name: 'Rows',
+      dataKey: 'items',
+      prototypeLayers: [{ ...text('row'), exportKey: 'row-text' }],
+      offsetPerItem: { x: 0, y: 40 },
+      capacity: 2,
+      overflow: 'truncate',
+      itemKeyPath: [],
+      sortPath: [],
+      sortDirection: 'none',
+      pageSize: 0,
+      page: 0,
+    },
+  ];
+  const graphic = await loaded(descriptor, 'realtime', { score: OLD, items: [{}, {}] });
+  const host = layerHost(graphic, 'score');
+  expect(host.dataset.ografLayerKey).toBe('scoreline');
+  expect(layerHost(graphic, 'unkeyed').dataset.ografLayerKey).toBeUndefined();
+  expect(layerHost(graphic, 'rows::0::row').dataset.ografLayerKey).toBeUndefined();
+  expect(layerHost(graphic, 'rows::1::row').dataset.ografLayerKey).toBeUndefined();
+
+  expect(await graphic.updateAction({ data: { score: NEW } })).toMatchObject({ statusCode: 200 });
+  expect(layerHost(graphic, 'score')).toBe(host);
+  expect(host.dataset.ografLayerKey).toBe('scoreline');
+  expect(renderedContent(host)).toBe(NEW);
+  await graphic.dispose();
+});
+
 describe('scheduled replay of a layer with style none', () => {
   it('does not fade that layer while another layer fades', async () => {
     const graphic = await replay([text('faded'), text('cut', own('none'))], 6);

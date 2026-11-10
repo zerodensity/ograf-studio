@@ -13,6 +13,7 @@ import {
   type LayerCrop,
   textPathReferenceErrors,
   textPathCompatibilityErrors,
+  layerExportKeyError,
 } from '@ograf-editor/scene-model';
 import { immer } from 'zustand/middleware/immer';
 import { useProjectSetStore } from './projectSetStore';
@@ -600,6 +601,7 @@ interface ProjectActions {
   duplicateGroupEffect: (layerIds: string[], effectId: string) => void;
   reorderGroupEffects: (layerIds: string[], effectIds: string[]) => void;
   renameLayer: (layerId: string, name: string) => void;
+  setLayerExportKey: (layerId: string, key: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
   toggleLayerGuide: (layerId: string) => void;
   setLayerBlendMode: (layerId: string, blendMode: BlendMode) => void;
@@ -1702,6 +1704,7 @@ function appendLayerCopies(
       ),
       animationTracks: {},
     };
+    delete layer.exportKey;
     if (source.modifiers)
       layer.modifiers = remapLayerModifierReferences(source.modifiers, {
         layers: idMap,
@@ -4230,6 +4233,26 @@ export const useProjectStore = create<ProjectStore>()(
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const layer = composition.layers.find((l) => l.id === layerId);
           if (layer) layer.name = name;
+        }),
+
+      setLayerExportKey: (layerId, input) =>
+        set((state) => {
+          const composition = getActiveComposition(state.project, state.activeCompositionId);
+          const layer = composition.layers.find((candidate) => candidate.id === layerId);
+          if (!layer) throw new Error('The layer is no longer in this template.');
+          if (layer.isLocked) throw new Error('Unlock the layer before changing its export key.');
+          const key = input.trim() || undefined;
+          const error = layerExportKeyError(key);
+          if (error) throw new Error(error);
+          if (key !== undefined) {
+            if (
+              composition.layers.some(
+                (candidate) => candidate.id !== layerId && candidate.exportKey === key,
+              )
+            )
+              throw new Error(`Export key "${key}" is already used in this template.`);
+            layer.exportKey = key;
+          } else delete layer.exportKey;
         }),
 
       toggleLayerVisibility: (layerId) =>

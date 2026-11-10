@@ -191,6 +191,7 @@ export function buildComponentDefinition(
     if (source.textPath && !wanted.has(source.textPath.sourceLayerId))
       throw new Error(`Include the text path when saving component layer "${source.name}".`);
     const layer = cloneComponentValue(source);
+    delete layer.exportKey;
     const link = source.componentLink?.componentId === id ? source.componentLink : null;
     const keys = new Map(
       Object.entries(link?.keyIds ?? {}).map(([canonical, actual]) => [actual, canonical]),

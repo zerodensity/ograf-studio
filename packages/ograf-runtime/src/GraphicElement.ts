@@ -1636,6 +1636,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         el.dataset.ografCollectionDataKey = layer.collectionItem.dataKey;
       }
       el.dataset.ografLayerId = layer.id;
+      if (typeof layer.exportKey === 'string' && layer.exportKey && !layer.collectionItem)
+        el.dataset.ografLayerKey = layer.exportKey;
       el.dataset.ografLayerName = layer.name ?? 'Ticker';
       el.style.mixBlendMode =
         !layer.blendMode || layer.blendMode === 'normal' ? '' : layer.blendMode;

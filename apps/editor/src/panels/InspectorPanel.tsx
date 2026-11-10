@@ -80,6 +80,7 @@ import type {
 } from '@ograf-editor/scene-model';
 import {
   BLEND_MODES,
+  MAX_LAYER_EXPORT_KEY_LENGTH,
   MAX_TEXT_CLIP_MARGIN,
   createCornerRadii,
   createLayerPropertyKeyframe,
@@ -444,6 +445,66 @@ const DESIGN_TOKEN_TARGETS: Record<
     { property: 'fontWeight', label: 'Font weight', tokenType: 'font-weight' },
   ],
 };
+
+function LayerExportKeyControl({ layer }: { layer: Layer }) {
+  const setExportKey = useProjectStore((state) => state.setLayerExportKey);
+  const value = typeof layer.exportKey === 'string' ? layer.exportKey : '';
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setDraft(value);
+    setError('');
+  }, [value]);
+
+  const commit = () => {
+    const key = draft.trim();
+    try {
+      if ((key || undefined) !== layer.exportKey) setExportKey(layer.id, key);
+      setDraft(key);
+      setError('');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  return (
+    <>
+      <PropertyRow
+        className="inspector-row"
+        help="Optional, case-sensitive key for JavaScript lookup in single-template exports. Each key must be unique within the template."
+      >
+        <span>Export key</span>
+        <input
+          aria-label="Export key"
+          aria-invalid={Boolean(error)}
+          type="text"
+          placeholder="scoreline"
+          maxLength={MAX_LAYER_EXPORT_KEY_LENGTH}
+          value={draft}
+          disabled={layer.isLocked}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setError('');
+          }}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+            if (event.key === 'Escape') {
+              event.stopPropagation();
+              setDraft(value);
+              setError('');
+            }
+          }}
+        />
+      </PropertyRow>
+      {error && (
+        <p className="inspector-error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
 
 function ZOrderControl({
   value,
@@ -1122,6 +1183,7 @@ export function InspectorPanel() {
             onChange={(e: ChangeEvent<HTMLInputElement>) => renameLayer(layer.id, e.target.value)}
           />
         </PropertyRow>
+        <LayerExportKeyControl key={`${composition.id}:${layer.id}`} layer={layer} />
         <ZOrderControl
           value={zOrder}
           maximum={composition.layers.length}

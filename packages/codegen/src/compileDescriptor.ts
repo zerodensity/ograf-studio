@@ -197,6 +197,7 @@ export function compileDescriptor(
         : undefined;
     return {
       id: layer.id,
+      ...(layer.exportKey ? { exportKey: layer.exportKey } : {}),
       ...(element.type === 'ticker' ? { name: layer.name } : {}),
       ...(chartMarkAnimations ? { chartMarkAnimations } : {}),
       ...(layer.groupId && modifierGroups.has(layer.groupId) ? { groupId: layer.groupId } : {}),
