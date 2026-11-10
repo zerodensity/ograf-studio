@@ -43,7 +43,7 @@ it.each([
         arguments: { sections: ['editor'] },
       });
       expect(result.isError).not.toBe(true);
-      expect(result.structuredContent?.clientSetup).toEqual({
+      expect(result.structuredContent).toHaveProperty('clientSetup', {
         mcp: {
           preferredServerName: 'ograf-editor',
           transport: 'streamable-http',
