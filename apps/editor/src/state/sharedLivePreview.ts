@@ -9,6 +9,11 @@ import {
   type OGrafPlayerManifest,
   type OGrafPlayerResult,
 } from '../../../../packages/ograf-web-player/ograf-player.js';
+import {
+  createSharedInput,
+  type SharedInputEntry,
+  type SharedInputGraphic,
+} from '../../../../packages/ograf-web-player/shared-input.js';
 
 export type SharedLiveCommand =
   | { kind: 'play'; delta?: number; goto?: number }
@@ -17,7 +22,8 @@ export type SharedLiveCommand =
   | { kind: 'action'; actionId: string; payload?: Record<string, unknown> };
 
 export type SharedLiveGraphic = HTMLElement &
-  Graphic & {
+  Graphic &
+  SharedInputGraphic & {
     getPlayoutSnapshot?(): CoordinatedPlayoutSnapshot;
     subscribePlayout?(listener: (snapshot: CoordinatedPlayoutSnapshot) => void): () => void;
     setPresentationSuspended?(suspended: boolean): void;
@@ -107,9 +113,33 @@ export function createSharedLivePreview(
   const outcomes = new Map<number, Outcome>();
   const waiters = new Map<number, (outcome: Outcome) => void>();
   const source = new EventSource(`${route}/events`);
+  const sharedInput = createSharedInput({
+    url: `${route}/input`,
+    onError: (error) => patch({ syncError: errorMessage(error) }),
+  });
 
   function patch(value: Partial<LiveState>) {
+    const previous = state;
     state = { ...state, ...value };
+    if (
+      previous.ready !== state.ready ||
+      previous.publicationId !== state.publicationId ||
+      previous.syncViewers !== state.syncViewers ||
+      previous.syncVersion !== state.syncVersion ||
+      previous.graphic !== state.graphic
+    ) {
+      sharedInput.setSession(
+        state.ready
+          ? {
+              publicationId: state.publicationId,
+              syncVersion: state.syncVersion,
+              syncViewers: state.syncViewers,
+              canSend: true,
+              graphic: state.graphic,
+            }
+          : null,
+      );
+    }
     if (!closed) onState(state);
   }
 
@@ -375,6 +405,9 @@ export function createSharedLivePreview(
       if (state.publicationId === feed.publicationId) await invokeFeed(feed, false);
     });
   });
+  source.addEventListener('input', (event: MessageEvent<string>) => {
+    enqueue(async () => sharedInput.receive(JSON.parse(event.data) as SharedInputEntry));
+  });
 
   async function submit(publicationId: string | null | undefined, command: SharedLiveCommand) {
     if (!publicationId || !isCurrent(publicationId) || !state.ready)
@@ -470,6 +503,7 @@ export function createSharedLivePreview(
     dispose() {
       closed = true;
       source.close();
+      sharedInput.dispose();
       cancelRequests();
       updatingSync?.abort();
       void discardPlayer();

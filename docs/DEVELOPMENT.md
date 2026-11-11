@@ -138,6 +138,11 @@ With **Sync viewers** checked, viewers follow the shared session and their playo
 read-only. Uncheck it to give each viewer their own controls and data, then check it again to restore
 the operator's current output on every viewer. Independent controls act only in that browser.
 
+The synced Live preview forwards the operator's pointer position and the graphic's mouse and
+keyboard interactions to connected viewers. The viewer shows the operator's pointer over the
+graphic. Studio shortcuts and typing in control fields stay local. Inputs are delivered live and
+are outside the command replay used by a reconnecting viewer.
+
 Keep the Studio server process running after closing the editor tab. Reconnecting synced viewers
 restore the current playback copy, accepted commands, and last received live data. Configured
 Studio Data Connections run from the editor tab and send their latest exposed values separately

@@ -14,6 +14,7 @@ const runtimeFile = resolve(repositoryRoot, 'packages/ograf-runtime/dist/graphic
 const playoutSources = {
   'shared-playout.html': 'packages/ograf-web-player/shared-playout.html',
   'shared-playout.js': 'packages/ograf-web-player/shared-playout.js',
+  'shared-input.js': 'packages/ograf-web-player/shared-input.js',
   'ograf-player.js': 'packages/ograf-web-player/ograf-player.js',
   'preview-controls.css': 'apps/editor/src/panels/PreviewExportPanel.css',
   'preview-font.ttf': 'apps/editor/src/assets/font-library/nunito.ttf',

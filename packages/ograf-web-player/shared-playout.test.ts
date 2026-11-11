@@ -145,6 +145,7 @@ describe('shared playout startup recovery', () => {
         '#viewer-sync-control',
         '#sync-viewers',
         '#independent-status',
+        '#shared-pointer',
       ].map((selector) => [selector, new TestNode()]),
     );
     node('#controls').append(
@@ -369,6 +370,52 @@ describe('shared playout startup recovery', () => {
     expect(fetchState).not.toHaveBeenCalled();
     dom.emit('keydown', { key: 'Escape' });
     expect(node('#controls').hidden).toBe(true);
+  });
+
+  it('applies live input in journal order and places the synced pointer in the graphic', async () => {
+    const arrivals: string[] = [];
+    const player = {
+      ...testPlayer(),
+      update: vi.fn(() => arrivals.push('update')),
+      element: {
+        getBoundingClientRect: () => ({ left: 10, top: 20, width: 400, height: 200 }),
+        toggleAttribute: vi.fn(),
+        setSharedInputHandler: vi.fn(),
+        applySharedInput: vi.fn((input: { type: string }) => arrivals.push(input.type)),
+      },
+    };
+    mountGraphic.mockResolvedValue(player);
+    await import('./shared-playout.js');
+    source.emit('snapshot', snapshot('current'));
+    await vi.waitFor(() => expect(node('#layout').dataset.revision).toBe('1'));
+    expect(player.element.toggleAttribute).toHaveBeenLastCalledWith('inert', true);
+    expect(player.element.setSharedInputHandler).not.toHaveBeenCalled();
+
+    source.emit('command', { ...update, publicationId: 'current' });
+    const input = {
+      publicationId: 'current',
+      sequence: 1,
+      syncVersion: 0,
+      clientId: 'operator',
+      input: { type: 'pointer-move', position: { x: 0.25, y: 0.5 } },
+    };
+    source.emit('input', input);
+    await vi.waitFor(() => expect(arrivals).toEqual(['update', 'pointer-move']));
+    expect(node('#shared-pointer').hidden).toBe(false);
+    expect(node('#shared-pointer').style.left).toBe('110px');
+    expect(node('#shared-pointer').style.top).toBe('120px');
+
+    source.emit('input', { ...input, sequence: 2, input: { type: 'pointer-leave' } });
+    await vi.waitFor(() => expect(node('#shared-pointer').hidden).toBe(true));
+    source.emit(
+      'snapshot',
+      snapshot('current', [seed, update], false, { syncViewers: false, syncVersion: 1 }),
+    );
+    source.emit('input', { ...input, sequence: 3, syncVersion: 1 });
+    await vi.waitFor(() => expect(node('#layout').dataset.role).toBe('independent'));
+    expect(arrivals).toEqual(['update', 'pointer-move', 'pointer-leave']);
+    expect(player.element.toggleAttribute).toHaveBeenLastCalledWith('inert', false);
+    expect(fetchState).not.toHaveBeenCalled();
   });
 
   it('forks the existing viewer, ignores shared changes while independent and replays on resync', async () => {

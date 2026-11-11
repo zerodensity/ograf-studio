@@ -20,20 +20,32 @@ describe('preview keyboard player forwarding', () => {
       isComposing: false,
     } as KeyboardEvent;
     expect(dispatchPreviewKeyboardInput(container, event, onError)).toBe(true);
-    expect(handleKeyboardInput).toHaveBeenCalledExactlyOnceWith('key-up', {
-      key: 'Enter',
-      ctrlKey: true,
-      altKey: false,
-      shiftKey: true,
-      metaKey: false,
-      repeat: false,
-      isComposing: false,
-    });
+    expect(handleKeyboardInput).toHaveBeenCalledExactlyOnceWith(
+      'key-up',
+      {
+        key: 'Enter',
+        ctrlKey: true,
+        altKey: false,
+        shiftKey: true,
+        metaKey: false,
+        repeat: false,
+        isComposing: false,
+      },
+      event,
+    );
     expect(onError).not.toHaveBeenCalled();
     expect(dispatchPreviewKeyboardInput(null, event, onError)).toBe(false);
     expect(
       dispatchPreviewKeyboardInput({ firstElementChild: {} } as HTMLElement, event, onError),
     ).toBe(false);
+    handleKeyboardInput.mockClear();
+    const wrappedGraphic = { handleKeyboardInput } as unknown as Element;
+    expect(dispatchPreviewKeyboardInput(null, event, onError, wrappedGraphic)).toBe(true);
+    expect(handleKeyboardInput).toHaveBeenCalledExactlyOnceWith(
+      'key-up',
+      expect.objectContaining({ key: 'Enter' }),
+      event,
+    );
   });
 
   it('claims a failed player action and reports it instead of invoking navigation as a fallback', () => {

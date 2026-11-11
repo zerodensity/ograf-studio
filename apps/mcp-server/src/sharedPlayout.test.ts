@@ -376,6 +376,7 @@ describe('shared playout host', () => {
       const style = await fetch(url + 'preview-controls.css');
       expect(style.headers.get('content-type')).toMatch(/text\/css/);
       expect(await style.text()).toBe('preview-controls.css');
+      expect(await (await fetch(url + 'shared-input.js')).text()).toBe('shared-input.js');
     }
     expect((await fetch(lan + 'control/unknown/preview-controls.css')).status).toBe(404);
     const state = await (await fetch(viewerUrl + 'state')).json();
@@ -590,6 +591,164 @@ describe('shared playout host', () => {
     } finally {
       await Promise.all(streams.map((stream) => stream.close()));
     }
+  });
+
+  it('relays authenticated graphic input in stream order without journaling or replaying it', async () => {
+    const { editor, lan } = await setup();
+    const api = editor + 'api/shared-playout/';
+    const { publicationId, viewerUrl, operatorUrl } = await publish(editor);
+    const urls = [api, viewerUrl, operatorUrl];
+    const streams = await Promise.all(urls.map((url) => openEvents(url + 'events')));
+    const payload = {
+      publicationId,
+      requestId: 'move',
+      clientId: 'studio',
+      syncVersion: 0,
+      input: { type: 'pointer-move', position: { x: 0.25, y: 0.75 } },
+    };
+    const click = {
+      ...payload,
+      requestId: 'click',
+      clientId: 'operator',
+      input: {
+        type: 'click',
+        target: { layerId: 'name', slotId: 'headline', stateId: 'standard' },
+        position: { x: 0.5, y: 0.5 },
+      },
+    };
+    try {
+      for (const stream of streams) await stream.next();
+      expect((await post(viewerUrl + 'input', payload)).status).toBe(403);
+      expect((await post(lan + 'control/unknown/input', payload)).status).toBe(404);
+      for (const url of [api, operatorUrl]) {
+        expect((await post(url + 'input', payload, 'http://wrong.invalid')).status).toBe(403);
+        expect(
+          (
+            await post(url + 'input', {
+              ...payload,
+              input: { type: 'pointer-move', position: { x: 1.01, y: 0 } },
+            })
+          ).status,
+        ).toBe(400);
+      }
+      expect((await post(api + 'input', { ...payload, publicationId: 'stale' })).status).toBe(409);
+      expect(await (await post(api + 'input', payload, new URL(editor).origin)).json()).toEqual({
+        sequence: 1,
+        syncVersion: 0,
+      });
+      expect(await (await post(api + 'input', payload)).json()).toEqual({
+        sequence: 1,
+        syncVersion: 0,
+      });
+      expect(
+        (await post(api + 'input', { ...payload, input: { type: 'pointer-leave' } })).status,
+      ).toBe(409);
+      const feed = { publicationId, target: { kind: 'graphic' }, data: { headline: 'Live' } };
+      expect(await (await post(api + 'feed', feed)).json()).toEqual({ sequence: 1 });
+      const command = { kind: 'play', goto: 0 };
+      const play = await post(api + 'command', {
+        publicationId,
+        requestId: 'play',
+        expectedRevision: 1,
+        command,
+      });
+      expect(await play.json()).toEqual({ revision: 2 });
+      expect(await (await post(operatorUrl + 'input', click, new URL(lan).origin)).json()).toEqual({
+        sequence: 2,
+        syncVersion: 0,
+      });
+
+      const entry = (
+        request: Pick<typeof payload, 'clientId' | 'syncVersion'> & { input: object },
+        sequence: number,
+      ) => ({
+        type: 'input',
+        data: {
+          publicationId,
+          clientId: request.clientId,
+          input: request.input,
+          sequence,
+          syncVersion: request.syncVersion,
+        },
+      });
+      for (const stream of streams) {
+        expect(await stream.next()).toEqual(entry(payload, 1));
+        expect(await stream.next()).toEqual({ type: 'feed', data: { ...feed, sequence: 1 } });
+        expect(await stream.next()).toEqual({
+          type: 'command',
+          data: { publicationId, revision: 2, command },
+        });
+        expect(await stream.next()).toEqual(entry(click, 2));
+      }
+      const late = await openEvents(viewerUrl + 'events');
+      try {
+        const state = await (await fetch(viewerUrl + 'state')).json();
+        expect(state).toMatchObject({
+          revision: 2,
+          commands: [autoplay, { revision: 2, command }],
+        });
+        expect(state).not.toHaveProperty('inputs');
+        expect(await late.next()).toEqual({ type: 'snapshot', data: state });
+      } finally {
+        await late.close();
+      }
+
+      await post(api + 'mode', { syncViewers: false });
+      expect((await post(operatorUrl + 'input', { ...click, syncVersion: 1 })).status).toBe(409);
+      await post(api + 'mode', { syncViewers: true });
+      expect((await post(operatorUrl + 'input', click)).status).toBe(409);
+      const keyUp = { ...payload, syncVersion: 2, input: { type: 'key-up', key: 'ArrowLeft' } };
+      expect(await (await post(api + 'input', keyUp)).json()).toEqual({
+        sequence: 3,
+        syncVersion: 2,
+      });
+      for (const stream of streams) {
+        expect(await stream.next()).toMatchObject({
+          type: 'snapshot',
+          data: { syncViewers: false, syncVersion: 1, revision: 2 },
+        });
+        expect(await stream.next()).toMatchObject({
+          type: 'snapshot',
+          data: { syncViewers: true, syncVersion: 2, revision: 2 },
+        });
+        expect(await stream.next()).toEqual(entry(keyUp, 3));
+      }
+      const replacement = await publish(editor, secondPkg);
+      expect((await post(api + 'input', keyUp)).status).toBe(409);
+      expect(
+        await (
+          await post(api + 'input', { ...keyUp, publicationId: replacement.publicationId })
+        ).json(),
+      ).toEqual({ sequence: 1, syncVersion: 2 });
+    } finally {
+      await Promise.all(streams.map((stream) => stream.close()));
+    }
+  });
+
+  it('limits movement separately so pointer floods cannot suppress a key release', async () => {
+    const { editor } = await setup({
+      inputMoveRate: 0,
+      inputMoveBurst: 1,
+      inputEdgeRate: 0,
+      inputEdgeBurst: 1,
+    });
+    const { publicationId } = await publish(editor);
+    const url = editor + 'api/shared-playout/input';
+    const first = {
+      publicationId,
+      clientId: 'studio',
+      requestId: 'first',
+      syncVersion: 0,
+      input: { type: 'pointer-move', position: { x: 0, y: 1 } },
+    };
+    expect((await post(url, first)).status).toBe(200);
+    expect((await post(url, first)).status).toBe(200);
+    expect(
+      (await post(url, { ...first, requestId: 'another-client', clientId: 'other' })).status,
+    ).toBe(429);
+    const released = { ...first, requestId: 'up', input: { type: 'key-up', key: 'ArrowLeft' } };
+    expect(await (await post(url, released)).json()).toEqual({ sequence: 2, syncVersion: 0 });
+    expect((await post(url, { ...released, requestId: 'extra-edge' })).status).toBe(429);
   });
 
   it('rejects invalid inputs, retains an identical publication and evicts old packages on replacement', async () => {

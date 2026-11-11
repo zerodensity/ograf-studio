@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname } from 'node:path';
@@ -13,6 +13,7 @@ import { validateManifest } from '@ograf-editor/validation';
 export const SHARED_PLAYOUT_ASSET_FILES = [
   'shared-playout.html',
   'shared-playout.js',
+  'shared-input.js',
   'ograf-player.js',
   'preview-controls.css',
   'preview-font.ttf',
@@ -93,6 +94,51 @@ const feedSchema = z.strictObject({
   data: commandData,
 });
 
+const inputPosition = z.strictObject({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+});
+const inputTarget = z.strictObject({
+  layerId: ID,
+  slotId: ID.optional(),
+  stateId: ID.optional(),
+  sharedKey: ID.optional(),
+});
+const graphicInput = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('pointer-move'), position: inputPosition }),
+  z.strictObject({ type: z.literal('pointer-leave') }),
+  z.strictObject({
+    type: z.enum([
+      'pointer-enter',
+      'pointer-exit',
+      'pointer-down',
+      'pointer-up',
+      'pointer-cancel',
+      'click',
+      'double-click',
+    ]),
+    target: inputTarget,
+    position: inputPosition.optional(),
+    relatedLayerId: ID.optional(),
+  }),
+  z.strictObject({
+    type: z.enum(['key-down', 'key-up']),
+    key: z.string().min(1).max(64),
+    ctrlKey: z.boolean().optional(),
+    altKey: z.boolean().optional(),
+    shiftKey: z.boolean().optional(),
+    metaKey: z.boolean().optional(),
+    repeat: z.boolean().optional(),
+  }),
+]);
+const inputRequest = z.strictObject({
+  publicationId: ID,
+  requestId: ID,
+  clientId: ID,
+  syncVersion: z.int().nonnegative(),
+  input: graphicInput,
+});
+
 const slotControlSchema = z.looseObject({
   properties: z.record(
     z.string(),
@@ -150,9 +196,15 @@ const defaults = {
   maxCommands: 512,
   maxJournalBytes: 512 * 1024,
   maxFeedBytes: 512 * 1024,
+  inputMoveRate: 90,
+  inputMoveBurst: 12,
+  inputEdgeRate: 120,
+  inputEdgeBurst: 24,
 };
 
 const studioApiPath = '/api/shared-playout';
+const inputBodyLimit = 4096;
+const inputReceiptLimit = 256;
 
 class PlayoutError extends Error {
   constructor(
@@ -280,6 +332,19 @@ function invalidateFeeds(publication: Publication, command: Command) {
   }
 }
 
+function inputLimiter(perSecond: number, burst: number) {
+  let available = burst;
+  let last = performance.now();
+  return () => {
+    const now = performance.now();
+    available = Math.min(burst, available + ((now - last) * perSecond) / 1000);
+    last = now;
+    if (available < 1) return false;
+    available--;
+    return true;
+  };
+}
+
 /** The listener serves one live preview and the immutable packages it references. */
 export function createSharedPlayoutHost(
   host: string,
@@ -291,6 +356,10 @@ export function createSharedPlayoutHost(
   const subscribers = new Map<Response, Audience>();
   const operatorToken = randomBytes(24).toString('base64url');
   const operatorPath = `/control/${operatorToken}/`;
+  const inputReceipts = new Map<string, { sequence: number; fingerprint: string }>();
+  const acceptMovement = inputLimiter(cap.inputMoveRate, cap.inputMoveBurst);
+  const acceptEdge = inputLimiter(cap.inputEdgeRate, cap.inputEdgeBurst);
+  let inputSequence = 0;
   let current: Publication | null = null;
   let mode = { syncViewers: true, syncVersion: 0 };
   let totalBytes = 0;
@@ -410,7 +479,7 @@ export function createSharedPlayoutHost(
     response.type(extname(path) || 'application/octet-stream').send(file);
   }
   app.get('/s/:token/package/*path', servePackage);
-  app.post(['/preview/command', '/preview/mode'], () => {
+  app.post(['/preview/command', '/preview/mode', '/preview/input'], () => {
     throw new PlayoutError(403, 'This link is view-only.');
   });
 
@@ -428,6 +497,13 @@ export function createSharedPlayoutHost(
     express.json({ limit: 256 }),
     handleMode,
   );
+  app.post(
+    '/control/:token/input',
+    requireOperator,
+    requirePlayoutOrigin,
+    express.json({ limit: inputBodyLimit }),
+    handleInput,
+  );
   app.use(sendErrors);
 
   function handleMode(request: Request, response: Response) {
@@ -436,6 +512,7 @@ export function createSharedPlayoutHost(
     const { syncViewers } = parsed.data;
     if (syncViewers !== mode.syncViewers) {
       mode = { syncViewers, syncVersion: mode.syncVersion + 1 };
+      inputReceipts.clear();
       broadcastSnapshot();
     }
     response.json(mode);
@@ -451,6 +528,41 @@ export function createSharedPlayoutHost(
         publication?.id ?? null,
       );
     return publication;
+  }
+
+  function handleInput(request: Request, response: Response) {
+    const parsed = inputRequest.safeParse(request.body);
+    if (!parsed.success) throw new PlayoutError(400, 'Invalid shared graphic input.');
+    const { publicationId, requestId, clientId, syncVersion, input } = parsed.data;
+    const publication = requirePublication(publicationId);
+    if (!mode.syncViewers || mode.syncVersion !== syncVersion)
+      throw new PlayoutError(
+        409,
+        'Viewer sync mode changed or is disabled.',
+        publication.commands.length,
+        publication.id,
+      );
+
+    const receiptKey = JSON.stringify([clientId, requestId]);
+    const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('base64url');
+    const previous = inputReceipts.get(receiptKey);
+    if (previous) {
+      if (previous.fingerprint !== fingerprint)
+        throw new PlayoutError(409, 'This input request ID was already used for different input.');
+      response.json({ sequence: previous.sequence, syncVersion });
+      return;
+    }
+
+    const accept = input.type === 'pointer-move' ? acceptMovement : acceptEdge;
+    if (!accept()) throw new PlayoutError(429, 'Too many shared input events.');
+    const sequence = ++inputSequence;
+    if (inputReceipts.size >= inputReceiptLimit)
+      inputReceipts.delete(inputReceipts.keys().next().value!);
+    inputReceipts.set(receiptKey, { sequence, fingerprint });
+    const event = JSON.stringify({ publicationId, sequence, syncVersion, clientId, input });
+    for (const subscriber of subscribers.keys())
+      writeToSubscriber(subscriber, `event: input\ndata: ${event}\n\n`);
+    response.json({ sequence, syncVersion });
   }
 
   function handleFeed(request: Request, response: Response) {
@@ -623,6 +735,8 @@ export function createSharedPlayoutHost(
       previous.feeds.clear();
       previous.feedBytes = 0;
     }
+    inputReceipts.clear();
+    inputSequence = 0;
     current = publication;
     broadcastSnapshot();
     return { publicationId: publication.id, ...links };
@@ -644,6 +758,7 @@ export function createSharedPlayoutHost(
     servePackage,
     handleCommand,
     handleFeed,
+    handleInput,
     handleMode,
   };
 }
@@ -709,6 +824,14 @@ export function installSharedPlayoutPublishing(app: Express, host?: SharedPlayou
     express.json({ limit: MAX_PLAYOUT_REQUEST_BYTES }),
     (request, response) => {
       activeHost().handleFeed(request, response);
+    },
+  );
+  router.post(
+    '/input',
+    requireAuthoringOrigin,
+    express.json({ limit: inputBodyLimit }),
+    (request, response) => {
+      activeHost().handleInput(request, response);
     },
   );
   router.post(

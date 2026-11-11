@@ -44,6 +44,18 @@
       #stage[data-switching='true'] > * {
         visibility: hidden;
       }
+      #shared-pointer {
+        position: fixed;
+        z-index: 1;
+        width: 8px;
+        height: 8px;
+        border: 1px solid #bde8ff;
+        border-radius: 50%;
+        background: #2789bb;
+        box-shadow: 0 0 0 1px #142b39;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+      }
       #feedback {
         z-index: 1;
         position: relative;
@@ -85,6 +97,7 @@
   </head>
   <body id="layout" class="preview-stage-wrap" data-preview-overlay>
     <main id="stage" aria-label="Graphic output" tabindex="0"></main>
+    <span id="shared-pointer" aria-hidden="true" hidden></span>
     <div id="feedback">
       <h1 id="title">OGraf Live Preview</h1>
       <p id="status" role="status">Connecting…</p>

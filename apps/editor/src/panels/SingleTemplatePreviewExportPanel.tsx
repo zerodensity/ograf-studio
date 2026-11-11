@@ -1276,8 +1276,11 @@ export function SingleTemplatePreviewExportPanel() {
         onArrow: handleArrowNavigation,
         onKeyboard: (event) =>
           !syncEditorPreview &&
-          dispatchPreviewKeyboardInput(containerRef.current, event, (cause) =>
-            setFullscreenError(cause instanceof Error ? cause.message : String(cause)),
+          dispatchPreviewKeyboardInput(
+            containerRef.current,
+            event,
+            (cause) => setFullscreenError(cause instanceof Error ? cause.message : String(cause)),
+            sharedLive.graphic,
           ),
       },
     );
@@ -1288,6 +1291,7 @@ export function SingleTemplatePreviewExportPanel() {
     canControlPreview,
     toggleFullscreenData,
     syncEditorPreview,
+    sharedLive.graphic,
   ]);
 
   const handleStop = () => {

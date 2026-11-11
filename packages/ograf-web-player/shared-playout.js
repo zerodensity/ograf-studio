@@ -1,4 +1,5 @@
 import { dataFromSchemaDefaults, mountOGrafGraphic } from './ograf-player.js';
+import { createSharedInput } from './shared-input.js';
 
 const layout = document.querySelector('#layout');
 const title = document.querySelector('#title');
@@ -15,6 +16,7 @@ const fullscreen = document.querySelector('#fullscreen');
 const viewerSyncControl = document.querySelector('#viewer-sync-control');
 const viewerSync = document.querySelector('#sync-viewers');
 const independentStatus = document.querySelector('#independent-status');
+const sharedPointer = document.querySelector('#shared-pointer');
 
 if (new URLSearchParams(location.search).get('embedded') === '1')
   document.documentElement.dataset.embedded = '';
@@ -41,6 +43,16 @@ let currentStep;
 let controlsOpen = false;
 let controlsPosition;
 let drag;
+let pointerPosition;
+
+const sharedInput = createSharedInput({
+  url: './input',
+  onError: showError,
+  onPointer(position) {
+    pointerPosition = position;
+    placeSharedPointer();
+  },
+});
 
 function activePreview() {
   return Boolean(player) && publicationId === announcedPublicationId;
@@ -64,6 +76,11 @@ function refreshStatus() {
   layout.dataset.role = operator ? 'operator' : independent ? 'independent' : 'viewer';
   layout.dataset.syncViewers = String(syncViewers);
   player?.element?.toggleAttribute?.('inert', !canControl && syncViewers);
+  sharedInput.setSession(
+    active && synchronized
+      ? { publicationId, syncVersion, syncViewers, canSend: canControl, graphic: player.element }
+      : null,
+  );
   viewerSyncControl.hidden = !operator;
   viewerSync.checked = modeRequest?.value ?? syncViewers;
   viewerSync.disabled = !synchronized || Boolean(modeRequest);
@@ -127,6 +144,14 @@ function fitStage() {
     (window.innerHeight * resolution.width) / resolution.height,
   );
   stage.style.setProperty('--graphic-width', `${width}px`);
+}
+
+function placeSharedPointer() {
+  const bounds = pointerPosition && player?.element?.getBoundingClientRect();
+  sharedPointer.hidden = !bounds?.width || !bounds.height;
+  if (sharedPointer.hidden) return;
+  sharedPointer.style.left = `${bounds.left + pointerPosition.x * bounds.width}px`;
+  sharedPointer.style.top = `${bounds.top + pointerPosition.y * bounds.height}px`;
 }
 
 function placeControls({ left, top }) {
@@ -218,6 +243,7 @@ function installPopup() {
 
   const resized = () => {
     fitStage();
+    placeSharedPointer();
     if (!controls.hidden && controlsPosition) placeControls(controlsPosition);
   };
   window.addEventListener('resize', resized);
@@ -994,6 +1020,9 @@ function start() {
       refreshForms();
       refreshStatus();
     });
+  });
+  eventSource.addEventListener('input', (event) => {
+    enqueue(() => sharedInput.receive(JSON.parse(event.data)));
   });
 }
 
