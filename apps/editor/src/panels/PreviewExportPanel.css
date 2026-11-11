@@ -770,6 +770,23 @@
   color: var(--text-dim);
 }
 
+.preview-playout-share {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.preview-playout-share .preview-export-status {
+  margin: 0;
+}
+
+.preview-playout-share a {
+  color: var(--accent);
+  font-size: 11px;
+}
+
 .preview-qa-results {
   display: grid;
   gap: 4px;

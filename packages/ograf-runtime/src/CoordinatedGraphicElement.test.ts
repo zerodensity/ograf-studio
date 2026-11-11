@@ -4,6 +4,7 @@ import type {
   CompiledTransitionLogicDescriptor,
   LoadParams,
   ScheduledAction,
+  SharedGraphicPointerEdge,
 } from '@ograf-editor/ograf-types';
 import {
   clockTimerActionId,
@@ -17,13 +18,16 @@ import {
 import type { TransitionLogicRuleWork } from './transitionLogicRendering';
 
 const mock = vi.hoisted(() => {
-  class Host {
+  class Host extends EventTarget {
     style: Record<string, string> = {};
     dataset: Record<string, string> = {};
     children: Host[] = [];
     parent: Host | null = null;
     shadowRoot: Host | null = null;
     ownerDocument = { createElement: () => new Host(), defaultView: null };
+    getBoundingClientRect() {
+      return { left: 20, top: 40, width: 960, height: 540, right: 980, bottom: 580 };
+    }
     attachShadow() {
       return (this.shadowRoot = new Host());
     }
@@ -61,6 +65,9 @@ const mock = vi.hoisted(() => {
       setOnAir: ReturnType<typeof vi.fn>;
       fireLifecycle: ReturnType<typeof vi.fn>;
       customAction: ReturnType<typeof vi.fn>;
+      applySharedPointerPosition: ReturnType<typeof vi.fn>;
+      applySharedPointerEdge: ReturnType<typeof vi.fn>;
+      captureSharedPointer?: (input: SharedGraphicPointerEdge, event: MouseEvent) => void;
       ruleDataChanged?: (patch: Record<string, unknown>, frame: number) => void;
       scheduleRule?: (work: TransitionLogicRuleWork) => void;
       inheritRules: ReturnType<typeof vi.fn>;
@@ -150,6 +157,7 @@ vi.mock('./transitionLogicRendering', () => ({
     startFrame: number;
     ruleDataChanged?: (patch: Record<string, unknown>, frame: number) => void;
     scheduleRule?: (work: TransitionLogicRuleWork) => void;
+    captureSharedPointer?: (input: SharedGraphicPointerEdge, event: MouseEvent) => void;
   }) => {
     const host = new mock.Host();
     options.parent.append(host);
@@ -175,6 +183,11 @@ vi.mock('./transitionLogicRendering', () => ({
       setOnAir: vi.fn(),
       fireLifecycle: vi.fn(),
       customAction: vi.fn(),
+      applySharedPointerPosition: vi.fn(),
+      applySharedPointerEdge: vi.fn(() => true),
+      ...(options.captureSharedPointer
+        ? { captureSharedPointer: options.captureSharedPointer }
+        : {}),
       ...(options.ruleDataChanged ? { ruleDataChanged: options.ruleDataChanged } : {}),
       ...(options.scheduleRule ? { scheduleRule: options.scheduleRule } : {}),
       inheritRules: vi.fn(),
@@ -354,6 +367,48 @@ beforeEach(() => {
   mock.players.length = 0;
   mock.mounts.length = 0;
   mock.readiness.clear();
+});
+
+it('relays a coordinated hit with its authored lane or shared instance and replays only that target', async () => {
+  const graphic = await create();
+  await take(graphic, 'headline', {}, true);
+  await take(graphic, 'ticker', {}, true);
+  const headline = live().find((mount) => mount.host.dataset.ografTransitionState === 'headline')!;
+  const ticker = live().find((mount) => mount.host.dataset.ografTransitionState === 'ticker')!;
+  const panel = shared();
+  const send = vi.fn();
+  graphic.setSharedInputHandler(send);
+  const native = {
+    isTrusted: true,
+    clientX: 260,
+    clientY: 310,
+    type: 'click',
+    detail: 1,
+  } as MouseEvent;
+  headline.captureSharedPointer?.({ type: 'click', target: { layerId: 'label' } }, native);
+  panel.captureSharedPointer?.({ type: 'click', target: { layerId: 'backing' } }, native);
+  const fromLane: SharedGraphicPointerEdge = {
+    type: 'click',
+    target: { layerId: 'label', slotId: 'main', stateId: 'headline' },
+    position: { x: 0.25, y: 0.5 },
+  };
+  const fromPanel: SharedGraphicPointerEdge = {
+    type: 'click',
+    target: { layerId: 'backing', sharedKey: 'panel' },
+    position: { x: 0.25, y: 0.5 },
+  };
+  expect(send.mock.calls).toEqual([[fromLane], [fromPanel]]);
+  send.mockClear();
+  expect(graphic.applySharedInput(fromLane)).toBe(true);
+  expect(headline.applySharedPointerEdge).toHaveBeenCalledWith(fromLane, expect.any(Number));
+  expect(ticker.applySharedPointerEdge).not.toHaveBeenCalled();
+  expect(ticker.applySharedPointerPosition).toHaveBeenCalledWith({ clientX: 260, clientY: 310 });
+  expect(graphic.applySharedInput(fromPanel)).toBe(true);
+  expect(panel.applySharedPointerEdge).toHaveBeenCalledWith(fromPanel, expect.any(Number));
+  expect(
+    graphic.applySharedInput({ ...fromLane, target: { ...fromLane.target, stateId: 'breaking' } }),
+  ).toBe(false);
+  expect(send).not.toHaveBeenCalled();
 });
 
 describe('coordinated export instances', () => {

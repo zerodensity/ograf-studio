@@ -5,7 +5,7 @@ interface UpdateRequest {
   identity: string;
   data: Record<string, FieldValue>;
   valid(): boolean;
-  update(data: Record<string, FieldValue>): Promise<void>;
+  update(data: Record<string, FieldValue>): Promise<void | boolean>;
 }
 interface Pending extends UpdateRequest {
   resolve(applied: boolean): void;
@@ -50,8 +50,8 @@ export function createDataConnectionUpdateQueue() {
           FieldValue
         >;
         try {
-          await selected[0]!.update(data);
-          for (const request of selected) request.resolve(true);
+          const applied = await selected[0]!.update(data);
+          for (const request of selected) request.resolve(applied !== false);
         } catch (cause) {
           for (const request of selected) request.reject(cause);
         }

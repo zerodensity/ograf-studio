@@ -113,11 +113,45 @@ OGrafStudioServer.exe --open
 OGrafStudioServer.exe --port 4400 --workspace "D:\OGraf Projects"
 ```
 
-The standalone server binds to `127.0.0.1` only. Its default writable
+The standalone listener for the editor and MCP binds to `127.0.0.1`. Its default writable
 workspace is `Documents\OGraf Studio\Projects`; `--workspace` and the existing
 `OGRAF_WORKSPACE_ROOT` environment variable can override it. `--open` launches the system browser,
 while the default remains suitable for a console or background process. Run
 `OGrafStudioServer.exe --help` for the complete option list.
+
+### View Studio's Live preview on the LAN
+
+Start Studio normally. The console prints a fixed viewer URL and shows its QR in a color
+terminal when a private LAN address is available. Open the viewer URL in a browser or scan the QR.
+The viewer waits until Studio opens a template.
+
+Opening a template or coordinated template set prepares a playback copy in memory. The viewer
+and the **Live** screen in **Preview & Export** use that same session, including its data and
+playout controls. The **Preview** menu presents that session with Studio's fullscreen controls.
+The designer can keep editing the source document separately. Opening another template updates
+the viewer at the same URL.
+
+Use the viewer on a trusted LAN. Anyone who can reach its URL can watch and retrieve the browser's
+playback files, including packaged assets and authored data defaults. Studio and the separate
+**Operator link** control the shared session. Right-click the output to open remote controls.
+With **Sync viewers** checked, viewers follow the shared session and their playout controls are
+read-only. Uncheck it to give each viewer their own controls and data, then check it again to restore
+the operator's current output on every viewer. Independent controls act only in that browser.
+
+The synced Live preview forwards the operator's pointer position and the graphic's mouse and
+keyboard interactions to connected viewers. The viewer shows the operator's pointer over the
+graphic. Studio shortcuts and typing in control fields stay local. Inputs are delivered live and
+are outside the command replay used by a reconnecting viewer.
+
+Keep the Studio server process running after closing the editor tab. Reconnecting synced viewers
+restore the current playback copy, accepted commands, and last received live data. Configured
+Studio Data Connections run from the editor tab and send their latest exposed values separately
+from playout commands. Each browser renders at its own cadence. If a browser cannot start
+playback, **Retry preview** reloads the current session in that browser.
+
+Use `--playout-host 127.0.0.1` for a viewer on this workstation, or specify another assigned IP
+and port with `--playout-host` and `--playout-port`. Use `--no-playout` to start Studio without
+the viewer listener. The editor and MCP stay on loopback.
 
 ### Export the bundled skill or print the setup prompt
 

@@ -16,10 +16,9 @@ export function runtimeRelatedLayerId(
   return undefined;
 }
 
-/** Convert the visible viewport back to authored composition pixels, including a canvas crop. */
-export function runtimePointerPosition(
+/** Resolve a browser position in fractions of the visible, possibly scaled graphic. */
+export function normalizedRuntimePointerPosition(
   viewport: HTMLElement,
-  descriptor: Pick<CompiledGraphicDescriptor, 'width' | 'height' | 'crop'>,
   event: Pick<MouseEvent, 'clientX' | 'clientY'>,
 ): RuntimePointerPosition | null {
   const bounds = viewport.getBoundingClientRect();
@@ -35,14 +34,29 @@ export function runtimePointerPosition(
   )
     return null;
   return {
-    x:
-      (descriptor.crop?.x ?? 0) +
-      ((event.clientX - bounds.left) / bounds.width) * (descriptor.crop?.width ?? descriptor.width),
-    y:
-      (descriptor.crop?.y ?? 0) +
-      ((event.clientY - bounds.top) / bounds.height) *
-        (descriptor.crop?.height ?? descriptor.height),
+    x: (event.clientX - bounds.left) / bounds.width,
+    y: (event.clientY - bounds.top) / bounds.height,
   };
+}
+
+export function runtimePointerInComposition(
+  position: RuntimePointerPosition,
+  descriptor: Pick<CompiledGraphicDescriptor, 'width' | 'height' | 'crop'>,
+): RuntimePointerPosition {
+  return {
+    x: (descriptor.crop?.x ?? 0) + position.x * (descriptor.crop?.width ?? descriptor.width),
+    y: (descriptor.crop?.y ?? 0) + position.y * (descriptor.crop?.height ?? descriptor.height),
+  };
+}
+
+/** Convert the visible viewport back to authored composition pixels, including a canvas crop. */
+export function runtimePointerPosition(
+  viewport: HTMLElement,
+  descriptor: Pick<CompiledGraphicDescriptor, 'width' | 'height' | 'crop'>,
+  event: Pick<MouseEvent, 'clientX' | 'clientY'>,
+): RuntimePointerPosition | null {
+  const position = normalizedRuntimePointerPosition(viewport, event);
+  return position ? runtimePointerInComposition(position, descriptor) : null;
 }
 
 /** Listen only within the preview surface; toolbar and unrelated document movement stay out. */

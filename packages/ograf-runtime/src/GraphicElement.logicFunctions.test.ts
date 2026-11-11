@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
+import type { CompiledGraphicDescriptor, CompiledLayerVisualRule } from '@ograf-editor/ograf-types';
 import {
   createDefaultTransform,
   createLayerEffects,
   createTextElement,
+  VISUAL_RULE_MOUSE_X_FIELD_ID,
   type Element,
   type LogicFunctionContext,
   type LogicFunctionResult,
@@ -32,6 +33,9 @@ const fixture = vi.hoisted(() => {
     }
     getAttribute() {
       return null;
+    }
+    hasAttribute() {
+      return false;
     }
     querySelector() {
       return null;
@@ -202,6 +206,65 @@ beforeEach(() => {
 });
 
 describe('GraphicElement function integration', () => {
+  it('replays normalized pointer edges and keyboard rules once without relaying them again', async () => {
+    const compiled = descriptor();
+    const rule = (
+      trigger: CompiledLayerVisualRule['trigger'],
+      value: string,
+    ): CompiledLayerVisualRule => ({
+      id: value,
+      name: value,
+      enabled: true,
+      ...(trigger ? { trigger } : {}),
+      dataKey: '',
+      sourcePath: [],
+      operator: 'equals',
+      actions: [{ type: 'set-data', fieldId: 'label', dataKey: 'label', mode: 'set', value }],
+    });
+    compiled.layers[0]!.visualRules = [
+      rule('pointer-down', 'pressed'),
+      rule('pointer-up', 'released'),
+      {
+        ...rule('click', 'clicked on right'),
+        conditions: [
+          {
+            dataKey: VISUAL_RULE_MOUSE_X_FIELD_ID,
+            sourcePath: [],
+            operator: 'greater-than',
+            value: 320,
+          },
+        ],
+      },
+      rule('double-click', 'double clicked'),
+      { ...rule('key-down', 'shortcut'), keyboard: { key: 'A', ctrl: true } },
+    ];
+    const graphicInstance = await graphic(compiled);
+    await graphicInstance.playAction({ skipAnimation: true });
+    const send = vi.fn();
+    graphicInstance.setSharedInputHandler(send);
+    const target = { layerId: 'label' };
+    expect(graphicInstance.applySharedInput({ type: 'pointer-up', target })).toBe(false);
+    expect(graphicInstance.applySharedInput({ type: 'pointer-down', target })).toBe(true);
+    expect(label(graphicInstance)).toBe('pressed');
+    graphicInstance.applySharedInput({ type: 'pointer-cancel', target });
+    expect(graphicInstance.applySharedInput({ type: 'pointer-up', target })).toBe(false);
+    graphicInstance.applySharedInput({ type: 'pointer-down', target });
+    expect(graphicInstance.applySharedInput({ type: 'pointer-up', target })).toBe(true);
+    expect(label(graphicInstance)).toBe('released');
+    graphicInstance.applySharedInput({ type: 'click', target, position: { x: 0.25, y: 0.5 } });
+    expect(label(graphicInstance)).toBe('released');
+    graphicInstance.applySharedInput({ type: 'click', target, position: { x: 0.75, y: 0.5 } });
+    expect(label(graphicInstance)).toBe('clicked on right');
+    graphicInstance.applySharedInput({ type: 'double-click', target });
+    expect(label(graphicInstance)).toBe('double clicked');
+    expect(graphicInstance.applySharedInput({ type: 'key-down', key: 'A', ctrlKey: true })).toBe(
+      true,
+    );
+    expect(label(graphicInstance)).toBe('shortcut');
+    expect(send).not.toHaveBeenCalled();
+    await graphicInstance.dispose();
+  });
+
   it('keeps delayed Taken out Rules when a later asynchronous function Out result commits data', async () => {
     vi.useFakeTimers();
     const compiled = descriptor();

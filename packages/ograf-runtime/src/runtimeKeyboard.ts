@@ -64,7 +64,11 @@ function interactive(event: Event): boolean {
 export function bindRuntimeKeyboard(
   host: HTMLElement,
   enabled: boolean,
-  receive: (trigger: RuntimeKeyboardTrigger, input: VisualRuleKeyboardInput) => boolean,
+  receive: (
+    trigger: RuntimeKeyboardTrigger,
+    input: VisualRuleKeyboardInput,
+    event: KeyboardEvent,
+  ) => boolean,
 ): () => void {
   if (!enabled) return () => {};
   const addedTabIndex = !host.hasAttribute('tabindex');
@@ -83,15 +87,19 @@ export function bindRuntimeKeyboard(
     )
       return;
     if (
-      receive(event.type === 'keydown' ? 'key-down' : 'key-up', {
-        key: input.key,
-        ctrlKey: input.ctrlKey,
-        altKey: input.altKey,
-        shiftKey: input.shiftKey,
-        metaKey: input.metaKey,
-        repeat: input.repeat,
-        isComposing: input.isComposing,
-      })
+      receive(
+        event.type === 'keydown' ? 'key-down' : 'key-up',
+        {
+          key: input.key,
+          ctrlKey: input.ctrlKey,
+          altKey: input.altKey,
+          shiftKey: input.shiftKey,
+          metaKey: input.metaKey,
+          repeat: input.repeat,
+          isComposing: input.isComposing,
+        },
+        input,
+      )
     )
       event.preventDefault();
   };

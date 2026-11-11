@@ -77,6 +77,17 @@ function fileSlug(value: string): string {
 
 let exportInProgress = false;
 
+export function snapshotProjectSetForExport(set: ProjectSetDocument): ProjectSetDocument {
+  const draft = useTransitionLogicDraftStore.getState().drafts[set.id];
+  if (draft && transitionLogicDraftChanged(draft))
+    throw new Error(
+      'Playout transitions have unapplied edits. Apply or Revert the draft in Transitions before exporting.',
+    );
+  const snapshot = structuredClone(transitionLogicEditorSetSnapshot(set));
+  if (!snapshot.templates.length) throw new Error('Insert a template before exporting this set.');
+  return snapshot;
+}
+
 /** Exports the current set snapshot as one coordinated graphic or independent certified packages. */
 export async function exportProjectSetAsZip(
   set: ProjectSetDocument,
@@ -86,13 +97,7 @@ export async function exportProjectSetAsZip(
   options.signal?.throwIfAborted();
   if (exportInProgress)
     throw new Error('A template-set export is already in progress. Wait for it to finish.');
-  const draft = useTransitionLogicDraftStore.getState().drafts[set.id];
-  if (draft && transitionLogicDraftChanged(draft))
-    throw new Error(
-      'Playout transitions have unapplied edits. Apply or Revert the draft in Transitions before exporting.',
-    );
-  const snapshot = structuredClone(transitionLogicEditorSetSnapshot(set));
-  if (!snapshot.templates.length) throw new Error('Insert a template before exporting this set.');
+  const snapshot = snapshotProjectSetForExport(set);
   if (!snapshot.transitionLogic && options.format && options.format !== 'zip')
     throw new Error('Choose Current template to export standalone HTML from an independent set.');
   exportInProgress = true;

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>OGraf Live Preview</title>
+    <link rel="stylesheet" href="./preview-controls.css" />
+    <style>
+      @font-face {
+        font-family: 'Nunito';
+        src: url('./preview-font.ttf') format('truetype');
+        font-weight: 200 900;
+        font-display: swap;
+      }
+      :root {
+        color-scheme: dark;
+        font:
+          12px/1.3 'Nunito',
+          'Segoe UI',
+          system-ui,
+          sans-serif;
+        color: #dadada;
+        background: #000;
+        --accent: #399ed4;
+        --radius-control: 2px;
+        --bg-panel-raised: #353535;
+        --mono: ui-monospace, Consolas, monospace;
+      }
+      #layout {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      #stage {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        overflow: hidden;
+      }
+      #stage > div {
+        width: min(100vw, var(--graphic-width, 100vw)) !important;
+      }
+      #stage[data-switching='true'] > * {
+        visibility: hidden;
+      }
+      #shared-pointer {
+        position: fixed;
+        z-index: 1;
+        width: 8px;
+        height: 8px;
+        border: 1px solid #bde8ff;
+        border-radius: 50%;
+        background: #2789bb;
+        box-shadow: 0 0 0 1px #142b39;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+      }
+      #feedback {
+        z-index: 1;
+        position: relative;
+        margin: 20px;
+        text-align: center;
+      }
+      #title {
+        margin: 0;
+        font-size: 12px;
+      }
+      #error {
+        color: #ffb4aa;
+      }
+      #controls {
+        max-height: calc(100% - 16px);
+      }
+      #operator-fields {
+        display: grid;
+        gap: 8px;
+      }
+      #operator-fields fieldset {
+        display: grid;
+        gap: 5px;
+        margin: 0;
+        padding: 6px 0 0;
+        min-width: 0;
+        border: 0;
+        border-top: 1px solid var(--border);
+      }
+      #operator-fields .preview-data-row > textarea {
+        min-width: 0;
+        resize: vertical;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+    <script type="module" src="./shared-playout.js"></script>
+  </head>
+  <body id="layout" class="preview-stage-wrap" data-preview-overlay>
+    <main id="stage" aria-label="Graphic output" tabindex="0"></main>
+    <span id="shared-pointer" aria-hidden="true" hidden></span>
+    <div id="feedback">
+      <h1 id="title">OGraf Live Preview</h1>
+      <p id="status" role="status">Connecting…</p>
+      <p id="error" role="alert" hidden></p>
+      <button id="retry-preview" type="button" hidden>Retry preview</button>
+    </div>
+    <aside id="controls" class="preview-fullscreen-data" aria-label="Playout controls" hidden>
+      <div class="preview-popup-body">
+        <header class="preview-fullscreen-data-heading">
+          <button
+            id="move-controls"
+            class="preview-controls-drag-handle"
+            type="button"
+            title="Drag to move"
+          >
+            <span aria-hidden="true">⠿</span><strong>Preview controls</strong>
+          </button>
+          <span id="preview-step" class="preview-step-indicator">Off air</span>
+          <button id="fullscreen" type="button">Fullscreen</button>
+        </header>
+        <label id="viewer-sync-control" class="preview-data-row" hidden>
+          <span>Sync viewers</span>
+          <input id="sync-viewers" type="checkbox" checked />
+        </label>
+        <p id="independent-status" class="preview-fullscreen-data-note" hidden>
+          Independent preview
+        </p>
+        <div id="operator-fields"></div>
+        <p class="preview-fullscreen-data-note">
+          Right-click for controls · Drag to move · D toggles · Escape exits.
+        </p>
+      </div>
+    </aside>
+  </body>
+</html>

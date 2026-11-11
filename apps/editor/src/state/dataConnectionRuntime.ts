@@ -1,5 +1,8 @@
 import { create } from 'zustand';
+import { publicFieldValueForExport } from '@ograf-editor/codegen';
+import type { CoordinatedPlayoutSnapshot } from '@ograf-editor/ograf-types';
 import {
+  fieldExposedToOgraf,
   parseChartData,
   valueAtSourcePath,
   type Composition,
@@ -8,7 +11,7 @@ import {
   type Project,
 } from '@ograf-editor/scene-model';
 import { createPublicMarketsReader } from '../data/publicMarketsReader';
-import { readDataConnection } from './dataConnections';
+import { mapConnectionPayload, readDataConnection } from './dataConnections';
 import { createDataConnectionUpdateQueue } from './dataConnectionUpdateQueue';
 import {
   createDataConnectionRuntime,
@@ -20,11 +23,14 @@ import { useProjectSetStore } from './projectSetStore';
 import { resolveProjectSetTemplate, type ProjectSetDocument } from './projectSet';
 import { useTestDataStore } from './testDataStore';
 import { resolvePreviewFieldValue } from './previewFieldValue';
+import { buildPreviewDataFromTestValues } from './previewData';
 import {
   behaviorPreviewDataSource,
   updateBehaviorPreviewSlot,
   useBehaviorPreviewStore,
 } from './behaviorPreviewStore';
+import { useSharedPlayoutEditor } from './sharedPlayoutEditor';
+import { publishSharedPlayoutFeed } from './sharedPlayoutPublish';
 
 export { type DataConnectionStatus } from './dataConnectionRuntimeCore';
 export const connectionRuntimeKey = (
@@ -45,13 +51,11 @@ function resolved(set: ProjectSetDocument, id: string): Project {
   return project;
 }
 const target = (connection: DataConnectionDefinition) => connection.target ?? 'editor-preview';
-function previewRoutingStamp(state: ReturnType<typeof useBehaviorPreviewStore.getState>): string {
+function previewRoutingStamp(snapshot: CoordinatedPlayoutSnapshot | null): string {
   return JSON.stringify([
-    state.requestId,
-    state.loading,
-    state.snapshot?.loaded,
-    state.snapshot?.paused,
-    Object.values(state.snapshot?.slots ?? {}).map((slot) => [
+    snapshot?.loaded,
+    snapshot?.paused,
+    Object.values(snapshot?.slots ?? {}).map((slot) => [
       slot.slotId,
       slot.current?.templateId,
       slot.current?.stateId,
@@ -71,6 +75,39 @@ const fieldValues = (composition: Composition, data: Record<string, unknown> = {
       (data[field.key] ?? field.defaultValue) as FieldValue,
     ]),
   );
+
+function sharedConnectionValues(composition: Composition, values: Record<string, FieldValue>) {
+  const fields = composition.dataFields.filter(
+    (field) => fieldExposedToOgraf(field) && Object.hasOwn(values, field.id),
+  );
+  const resolved = buildPreviewDataFromTestValues({ ...composition, dataFields: fields }, values);
+  return Object.fromEntries(
+    fields.map((field) => [field.key, publicFieldValueForExport(field, resolved[field.key]!)]),
+  );
+}
+
+function changedConnectionValues(
+  values: Record<string, FieldValue>,
+  previous: Record<string, unknown>,
+): Record<string, FieldValue> {
+  return Object.fromEntries(
+    Object.entries(values).filter(
+      ([key, value]) => JSON.stringify(previous[key]) !== JSON.stringify(value),
+    ),
+  );
+}
+
+interface CoordinatedConnectionDestination {
+  id: string;
+  source: ProjectSetDocument;
+  shared: boolean;
+  snapshot(): CoordinatedPlayoutSnapshot | null;
+  update(
+    slotId: string,
+    stateId: string,
+    patch: Record<string, FieldValue>,
+  ): Promise<void | boolean>;
+}
 
 function validateChartConnectionUpdate(
   composition: Composition,
@@ -122,6 +159,8 @@ export function initializeDataConnectionRuntime(): () => void {
   let queued = false;
   let activeKeys = new Set<string>();
   const previewUpdates = createDataConnectionUpdateQueue();
+  const sharedLifetime = new AbortController();
+  let singleFeed: { publicationId: string; values: Record<string, FieldValue> } | undefined;
   const consumerStatuses = new Map<string, { statusKey: string; status: DataConnectionStatus }>();
   const publish = () => {
     const statuses: Record<string, DataConnectionStatus> = {};
@@ -182,6 +221,56 @@ export function initializeDataConnectionRuntime(): () => void {
     const projectSetState = useProjectSetStore.getState();
     const set = projectSetState.projectSet;
     const preview = behaviorPreviewDataSource();
+    const { publicationId, publishedSource } = useSharedPlayoutEditor.getState();
+    const destinations: CoordinatedConnectionDestination[] = [];
+    if (preview && preview.source.id === set?.id) {
+      destinations.push({
+        id: `preview:${preview.sessionId}`,
+        source: preview.source,
+        shared: false,
+        snapshot() {
+          const latest = useBehaviorPreviewStore.getState();
+          return latest.requestId === preview.sessionId && !latest.loading ? latest.snapshot : null;
+        },
+        update: (slotId, stateId, patch) =>
+          updateBehaviorPreviewSlot(slotId, patch, stateId, 'in-place'),
+      });
+    }
+    if (
+      publicationId &&
+      publishedSource &&
+      'set' in publishedSource &&
+      publishedSource.set.id === set?.id
+    ) {
+      destinations.push({
+        id: `shared:${publicationId}`,
+        source: publishedSource.set,
+        shared: true,
+        snapshot() {
+          const latest = useSharedPlayoutEditor.getState();
+          return latest.publicationId === publicationId ? latest.liveSnapshot : null;
+        },
+        update(slotId, stateId, patch) {
+          return publishSharedPlayoutFeed(
+            publicationId,
+            { kind: 'slot', slotId, stateId },
+            patch,
+            sharedLifetime.signal,
+          );
+        },
+      });
+    }
+    const sharedSingle =
+      publicationId &&
+      publishedSource &&
+      'composition' in publishedSource &&
+      publishedSource.project.id === editor.project.id &&
+      publishedSource.composition.id === composition.id
+        ? publishedSource.composition
+        : null;
+    if (sharedSingle && publicationId && singleFeed?.publicationId !== publicationId)
+      singleFeed = { publicationId, values: fieldValues(sharedSingle) };
+    if (!sharedSingle) singleFeed = undefined;
     const consumers: DataConnectionConsumer[] = [];
     const declared = new Map<string, DataConnectionStatus>();
     const declare = (project: Project, comp: Composition, connection: DataConnectionDefinition) => {
@@ -197,7 +286,7 @@ export function initializeDataConnectionRuntime(): () => void {
       const statusKey = declare(editor.project, composition, connection);
       if (!connection.enabled) continue;
       const editorTarget = target(connection) !== 'coordinated-preview';
-      if (!editorTarget && preview?.source.id === set?.id) continue;
+      if (!editorTarget && destinations.length) continue;
       consumers.push({
         key: `${editorTarget ? 'editor' : 'waiting'}:${statusKey}`,
         statusKey,
@@ -223,11 +312,7 @@ export function initializeDataConnectionRuntime(): () => void {
             current.activeCompositionId,
           );
           const testData = useTestDataStore.getState();
-          const changed = Object.fromEntries(
-            Object.entries(values).filter(
-              ([id, value]) => JSON.stringify(testData.values[id]) !== JSON.stringify(value),
-            ),
-          );
+          const changed = changedConnectionValues(values, testData.values);
           if (Object.keys(changed).length) {
             validateChartConnectionUpdate(activeComposition, changed, 'editor');
             testData.setValues(changed, activeComposition.layers, activeComposition.dataFields);
@@ -235,13 +320,70 @@ export function initializeDataConnectionRuntime(): () => void {
           return true;
         },
       });
+      if (editorTarget && sharedSingle && publicationId && singleFeed) {
+        const feed = singleFeed;
+        const connectionStamp = JSON.stringify(connection);
+        const valid = () => {
+          const open = useProjectStore.getState();
+          const latest = useSharedPlayoutEditor.getState();
+          return (
+            latest.publicationId === publicationId &&
+            open.documentLoadRevision === editor.documentLoadRevision &&
+            open.project.id === editor.project.id &&
+            open.activeCompositionId === composition.id &&
+            getActiveComposition(open.project, open.activeCompositionId).dataConnections.some(
+              (configured) =>
+                configured.id === connection.id &&
+                configured.enabled &&
+                JSON.stringify(configured) === connectionStamp,
+            )
+          );
+        };
+        consumers.push({
+          key: `shared:${publicationId}:${statusKey}`,
+          statusKey,
+          version: JSON.stringify([editor.documentLoadRevision, connectionStamp]),
+          connection,
+          fields: sharedSingle.dataFields,
+          previous: () => feed.values,
+          async apply(values) {
+            if (!valid()) return false;
+            if (
+              connection.mappings.some(
+                (mapping) => !sharedSingle.dataFields.some((field) => field.id === mapping.fieldId),
+              )
+            )
+              throw new Error('Reopen the template to use the new data fields in shared preview.');
+            const changed = changedConnectionValues(values, feed.values);
+            const patch = sharedConnectionValues(sharedSingle, changed);
+            if (!Object.keys(patch).length) return true;
+            validateChartConnectionUpdate(sharedSingle, changed, 'editor');
+            const applied = await previewUpdates.enqueue({
+              slotId: `shared-graphic:${publicationId}`,
+              identity: publicationId,
+              data: patch,
+              valid,
+              update(data) {
+                return publishSharedPlayoutFeed(
+                  publicationId,
+                  { kind: 'graphic' },
+                  data,
+                  sharedLifetime.signal,
+                );
+              },
+            });
+            if (applied) Object.assign(feed.values, changed);
+            return applied;
+          },
+        });
+      }
     }
-    const behavior = useBehaviorPreviewStore.getState();
-    if (preview && set?.id === preview.source.id) {
-      for (const frozenTemplate of preview.source.templates) {
+    for (const destination of destinations) {
+      if (!set) continue;
+      for (const frozenTemplate of destination.source.templates) {
         const currentTemplate = set.templates.find((entry) => entry.id === frozenTemplate.id);
         if (!currentTemplate) continue;
-        const frozenProject = resolved(preview.source, frozenTemplate.id);
+        const frozenProject = resolved(destination.source, frozenTemplate.id);
         const frozenComposition = frozenProject.compositions.find(
           (entry) => entry.id === frozenProject.mainCompositionId,
         )!;
@@ -253,7 +395,7 @@ export function initializeDataConnectionRuntime(): () => void {
           (entry) => entry.id === frozenComposition.id,
         );
         if (!currentComposition) continue;
-        const selections = Object.values(behavior.snapshot?.slots ?? {}).flatMap((slot) => {
+        const selections = Object.values(destination.snapshot()?.slots ?? {}).flatMap((slot) => {
           const selected = slot.incoming ?? slot.current;
           return selected?.templateId === frozenTemplate.id
             ? [{ slotId: slot.slotId, ...selected }]
@@ -263,7 +405,7 @@ export function initializeDataConnectionRuntime(): () => void {
           const statusKey = declare(currentProject, currentComposition, connection);
           if (!connection.enabled || target(connection) === 'editor-preview') continue;
           consumers.push({
-            key: `preview:${preview.sessionId}:${frozenTemplate.id}:${statusKey}`,
+            key: `${destination.id}:${frozenTemplate.id}:${statusKey}`,
             statusKey,
             version: JSON.stringify([
               connection,
@@ -273,23 +415,20 @@ export function initializeDataConnectionRuntime(): () => void {
             connection,
             fields: frozenComposition.dataFields,
             previous() {
-              const selection = Object.values(
-                useBehaviorPreviewStore.getState().snapshot?.slots ?? {},
-              )
+              const selection = Object.values(destination.snapshot()?.slots ?? {})
                 .map((slot) => slot.current)
                 .find((item) => item?.templateId === frozenTemplate.id);
               return fieldValues(frozenComposition, selection?.data);
             },
-            async apply(values) {
-              const latest = useBehaviorPreviewStore.getState();
+            async apply(values, payload) {
+              const latest = destination.snapshot();
               if (
-                latest.requestId !== preview.sessionId ||
-                latest.loading ||
-                latest.snapshot?.paused ||
-                useProjectSetStore.getState().projectSet?.id !== preview.source.id
+                !latest?.loaded ||
+                latest.paused ||
+                useProjectSetStore.getState().projectSet?.id !== destination.source.id
               )
                 return false;
-              const lanes = Object.values(latest.snapshot?.slots ?? {}).filter(
+              const lanes = Object.values(latest.slots).filter(
                 (slot) =>
                   slot.current?.templateId === frozenTemplate.id &&
                   !slot.transition &&
@@ -302,37 +441,52 @@ export function initializeDataConnectionRuntime(): () => void {
                     !frozenComposition.dataFields.some((field) => field.id === mapping.fieldId),
                 )
               )
-                throw new Error('Replay the combined preview to use the new data fields.');
-              validateChartConnectionUpdate(frozenComposition, values, 'coordinated');
+                throw new Error(
+                  destination.shared
+                    ? 'Reopen the template set to use the new data fields in shared preview.'
+                    : 'Replay the combined preview to use the new data fields.',
+                );
+              if (!destination.shared)
+                validateChartConnectionUpdate(frozenComposition, values, 'coordinated');
               const data = Object.fromEntries(
                 frozenComposition.dataFields.flatMap((field) =>
                   Object.hasOwn(values, field.id) ? [[field.key, values[field.id]!]] : [],
                 ),
               );
+              const patches = lanes.map((slot) => {
+                const current = slot.current!.data;
+                if (!destination.shared)
+                  return { slot, changed: changedConnectionValues(data, current) };
+                // Missing source paths keep each on-air instance's own value, even when the
+                // same template is taken into two lanes with different operator data.
+                const previous = fieldValues(frozenComposition, current);
+                const mapped = mapConnectionPayload(
+                  connection,
+                  frozenComposition.dataFields,
+                  payload,
+                  previous,
+                );
+                const changedFields = changedConnectionValues(mapped, previous);
+                validateChartConnectionUpdate(frozenComposition, changedFields, 'coordinated');
+                return { slot, changed: sharedConnectionValues(frozenComposition, changedFields) };
+              });
               const applied = await Promise.all(
-                lanes.map(async (slot) => {
-                  const changed = Object.fromEntries(
-                    Object.entries(data).filter(
-                      ([key, value]) =>
-                        JSON.stringify(slot.current!.data[key]) !== JSON.stringify(value),
-                    ),
-                  );
+                patches.map(async ({ slot, changed }) => {
                   if (!Object.keys(changed).length) return true;
                   const stateId = slot.current!.stateId;
                   const instanceId = slot.current!.instanceId;
                   return previewUpdates.enqueue({
-                    slotId: slot.slotId,
-                    identity: JSON.stringify([preview.sessionId, stateId, instanceId]),
+                    slotId: `${destination.id}:${slot.slotId}`,
+                    identity: JSON.stringify([stateId, instanceId]),
                     data: changed,
                     valid() {
-                      const state = useBehaviorPreviewStore.getState();
-                      const selected = state.snapshot?.slots[slot.slotId];
+                      const state = destination.snapshot();
+                      const selected = state?.slots[slot.slotId];
                       const open = useProjectSetStore.getState();
                       if (
-                        state.requestId !== preview.sessionId ||
-                        state.loading ||
-                        state.snapshot?.paused ||
-                        open.projectSet?.id !== preview.source.id ||
+                        !state?.loaded ||
+                        state.paused ||
+                        open.projectSet?.id !== destination.source.id ||
                         selected?.current?.stateId !== stateId ||
                         selected.current.instanceId !== instanceId ||
                         selected.transition ||
@@ -351,8 +505,7 @@ export function initializeDataConnectionRuntime(): () => void {
                         JSON.stringify(configured) === JSON.stringify(connection)
                       );
                     },
-                    update: (patch) =>
-                      updateBehaviorPreviewSlot(slot.slotId, patch, stateId, 'in-place'),
+                    update: (patch) => destination.update(slot.slotId, stateId, patch),
                   });
                 }),
               );
@@ -396,13 +549,28 @@ export function initializeDataConnectionRuntime(): () => void {
         schedule();
     }),
     useBehaviorPreviewStore.subscribe((next, previous) => {
-      if (previewRoutingStamp(next) !== previewRoutingStamp(previous)) schedule();
+      if (
+        next.requestId !== previous.requestId ||
+        next.loading !== previous.loading ||
+        previewRoutingStamp(next.snapshot) !== previewRoutingStamp(previous.snapshot)
+      )
+        schedule();
+    }),
+    useSharedPlayoutEditor.subscribe((next, previous) => {
+      if (
+        next.publicationId !== previous.publicationId ||
+        next.publishedSource !== previous.publishedSource ||
+        (next.liveSnapshot !== previous.liveSnapshot &&
+          previewRoutingStamp(next.liveSnapshot) !== previewRoutingStamp(previous.liveSnapshot))
+      )
+        schedule();
     }),
   ];
   stopRuntime = () => {
     if (stopped) return;
     stopped = true;
     for (const unsubscribe of unsubscribes) unsubscribe();
+    sharedLifetime.abort();
     previewUpdates.dispose();
     runtime?.dispose();
     runtime = null;

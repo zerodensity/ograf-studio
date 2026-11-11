@@ -10,20 +10,23 @@ import { ChatAgentController } from './agent/chatAgent';
 import { installEmbeddedEditor, installStaticEditor } from './staticEditor';
 import { installStudioWorkspacePreferences } from './studioWorkspacePreferences';
 import { NodosPresetHost } from './nodos/nodosPresets';
+import { installSharedPlayoutPublishing, type SharedPlayoutHost } from './sharedPlayout';
 
 export interface OGrafAuthoringHostOptions {
   workspaceRoot?: string;
   editorRoot?: string;
   embeddedEditorAssets?: Readonly<Record<string, string>>;
   bundledAuthoringSkill?: boolean;
+  sharedPlayout?: SharedPlayoutHost;
 }
 
 export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}) {
   const app = express();
+  app.use(localhostHostValidation());
+  installSharedPlayoutPublishing(app, options.sharedPlayout);
   // Editable projects can legitimately include packaged fonts, images, Lottie JSON, and source
   // references. Keep this bounded but comfortably above the 100 kB Express default.
   app.use(express.json({ limit: '16mb' }));
-  app.use(localhostHostValidation());
   const httpServer = createServer(app);
   const workspace = new AuthoringWorkspace(options.workspaceRoot);
   const bridge = new EditorBridge(httpServer, workspace);
