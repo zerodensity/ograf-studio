@@ -113,11 +113,31 @@ OGrafStudioServer.exe --open
 OGrafStudioServer.exe --port 4400 --workspace "D:\OGraf Projects"
 ```
 
-The standalone server binds to `127.0.0.1` only. Its default writable
+The standalone listener for the editor and MCP binds to `127.0.0.1`. Its default writable
 workspace is `Documents\OGraf Studio\Projects`; `--workspace` and the existing
 `OGRAF_WORKSPACE_ROOT` environment variable can override it. `--open` launches the system browser,
 while the default remains suitable for a console or background process. Run
 `OGrafStudioServer.exe --help` for the complete option list.
+
+### Publish a shared preview
+
+Enable the shared playout listener when starting Studio. Use an IP address assigned to this
+machine on your LAN, such as `192.168.1.25`. The default playout address is `127.0.0.1`.
+
+```powershell
+.\OGrafStudioServer.exe --playout-port 4320 --playout-host 192.168.1.25
+```
+
+1. Open a template or a template set with Transition Logic. In **Preview & Export**, choose the
+   export scope and select **Publish to LAN**. Studio certifies a real-time package for the session.
+2. Share the **Viewer link** for playback or the **Operator link** for playback and playout
+   controls. Each link grants its stated access to that published session.
+3. Close the editor tab when you are ready. Keep the Studio server process running to serve
+   the package and share commands. Reopening a session link restores the accepted playout
+   commands, including data updates.
+
+The prototype retains publications and their command history in memory for the life of the
+server process. Each browser renders the same published package at its own cadence.
 
 ### Export the bundled skill or print the setup prompt
 

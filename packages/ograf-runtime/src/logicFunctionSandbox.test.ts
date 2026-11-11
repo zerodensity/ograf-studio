@@ -115,6 +115,21 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe('isolated function host protocol', () => {
+  it('uses a cryptographic 128-bit supervisor token when randomUUID is unavailable', async () => {
+    const getRandomValues = vi.fn((bytes: Uint8Array) => bytes.fill(0x0a));
+    vi.stubGlobal('crypto', { getRandomValues });
+    try {
+      const env = environment();
+      expect(getRandomValues).toHaveBeenCalledOnce();
+      expect(getRandomValues.mock.calls[0]![0]).toHaveLength(16);
+      expect(env.config.token).toBe('0a'.repeat(16));
+      await env.prepare();
+      env.sandbox.dispose();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('uses an opaque fixed-scaffold frame, denies capabilities and escapes embedded source', async () => {
     const source = '() => ({ state: "</script><script>bad()</script>" })';
     const env = environment(source);

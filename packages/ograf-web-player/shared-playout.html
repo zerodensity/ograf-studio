@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>OGraf Live Preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        background: #141820;
+        color: #eef2f8;
+      }
+      body {
+        margin: 0 auto;
+        max-width: 1400px;
+        padding: clamp(12px, 3vw, 32px);
+      }
+      header,
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 10px;
+      }
+      header {
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 1.4rem;
+      }
+      h2 {
+        font-size: 1rem;
+      }
+      #status,
+      #lane-status,
+      #revision {
+        color: #b9c8da;
+      }
+      #error {
+        color: #ffb4aa;
+        margin-block: 0 12px;
+      }
+      #stage {
+        min-width: 0;
+        background: #090b10;
+        overflow: hidden;
+      }
+      #stage:empty {
+        aspect-ratio: 16 / 9;
+      }
+      #layout {
+        display: grid;
+        gap: 18px;
+        align-items: start;
+      }
+      #layout[data-role='operator'] {
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+      }
+      aside,
+      fieldset,
+      .fields {
+        display: grid;
+        gap: 12px;
+        min-inline-size: 0;
+      }
+      aside[hidden] {
+        display: none;
+      }
+      fieldset {
+        margin: 0;
+        padding: 12px;
+        border: 1px solid #46536a;
+        border-radius: 6px;
+      }
+      label {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+      input,
+      select,
+      textarea,
+      button {
+        box-sizing: border-box;
+        min-width: 0;
+        padding: 7px 9px;
+        border: 1px solid #63748e;
+        border-radius: 4px;
+        background: #212a38;
+        color: inherit;
+        font: inherit;
+      }
+      input[type='checkbox'] {
+        justify-self: start;
+      }
+      textarea {
+        resize: vertical;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.48;
+      }
+      @media (max-width: 720px) {
+        #layout[data-role='operator'] {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    </style>
+    <script type="module" src="./shared-playout.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1 id="title">OGraf Live Preview</h1>
+      <div class="row">
+        <p id="status" role="status">Connecting…</p>
+        <p id="revision"></p>
+      </div>
+    </header>
+    <p id="error" role="alert" hidden></p>
+    <main id="layout">
+      <section id="stage" aria-label="Graphic output"></section>
+      <aside id="controls" aria-label="Playout controls" hidden></aside>
+    </main>
+  </body>
+</html>

@@ -44,6 +44,31 @@ describe('standalone server configuration', () => {
     expect(() => parseStandaloneServerOptions(['--network'], {})).toThrow(/Unknown option/);
   });
 
+  it('keeps playout opt-in on a separate explicit interface', () => {
+    expect(parseStandaloneServerOptions([], {}).playout).toBeUndefined();
+    expect(parseStandaloneServerOptions(['--playout-port=4401'], {}).playout).toEqual({
+      host: '127.0.0.1',
+      port: 4401,
+    });
+    expect(
+      parseStandaloneServerOptions(['--playout-port', '4401', '--playout-host', '192.168.0.4'], {})
+        .playout,
+    ).toEqual({ host: '192.168.0.4', port: 4401 });
+    expect(
+      parseStandaloneServerOptions(['--playout-port=4401', '--playout-host=::1'], {}).playout,
+    ).toEqual({ host: '::1', port: 4401 });
+    expect(() => parseStandaloneServerOptions(['--playout-port=4318'], {})).toThrow(/differ/);
+    expect(() => parseStandaloneServerOptions(['--playout-host=192.168.0.4'], {})).toThrow(
+      /requires/,
+    );
+    expect(() =>
+      parseStandaloneServerOptions(['--playout-port=4401', '--playout-host=localhost'], {}),
+    ).toThrow(/literal IP/);
+    expect(() =>
+      parseStandaloneServerOptions(['--playout-port=4401', '--playout-host=0.0.0.0'], {}),
+    ).toThrow(/interface IP/);
+  });
+
   it('parses setup commands and retains the requested prompt port', () => {
     expect(
       parseStandaloneServerOptions(['--print-setup-prompt', '--port', '4400'], {}),

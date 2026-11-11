@@ -7,6 +7,11 @@ import { createOGrafAuthoringHost } from './index';
 import { assertStaticEditorRoot } from './staticEditor';
 import { exportBundledAuthoringSkill, formatStandaloneSetupPrompt } from './standaloneSetup';
 import {
+  createSharedPlayoutHost,
+  loadSharedPlayoutAssets,
+  type SharedPlayoutAssetPaths,
+} from './sharedPlayout';
+import {
   OGRAF_STUDIO_REPOSITORY_URL,
   OGRAF_STUDIO_STANDALONE_VERSION,
   parseStandaloneServerOptions,
@@ -40,6 +45,16 @@ async function closeServer(server: Server): Promise<void> {
   );
 }
 
+async function listen(server: Server, port: number, host: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+}
+
 async function main(): Promise<void> {
   const options = parseStandaloneServerOptions(process.argv.slice(2));
   if (options.help) {
@@ -68,18 +83,30 @@ async function main(): Promise<void> {
   if (!embeddedEditorAssets) await assertStaticEditorRoot(editorRoot);
   await mkdir(options.workspaceRoot, { recursive: true });
 
+  const embeddedPlayoutAssets = (
+    globalThis as { __OGRAF_STANDALONE_PLAYOUT_ASSETS__?: SharedPlayoutAssetPaths }
+  ).__OGRAF_STANDALONE_PLAYOUT_ASSETS__;
+  const sharedPlayout = options.playout
+    ? createSharedPlayoutHost(
+        options.playout.host,
+        await loadSharedPlayoutAssets(embeddedPlayoutAssets),
+      )
+    : undefined;
   const { httpServer, workspace } = createOGrafAuthoringHost({
     ...(embeddedEditorAssets ? { embeddedEditorAssets } : { editorRoot }),
     workspaceRoot: options.workspaceRoot,
     bundledAuthoringSkill: Boolean(embeddedSkillAsset),
+    sharedPlayout,
   });
-  await new Promise<void>((resolve, reject) => {
-    httpServer.once('error', reject);
-    httpServer.listen(options.port, '127.0.0.1', () => {
-      httpServer.off('error', reject);
-      resolve();
-    });
-  });
+  await listen(httpServer, options.port, '127.0.0.1');
+  if (sharedPlayout && options.playout) {
+    try {
+      await listen(sharedPlayout.httpServer, options.playout.port, options.playout.host);
+    } catch (error) {
+      await closeServer(httpServer);
+      throw error;
+    }
+  }
 
   const baseUrl = `http://127.0.0.1:${options.port}`;
   console.log(ZERO_DENSITY_ASCII_ART);
@@ -90,6 +117,10 @@ async function main(): Promise<void> {
   console.log(`Editor:    ${baseUrl}/`);
   console.log(`MCP:       ${baseUrl}/mcp`);
   console.log(`Health:    ${baseUrl}/health`);
+  if (sharedPlayout)
+    console.log(
+      `Shared playout: ${sharedPlayout.origin().origin} (publish from Studio for private links)`,
+    );
   console.log(`Workspace: ${workspace.root}`);
   if (embeddedSkillAsset)
     console.log(
@@ -102,7 +133,9 @@ async function main(): Promise<void> {
   const shutdown = () => {
     if (closing) return;
     closing = true;
-    void closeServer(httpServer).finally(() => process.exit(0));
+    sharedPlayout?.disconnectClients();
+    const listeners = sharedPlayout ? [httpServer, sharedPlayout.httpServer] : [httpServer];
+    void Promise.allSettled(listeners.map(closeServer)).then(() => process.exit(0));
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

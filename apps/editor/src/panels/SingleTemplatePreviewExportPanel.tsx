@@ -120,6 +120,7 @@ import { usePreviewControlsPosition } from './usePreviewControlsPosition';
 import { usePreviewControlsInteraction } from './usePreviewControlsInteraction';
 import { didFinishPreviewEdit } from './previewControlsInteraction';
 import { PreviewError } from './PreviewError';
+import { SharedPlayoutPublish } from './SharedPlayoutPublish';
 import { usePreviewPresentationSuspended } from './usePreviewPresentationSuspended';
 import { useTickerUpdateStatuses } from './useTickerUpdateStatuses';
 import { resolveSourceOverlayGeometry } from './sourceOverlay';
@@ -366,7 +367,7 @@ export function SingleTemplatePreviewExportPanel() {
     [syncEditorPreview, composition, dataSessionKey, previewFields, previewDefaults],
   );
   const [exportStatus, setExportStatus] = useState('');
-  const [exportAction, setExportAction] = useState<'export' | 'save' | null>(null);
+  const [exportAction, setExportAction] = useState<'export' | 'save' | 'publish' | null>(null);
   const isExporting = exportAction !== null;
   const certifiedSave = useSyncExternalStore(
     subscribeCertifiedCoordinatedSave,
@@ -2164,6 +2165,11 @@ export function SingleTemplatePreviewExportPanel() {
               {exportStatus}
             </p>
           )}
+          <SharedPlayoutPublish
+            source={exportSet ? { set: exportSet } : { project, composition }}
+            busy={isExporting || isCheckingCompatibility}
+            onPublishing={(publishing) => setExportAction(publishing ? 'publish' : null)}
+          />
         </CollapsibleSection>
       </div>
       {exportDialog && (
