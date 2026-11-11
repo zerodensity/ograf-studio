@@ -80,6 +80,28 @@ const requestSchema = z.strictObject({
   command: commandSchema,
 });
 
+const modeSchema = z.strictObject({ syncViewers: z.boolean() });
+
+const feedTargetSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('graphic') }),
+  z.strictObject({ kind: z.literal('slot'), slotId: ID, stateId: ID }),
+]);
+
+const feedSchema = z.strictObject({
+  publicationId: ID,
+  target: feedTargetSchema,
+  data: commandData,
+});
+
+const slotControlSchema = z.looseObject({
+  properties: z.record(
+    z.string(),
+    z.looseObject({
+      properties: z.looseObject({ stateId: z.looseObject({ enum: z.array(z.string()) }) }),
+    }),
+  ),
+});
+
 const publishSchema = z.strictObject({
   manifestFileName: z.string().min(1).max(512),
   manifest: z.looseObject({
@@ -98,6 +120,9 @@ const publishSchema = z.strictObject({
 
 type Command = z.infer<typeof commandSchema>;
 type JournalEntry = { revision: number; command: Command };
+type FeedTarget = z.infer<typeof feedTargetSchema>;
+type FeedEntry = z.infer<typeof feedSchema> & { sequence: number };
+type RetainedFeed = { entry: FeedEntry; bytes: number };
 type Audience = 'viewer' | 'operator' | 'studio';
 type Publication = {
   id: string;
@@ -107,10 +132,14 @@ type Publication = {
   bytes: number;
   dataKeys: Set<string>;
   actionIds: Set<string>;
+  slotStates: Map<string, Set<string>>;
   files: Map<string, Buffer>;
   commands: JournalEntry[];
   receipts: Map<string, JournalEntry>;
   journalBytes: number;
+  feeds: Map<string, RetainedFeed>;
+  feedSequence: number;
+  feedBytes: number;
 };
 
 const defaults = {
@@ -120,6 +149,7 @@ const defaults = {
   maxSubscribers: 32,
   maxCommands: 512,
   maxJournalBytes: 512 * 1024,
+  maxFeedBytes: 512 * 1024,
 };
 
 const studioApiPath = '/api/shared-playout';
@@ -175,6 +205,81 @@ function playoutHeaders(_request: Request, response: Response, next: NextFunctio
   next();
 }
 
+function feedKey(target: FeedTarget) {
+  return target.kind === 'graphic' ? 'graphic' : JSON.stringify([target.slotId, target.stateId]);
+}
+
+function setRetainedFeed(publication: Publication, key: string, retained?: RetainedFeed) {
+  publication.feedBytes -= publication.feeds.get(key)?.bytes ?? 0;
+  if (retained) {
+    publication.feeds.set(key, retained);
+    publication.feedBytes += retained.bytes;
+  } else publication.feeds.delete(key);
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === 'object' && !Array.isArray(value))
+    return value as Record<string, unknown>;
+}
+
+function removeFeedFields(publication: Publication, retained: RetainedFeed, patch: unknown) {
+  const fields = recordValue(patch);
+  if (!fields) return;
+  const { entry } = retained;
+  const previousFields = Object.entries(entry.data);
+  const remainingFields = previousFields.filter(([field]) => !Object.hasOwn(fields, field));
+  if (remainingFields.length === previousFields.length) return;
+  const key = feedKey(entry.target);
+  if (!remainingFields.length) setRetainedFeed(publication, key);
+  else {
+    const next = { ...entry, data: Object.fromEntries(remainingFields) };
+    setRetainedFeed(publication, key, {
+      entry: next,
+      bytes: Buffer.byteLength(JSON.stringify(next)),
+    });
+  }
+}
+
+function invalidateFeeds(publication: Publication, command: Command) {
+  if (command.kind === 'play') return;
+  const slots = command.kind === 'update' ? recordValue(command.data.slots) : undefined;
+  for (const [key, retained] of publication.feeds) {
+    const { target } = retained.entry;
+    if (target.kind === 'graphic') {
+      if (command.kind === 'update') removeFeedFields(publication, retained, command.data);
+      continue;
+    }
+    if (command.kind === 'stop') {
+      setRetainedFeed(publication, key);
+      continue;
+    }
+    if (command.kind === 'update') {
+      const update = recordValue(slots?.[target.slotId]);
+      if (!update) continue;
+      if (typeof update.stateId === 'string' && update.stateId !== target.stateId)
+        setRetainedFeed(publication, key);
+      else removeFeedFields(publication, retained, update.data);
+      continue;
+    }
+    const { actionId, payload } = command;
+    const matchesSlot = payload?.slotId === target.slotId;
+    if (
+      (matchesSlot &&
+        ['transition.take', 'transition.out', 'transition.clear'].includes(actionId)) ||
+      (actionId === 'transition.clear' && payload?.slotId === undefined)
+    )
+      setRetainedFeed(publication, key);
+    else if (
+      actionId === 'transition.patch' &&
+      matchesSlot &&
+      (payload?.stateId === undefined ||
+        payload.stateId === '' ||
+        payload.stateId === target.stateId)
+    )
+      removeFeedFields(publication, retained, payload?.data);
+  }
+}
+
 /** The listener serves one live preview and the immutable packages it references. */
 export function createSharedPlayoutHost(
   host: string,
@@ -187,6 +292,7 @@ export function createSharedPlayoutHost(
   const operatorToken = randomBytes(24).toString('base64url');
   const operatorPath = `/control/${operatorToken}/`;
   let current: Publication | null = null;
+  let mode = { syncViewers: true, syncVersion: 0 };
   let totalBytes = 0;
   const app = express();
   app.disable('x-powered-by');
@@ -207,8 +313,14 @@ export function createSharedPlayoutHost(
     manifestUrl:
       (audience === 'studio' ? current?.studioManifestUrl : current?.manifestUrl) ?? null,
     canControl: audience !== 'viewer',
+    ...mode,
     revision: current?.commands.length ?? 0,
     commands: current?.commands ?? [],
+    feeds: current
+      ? [...current.feeds.values()]
+          .map(({ entry }) => entry)
+          .sort((a, b) => a.sequence - b.sequence)
+      : [],
   });
 
   function requireOperator(request: Request, _response: Response, next: NextFunction) {
@@ -217,13 +329,24 @@ export function createSharedPlayoutHost(
     next();
   }
 
+  function requirePlayoutOrigin(request: Request, _response: Response, next: NextFunction) {
+    const source = request.get('origin');
+    if (source && source !== origin().origin)
+      throw new PlayoutError(403, 'Invalid playout origin.');
+    next();
+  }
+
   function writeToSubscriber(response: Response, message: string) {
-    if (response.writableLength > cap.maxJournalBytes) response.destroy();
+    if (response.writableLength > cap.maxJournalBytes + cap.maxFeedBytes) response.destroy();
     else response.write(message);
   }
 
   function sendSnapshot(response: Response, audience: Audience) {
     writeToSubscriber(response, `event: snapshot\ndata: ${JSON.stringify(snapshot(audience))}\n\n`);
+  }
+
+  function broadcastSnapshot() {
+    for (const [subscriber, audience] of subscribers) sendSnapshot(subscriber, audience);
   }
 
   function subscribe(response: Response, audience: Audience) {
@@ -287,28 +410,38 @@ export function createSharedPlayoutHost(
     response.type(extname(path) || 'application/octet-stream').send(file);
   }
   app.get('/s/:token/package/*path', servePackage);
-  app.post('/preview/command', () => {
+  app.post(['/preview/command', '/preview/mode'], () => {
     throw new PlayoutError(403, 'This link is view-only.');
   });
 
   app.post(
     '/control/:token/command',
     requireOperator,
-    (request, _response, next) => {
-      const source = request.get('origin');
-      if (source && source !== origin().origin)
-        throw new PlayoutError(403, 'Invalid playout origin.');
-      next();
-    },
+    requirePlayoutOrigin,
     express.json({ limit: MAX_PLAYOUT_REQUEST_BYTES }),
     handleCommand,
   );
+  app.post(
+    '/control/:token/mode',
+    requireOperator,
+    requirePlayoutOrigin,
+    express.json({ limit: 256 }),
+    handleMode,
+  );
   app.use(sendErrors);
 
-  function handleCommand(request: Request, response: Response) {
-    const parsed = requestSchema.safeParse(request.body);
-    if (!parsed.success) throw new PlayoutError(400, 'Invalid playout command.');
-    const { publicationId, command, expectedRevision, requestId } = parsed.data;
+  function handleMode(request: Request, response: Response) {
+    const parsed = modeSchema.safeParse(request.body);
+    if (!parsed.success) throw new PlayoutError(400, 'Invalid playout mode.');
+    const { syncViewers } = parsed.data;
+    if (syncViewers !== mode.syncViewers) {
+      mode = { syncViewers, syncVersion: mode.syncVersion + 1 };
+      broadcastSnapshot();
+    }
+    response.json(mode);
+  }
+
+  function requirePublication(publicationId: string) {
     const publication = current;
     if (!publication || publication.id !== publicationId)
       throw new PlayoutError(
@@ -317,6 +450,51 @@ export function createSharedPlayoutHost(
         publication?.commands.length ?? 0,
         publication?.id ?? null,
       );
+    return publication;
+  }
+
+  function handleFeed(request: Request, response: Response) {
+    const parsed = feedSchema.safeParse(request.body);
+    if (!parsed.success) throw new PlayoutError(400, 'Invalid playout feed.');
+    const { publicationId, target, data } = parsed.data;
+    const publication = requirePublication(publicationId);
+    const allowed =
+      target.kind === 'graphic'
+        ? Object.keys(data).every((field) => publication.dataKeys.has(field))
+        : publication.actionIds.has('transition.patch') &&
+          publication.slotStates.get(target.slotId)?.has(target.stateId);
+    if (!allowed)
+      throw new PlayoutError(400, 'The published graphic does not expose that feed target.');
+    if (!Object.keys(data).length) {
+      response.json({ sequence: publication.feedSequence });
+      return;
+    }
+
+    const key = feedKey(target);
+    const previous = publication.feeds.get(key);
+    const sequence = publication.feedSequence + 1;
+    const entry = { publicationId, sequence, target, data };
+    const retained = { ...entry, data: { ...previous?.entry.data, ...data } };
+    const bytes = Buffer.byteLength(JSON.stringify(retained));
+    if (
+      publication.feedBytes - (previous?.bytes ?? 0) + bytes > cap.maxFeedBytes ||
+      !commandData.safeParse(retained.data).success
+    )
+      throw new PlayoutError(413, 'Shared playout feed storage limit reached.');
+
+    setRetainedFeed(publication, key, { entry: retained, bytes });
+    publication.feedSequence = sequence;
+    const event = JSON.stringify(entry);
+    for (const subscriber of subscribers.keys())
+      writeToSubscriber(subscriber, `event: feed\ndata: ${event}\n\n`);
+    response.json({ sequence });
+  }
+
+  function handleCommand(request: Request, response: Response) {
+    const parsed = requestSchema.safeParse(request.body);
+    if (!parsed.success) throw new PlayoutError(400, 'Invalid playout command.');
+    const { publicationId, command, expectedRevision, requestId } = parsed.data;
+    const publication = requirePublication(publicationId);
     const revision = publication.commands.length;
     const previous = publication.receipts.get(requestId);
     if (previous) {
@@ -351,6 +529,7 @@ export function createSharedPlayoutHost(
     publication.commands.push(entry);
     publication.receipts.set(requestId, entry);
     publication.journalBytes += bytes;
+    invalidateFeeds(publication, command);
     const event = JSON.stringify({ publicationId, ...entry });
     for (const subscriber of subscribers.keys())
       writeToSubscriber(subscriber, `event: command\ndata: ${event}\n\n`);
@@ -407,6 +586,7 @@ export function createSharedPlayoutHost(
     const journalBytes = Buffer.byteLength(JSON.stringify(initial));
     if (cap.maxPublications < 1 || cap.maxCommands < 1 || journalBytes > cap.maxJournalBytes)
       throw new PlayoutError(409, 'Shared playout publication limit reached.');
+    const slots = slotControlSchema.safeParse(manifest.schema?.properties?.slots);
     const publication: Publication = {
       id: randomUUID(),
       assetToken,
@@ -415,10 +595,19 @@ export function createSharedPlayoutHost(
       bytes,
       dataKeys: new Set(Object.keys(manifest.schema?.properties ?? {})),
       actionIds: new Set(manifest.customActions?.map(({ id }) => id)),
+      slotStates: new Map(
+        Object.entries(slots.data?.properties ?? {}).map(([slotId, slot]) => [
+          slotId,
+          new Set(slot.properties.stateId.enum),
+        ]),
+      ),
       files,
       commands: [initial],
       receipts: new Map(),
       journalBytes,
+      feeds: new Map(),
+      feedSequence: 0,
+      feedBytes: 0,
     };
 
     // Validate the replacement first. Retain as many recent packages as the cap allows
@@ -430,8 +619,12 @@ export function createSharedPlayoutHost(
     }
     packages.set(assetToken, publication);
     totalBytes += bytes;
+    if (previous) {
+      previous.feeds.clear();
+      previous.feedBytes = 0;
+    }
     current = publication;
-    for (const [subscriber, audience] of subscribers) sendSnapshot(subscriber, audience);
+    broadcastSnapshot();
     return { publicationId: publication.id, ...links };
   }
 
@@ -450,6 +643,8 @@ export function createSharedPlayoutHost(
     subscribeStudio: (response: Response) => subscribe(response, 'studio'),
     servePackage,
     handleCommand,
+    handleFeed,
+    handleMode,
   };
 }
 
@@ -498,6 +693,22 @@ export function installSharedPlayoutPublishing(app: Express, host?: SharedPlayou
     express.json({ limit: MAX_PLAYOUT_REQUEST_BYTES }),
     (request, response) => {
       activeHost().handleCommand(request, response);
+    },
+  );
+  router.post(
+    '/mode',
+    requireAuthoringOrigin,
+    express.json({ limit: 256 }),
+    (request, response) => {
+      activeHost().handleMode(request, response);
+    },
+  );
+  router.post(
+    '/feed',
+    requireAuthoringOrigin,
+    express.json({ limit: MAX_PLAYOUT_REQUEST_BYTES }),
+    (request, response) => {
+      activeHost().handleFeed(request, response);
     },
   );
   router.post(

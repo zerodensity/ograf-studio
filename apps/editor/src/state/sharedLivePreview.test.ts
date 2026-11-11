@@ -27,9 +27,11 @@ class TestEventSource {
 const seed = { revision: 1, command: { kind: 'play' } };
 const snapshot = (publicationId: string) => ({
   publicationId,
-  manifestUrl: `/api/shared-playout/package/${publicationId}/graphic.ograf.json`,
+  manifestUrl: `/api/shared-playout/packages/${publicationId}/graphic.ograf.json`,
   revision: 1,
   commands: [seed],
+  syncViewers: true,
+  syncVersion: 0,
 });
 
 function renderer() {
@@ -134,5 +136,71 @@ describe('shared native preview', () => {
     expect(oldPlayer.dispose).toHaveBeenCalledOnce();
     expect(oldPlayer.stop).not.toHaveBeenCalled();
     expect(newPlayer.stop).not.toHaveBeenCalled();
+  });
+
+  it('changes viewer sync without remounting or adding a playback command', async () => {
+    const player = renderer();
+    mountGraphic.mockResolvedValue(player);
+    source.emit('snapshot', snapshot('published'));
+    await vi.waitFor(() =>
+      expect(onState).toHaveBeenLastCalledWith(
+        expect.objectContaining({ ready: true, syncViewers: true }),
+      ),
+    );
+    fetchStub.mockResolvedValue({ ok: true, json: () => ({ syncViewers: false, syncVersion: 1 }) });
+    await controller.setSyncViewers(false);
+    expect(fetchStub).toHaveBeenCalledWith(
+      '/api/shared-playout/mode',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ syncViewers: false }),
+      }),
+    );
+    source.emit('snapshot', snapshot('published'));
+    await vi.waitFor(() =>
+      expect(onState).toHaveBeenLastCalledWith(
+        expect.objectContaining({ syncViewers: false, syncPending: false }),
+      ),
+    );
+    expect(mountGraphic).toHaveBeenCalledOnce();
+    expect(player.play).toHaveBeenCalledOnce();
+  });
+
+  it('applies the saved feed after command replay and follows later feed events once', async () => {
+    const player = renderer();
+    mountGraphic.mockResolvedValue(player);
+    const feed = (sequence: number, source: string) => ({
+      publicationId: 'published',
+      sequence,
+      target: { kind: 'graphic' },
+      data: { source },
+    });
+    source.emit('snapshot', { ...snapshot('published'), feeds: [feed(3, 'Latest on reconnect')] });
+    await vi.waitFor(() =>
+      expect(onState).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          ready: true,
+          data: { source: 'Latest on reconnect' },
+        }),
+      ),
+    );
+    source.emit('feed', feed(4, 'Live update'));
+    source.emit('feed', feed(4, 'Duplicate'));
+    source.emit('feed', feed(2, 'Stale'));
+    await vi.waitFor(() =>
+      expect(onState).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          data: { source: 'Live update' },
+        }),
+      ),
+    );
+    expect(player.update.mock.calls).toEqual([
+      [{ source: 'Latest on reconnect' }, { skipAnimation: true }],
+      [{ source: 'Live update' }, {}],
+    ]);
+    expect(player.play.mock.invocationCallOrder[0]).toBeLessThan(
+      player.update.mock.invocationCallOrder[0]!,
+    );
+    expect(fetchStub).not.toHaveBeenCalled();
   });
 });

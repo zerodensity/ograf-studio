@@ -11,6 +11,7 @@ import { PreviewError } from './PreviewError';
 import { EditorPreviewControls } from './EditorPreviewControls';
 import { TickerPendingUpdates } from './TickerPendingUpdates';
 import { PreviewBackgroundControls } from './PreviewBackgroundControls';
+import { SyncViewersControl } from './SyncViewersControl';
 import { PreviewFpsControls } from '../components/PreviewFpsOverlay';
 
 /** The fullscreen popup and dockable controls operate the same registered preview. */
@@ -123,6 +124,7 @@ export function PreviewPlayoutControls({
         )}
       </div>
       {session.editorSynchronized && <EditorPreviewControls />}
+      {session.viewerSync && <SyncViewersControl session={session.viewerSync} />}
       <TickerPendingUpdates statuses={session.tickerUpdates ?? []} />
       {showStatus && session.loading && (
         <p className="playout-controls-note" role="status">

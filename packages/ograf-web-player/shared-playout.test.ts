@@ -11,6 +11,7 @@ class TestNode {
   hidden = true;
   className = '';
   disabled = false;
+  checked = false;
   offsetWidth = 330;
   offsetHeight = 200;
   dataset: Record<string, string> = {};
@@ -88,13 +89,21 @@ class TestEventSource {
 const seed = { revision: 1, command: { kind: 'play' } };
 const update = { revision: 2, command: { kind: 'update', data: { headline: 'Latest headline' } } };
 
-function snapshot(publicationId: string, commands: unknown[] = [seed], canControl = false) {
+function snapshot(
+  publicationId: string,
+  commands: unknown[] = [seed],
+  canControl = false,
+  mode: { syncViewers?: boolean; syncVersion?: number; feeds?: unknown[] } = {},
+) {
   return {
     publicationId,
     manifestUrl: `/package/${publicationId}.ograf.json`,
     canControl,
     revision: commands.length,
     commands,
+    syncViewers: true,
+    syncVersion: 0,
+    ...mode,
   };
 }
 
@@ -102,6 +111,7 @@ function testPlayer() {
   return {
     manifest: { name: 'Signal Blue' },
     play: vi.fn(),
+    stop: vi.fn(),
     update: vi.fn(),
     action: vi.fn(),
     dispose: vi.fn(),
@@ -132,12 +142,17 @@ describe('shared playout startup recovery', () => {
         '#move-controls',
         '#preview-step',
         '#fullscreen',
+        '#viewer-sync-control',
+        '#sync-viewers',
+        '#independent-status',
       ].map((selector) => [selector, new TestNode()]),
     );
     node('#controls').append(
       node('#move-controls'),
       node('#preview-step'),
       node('#fullscreen'),
+      node('#viewer-sync-control'),
+      node('#independent-status'),
       node('#operator-fields'),
     );
     node('#layout').append(node('#stage'), node('#feedback'), node('#controls'));
@@ -354,5 +369,165 @@ describe('shared playout startup recovery', () => {
     expect(fetchState).not.toHaveBeenCalled();
     dom.emit('keydown', { key: 'Escape' });
     expect(node('#controls').hidden).toBe(true);
+  });
+
+  it('forks the existing viewer, ignores shared changes while independent and replays on resync', async () => {
+    const independentPlayer = testPlayer();
+    const restoredPlayer = testPlayer();
+    mountGraphic.mockResolvedValueOnce(independentPlayer).mockResolvedValueOnce(restoredPlayer);
+    const later = {
+      revision: 3,
+      command: { kind: 'update', data: { headline: 'Operator while independent' } },
+    };
+    const liveFeed = {
+      publicationId: 'current',
+      sequence: 1,
+      target: { kind: 'graphic' },
+      data: { source: 'Operator feed' },
+    };
+
+    await import('./shared-playout.js');
+    source.emit('snapshot', snapshot('current'));
+    await vi.waitFor(() => expect(node('#layout').dataset.revision).toBe('1'));
+    source.emit('command', { publicationId: 'current', ...update });
+    source.emit(
+      'snapshot',
+      snapshot('current', [seed, update], false, {
+        syncViewers: false,
+        syncVersion: 1,
+      }),
+    );
+    source.emit('command', { publicationId: 'current', ...later });
+    source.emit('feed', liveFeed);
+    await vi.waitFor(() => expect(node('#layout').dataset.role).toBe('independent'));
+    expect(node('#sync-viewers').checked).toBe(false);
+    expect(node('#viewer-sync-control').hidden).toBe(true);
+    expect(node('#independent-status').hidden).toBe(false);
+    expect(mountGraphic).toHaveBeenCalledTimes(1);
+    expect(independentPlayer.update).toHaveBeenCalledExactlyOnceWith(
+      { headline: 'Latest headline' },
+      {},
+    );
+
+    source.readyState = 0;
+    source.emit('error', {});
+    const takeOut = node('#operator-fields')
+      .querySelectorAll('button')
+      .find((button) => button.textContent === 'Take Out')!;
+    expect(takeOut.disabled).toBe(false);
+    takeOut.click();
+    await vi.waitFor(() => expect(independentPlayer.stop).toHaveBeenCalledExactlyOnceWith({}));
+    source.readyState = TestEventSource.OPEN;
+    source.emit(
+      'snapshot',
+      snapshot('current', [seed, update, later], false, {
+        syncViewers: false,
+        syncVersion: 1,
+        feeds: [liveFeed],
+      }),
+    );
+    await vi.waitFor(() => expect(node('#status').textContent).toBe('Independent viewer'));
+    expect(mountGraphic).toHaveBeenCalledTimes(1);
+    expect(fetchState).not.toHaveBeenCalled();
+
+    source.emit(
+      'snapshot',
+      snapshot('current', [seed, update, later], false, {
+        syncViewers: true,
+        syncVersion: 2,
+        feeds: [liveFeed],
+      }),
+    );
+    await vi.waitFor(() => expect(node('#layout').dataset.revision).toBe('3'));
+    expect(node('#layout').dataset.role).toBe('viewer');
+    expect(node('#operator-fields').children).toEqual([]);
+    expect(independentPlayer.update).toHaveBeenCalledTimes(1);
+    expect(independentPlayer.dispose).toHaveBeenCalledOnce();
+    expect(restoredPlayer.play).toHaveBeenCalledExactlyOnceWith({ delta: 1, skipAnimation: true });
+    expect(restoredPlayer.update.mock.calls).toEqual([
+      [{ headline: 'Latest headline' }, { skipAnimation: true }],
+      [{ headline: 'Operator while independent' }, { skipAnimation: true }],
+      [{ source: 'Operator feed' }, { skipAnimation: true }],
+    ]);
+  });
+
+  it('posts the operator mode separately and keeps operator rendering authoritative', async () => {
+    const player = testPlayer();
+    mountGraphic.mockResolvedValueOnce(player);
+    fetchState.mockResolvedValueOnce({
+      ok: true,
+      json: () => ({ syncViewers: false, syncVersion: 1 }),
+    });
+
+    await import('./shared-playout.js');
+    source.emit('snapshot', snapshot('current', [seed], true));
+    await vi.waitFor(() => expect(node('#layout').dataset.revision).toBe('1'));
+    expect(node('#viewer-sync-control').hidden).toBe(false);
+    expect(node('#sync-viewers').checked).toBe(true);
+    node('#sync-viewers').checked = false;
+    node('#sync-viewers').emit('change');
+    await vi.waitFor(() =>
+      expect(fetchState).toHaveBeenCalledWith('./mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ syncViewers: false }),
+      }),
+    );
+    expect(node('#sync-viewers').disabled).toBe(true);
+    expect(node('#layout').dataset.syncViewers).toBe('true');
+
+    source.emit(
+      'snapshot',
+      snapshot('current', [seed], true, { syncViewers: false, syncVersion: 1 }),
+    );
+    source.emit('command', { publicationId: 'current', ...update });
+    await vi.waitFor(() => expect(node('#layout').dataset.revision).toBe('2'));
+    expect(node('#layout').dataset.role).toBe('operator');
+    expect(node('#sync-viewers').checked).toBe(false);
+    expect(node('#sync-viewers').disabled).toBe(false);
+    expect(player.update).toHaveBeenCalledExactlyOnceWith({ headline: 'Latest headline' }, {});
+    expect(mountGraphic).toHaveBeenCalledTimes(1);
+  });
+
+  it('replays current slot feeds and ignores stale states without blocking later updates', async () => {
+    const player = {
+      ...testPlayer(),
+      element: {
+        getPlayoutSnapshot: () => ({ slots: { headline: { current: { stateId: 'standard' } } } }),
+      },
+    };
+    mountGraphic.mockResolvedValueOnce(player);
+    const feed = (sequence: number, stateId: string, headline: string) => ({
+      publicationId: 'current',
+      sequence,
+      target: { kind: 'slot', slotId: 'headline', stateId },
+      data: { headline },
+    });
+
+    await import('./shared-playout.js');
+    source.emit(
+      'snapshot',
+      snapshot('current', [seed], false, {
+        feeds: [feed(1, 'stale', 'Old'), feed(2, 'standard', 'Snapshot')],
+      }),
+    );
+    await vi.waitFor(() => expect(node('#layout').dataset.revision).toBe('1'));
+    expect(player.action).toHaveBeenCalledExactlyOnceWith(
+      'transition.patch',
+      { slotId: 'headline', stateId: 'standard', data: { headline: 'Snapshot' } },
+      { skipAnimation: true },
+    );
+
+    source.emit('feed', feed(2, 'standard', 'Duplicate'));
+    source.emit('feed', feed(3, 'stale', 'Stale'));
+    source.emit('feed', feed(4, 'standard', 'Live'));
+    await vi.waitFor(() => expect(player.action).toHaveBeenCalledTimes(2));
+    expect(player.action).toHaveBeenLastCalledWith(
+      'transition.patch',
+      { slotId: 'headline', stateId: 'standard', data: { headline: 'Live' } },
+      {},
+    );
+    expect(node('#layout').dataset.revision).toBe('1');
+    expect(node('#error').hidden).toBe(true);
   });
 });

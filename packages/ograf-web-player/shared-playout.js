@@ -12,6 +12,9 @@ const operatorFields = document.querySelector('#operator-fields');
 const moveControls = document.querySelector('#move-controls');
 const previewStep = document.querySelector('#preview-step');
 const fullscreen = document.querySelector('#fullscreen');
+const viewerSyncControl = document.querySelector('#viewer-sync-control');
+const viewerSync = document.querySelector('#sync-viewers');
+const independentStatus = document.querySelector('#independent-status');
 
 if (new URLSearchParams(location.search).get('embedded') === '1')
   document.documentElement.dataset.embedded = '';
@@ -24,9 +27,13 @@ let failedPublicationId;
 let retrying;
 let data = {};
 let canControl = false;
+let syncViewers = true;
+let syncVersion = -1;
+let modeRequest;
 let synchronized = false;
 let sending;
 let appliedRevision = 0;
+let appliedFeedSequence = 0;
 let serverRevision = 0;
 let eventQueue = Promise.resolve();
 let refreshForms = () => {};
@@ -39,17 +46,28 @@ function activePreview() {
   return Boolean(player) && publicationId === announcedPublicationId;
 }
 
+function independentPreview() {
+  return !canControl && !syncViewers;
+}
+
 function refreshFeedback() {
-  const ready = activePreview() && synchronized;
+  const ready = activePreview() && (synchronized || independentPreview());
   title.hidden = status.hidden = ready;
   feedback.hidden = ready && errorOutput.hidden && retryPreview.hidden;
 }
 
 function refreshStatus() {
   const active = activePreview();
-  const ready = active && synchronized;
+  const independent = active && independentPreview();
+  const ready = active && (synchronized || independent);
   const operator = active && canControl;
-  layout.dataset.role = operator ? 'operator' : 'viewer';
+  layout.dataset.role = operator ? 'operator' : independent ? 'independent' : 'viewer';
+  layout.dataset.syncViewers = String(syncViewers);
+  player?.element?.toggleAttribute?.('inert', !canControl && syncViewers);
+  viewerSyncControl.hidden = !operator;
+  viewerSync.checked = modeRequest?.value ?? syncViewers;
+  viewerSync.disabled = !synchronized || Boolean(modeRequest);
+  independentStatus.hidden = !independent;
   if (!active && controlsOpen) {
     controlsOpen = false;
     endDrag();
@@ -69,7 +87,8 @@ function refreshStatus() {
   stage.dataset.switching = String(publicationId !== announcedPublicationId);
   const failed = Boolean(failedPublicationId) && failedPublicationId === announcedPublicationId;
   retryPreview.hidden = !failed || Boolean(retrying);
-  if (ready) status.textContent = canControl ? 'Connected as operator' : 'Connected as viewer';
+  if (independent) status.textContent = 'Independent viewer';
+  else if (ready) status.textContent = canControl ? 'Connected as operator' : 'Connected as viewer';
   else if (retrying) status.textContent = 'Retrying preview…';
   else if (failed) status.textContent = 'Preview failed to load.';
   else if (synchronized && announcedPublicationId === null)
@@ -84,7 +103,7 @@ function refreshStatus() {
     button.disabled =
       !ready ||
       Boolean(sending) ||
-      appliedRevision < serverRevision ||
+      (!independent && appliedRevision < serverRevision) ||
       button.dataset.unavailable === 'true';
   }
   for (const input of operatorFields.querySelectorAll('input, select, textarea'))
@@ -406,13 +425,69 @@ function requestId() {
   ).join('');
 }
 
+function finishSending(request) {
+  if (sending !== request) return;
+  sending = undefined;
+  refreshStatus();
+}
+
+async function setViewerSync(value) {
+  if (!canControl || !synchronized || modeRequest) {
+    refreshStatus();
+    return;
+  }
+  const request = { value, version: undefined };
+  modeRequest = request;
+  showError();
+  refreshStatus();
+  try {
+    const response = await fetch('./mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ syncViewers: value }),
+    });
+    const result = await response.json();
+    if (!response.ok)
+      throw new Error(result.error || `Could not change viewer mode (HTTP ${response.status}).`);
+    if (!Number.isSafeInteger(result.syncVersion)) throw new Error('Invalid viewer mode response.');
+    request.version = result.syncVersion;
+  } catch (error) {
+    showError(error);
+  } finally {
+    if (request.version === undefined || request.version <= syncVersion) modeRequest = undefined;
+    refreshStatus();
+  }
+}
+
 async function sendCommand(command, form) {
-  if (!player || !synchronized || !canControl || sending || appliedRevision < serverRevision)
+  const independent = independentPreview();
+  if (
+    !activePreview() ||
+    sending ||
+    (!independent && (!synchronized || !canControl || appliedRevision < serverRevision))
+  )
     return;
   const request = { publicationId, abort: new AbortController() };
   sending = request;
   showError();
   refreshStatus();
+  if (independent) {
+    const expectedMode = syncVersion;
+    enqueue(async () => {
+      try {
+        if (!independentPreview() || syncVersion !== expectedMode) return;
+        await runGraphicCommand(command, {}, request.publicationId);
+        if (sending !== request) return;
+        form?.settle();
+        refreshForms();
+      } catch (error) {
+        if (sending === request) showError(error);
+      } finally {
+        finishSending(request);
+      }
+    }, request.publicationId);
+    return;
+  }
   try {
     const response = await fetch('./command', {
       method: 'POST',
@@ -439,10 +514,7 @@ async function sendCommand(command, form) {
   } catch (error) {
     if (sending === request) showError(error);
   } finally {
-    if (sending === request) {
-      sending = undefined;
-      refreshStatus();
-    }
+    finishSending(request);
   }
 }
 
@@ -628,7 +700,7 @@ function mountCustomActions(actions) {
 function mountControls() {
   operatorFields.replaceChildren();
   refreshForms = () => {};
-  if (!canControl) return;
+  if (!canControl && !independentPreview()) return;
   const { schema, customActions = [] } = player.manifest;
   const actions = new Map(customActions.map((action) => [action.id, action]));
   const lanes = schema?.properties?.slots?.properties ?? {};
@@ -640,6 +712,32 @@ function mountControls() {
   );
 }
 
+async function runGraphicCommand(command, options, currentPublication) {
+  switch (command.kind) {
+    case 'play': {
+      const result = await player.play({
+        ...options,
+        ...(command.goto === undefined ? { delta: command.delta ?? 1 } : { goto: command.goto }),
+      });
+      if (currentPublication === announcedPublicationId) currentStep = result?.currentStep;
+      break;
+    }
+    case 'stop':
+      await player.stop(options);
+      if (currentPublication === announcedPublicationId) currentStep = undefined;
+      break;
+    case 'update':
+      await player.update(command.data, options);
+      if (currentPublication === announcedPublicationId) data = { ...data, ...command.data };
+      break;
+    case 'action':
+      await player.action(command.actionId, command.payload, options);
+      break;
+    default:
+      throw new Error('Unsupported shared playout command.');
+  }
+}
+
 async function applyEntry(entry, replay) {
   const currentPublication = publicationId;
   const { command, revision } = entry;
@@ -647,31 +745,8 @@ async function applyEntry(entry, replay) {
   if (entry.publicationId !== undefined && entry.publicationId !== currentPublication) return;
   if (revision <= appliedRevision) return;
   if (revision !== appliedRevision + 1) throw new Error('The shared command history has a gap.');
-  const options = replay ? { skipAnimation: true } : {};
   try {
-    switch (command.kind) {
-      case 'play': {
-        const result = await player.play({
-          ...options,
-          ...(command.goto === undefined ? { delta: command.delta ?? 1 } : { goto: command.goto }),
-        });
-        if (currentPublication === announcedPublicationId) currentStep = result?.currentStep;
-        break;
-      }
-      case 'stop':
-        await player.stop(options);
-        if (currentPublication === announcedPublicationId) currentStep = undefined;
-        break;
-      case 'update':
-        await player.update(command.data, options);
-        if (currentPublication === announcedPublicationId) data = { ...data, ...command.data };
-        break;
-      case 'action':
-        await player.action(command.actionId, command.payload, options);
-        break;
-      default:
-        throw new Error('Unsupported shared playout command.');
-    }
+    await runGraphicCommand(command, replay ? { skipAnimation: true } : {}, currentPublication);
   } catch (error) {
     if (replay && revision === 1 && command.kind === 'play') throw error;
     // An accepted command may fail on this renderer. Preserve its place in the
@@ -680,6 +755,36 @@ async function applyEntry(entry, replay) {
       showError(`Revision ${revision}: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (currentPublication === announcedPublicationId) appliedRevision = revision;
+}
+
+function feedTargetsActiveState(target) {
+  if (target.kind === 'graphic') return true;
+  const slot = player.element?.getPlayoutSnapshot?.()?.slots?.[target.slotId];
+  const active = slot?.incoming ?? (slot?.transition ? null : slot?.current);
+  return active?.stateId === target.stateId;
+}
+
+async function applyFeed(entry, replay) {
+  const { publicationId: targetPublication, sequence, target, data } = entry;
+  if (!activePreview() || targetPublication !== publicationId || sequence <= appliedFeedSequence)
+    return;
+  try {
+    if (!feedTargetsActiveState(target)) return;
+    const command =
+      target.kind === 'graphic'
+        ? { kind: 'update', data }
+        : {
+            kind: 'action',
+            actionId: 'transition.patch',
+            payload: { slotId: target.slotId, stateId: target.stateId, data },
+          };
+    await runGraphicCommand(command, replay ? { skipAnimation: true } : {}, targetPublication);
+  } catch (error) {
+    if (targetPublication === announcedPublicationId)
+      showError(`Live data: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    if (targetPublication === announcedPublicationId) appliedFeedSequence = sequence;
+  }
 }
 
 async function discardPlayer(expectedPublication) {
@@ -691,6 +796,7 @@ async function discardPlayer(expectedPublication) {
   refreshForms = () => {};
   currentStep = undefined;
   appliedRevision = 0;
+  appliedFeedSequence = 0;
   serverRevision = 0;
   title.textContent = 'OGraf Live Preview';
   fitStage();
@@ -706,13 +812,25 @@ async function discardPlayer(expectedPublication) {
 
 async function applySnapshot(snapshot) {
   const nextPublication = snapshot.publicationId;
+  const nextVersion = snapshot.syncVersion ?? 0;
   if (nextPublication !== announcedPublicationId) return false;
-  const remount = publicationId !== nextPublication || (nextPublication !== null && !player);
-  const rebuildControls = remount || canControl !== snapshot.canControl;
+  if (nextPublication === publicationId && nextVersion < syncVersion) return false;
+  const wasIndependent = independentPreview();
+  const nextSync = snapshot.syncViewers !== false;
+  const nextIndependent = !snapshot.canControl && !nextSync;
+  // A newer independent version after reconnect also crossed a Sync boundary.
+  const restoreShared = wasIndependent && (!nextIndependent || nextVersion > syncVersion);
+  const remount =
+    publicationId !== nextPublication || (nextPublication !== null && !player) || restoreShared;
+  const rebuildControls =
+    remount || canControl !== snapshot.canControl || wasIndependent !== nextIndependent;
   canControl = snapshot.canControl;
+  syncViewers = nextSync;
+  syncVersion = nextVersion;
+  if (modeRequest?.version <= syncVersion) modeRequest = undefined;
   try {
     if (remount) {
-      if (failedPublicationId === nextPublication) showError();
+      if (failedPublicationId === nextPublication || restoreShared) showError();
       failedPublicationId = undefined;
       await discardPlayer(nextPublication);
       if (nextPublication !== announcedPublicationId) return false;
@@ -745,11 +863,14 @@ async function applySnapshot(snapshot) {
       title.textContent = player.manifest.name || 'OGraf Live Preview';
     }
     if (nextPublication === null) return true;
-    serverRevision = Math.max(serverRevision, snapshot.revision);
-    for (const entry of snapshot.commands) await applyEntry(entry, true);
+    if (!nextIndependent || remount) {
+      serverRevision = Math.max(serverRevision, snapshot.revision);
+      for (const entry of snapshot.commands) await applyEntry(entry, true);
+      if (nextPublication === announcedPublicationId && appliedRevision < snapshot.revision)
+        throw new Error('The shared session snapshot is incomplete.');
+      for (const entry of snapshot.feeds ?? []) await applyFeed(entry, true);
+    }
     if (nextPublication !== announcedPublicationId) return false;
-    if (appliedRevision < snapshot.revision)
-      throw new Error('The shared session snapshot is incomplete.');
     if (rebuildControls) mountControls();
     refreshForms();
     refreshStatus();
@@ -785,6 +906,7 @@ function enqueue(operation, expectedPublication = announcedPublicationId) {
 function start() {
   const eventSource = new EventSource('./events');
   let connection = 0;
+  viewerSync.addEventListener('change', () => void setViewerSync(viewerSync.checked));
   const synchronize = async (snapshot, currentConnection) => {
     if (!(await applySnapshot(snapshot))) return;
     synchronized = currentConnection === connection && eventSource.readyState === EventSource.OPEN;
@@ -848,12 +970,26 @@ function start() {
   eventSource.addEventListener('command', (event) => {
     enqueue(async () => {
       const entry = JSON.parse(event.data);
-      if (entry.publicationId !== publicationId || entry.publicationId !== announcedPublicationId)
+      if (
+        independentPreview() ||
+        entry.publicationId !== publicationId ||
+        entry.publicationId !== announcedPublicationId
+      )
         return;
       serverRevision = Math.max(serverRevision, entry.revision);
       refreshStatus();
       if (entry.revision > appliedRevision + 1) await recoverSnapshot(entry.publicationId);
-      await applyEntry(entry, false);
+      if (!independentPreview()) await applyEntry(entry, false);
+      if (entry.publicationId !== announcedPublicationId) return;
+      refreshForms();
+      refreshStatus();
+    });
+  });
+  eventSource.addEventListener('feed', (event) => {
+    enqueue(async () => {
+      if (independentPreview()) return;
+      const entry = JSON.parse(event.data);
+      await applyFeed(entry, false);
       if (entry.publicationId !== announcedPublicationId) return;
       refreshForms();
       refreshStatus();

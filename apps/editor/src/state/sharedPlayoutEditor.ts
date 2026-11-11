@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { CoordinatedPlayoutSnapshot } from '@ograf-editor/ograf-types';
 import { isUntouchedBlankTiming } from './newTemplateTiming';
 import { useProjectSetStore } from './projectSetStore';
 import { getActiveComposition, useProjectStore } from './projectStore';
@@ -16,7 +17,9 @@ interface SharedPlayoutEditorState {
   links: SharedPlayoutLinks | null;
   preparingName: string | null;
   publicationName: string | null;
+  publicationId: string | null;
   publishedSource: SharedPlayoutSource | null;
+  liveSnapshot: CoordinatedPlayoutSnapshot | null;
   error: string;
   retry: (() => void) | null;
 }
@@ -26,12 +29,25 @@ const initialState: SharedPlayoutEditorState = {
   links: null,
   preparingName: null,
   publicationName: null,
+  publicationId: null,
   publishedSource: null,
+  liveSnapshot: null,
   error: '',
   retry: null,
 };
 
 export const useSharedPlayoutEditor = create<SharedPlayoutEditorState>(() => initialState);
+
+export function setSharedPlayoutLiveSnapshot(
+  publicationId: string,
+  snapshot: CoordinatedPlayoutSnapshot | null,
+): void {
+  useSharedPlayoutEditor.setState((state) =>
+    state.publicationId === publicationId && state.liveSnapshot !== snapshot
+      ? { liveSnapshot: snapshot }
+      : state,
+  );
+}
 
 interface PreviewTarget {
   key: string;
@@ -103,7 +119,13 @@ export function installSharedPlayoutAutoFollow(): () => void {
           const links = await publishSharedPlayout(artifacts, lifetime.signal);
           publishedKey = target.key;
           if (!lifetime.signal.aborted)
-            setState({ links, publicationName: target.name, publishedSource: target.source });
+            setState((state) => ({
+              links,
+              publicationName: target.name,
+              publicationId: links.publicationId,
+              publishedSource: target.source,
+              liveSnapshot: state.publicationId === links.publicationId ? state.liveSnapshot : null,
+            }));
         } catch (cause) {
           if (lifetime.signal.aborted || preparation.signal.aborted || desired?.key !== target.key)
             continue;

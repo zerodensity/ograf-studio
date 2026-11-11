@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { CoordinatedPlayoutSnapshot, Graphic } from '@ograf-editor/ograf-types';
 import type { FieldValue } from '@ograf-editor/scene-model';
+import type { SharedPlayoutFeed } from './sharedPlayoutPublish';
 import {
   dataFromSchemaDefaults,
   mountOGrafGraphic,
@@ -32,6 +33,9 @@ interface SessionSnapshot {
   manifestUrl: string | null;
   revision: number;
   commands: JournalEntry[];
+  feeds?: SharedPlayoutFeed[];
+  syncViewers: boolean;
+  syncVersion: number;
 }
 
 interface LiveState {
@@ -44,6 +48,10 @@ interface LiveState {
   snapshot: CoordinatedPlayoutSnapshot | null;
   graphic: SharedLiveGraphic | null;
   manifest: OGrafPlayerManifest | null;
+  syncViewers: boolean;
+  syncVersion: number;
+  syncPending: boolean;
+  syncError: string;
 }
 
 type Result = OGrafPlayerResult | undefined;
@@ -59,6 +67,10 @@ const initialState: LiveState = {
   snapshot: null,
   graphic: null,
   manifest: null,
+  syncViewers: true,
+  syncVersion: -1,
+  syncPending: false,
+  syncError: '',
 };
 
 function errorMessage(error: unknown) {
@@ -83,6 +95,7 @@ export function createSharedLivePreview(
   let player: OGrafPlayer | null = null;
   let unwatch = () => {};
   let applied = 0;
+  let appliedFeed = 0;
   let revision = 0;
   let connection = 0;
   let events = Promise.resolve();
@@ -90,6 +103,7 @@ export function createSharedLivePreview(
   let mounting: AbortController | undefined;
   let posting: AbortController | undefined;
   let retrying: AbortController | undefined;
+  let updatingSync: AbortController | undefined;
   const outcomes = new Map<number, Outcome>();
   const waiters = new Map<number, (outcome: Outcome) => void>();
   const source = new EventSource(`${route}/events`);
@@ -97,6 +111,24 @@ export function createSharedLivePreview(
   function patch(value: Partial<LiveState>) {
     state = { ...state, ...value };
     if (!closed) onState(state);
+  }
+
+  function applySyncMode(mode: Pick<SessionSnapshot, 'syncViewers' | 'syncVersion'>) {
+    if (!closed && mode.syncVersion > state.syncVersion) patch(mode);
+  }
+
+  function resetPublication(publicationId: string | null, error = '') {
+    const { syncViewers, syncVersion, syncPending, syncError } = state;
+    patch({
+      ...initialState,
+      publicationId,
+      loading: !error,
+      error,
+      syncViewers,
+      syncVersion,
+      syncPending,
+      syncError,
+    });
   }
 
   function isCurrent(publicationId: string | null | undefined) {
@@ -119,6 +151,7 @@ export function createSharedLivePreview(
     unwatch = () => {};
     outcomes.clear();
     applied = 0;
+    appliedFeed = 0;
     revision = 0;
     if (previous) {
       try {
@@ -189,13 +222,38 @@ export function createSharedLivePreview(
     waiters.delete(applied);
   }
 
+  async function invokeFeed(feed: SharedPlayoutFeed, replay: boolean) {
+    const active = player;
+    const { publicationId, sequence, target, data } = feed;
+    if (!active || !isCurrent(publicationId) || sequence <= appliedFeed) return;
+    appliedFeed = sequence;
+    try {
+      const options = replay ? { skipAnimation: true } : {};
+      if (target.kind === 'graphic') {
+        await active.update(data, options);
+        if (isCurrent(publicationId)) patch({ data: { ...state.data, ...data } });
+      } else {
+        const selected = state.snapshot?.slots[target.slotId];
+        if ((selected?.incoming ?? selected?.current)?.stateId !== target.stateId) return;
+        await active.action(
+          'transition.patch',
+          { slotId: target.slotId, stateId: target.stateId, data },
+          options,
+        );
+      }
+    } catch (error) {
+      if (isCurrent(publicationId)) patch({ error: errorMessage(error) });
+    }
+  }
+
   async function synchronize(snapshot: SessionSnapshot, expectedConnection: number) {
     const publicationId = snapshot.publicationId;
     if (!isCurrent(publicationId)) return;
+    applySyncMode({ syncViewers: snapshot.syncViewers, syncVersion: snapshot.syncVersion });
     const remount = publicationId !== state.publicationId || (publicationId !== null && !player);
     try {
       if (remount) {
-        patch({ ...initialState, publicationId });
+        resetPublication(publicationId);
         await discardPlayer();
         if (!isCurrent(publicationId)) return;
         if (publicationId === null) {
@@ -240,6 +298,7 @@ export function createSharedLivePreview(
       }
       revision = Math.max(revision, snapshot.revision);
       for (const entry of snapshot.commands) await invoke(entry, publicationId, true);
+      for (const feed of snapshot.feeds ?? []) await invokeFeed(feed, true);
       if (!isCurrent(publicationId)) return;
       if (applied < snapshot.revision)
         throw new Error('The shared session snapshot is incomplete.');
@@ -251,8 +310,7 @@ export function createSharedLivePreview(
       if (!isCurrent(publicationId)) return;
       if (remount) {
         await discardPlayer();
-        if (isCurrent(publicationId))
-          patch({ ...initialState, publicationId, loading: false, error: errorMessage(error) });
+        if (isCurrent(publicationId)) resetPublication(publicationId, errorMessage(error));
         return;
       }
       throw error;
@@ -292,6 +350,7 @@ export function createSharedLivePreview(
     if (snapshot.publicationId !== announced) {
       announced = snapshot.publicationId;
       cancelRequests();
+      if (snapshot.syncVersion < state.syncVersion) patch({ syncVersion: -1 });
       patch({ ready: false, loading: true, error: '' });
     }
     const expectedConnection = connection;
@@ -308,6 +367,12 @@ export function createSharedLivePreview(
         if (snapshot.publicationId === entry.publicationId) await synchronize(snapshot, connection);
       }
       await invoke(entry, entry.publicationId, false);
+    });
+  });
+  source.addEventListener('feed', (event: MessageEvent<string>) => {
+    enqueue(async () => {
+      const feed = JSON.parse(event.data) as SharedPlayoutFeed;
+      if (state.publicationId === feed.publicationId) await invokeFeed(feed, false);
     });
   });
 
@@ -359,6 +424,34 @@ export function createSharedLivePreview(
       );
       return result;
     },
+    async setSyncViewers(syncViewers: boolean) {
+      if (closed || updatingSync || state.syncVersion < 0) return;
+      const abort = new AbortController();
+      updatingSync = abort;
+      patch({ syncPending: true, syncError: '' });
+      try {
+        const response = await fetch(`${route}/mode`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: abort.signal,
+          body: JSON.stringify({ syncViewers }),
+        });
+        const receipt = (await response.json()) as Pick<
+          SessionSnapshot,
+          'syncViewers' | 'syncVersion'
+        > & { error?: string };
+        if (!response.ok)
+          throw new Error(
+            receipt.error ?? `Could not change viewer sync (HTTP ${response.status}).`,
+          );
+        applySyncMode({ syncViewers: receipt.syncViewers, syncVersion: receipt.syncVersion });
+      } catch (error) {
+        if (!closed) patch({ syncError: errorMessage(error) });
+      } finally {
+        updatingSync = undefined;
+        if (!closed) patch({ syncPending: false });
+      }
+    },
     retry() {
       const publicationId = announced;
       if (!publicationId || retrying) return;
@@ -378,6 +471,7 @@ export function createSharedLivePreview(
       closed = true;
       source.close();
       cancelRequests();
+      updatingSync?.abort();
       void discardPlayer();
     },
   };
@@ -411,5 +505,13 @@ export function useSharedLivePreview(
     return controller.current?.send(command) ?? Promise.reject(new Error('Shared playout is off.'));
   }, []);
   const retry = useCallback(() => controller.current?.retry(), []);
-  return { ...(enabled ? state : { ...initialState, loading: false }), send, retry };
+  const setSyncViewers = useCallback((syncViewers: boolean) => {
+    void controller.current?.setSyncViewers(syncViewers);
+  }, []);
+  return {
+    ...(enabled ? state : { ...initialState, loading: false }),
+    send,
+    retry,
+    setSyncViewers,
+  };
 }

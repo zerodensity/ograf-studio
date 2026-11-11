@@ -52,8 +52,16 @@ export interface SharedTransitionPlayoutSession {
   ) => Promise<ReturnPayload | undefined>;
 }
 
+export interface ViewerSyncControlSession {
+  checked: boolean;
+  disabled: boolean;
+  error: string;
+  onChange: (syncViewers: boolean) => void;
+}
+
 /** A view of the mounted preview controller. No graphic instances or saved document state live here. */
 export interface PlayoutControlsSession {
+  viewerSync?: ViewerSyncControlSession;
   tickerUpdates?: TickerUpdateStatus[];
   editorSynchronized?: boolean;
   templateName: string;

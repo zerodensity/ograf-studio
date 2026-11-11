@@ -108,6 +108,7 @@ import { measureAgentText } from '../state/agentCapture';
 import { Panel } from './Panel';
 import { PreviewDataFields } from './PreviewDataFields';
 import { PreviewPlayoutControls } from './PreviewPlayoutControls';
+import { SyncViewersControl } from './SyncViewersControl';
 import { FrameCueLog, type FrameCueLogEntry } from './FrameCueLog';
 import { ChartRendererUpgradeNotice } from './ChartRendererUpgradeNotice';
 import {
@@ -124,7 +125,7 @@ import { usePreviewControlsInteraction } from './usePreviewControlsInteraction';
 import { didFinishPreviewEdit } from './previewControlsInteraction';
 import { PreviewError } from './PreviewError';
 import { SharedPlayoutLinks } from './SharedPlayoutLinks';
-import { useSharedPlayoutEditor } from '../state/sharedPlayoutEditor';
+import { setSharedPlayoutLiveSnapshot, useSharedPlayoutEditor } from '../state/sharedPlayoutEditor';
 import { useSharedLivePreview } from '../state/sharedLivePreview';
 import { usePreviewPresentationSuspended } from './usePreviewPresentationSuspended';
 import { useTickerUpdateStatuses } from './useTickerUpdateStatuses';
@@ -222,6 +223,7 @@ export function SingleTemplatePreviewExportPanel() {
   const [renderType, setRenderType] = useState<RenderType>('realtime');
   const sharedLinks = useSharedPlayoutEditor((state) => state.links);
   const publishedSource = useSharedPlayoutEditor((state) => state.publishedSource);
+  const publishedId = useSharedPlayoutEditor((state) => state.publicationId);
   const sharedPreparationError = useSharedPlayoutEditor((state) => state.error);
   const sharedLiveEnabled = Boolean(
     sharedLinks && !syncEditorPreview && !behaviorActive && renderType === 'realtime',
@@ -317,6 +319,17 @@ export function SingleTemplatePreviewExportPanel() {
   );
   const { send: sendSharedCommand } = sharedLive;
   const sharedError = sharedLiveEnabled ? sharedPreparationError || sharedLive.error : '';
+  const livePublicationId =
+    sharedLiveEnabled && sharedLive.publicationId === publishedId ? publishedId : null;
+  useEffect(() => {
+    if (livePublicationId) setSharedPlayoutLiveSnapshot(livePublicationId, sharedLive.snapshot);
+  }, [livePublicationId, sharedLive.snapshot]);
+  useEffect(
+    () => () => {
+      if (livePublicationId) setSharedPlayoutLiveSnapshot(livePublicationId, null);
+    },
+    [livePublicationId],
+  );
   const presentationSuspendedRef = useRef(presentationSuspended);
   // A layout effect, so a tab being shown resumes before its first paint.
   useLayoutEffect(() => {
@@ -1515,6 +1528,14 @@ export function SingleTemplatePreviewExportPanel() {
   };
 
   const playoutControls: PlayoutControlsSession = {
+    viewerSync: sharedLiveEnabled
+      ? {
+          checked: sharedLive.syncViewers,
+          disabled: sharedLive.syncVersion < 0 || sharedLive.syncPending || sharedLive.loading,
+          error: sharedLive.syncError,
+          onChange: sharedLive.setSyncViewers,
+        }
+      : undefined,
     tickerUpdates,
     editorSynchronized: syncEditorPreview,
     templateName: projectSet?.templates[templateIndex]?.name ?? project.name,
@@ -2049,6 +2070,9 @@ export function SingleTemplatePreviewExportPanel() {
                     Take Out
                   </button>
                 </div>
+                {playoutControls.viewerSync && (
+                  <SyncViewersControl session={playoutControls.viewerSync} />
+                )}
                 {frameCueLog}
 
                 {!behaviorActive && renderType === 'non-realtime' && (

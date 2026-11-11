@@ -5,6 +5,20 @@ const flush = async () => {
 };
 
 describe('native feed lane update queue', () => {
+  it('leaves data pending when the shared publication no longer accepts it', async () => {
+    const queue = createDataConnectionUpdateQueue();
+    await expect(
+      queue.enqueue({
+        slotId: 'markets',
+        identity: 'old-publication',
+        data: { price: 20 },
+        valid: () => true,
+        update: async () => false,
+      }),
+    ).resolves.toBe(false);
+    queue.dispose();
+  });
+
   it('merges later source patches after the preceding coordinator update commits', async () => {
     const queue = createDataConnectionUpdateQueue();
     let data = { price: 10, volume: 1, label: 'Old' };

@@ -1,5 +1,5 @@
 import { getExportProfile, type ExportArtifacts } from '@ograf-editor/codegen';
-import type { Composition, Project } from '@ograf-editor/scene-model';
+import type { Composition, FieldValue, Project } from '@ograf-editor/scene-model';
 import { buildCoordinatedProjectSetArtifactsTask } from './coordinatedCompileTask';
 import { buildExportArtifacts } from './ografCompatibility';
 import {
@@ -14,6 +14,16 @@ export type SharedPlayoutSource =
 export interface SharedPlayoutLinks {
   viewerUrl: string;
   operatorUrl: string;
+}
+
+export type SharedPlayoutFeedTarget =
+  { kind: 'graphic' } | { kind: 'slot'; slotId: string; stateId: string };
+
+export interface SharedPlayoutFeed {
+  publicationId: string;
+  sequence: number;
+  target: SharedPlayoutFeedTarget;
+  data: Record<string, FieldValue>;
 }
 
 const sharedPlayoutApi = '/api/shared-playout';
@@ -90,7 +100,7 @@ export async function buildSharedPlayoutPreview(
 export async function publishSharedPlayout(
   artifacts: ExportArtifacts,
   signal: AbortSignal,
-): Promise<SharedPlayoutLinks> {
+): Promise<SharedPlayoutLinks & { publicationId: string }> {
   const { manifestFileName, manifest, mainJs, resources } = artifacts;
   const response = await fetch(`${sharedPlayoutApi}/publish`, {
     method: 'POST',
@@ -113,5 +123,26 @@ export async function publishSharedPlayout(
         : `Shared playout publication failed (HTTP ${response.status}).`,
     );
   if (!result?.publicationId) throw new Error('The server did not confirm the shared preview.');
-  return browserLinks(result);
+  return { ...browserLinks(result), publicationId: result.publicationId };
+}
+
+/** Send the latest values of a configured connection without adding a playout command. */
+export async function publishSharedPlayoutFeed(
+  publicationId: string,
+  target: SharedPlayoutFeedTarget,
+  data: Record<string, FieldValue>,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const response = await fetch(`${sharedPlayoutApi}/feed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ publicationId, target, data }),
+    signal,
+  });
+  if (response.ok) return true;
+  if (response.status === 409) return false;
+  const result = (await response.json().catch(() => null)) as { error?: string } | null;
+  throw new Error(
+    result?.error ?? `Shared preview could not receive data (HTTP ${response.status}).`,
+  );
 }
