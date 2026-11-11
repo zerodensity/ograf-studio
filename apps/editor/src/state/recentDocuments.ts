@@ -178,6 +178,12 @@ export function associateRecentDocument(
   openedSources.set(document, source);
   return document;
 }
+
+export function openedStudioFileHandle(document: StudioDocument): FileSystemFileHandle | undefined {
+  const source = openedSources.get(document);
+  return source && 'handle' in source ? source.handle : undefined;
+}
+
 export function rememberOpenedStudioDocument(document: StudioDocument): void {
   const source = openedSources.get(document);
   if (!source) return;
@@ -191,11 +197,7 @@ export function rememberOpenedStudioDocument(document: StudioDocument): void {
 /** Invoke directly from the click so a retained file handle can request fresh read permission. */
 export async function readRecentDocument(item: RecentDocument): Promise<StudioDocument> {
   if (item.url) return (await import('./fileIO')).openStudioDocumentFromUrl(item.url);
-  const handle = item.handle as
-    | (FileSystemFileHandle & {
-        requestPermission?: (options: { mode: 'read' }) => Promise<PermissionState>;
-      })
-    | undefined;
+  const handle = item.handle;
   if (!handle || typeof handle.getFile !== 'function')
     throw new Error('This recent file cannot be reopened. Choose Open to select it again.');
   if (handle.requestPermission && (await handle.requestPermission({ mode: 'read' })) !== 'granted')

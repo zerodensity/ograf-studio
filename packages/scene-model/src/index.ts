@@ -1,6 +1,7 @@
 export * from './types';
 export * from './crop';
 export * from './layerCrop';
+export * from './layerExportKey';
 export * from './pathEditing';
 export * from './textPathGeometry';
 export * from './textPathReference';
@@ -36,6 +37,7 @@ export * from './transformBindings';
 export * from './paint';
 export * from './mediaPaint';
 export * from './mediaCue';
+export * from './frameCue';
 export * from './cornerRadii';
 export * from './clipping';
 export * from './masking';

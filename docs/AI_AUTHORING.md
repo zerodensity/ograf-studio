@@ -13,7 +13,7 @@ its opaque `expectedRevision`, `confirm:true` and optional `overwrite:true`. `ar
 (default, schema 6) stores shared fonts, resources and component sources once; `"compatible"` writes
 the schema 5 archive layout for older set readers without down-converting newer features.
 The compressed MCP transfer limit is
-64 MiB; use Studio's Save Template Set dialog for larger sets. The tool saves a snapshot copy without
+64 MiB; open the set in Studio and use File → Save for larger sets. The tool saves a snapshot copy without
 renaming the open document or changing its revision; an edit during generation fails before writing.
 Open `.ogs` and Insert Template remain visible file actions; legacy `.ogp` and archive schemas 1–5
 remain readable. MCP project open/save use standalone JSON source with resolved dependencies.
@@ -472,7 +472,38 @@ shader/media/custom/set-data side effects, animated persistent rule properties a
 behavior remain unsupported in coordinated output. Pointer input is real-time only. Validate
 set references before preview/export; composition-only validation cannot resolve the graph.
 
-## Claude Desktop configuration on Windows
+## Set up an external AI client
+
+Standalone builds with bundled skill support carry a complete `ograf-authoring.zip` that matches
+the executable. The startup hint shows how to print a prompt to paste into your AI client.
+On Windows, run these commands from the executable's folder:
+
+```powershell
+.\OGrafStudioServer.exe --print-setup-prompt
+.\OGrafStudioServer.exe --export-skill .\ograf-authoring.zip
+```
+
+The first command prints the setup prompt. The second writes the embedded archive to a fresh path.
+Both commands exit without starting the server. Use the downloaded executable's filename on your
+platform. If Studio runs on a custom port, pass that same `--port` value when printing the prompt.
+The skill setup requires only the executable download on builds with these flags.
+
+For an older executable, use the `ograf-authoring.zip` asset from the same release. From a source
+checkout, run `npm run skill:package` to generate the archive. [Authoring skill bundle](DEVELOPMENT.md#authoring-skill-bundle-freshness)
+
+### Connect the MCP server
+
+Start Studio and keep the editor tab open for browser-dependent tools. The default MCP URL is
+`http://127.0.0.1:4318/mcp`. Use the actual port shown at startup. Reuse a working OGraf entry and
+preserve unrelated client settings. For Codex CLI and local ChatGPT Desktop sessions, configure the
+local Codex MCP server. In Claude Code, configure an HTTP MCP server for the current user.
+
+```sh
+codex mcp add ograf-editor --url http://127.0.0.1:4318/mcp
+claude mcp add --transport http --scope user ograf-editor http://127.0.0.1:4318/mcp
+```
+
+### Claude Desktop configuration on Windows
 
 The server uses Streamable HTTP, while `claude_desktop_config.json` launches local stdio processes.
 Use `mcp-remote` as a local compatibility bridge.
@@ -484,7 +515,7 @@ Use `mcp-remote` as a local compatibility bridge.
 ```json
 {
   "mcpServers": {
-    "ograf-studio": {
+    "ograf-editor": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "http://127.0.0.1:4318/mcp", "--allow-http"]
     }
@@ -500,22 +531,20 @@ bridge on first use, so Node.js and network access are required for that first l
 
 ## Using the `ograf-authoring` skill
 
-The repository includes a reusable skill at
-[`skills/ograf-authoring`](../skills/ograf-authoring). It teaches a skill-aware agent how to operate the
-editor through MCP while preserving OGraf lifecycle, animation, validation, and certification
-rules. The skill does not contain the editor or server; run the standalone server, or start `npm run dev` and `npm run mcp:start`
-from source, before using it.
+Install the complete `ograf-authoring` folder so the client can load `SKILL.md`, its references,
+and client metadata. `~` means the home directory of the user running the local client.
 
-For Codex, install the complete `ograf-authoring` folder in one of the standard discovery locations:
+| Client                             | Default destination or install action       |
+| ---------------------------------- | ------------------------------------------- |
+| Codex CLI or local ChatGPT Desktop | `~/.agents/skills/ograf-authoring/`         |
+| Claude Code                        | `~/.claude/skills/ograf-authoring/`         |
+| Claude Desktop                     | Upload the ZIP under **Customize → Skills** |
 
-- repository scope: `.agents/skills/ograf-authoring`;
-- user scope on Windows: `%USERPROFILE%\.agents\skills\ograf-authoring`.
-
-Copy or link the folder rather than only `SKILL.md`, because its `references` and
-`agents/openai.yaml` files provide the detailed workflows and MCP dependency. The tracked
-[`ograf-authoring.zip`](../skills/ograf-authoring/ograf-authoring.zip) contains the portable
-instruction bundle for clients that accept a skill archive. If a newly installed or updated skill
-does not appear, restart the client.
+Start a fresh client session if the skill or connection is missing. Confirm the skill is available
+and call `ograf_get_capabilities` through the running server. For source installations, the tracked
+skill folder and ZIP provide the same contents. [Authoring skill source](../skills/ograf-authoring)
+· [Codex skill locations](https://learn.chatgpt.com/docs/build-skills) · [Claude Code skills](https://code.claude.com/docs/en/skills)
+· [Claude Desktop skill upload](https://support.claude.com/en/articles/12512180-use-skills-in-claude)
 
 Invoke it explicitly in Codex with a prompt such as:
 

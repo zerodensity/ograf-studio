@@ -3,6 +3,7 @@ import { GraphicElement } from './GraphicElement';
 
 export { GraphicElement } from './GraphicElement';
 export { CoordinatedGraphicElement } from './CoordinatedGraphicElement';
+export type { GraphicInstance, GraphicInstances, StudioFrameCueDetail } from './graphicInstances';
 export {
   applyLayerBackdropFilter,
   backdropBorderRadius,
@@ -106,7 +107,7 @@ export {
   sampleCompiledLayerVisualState,
   type CompiledLayerVisualState,
 } from './loopRendering';
-export { applyCompiledAutoLayout } from './autoLayoutRendering';
+export { applyCompiledAutoLayout, hasAutoSizedTextClip } from './autoLayoutRendering';
 export { applyCompiledMotionPaths } from './motionPathRendering';
 export { getTextGradientSource } from './textGradientTint';
 export {

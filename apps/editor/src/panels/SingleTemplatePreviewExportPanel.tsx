@@ -27,7 +27,7 @@ import {
   type ExportProfile,
   type ExportProfileMode,
 } from '@ograf-editor/codegen';
-import { registerGraphicElement } from '@ograf-editor/ograf-runtime';
+import { registerGraphicElement, type StudioFrameCueDetail } from '@ograf-editor/ograf-runtime';
 import type {
   CompiledGraphicDescriptor,
   Graphic,
@@ -108,6 +108,7 @@ import { measureAgentText } from '../state/agentCapture';
 import { Panel } from './Panel';
 import { PreviewDataFields } from './PreviewDataFields';
 import { PreviewPlayoutControls } from './PreviewPlayoutControls';
+import { FrameCueLog, type FrameCueLogEntry } from './FrameCueLog';
 import { ChartRendererUpgradeNotice } from './ChartRendererUpgradeNotice';
 import {
   publishPlayoutControls,
@@ -301,6 +302,11 @@ export function SingleTemplatePreviewExportPanel() {
   );
 
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [frameCueEntries, setFrameCueEntries] = useState<FrameCueLogEntry[]>([]);
+  const nextFrameCueSequence = useRef(0);
+  const frameCueLog = !syncEditorPreview && (
+    <FrameCueLog entries={frameCueEntries} onClear={() => setFrameCueEntries([])} />
+  );
   const [nativeCurrentStep, setCurrentStep] = useState<number | undefined>();
   const [renderType, setRenderType] = useState<RenderType>('realtime');
   const [nativePreviewLoaded, setIsPreviewLoaded] = useState(false);
@@ -609,6 +615,19 @@ export function SingleTemplatePreviewExportPanel() {
     previewDescriptorRef.current.mounted = pending.descriptor;
     requestTickerPreviewRebuild((revision) => revision + 1);
   }, [descriptor]);
+
+  useLayoutEffect(() => {
+    const stage = containerRef.current;
+    if (!stage) return;
+    const record = (event: Event) => {
+      const detail = (event as CustomEvent<StudioFrameCueDetail>).detail;
+      if (!detail) return;
+      const entry = { sequence: nextFrameCueSequence.current++, detail };
+      setFrameCueEntries((entries) => [entry, ...entries].slice(0, 20));
+    };
+    stage.addEventListener('ograf-studio-cue', record);
+    return () => stage.removeEventListener('ograf-studio-cue', record);
+  }, [ownerDocument]);
 
   useLayoutEffect(() => {
     if (behaviorActive && containerRef.current)
@@ -1567,6 +1586,7 @@ export function SingleTemplatePreviewExportPanel() {
                   )}
                 </PreviewControlsHeading>
                 <PreviewPlayoutControls session={playoutControls} />
+                {frameCueLog}
                 <p className="preview-fullscreen-data-note">
                   Right-click for controls · Drag to move · D toggles · Escape exits.
                 </p>
@@ -1724,6 +1744,7 @@ export function SingleTemplatePreviewExportPanel() {
                     Take Out
                   </button>
                 </div>
+                {frameCueLog}
 
                 {!behaviorActive && renderType === 'non-realtime' && (
                   <details className="preview-developer">

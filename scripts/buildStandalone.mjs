@@ -11,6 +11,7 @@ const standaloneEntrypoint = resolve(repositoryRoot, 'apps/mcp-server/src/standa
 const editorRoot = resolve(repositoryRoot, 'apps/editor/dist');
 await verifyBundledStudioPluginDistribution(editorRoot);
 const runtimeFile = resolve(repositoryRoot, 'packages/ograf-runtime/dist/graphic-runtime.js');
+const authoringSkillFile = resolve(repositoryRoot, 'skills/ograf-authoring/ograf-authoring.zip');
 const windowsIcon = resolve(repositoryRoot, 'assets/ograf-studio.ico');
 const target = process.env.OGRAF_STANDALONE_TARGET ?? 'bun-windows-x64-baseline';
 const windowsTarget = target.includes('windows');
@@ -63,7 +64,9 @@ await writeFile(
   generatedEntrypoint,
   `${imports.join('\n')}\n` +
     `import runtimeAsset from ${JSON.stringify(runtimeFile.replaceAll('\\', '/'))} with { type: 'file' };\n` +
+    `import authoringSkillAsset from ${JSON.stringify(authoringSkillFile.replaceAll('\\', '/'))} with { type: 'file' };\n` +
     `globalThis.__OGRAF_STANDALONE_RUNTIME__ = runtimeAsset;\n` +
+    `globalThis.__OGRAF_STANDALONE_SKILL__ = authoringSkillAsset;\n` +
     `globalThis.__OGRAF_STANDALONE_ASSETS__ = { ${assetEntries.join(', ')} };\n` +
     `await import(${JSON.stringify(standaloneEntrypoint.replaceAll('\\', '/'))});\n`,
 );

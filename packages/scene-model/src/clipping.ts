@@ -1,6 +1,8 @@
 import type { LayerTransform } from './types';
 import { clampCornerRadii, type CornerRadiiInput } from './cornerRadii';
 
+export const MAX_TEXT_CLIP_MARGIN = 512;
+
 export interface GeometryPoint {
   x: number;
   y: number;

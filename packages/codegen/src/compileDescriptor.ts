@@ -10,6 +10,7 @@ import {
   isVisualRuleMouseFieldId,
   isVisualRuleStateAction,
   computeKeyframeFrames,
+  frameCueErrors,
   assessStaticExitHold,
   compositionWithShaderParameterFields,
   compositionLayersWithBackground,
@@ -197,6 +198,7 @@ export function compileDescriptor(
         : undefined;
     return {
       id: layer.id,
+      ...(layer.exportKey ? { exportKey: layer.exportKey } : {}),
       ...(element.type === 'ticker' ? { name: layer.name } : {}),
       ...(chartMarkAnimations ? { chartMarkAnimations } : {}),
       ...(layer.groupId && modifierGroups.has(layer.groupId) ? { groupId: layer.groupId } : {}),
@@ -466,6 +468,11 @@ export function compileDescriptor(
         weight: asset.fontWeight || '100 900',
         style: asset.fontStyle || 'normal',
       })),
+    ...(Array.isArray(composition.frameCues) &&
+    composition.frameCues.length &&
+    !frameCueErrors(composition.frameCues, keyframeFrames.at(-1)?.frame ?? 0).length
+      ? { frameCues: structuredClone(composition.frameCues) }
+      : {}),
     mediaCues: composition.mediaCues.map((cue) => ({
       ...structuredClone(cue),
       sources: cue.sources.map((source) =>

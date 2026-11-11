@@ -86,10 +86,12 @@ jobs:
             $response = Invoke-WebRequest http://127.0.0.1:4497/mcp -Method Post -ContentType application/json -Headers @{Accept='application/json, text/event-stream'} -Body $body
             if ($response.Content -notmatch 'serverInfo' -or $response.Content -notmatch [regex]::Escape($version)) { throw 'MCP initialization or version check failed' }
           } finally { Stop-Process -Id $process.Id -ErrorAction SilentlyContinue }
-      - name: Package authoring skill
+      - name: Verify and stage authoring skill
         shell: pwsh
         run: |
-          git archive --format=zip --prefix=ograf-authoring/ --output=release/ograf-authoring.zip HEAD:skills/ograf-authoring SKILL.md agents references
+          Copy-Item -LiteralPath skills/ograf-authoring/ograf-authoring.zip -Destination release/ograf-authoring.zip
+          node scripts/verifyStandaloneSkill.mjs release/OGrafStudioServer.exe release/ograf-authoring.zip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git rev-parse HEAD | Set-Content release/SOURCE-COMMIT.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -119,7 +121,7 @@ jobs:
       - name: Verify Linux standalone
         run: |
           chmod +x release/OGrafStudioServer-linux-x64
-          sh scripts/smokeStandaloneLinux.sh ./release/OGrafStudioServer-linux-x64 4498
+          sh scripts/smokeStandaloneLinux.sh ./release/OGrafStudioServer-linux-x64 4498 release/ograf-authoring.zip
       - name: Create manifest and checksums
         env:
           RELEASE_TAG: ${{ github.ref_name }}

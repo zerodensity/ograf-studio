@@ -6,6 +6,9 @@ import { selectedStandaloneTargets } from './standaloneTargets.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const artifacts = selectedStandaloneTargets();
+const authoringSkill = await readFile(
+  resolve(repositoryRoot, 'skills/ograf-authoring/ograf-authoring.zip'),
+);
 const packageVersion = JSON.parse(
   await readFile(resolve(repositoryRoot, 'package.json'), 'utf8'),
 ).version;
@@ -53,6 +56,9 @@ for (const artifact of artifacts) {
     if (!data.includes(Buffer.from(embeddedText))) {
       throw new Error(`${artifact.file} does not contain ${JSON.stringify(embeddedText)}.`);
     }
+  }
+  if (!data.includes(authoringSkill)) {
+    throw new Error(`${artifact.file} does not contain the generated authoring skill ZIP.`);
   }
   console.log(
     JSON.stringify({

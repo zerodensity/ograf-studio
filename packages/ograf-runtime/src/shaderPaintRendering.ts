@@ -7,6 +7,7 @@ import {
   type ShaderPaintSlot,
 } from '@ograf-editor/scene-model';
 import { createShaderPaintMask } from './shaderPaintMask';
+import { textClipPadding } from './textClipMargins';
 import { renderTextAnimationAtFrame } from './textAnimationRendering';
 import { renderChartAnimationAtFrame } from './chartRendering';
 import {
@@ -94,10 +95,10 @@ export function shaderStrokePaddingForLayer(layer: {
   return width > 0 ? Math.ceil(width * 2) + 2 : 0;
 }
 
-function strokePadding(element: Element, options: RenderOptions): number {
+function textBackingPadding(element: Element, options: RenderOptions): number {
   if (element.type !== 'text') return 0;
   return Math.max(
-    0,
+    textClipPadding(element),
     options.shaderStrokePadding ??
       (element.strokeWidth > 0 ? Math.ceil(element.strokeWidth * 2) + 2 : 0),
   );
@@ -377,7 +378,7 @@ export function mountShaderPaintContent(
     baseElement: element,
     baseIdentity: '',
     slots: new Map(),
-    padding: strokePadding(element, options),
+    padding: textBackingPadding(element, options),
     configuration: 0,
     options,
     native,
@@ -405,7 +406,7 @@ export function updateShaderPaintContent(
 ): boolean {
   const mounted = mountedPaints.get(container);
   if (!mounted || getElementShaderPaints(element).length === 0) return false;
-  const padding = strokePadding(element, options);
+  const padding = textBackingPadding(element, options);
   const paddingChanged = padding !== mounted.padding;
   mounted.padding = padding;
   mounted.options = options;

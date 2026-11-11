@@ -37,6 +37,72 @@ async function packageBytes(files: Record<string, string>): Promise<Uint8Array> 
   return zip.generateAsync({ type: 'uint8array' });
 }
 
+describe('frame cues in single-template exports', () => {
+  it('round-trips cue identity, authored order and JSON payload outside the manifest', async () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    composition.frameCues = [
+      { id: 'later', name: 'Later', frame: 10, payload: { team: 'home' } },
+      { id: 'start', name: 'Start', frame: 0, payload: null },
+      { id: 'also-start', name: 'Also start', frame: 0 },
+    ];
+    const artifacts = buildExportArtifactsWithRuntime(
+      project,
+      composition,
+      'class GraphicElement {}',
+    );
+    expect(artifacts.errors).toEqual([]);
+    expect(artifacts.manifest).not.toHaveProperty('frameCues');
+    expect(artifacts.descriptor?.frameCues).toEqual(composition.frameCues);
+    expect(artifacts.descriptor?.frameCues).not.toBe(composition.frameCues);
+    const zip = new JSZip();
+    addPackageFiles(zip, artifacts);
+    const imported = await importOgrafData(
+      'frame-cues.ograf.zip',
+      await zip.generateAsync({ type: 'uint8array' }),
+    );
+    expect(imported.mode).toBe('compiled-descriptor');
+    expect(imported.project.compositions[0]!.frameCues).toEqual(composition.frameCues);
+  });
+
+  it('reports out-of-range cues rather than exporting a silent substitute', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    composition.frameCues = [{ id: 'past-end', name: 'Past End', frame: 999999 }];
+    const artifacts = buildExportArtifactsWithRuntime(
+      project,
+      composition,
+      'class GraphicElement {}',
+    );
+    expect(artifacts.errors.join(' ')).toMatch(/Frame cue 1 must be on a whole frame/);
+  });
+
+  it('warns about malformed imported cue metadata without losing other editable content', async () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const title = createLayerOfKind('text');
+    if (title.element.type !== 'text') throw new Error('Expected text');
+    title.element.content = 'Original title';
+    composition.layers.push(title);
+    const descriptor = compileDescriptor(composition);
+    descriptor.frameCues = [{ id: 'bad', name: 'Outside', frame: 99999 }];
+    const manifest = assembleManifest(project, composition, descriptor);
+    const imported = await importOgrafData(
+      'frame-cues.ograf.zip',
+      await packageBytes({
+        'graphic.ograf.json': JSON.stringify(manifest),
+        'main.js': generateMainJs(descriptor, 'class GraphicElement {}'),
+      }),
+    );
+    expect(imported.mode).toBe('compiled-descriptor');
+    expect(imported.warnings.join(' ')).toMatch(/Ignored frame cues.*whole frame/);
+    expect(imported.project.compositions[0]!.frameCues).toEqual([]);
+    expect(imported.project.compositions[0]!.layers).toMatchObject([
+      { element: { type: 'text', content: 'Original title' } },
+    ]);
+  });
+});
+
 describe('Nodos input selection in single-template packages', () => {
   it.each(['selected', 'empty', 'legacy'] as const)(
     'preserves the %s selection through ZIP export, import and re-export',

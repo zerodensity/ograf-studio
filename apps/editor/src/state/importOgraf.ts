@@ -9,6 +9,8 @@ import {
   createProject,
   createTransition,
   defaultValueForFieldType,
+  frameCueErrors,
+  getTotalFrames,
   getResolvedLayerAnimationTracks,
   isMediaPaint,
   isNodosTypeName,
@@ -1012,6 +1014,9 @@ function projectFromDescriptor(
     customActions: importCustomActions(manifest),
     assets,
   });
+  const cueErrors = frameCueErrors(descriptor.frameCues, getTotalFrames(composition));
+  if (cueErrors.length) warnings.push(...cueErrors.map((error) => `Ignored frame cues: ${error}`));
+  else if (descriptor.frameCues) composition.frameCues = clone(descriptor.frameCues);
   for (const layer of composition.layers)
     if (layer.element.type === 'pattern') delete layer.element.definition;
   return createProject({

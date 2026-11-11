@@ -10,7 +10,8 @@ import { useProjectStore } from './projectStore';
 import { useSelectionStore } from './selectionStore';
 import type { StudioDocument } from './studioDocument';
 import { useTestDataStore } from './testDataStore';
-import { rememberOpenedStudioDocument } from './recentDocuments';
+import { openedStudioFileHandle, rememberOpenedStudioDocument } from './recentDocuments';
+import { attachStudioDocumentFile } from './saveStudioDocument';
 
 /** Shared File/Presenter open path. The caller owns replacement confirmation and status display. */
 export function applyOpenedStudioDocument(opened: StudioDocument): string {
@@ -38,6 +39,7 @@ export function applyOpenedStudioDocument(opened: StudioDocument): string {
   }
   resetHistory();
   useSelectionStore.getState().select(null);
+  attachStudioDocumentFile(openedStudioFileHandle(opened));
   rememberOpenedStudioDocument(opened);
   return message;
 }

@@ -52,6 +52,10 @@ Windows x64 or Linux x64/ARM64. Run it and open **http://127.0.0.1:4318/**.
 On Linux, first run `chmod +x <downloaded-file>`.
 No Node.js, npm or Bun installation is needed. Platform verification and signing details accompany each release.
 
+Standalone builds with bundled skill support also carry the matching OGraf Authoring skill.
+Run the executable with `--print-setup-prompt` for instructions to connect an AI client and install
+the skill. See the [AI client setup guide](docs/AI_AUTHORING.md#set-up-an-external-ai-client).
+
 To run from source with Node.js 22+, npm and [Bun 1.3.11](https://bun.sh/):
 
 ```sh

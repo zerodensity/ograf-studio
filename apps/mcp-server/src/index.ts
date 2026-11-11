@@ -15,6 +15,7 @@ export interface OGrafAuthoringHostOptions {
   workspaceRoot?: string;
   editorRoot?: string;
   embeddedEditorAssets?: Readonly<Record<string, string>>;
+  bundledAuthoringSkill?: boolean;
 }
 
 export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}) {
@@ -26,8 +27,9 @@ export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}
   const httpServer = createServer(app);
   const workspace = new AuthoringWorkspace(options.workspaceRoot);
   const bridge = new EditorBridge(httpServer, workspace);
+  const { bundledAuthoringSkill } = options;
   const chat = new ChatAgentController(
-    createOGrafToolRecords(workspace, bridge, { inApp: true }),
+    createOGrafToolRecords(workspace, bridge, { inApp: true, bundledAuthoringSkill }),
     (event) => bridge.sendChatEvent(event),
     (sessionId, prompt) => {
       const prefix = 'editor:';
@@ -55,7 +57,7 @@ export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}
       });
     }
     response.once('close', releaseExternal);
-    const mcp = createOGrafMcpServer(workspace, bridge);
+    const mcp = createOGrafMcpServer(workspace, bridge, { bundledAuthoringSkill });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on('close', () => {
       void transport.close();

@@ -67,10 +67,11 @@ describe('template-set naming and saving', () => {
       close: vi.fn(async () => {}),
       abort: vi.fn(async () => {}),
     };
-    const picker = vi.fn(async () => ({
+    const handle = {
       name: 'Evening Show.ogp',
       createWritable: async () => writable,
-    }));
+    };
+    const picker = vi.fn(async () => handle);
     vi.stubGlobal('window', { showSaveFilePicker: picker });
 
     const saving = saveProjectSetToFile(set);
@@ -83,6 +84,8 @@ describe('template-set naming and saving', () => {
       fileName: 'Evening Show.ogp',
       projectSet: { id: set.id, name: 'Evening Show' },
     });
+    if (result.status !== 'saved') throw new Error('Expected a saved file');
+    expect(result.handle).toBe(handle);
     const reopened = await openProjectSetArchive(await output!.arrayBuffer());
     expect(reopened.name).toBe('Evening Show');
     expect(reopened.templates.map((template) => template.name)).toEqual([
@@ -94,6 +97,42 @@ describe('template-set naming and saving', () => {
     );
     expect(reopened.activeTemplateId).toBe(set.activeTemplateId);
     expect(set.name).toBe(DEFAULT_PROJECT_SET_NAME);
+  });
+
+  it('updates the existing set file and reopens every template without prompting for a filename', async () => {
+    const set = addProjectSetTemplate(
+      createProjectSet('Edited set title', createProject({ name: 'News' })),
+      createProject({ name: 'Sports' }),
+    );
+    const picker = vi.fn();
+    const write = vi.fn();
+    const close = vi.fn();
+    const requestPermission = vi.fn(async () => 'granted');
+    const handle = {
+      name: 'Existing set.ogs',
+      requestPermission,
+      createWritable: async () => ({ write, close, abort: vi.fn() }),
+    } as unknown as FileSystemFileHandle;
+    vi.stubGlobal('window', { showSaveFilePicker: picker });
+
+    const saving = saveProjectSetToFile(set, { handle, archiveMode: 'compact' });
+    expect(requestPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
+    const result = await saving;
+
+    expect(picker).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ status: 'saved', fileName: 'Existing set.ogs' });
+    if (result.status !== 'saved') throw new Error('Expected a saved file');
+    expect(result.handle).toBe(handle);
+    const reopened = await openProjectSetArchive(
+      await (write.mock.calls[0]![0] as Blob).arrayBuffer(),
+    );
+    expect(reopened).toMatchObject({
+      id: set.id,
+      name: 'Edited set title',
+      activeTemplateId: set.activeTemplateId,
+      templates: set.templates.map(({ id, name }) => ({ id, name })),
+    });
   });
 
   it('does not rename the current set if its save dialog is cancelled', async () => {

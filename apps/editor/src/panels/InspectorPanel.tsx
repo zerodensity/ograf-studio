@@ -80,6 +80,8 @@ import type {
 } from '@ograf-editor/scene-model';
 import {
   BLEND_MODES,
+  MAX_LAYER_EXPORT_KEY_LENGTH,
+  MAX_TEXT_CLIP_MARGIN,
   createCornerRadii,
   createLayerPropertyKeyframe,
   findLayerKeyframeAtFrame,
@@ -443,6 +445,66 @@ const DESIGN_TOKEN_TARGETS: Record<
     { property: 'fontWeight', label: 'Font weight', tokenType: 'font-weight' },
   ],
 };
+
+function LayerExportKeyControl({ layer }: { layer: Layer }) {
+  const setExportKey = useProjectStore((state) => state.setLayerExportKey);
+  const value = typeof layer.exportKey === 'string' ? layer.exportKey : '';
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setDraft(value);
+    setError('');
+  }, [value]);
+
+  const commit = () => {
+    const key = draft.trim();
+    try {
+      if ((key || undefined) !== layer.exportKey) setExportKey(layer.id, key);
+      setDraft(key);
+      setError('');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  return (
+    <>
+      <PropertyRow
+        className="inspector-row"
+        help="Optional, case-sensitive key for JavaScript lookup in exported graphics. Each key must be unique within the template."
+      >
+        <span>Export key</span>
+        <input
+          aria-label="Export key"
+          aria-invalid={Boolean(error)}
+          type="text"
+          placeholder="scoreline"
+          maxLength={MAX_LAYER_EXPORT_KEY_LENGTH}
+          value={draft}
+          disabled={layer.isLocked}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setError('');
+          }}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+            if (event.key === 'Escape') {
+              event.stopPropagation();
+              setDraft(value);
+              setError('');
+            }
+          }}
+        />
+      </PropertyRow>
+      {error && (
+        <p className="inspector-error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
 
 function ZOrderControl({
   value,
@@ -1121,6 +1183,7 @@ export function InspectorPanel() {
             onChange={(e: ChangeEvent<HTMLInputElement>) => renameLayer(layer.id, e.target.value)}
           />
         </PropertyRow>
+        <LayerExportKeyControl key={`${composition.id}:${layer.id}`} layer={layer} />
         <ZOrderControl
           value={zOrder}
           maximum={composition.layers.length}
@@ -2046,6 +2109,56 @@ export function InspectorPanel() {
                   <option value="ellipsis">Ellipsis</option>
                 </select>
               </PropertyRow>
+              {layer.element.overflowPolicy === 'clip' &&
+                !layer.element.crawl &&
+                !layer.textPath && (
+                  <>
+                    <PropertyRow
+                      help="Expand the clipping box on the left and right without moving the text."
+                      className="inspector-row"
+                    >
+                      <span>Horizontal clip margin</span>
+                      <input
+                        aria-label="Horizontal clip margin"
+                        type="number"
+                        min={0}
+                        max={MAX_TEXT_CLIP_MARGIN}
+                        step="any"
+                        value={layer.element.clipMarginX ?? 0}
+                        disabled={layer.isLocked}
+                        onChange={(event) => {
+                          const value = Number(event.currentTarget.value);
+                          if (Number.isFinite(value))
+                            setElement({
+                              clipMarginX: Math.max(0, Math.min(MAX_TEXT_CLIP_MARGIN, value)),
+                            });
+                        }}
+                      />
+                    </PropertyRow>
+                    <PropertyRow
+                      help="Expand the clipping box above and below without moving the text."
+                      className="inspector-row"
+                    >
+                      <span>Vertical clip margin</span>
+                      <input
+                        aria-label="Vertical clip margin"
+                        type="number"
+                        min={0}
+                        max={MAX_TEXT_CLIP_MARGIN}
+                        step="any"
+                        value={layer.element.clipMarginY ?? 0}
+                        disabled={layer.isLocked}
+                        onChange={(event) => {
+                          const value = Number(event.currentTarget.value);
+                          if (Number.isFinite(value))
+                            setElement({
+                              clipMarginY: Math.max(0, Math.min(MAX_TEXT_CLIP_MARGIN, value)),
+                            });
+                        }}
+                      />
+                    </PropertyRow>
+                  </>
+                )}
               <p className="inspector-hint">
                 Auto size changes the authored box. Shrink only reduces text to its minimum-size
                 floor. Fit to width scales proportionally. Squeeze fills the box by deforming glyph

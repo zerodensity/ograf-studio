@@ -1,6 +1,6 @@
 ---
 name: ograf-authoring
-description: Create, inspect, animate, review, validate, certify, save, and export editable EBU OGraf-compatible broadcast graphics through OGraf Studio MCP. Use for lower thirds, scoreboards, tickers, Lottie layers, shader and Media paints, exposed shader animation, procedural pattern presets, composable effects stacks, semantic scene authoring, Brand Kits, finite repeaters, runtime GDD collections, reusable components, HTML5 broadcast templates, single/multi-template .ogs documents, legacy .ogp sets, inherited defaults, layer/source/canvas crops, .ograf.zip packages, per-property animation, Animate In/Out motion, data binding, interactive visual rules, and OGraf compliance work.
+description: Author, animate, validate, and export editable EBU OGraf broadcast graphics with OGraf Studio MCP. Use for templates, lower thirds, scoreboards, tickers, and data-driven graphics.
 ---
 
 # OGraf Authoring 0.32.0
@@ -462,6 +462,12 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
 
 ## References
 
+Use this skill for editable HTML5 broadcast graphics, including Lottie layers, shader and Media
+paints, exposed shader animation, procedural patterns, composable effects, semantic scene
+authoring, Brand Kits, repeaters, GDD collections, reusable components, `.ogs` templates and sets,
+legacy `.ogp` sets, inherited defaults, layer/source/canvas crops, `.ograf.zip` packages,
+per-property animation, Animate In/Out, data binding, and interactive visual rules.
+
 - [Editable SVG, PSD and Figma imports](./references/design-imports.md) for supported editable
   objects, image fallbacks and the separate single-image MCP SVG-bundle workflow.
 - [Text animators and motion blur](./references/text-animators.md) for seeded per-property
@@ -475,8 +481,8 @@ modifiers; Operator controls are exposed fields; component masters and uses are 
 - Read [references/tool-workflows.md](./references/tool-workflows.md) for operation shapes and task sequences.
 - Read [references/ograf-invariants.md](./references/ograf-invariants.md) before lifecycle, timing, data-binding, or export work.
 - Read [references/examples.md](./references/examples.md) for a compact lower-third transaction pattern.
-- Read [references/setup.md](./references/setup.md) only for local startup, connection recovery,
-  Claude Desktop configuration, or workspace confinement.
+- Read [references/setup.md](./references/setup.md) for bundled skill installation, client setup,
+  local startup, connection recovery, or workspace confinement.
 - Read [references/media-paints.md](./references/media-paints.md) for packaged clips, live tags,
   realtime limits, fallbacks, and renderer requirements.
 - Read [references/visual-rules.md](./references/visual-rules.md) before authoring rules: triggers,

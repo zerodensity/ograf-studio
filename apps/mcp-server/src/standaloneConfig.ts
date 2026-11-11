@@ -1,11 +1,14 @@
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { OGRAF_CLIENT_SETUP } from '@ograf-editor/agent-tools';
 
 export interface StandaloneServerOptions {
   port: number;
   workspaceRoot: string;
   openBrowser: boolean;
   help: boolean;
+  printSetupPrompt?: true;
+  exportSkillPath?: string;
 }
 
 export const OGRAF_STUDIO_STANDALONE_VERSION = '0.32.0';
@@ -50,8 +53,12 @@ export function standaloneExecutableName(platform: NodeJS.Platform = process.pla
 }
 
 function readValue(args: string[], index: number, flag: string): [string, number] {
-  const inline = args[index]?.slice(flag.length + 1);
-  if (inline) return [inline, index];
+  const argument = args[index]!;
+  if (argument.startsWith(`${flag}=`)) {
+    const inline = argument.slice(flag.length + 1);
+    if (!inline) throw new Error(`${flag} requires a value.`);
+    return [inline, index];
+  }
   const next = args[index + 1];
   if (!next || next.startsWith('--')) throw new Error(`${flag} requires a value.`);
   return [next, index + 1];
@@ -84,6 +91,9 @@ export function parseStandaloneServerOptions(
   let workspaceRoot = defaultStandaloneWorkspaceRoot(environment, userHome);
   let openBrowser = false;
   let help = false;
+  let printSetupPrompt: true | undefined;
+  let exportSkillPath: string | undefined;
+  const { exportFlag, promptFlag } = OGRAF_CLIENT_SETUP;
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index] ?? '';
@@ -97,6 +107,16 @@ export function parseStandaloneServerOptions(
     }
     if (argument === '--help' || argument === '-h') {
       help = true;
+      continue;
+    }
+    if (argument === promptFlag) {
+      printSetupPrompt = true;
+      continue;
+    }
+    if (argument === exportFlag || argument.startsWith(`${exportFlag}=`)) {
+      const [value, consumedIndex] = readValue(args, index, exportFlag);
+      exportSkillPath = resolve(value);
+      index = consumedIndex;
       continue;
     }
     if (argument === '--port' || argument.startsWith('--port=')) {
@@ -114,7 +134,16 @@ export function parseStandaloneServerOptions(
     throw new Error(`Unknown option "${argument}". Use --help to list supported options.`);
   }
 
-  return { port, workspaceRoot, openBrowser, help };
+  if (printSetupPrompt && exportSkillPath)
+    throw new Error(`Choose either ${promptFlag} or ${exportFlag}.`);
+  return {
+    port,
+    workspaceRoot,
+    openBrowser,
+    help,
+    ...(printSetupPrompt ? { printSetupPrompt } : {}),
+    ...(exportSkillPath ? { exportSkillPath } : {}),
+  };
 }
 
 export const STANDALONE_HELP = `OGraf Studio ${OGRAF_STUDIO_STANDALONE_VERSION} standalone server
@@ -126,6 +155,8 @@ Options:
   --workspace <path>   Writable project workspace
   --open               Open the editor in the default browser
   --no-open            Do not open a browser (default)
+  ${OGRAF_CLIENT_SETUP.promptFlag}  Print the AI setup prompt and exit
+  ${OGRAF_CLIENT_SETUP.exportFlag} <file> Export the bundled authoring skill ZIP to a new file and exit
   --help, -h           Show this help
 
 Repository: ${OGRAF_STUDIO_REPOSITORY_URL}

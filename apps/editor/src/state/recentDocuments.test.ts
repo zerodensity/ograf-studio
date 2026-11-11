@@ -130,12 +130,8 @@ describe('recent Studio document history', () => {
 describe('reading a recent document', () => {
   it('requests file permission in the initiating gesture and reads the current file bytes', async () => {
     const project = createProject({ name: 'Latest file contents' });
-    const retained = handle(
-      'News',
-      'News.ogs',
-      new Blob([JSON.stringify(project)]),
-    ) as FileSystemFileHandle & { requestPermission: ReturnType<typeof vi.fn> };
-    retained.requestPermission = vi.fn(async () => 'granted');
+    const retained = handle('News', 'News.ogs', new Blob([JSON.stringify(project)]));
+    retained.requestPermission = vi.fn(async (): Promise<PermissionState> => 'granted');
     const pending = readRecentDocument({
       id: 'file',
       name: 'Old file label',
@@ -148,10 +144,8 @@ describe('reading a recent document', () => {
   });
 
   it('rejects revoked permissions or missing handles without reading document data', async () => {
-    const retained = handle('News') as FileSystemFileHandle & {
-      requestPermission: ReturnType<typeof vi.fn>;
-    };
-    retained.requestPermission = vi.fn(async () => 'denied');
+    const retained = handle('News');
+    retained.requestPermission = vi.fn(async (): Promise<PermissionState> => 'denied');
     await expect(
       readRecentDocument({ id: 'file', name: 'News', openedAt: 1, handle: retained }),
     ).rejects.toThrow('File access was not granted');

@@ -6,3 +6,4 @@ export * from './toolRecords';
 export * from './inAppTools';
 export * from './generatedInAppPrompt';
 export * from './resultPaging';
+export * from './ografSetup';

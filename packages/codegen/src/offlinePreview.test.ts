@@ -103,6 +103,10 @@ describe('self-contained offline OGraf preview', () => {
     expect(html).toContain('<strong>Preview controls</strong>');
     expect(html).toContain('class="preview-popup-body playout-controls-panel"');
     expect(html).toContain('id="transport" class="preview-controls-row"');
+    expect(html).toContain(
+      '<summary>Frame Cue Log (<span id="frame-cue-count">0</span>)</summary>',
+    );
+    expect(html).toContain('aria-label="Clear frame cue log"');
     expect(html).toContain('id="dock-side" aria-label="Dock controls"');
     expect(html).toContain(
       '<option value="right">Right</option><option value="left">Left</option>',
@@ -120,6 +124,9 @@ describe('self-contained offline OGraf preview', () => {
     expect(OFFLINE_PREVIEW_STYLE).toContain('#controls[data-preview-adjusting]:not([hidden])');
     expect(OFFLINE_PREVIEW_RUNTIME).toContain('const LISTBOX_CONTROL');
     expect(OFFLINE_PREVIEW_RUNTIME).toContain('data-preview-active-control');
+    const cueListener = OFFLINE_PREVIEW_RUNTIME.indexOf('installFrameCueLog(graphic);');
+    expect(cueListener).toBeGreaterThanOrEqual(0);
+    expect(cueListener).toBeLessThan(OFFLINE_PREVIEW_RUNTIME.indexOf('await graphic.load('));
   });
 
   it('includes the runtime license in the standalone page alongside embedded assets', () => {

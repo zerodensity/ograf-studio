@@ -398,6 +398,32 @@ textarea {
 .preview-background-controls > p {
   margin-top: 6px;
 }
+#frame-cue-log .preview-controls-row {
+  justify-content: space-between;
+}
+#frame-cue-entries {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: min(240px, 40vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+#frame-cue-entries:empty {
+  display: none;
+}
+#frame-cue-entries > li {
+  padding: 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  overflow-wrap: anywhere;
+}
+#frame-cue-entries :is(small, code) {
+  display: block;
+  color: var(--ograf-controls-dim);
+}
+#frame-cue-entries code {
+  white-space: pre-wrap;
+}
 .preview-transition-controls {
   display: flex;
   flex-direction: column;

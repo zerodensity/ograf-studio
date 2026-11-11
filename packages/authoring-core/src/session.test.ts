@@ -16,6 +16,23 @@ import {
 import { AuthoringSession, RevisionConflictError } from './session';
 
 describe('AuthoringSession', () => {
+  it('keeps the authored export key on the source when duplicating layers through MCP', () => {
+    const project = createProject();
+    const source = createLayerOfKind('text');
+    source.keyframes = [createLayerKeyframe(0, defaultTransformForRole('text', 'step'))];
+    source.exportKey = 'scoreline';
+    project.compositions[0]!.layers.push(source);
+    const session = new AuthoringSession(project);
+    const result = session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'duplicate_group', source: { layerIds: [source.id] }, count: 1 }],
+    });
+    expect(result.project.compositions[0]!.layers.map((layer) => layer.exportKey)).toEqual([
+      'scoreline',
+      undefined,
+    ]);
+  });
+
   it('keeps accepted Studio prompts across stale editor updates and scene undo or redo', () => {
     const project = createProject({ name: 'Original' });
     const session = new AuthoringSession(project);

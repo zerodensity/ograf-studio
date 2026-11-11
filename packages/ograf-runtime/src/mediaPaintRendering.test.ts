@@ -9,6 +9,15 @@ class FakeVideo extends EventTarget {
 }
 
 describe('media paint rendering geometry', () => {
+  it('keeps media fit anchored to the text box inside the padded raster backing', () => {
+    expect(
+      mediaFitRect({ width: 100, height: 100 }, { width: 224, height: 124 }, 'cover', 0, 0.5, {
+        x: 12,
+        y: 12,
+      }),
+    ).toEqual({ x: 12, y: -38, width: 200, height: 200 });
+  });
+
   it('covers and honors the normalized focal position', () => {
     expect(
       mediaFitRect({ width: 100, height: 100 }, { width: 200, height: 100 }, 'cover', 0, 0.5),

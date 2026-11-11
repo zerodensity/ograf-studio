@@ -464,6 +464,10 @@ export interface TextElement {
   /** Absolute legibility floor used by shrink-to-fit. */
   minFontSize: number;
   overflowPolicy: 'visible' | 'clip' | 'ellipsis';
+  /** Extra space on each horizontal side of the text clipping box, in composition pixels. */
+  clipMarginX?: number;
+  /** Extra space on each vertical side of the text clipping box, in composition pixels. */
+  clipMarginY?: number;
   /** Squeeze deliberately scales glyph width and height independently to fill the authored box. */
   autoFit: 'auto-size' | 'shrink-to-fit' | 'fit-to-width' | 'squeeze' | 'fixed';
   runs: TextRun[];
@@ -1497,6 +1501,8 @@ export interface Layer {
   typographyBinding?: TypographyBinding;
   id: string;
   name: string;
+  /** Author-chosen DOM key for this layer in a single-template export. */
+  exportKey?: string;
   isVisible: boolean;
   isGuide: boolean;
   /** Static blend against earlier layers inside the isolated OGraf composition only. */
@@ -1792,6 +1798,14 @@ export interface CustomActionDefinition {
 export type LogicJsonValue =
   null | boolean | number | string | LogicJsonValue[] | { [key: string]: LogicJsonValue };
 
+/** An outbound notification at an authored composition frame during real-time playout. */
+export interface FrameCue {
+  id: string;
+  name: string;
+  frame: number;
+  payload?: LogicJsonValue;
+}
+
 export interface LogicFunctionEvent {
   type: 'load' | 'play' | 'out' | 'data' | 'blur' | 'focus' | 'tick' | 'custom-action';
   actionId?: string;
@@ -1986,6 +2000,8 @@ export interface Composition {
   dataConnections: DataConnectionDefinition[];
   /** Composition-level audio/video/live transports. They are timeline tracks, not canvas layers. */
   mediaCues: MediaCue[];
+  /** Outbound timeline notifications, independent of media and inbound custom actions. */
+  frameCues?: FrameCue[];
   patterns: TilingPattern[];
   rendererPlugins?: RendererPluginSnapshot[];
   animationPresetPlugins?: AnimationPresetPluginSnapshot[];

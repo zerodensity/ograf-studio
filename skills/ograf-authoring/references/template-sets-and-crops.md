@@ -636,7 +636,8 @@ remain editor-only and are not these output paints.
 
 After activation/default changes, read `ograf_get_project` for the new numeric project revision
 before applying layer operations. UI Open sniffs JSON or ZIP `.ogs` and also accepts legacy `.ogp`.
-Save Template Set writes `.ogs`; MCP project file APIs remain standalone JSON. Older JSON-only
+File → Save writes the current template set as `.ogs`; Save As chooses a new destination. MCP project
+file APIs remain standalone JSON. Older JSON-only
 `.ogs` readers cannot read set archives, and
 other newer features are not down-converted. Set file dialogs remain UI actions, not playout export.
 
@@ -671,7 +672,7 @@ immutable complete set snapshot through Studio's save worker. An edit during gen
 save before disk writes. Returned metadata includes `revision`, `archiveMode`, `schemaVersion`,
 `archiveBytes`, `templateCount` and `sha256`; archive/base64 content is not returned to the caller.
 Saving a source copy does not rename the open document or certify playout output. The compressed MCP
-transfer limit is **64 MiB**; larger sets use Studio Save Template Set. Standalone
+transfer limit is **64 MiB**; open larger sets in Studio and use File → Save. Standalone
 `ograf_save_project` and `ograf_export_package` retain their ordinary certification requirements.
 
 Studio and MCP export self-contained HTML separately from OGraf ZIP packages. Use

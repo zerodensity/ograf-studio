@@ -27,6 +27,12 @@ import {
 } from '@ograf-editor/ograf-types';
 import { buildRuntimeTimeline } from './buildRuntimeTimeline';
 import { chartMarkLifecycleFrame } from './chartMarkLifecycle';
+import {
+  collectExportedLayers,
+  dispatchStudioFrameCue,
+  type GraphicInstance,
+  type GraphicInstances,
+} from './graphicInstances';
 import { LoopPlaybackController, type LoopPlaybackAction } from './loopPlayback';
 import { applyCompiledMasks } from './maskRendering';
 import { resolvePlayTarget } from './lifecycle';
@@ -155,6 +161,7 @@ const MAX_RULE_CUSTOM_ACTION_DEPTH = 4;
 
 /** Blanks the host through CSS: captures and inline-style checks must not see it as hidden. */
 const PRESENTATION_SUSPENDED_ATTRIBUTE = 'data-ograf-presentation-suspended';
+const SINGLE_INSTANCE_ID = 'single';
 /** A stuck capture may show an old picture after this long, but never leaves the graphic blank. */
 const PRESENTATION_REVEAL_TIMEOUT_MS = 1000;
 
@@ -408,7 +415,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #disposeRulePointer: (() => void) | null = null;
   #disposeKeyboard: (() => void) | null = null;
   #keyboardOnAir = false;
-  #keyboardLoaded = false;
+  #loaded = false;
   #schedule: ScheduledAction[] = [];
   #externalSchedule = new WeakSet<ScheduledAction>();
   /** Snapshot of `#lastData` taken when `setActionsSchedule` is called — the baseline `goToTime`
@@ -451,6 +458,20 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   private get activeDescriptor(): CompiledGraphicDescriptor {
     return this.#renderDescriptor ?? this.descriptor;
+  }
+
+  /** The mounted graphic has one instance, with an ID scoped to this element. */
+  get instances(): GraphicInstances {
+    const instances: Record<string, GraphicInstance> = Object.create(null);
+    if (this.#loaded) {
+      instances[SINGLE_INSTANCE_ID] = Object.freeze({
+        instanceId: SINGLE_INSTANCE_ID,
+        layers: Object.freeze(
+          collectExportedLayers(this.descriptor.layers, (id) => this.#layerEls.get(id)),
+        ),
+      });
+    }
+    return Object.freeze(instances);
   }
 
   getTickerUpdates() {
@@ -608,7 +629,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     if (
       this.#renderType !== 'realtime' ||
       !this.#keyboardOnAir ||
-      !this.#keyboardLoaded ||
+      !this.#loaded ||
       this.style.visibility === 'hidden' ||
       this.style.opacity === '0' ||
       !this.#rules ||
@@ -625,7 +646,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     queueMicrotask(() => {
       if (this.isConnected) return;
       this.#keyboardOnAir = false;
-      this.#keyboardLoaded = false;
+      this.#loaded = false;
       this.#disposeKeyboard?.();
       this.#disposeKeyboard = null;
       this.#disposeLogicFunctions();
@@ -1636,6 +1657,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         el.dataset.ografCollectionDataKey = layer.collectionItem.dataKey;
       }
       el.dataset.ografLayerId = layer.id;
+      if (typeof layer.exportKey === 'string' && layer.exportKey && !layer.collectionItem)
+        el.dataset.ografLayerKey = layer.exportKey;
       el.dataset.ografLayerName = layer.name ?? 'Ticker';
       el.style.mixBlendMode =
         !layer.blendMode || layer.blendMode === 'normal' ? '' : layer.blendMode;
@@ -2218,6 +2241,27 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       tl.seek(keyframe.frame, true);
       if (includeAudio) this.#mediaCueRuntime?.renderAtTime(targetSeconds * 1000);
     } else {
+      const fromFrame = tl.frame();
+      const directOut =
+        this.#directLifecycleTransition !== null && keyframe.id === this.descriptor.endKeyframeId;
+      // A direct Out interpolates from the current pose and skips the intervening Steps.
+      const cueStart = directOut ? keyframe.frame - exitDurationFrames(this.descriptor) : fromFrame;
+      const includeStart =
+        !directOut &&
+        this.descriptor.keyframes.some(
+          (key) => key.id === this.descriptor.startKeyframeId && key.frame === fromFrame,
+        );
+      const cues =
+        this.#renderType === 'realtime' && keyframe.frame > fromFrame && durationSeconds !== 0
+          ? (this.activeDescriptor.frameCues ?? [])
+              .filter(
+                (cue) =>
+                  (cue.frame > cueStart || (includeStart && cue.frame === cueStart)) &&
+                  cue.frame <= keyframe.frame,
+              )
+              .sort((a, b) => a.frame - b.frame)
+          : [];
+      let nextCue = 0;
       await new Promise<void>((resolve, reject) => {
         let settled = false;
         const finish = () => {
@@ -2249,6 +2293,17 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
               this.#mediaCueRuntime?.renderAtTime(
                 (tl.frame() / this.activeDescriptor.frameRate) * 1000,
               );
+            if (nextCue < cues.length) {
+              const frame = tl.frame();
+              const cueFrame = directOut
+                ? cueStart +
+                  ((frame - fromFrame) / (keyframe.frame - fromFrame)) * (keyframe.frame - cueStart)
+                : frame;
+              while (nextCue < cues.length && cues[nextCue]!.frame <= cueFrame) {
+                const cue = cues[nextCue++]!;
+                dispatchStudioFrameCue(this, cue, { instanceId: SINGLE_INSTANCE_ID });
+              }
+            }
           },
           onComplete: finish,
           onInterrupt: finish,
@@ -2265,7 +2320,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   async #loadUnlocked(params: LoadParams): Promise<ReturnPayload | undefined> {
     this.#disposeLogicFunctions();
     this.#keyboardOnAir = false;
-    this.#keyboardLoaded = false;
+    this.#loaded = false;
     this.#disposeKeyboard?.();
     this.#disposeKeyboard = null;
     try {
@@ -2326,7 +2381,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           (trigger, input) => this.handleKeyboardInput(trigger, input),
         );
       }
-      this.#keyboardLoaded = true;
+      this.#loaded = true;
       return { statusCode: 200 };
     } catch (err) {
       this.#disposeLogicFunctions();
@@ -2341,7 +2396,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   async #disposeUnlocked(): Promise<ReturnPayload | undefined> {
     this.#disposeLogicFunctions();
     this.#keyboardOnAir = false;
-    this.#keyboardLoaded = false;
+    this.#loaded = false;
     this.#disposeKeyboard?.();
     this.#disposeKeyboard = null;
     try {
