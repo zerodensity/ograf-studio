@@ -471,7 +471,7 @@ function LayerExportKeyControl({ layer }: { layer: Layer }) {
     <>
       <PropertyRow
         className="inspector-row"
-        help="Optional, case-sensitive key for JavaScript lookup in single-template exports. Each key must be unique within the template."
+        help="Optional, case-sensitive key for JavaScript lookup in exported graphics. Each key must be unique within the template."
       >
         <span>Export key</span>
         <input

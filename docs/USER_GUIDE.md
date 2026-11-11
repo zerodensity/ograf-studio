@@ -2176,6 +2176,13 @@ playout. Re-export a previously exported package to use the shared instance look
 Move the playhead to the desired frame and choose **+ Cue** in the Timeline. Set the cue's name,
 frame, and optional JSON payload, then click **Apply**. Select its marker to edit or delete it.
 
+Open **Frame Cue Log** in Studio's **Preview & Export** pane and take the graphic in or out.
+In an exported HTML preview, press **D** to show the controls and open the same section.
+The log records the 20 most recent cues during real-time playback, including their authored
+frames, instance IDs, and any payload. Coordinated cues also show their lane and template IDs.
+The count updates while the section is collapsed. Use **Clear** to start a fresh log.
+Re-export an existing HTML preview to include the panel.
+
 The graphic dispatches `ograf-studio-cue` on forward real-time playback. The event detail
 contains the cue's `id`, `name`, `frame`, `instanceId`, and optional `payload`. A coordinated
 cue also includes `templateId` and `laneId`. The frame is on the template's authored timeline.
