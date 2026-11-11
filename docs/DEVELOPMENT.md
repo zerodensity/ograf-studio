@@ -2,7 +2,7 @@
 
 [Back to overview](../README.md) · [Using Studio](USER_GUIDE.md) · [AI authoring](AI_AUTHORING.md)
 
-These instructions describe the 0.32.0 source line. See [What's new in 0.32](releases/0.32.0.md)
+These instructions describe the 0.33.0 source line. See [What's new in 0.33](releases/0.33.0.md)
 for current authoring and integration capabilities.
 
 ## Requirements
@@ -43,7 +43,7 @@ For this source line, check it with:
 
 ```powershell
 npm pkg get version
-# Expected: "0.32.0"
+# Expected: "0.33.0"
 ```
 
 Restart the development server or rebuild after changing the version. Packaging creates local

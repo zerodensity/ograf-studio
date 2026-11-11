@@ -1888,7 +1888,7 @@ time/value edit. Property easing applies to the selected property's key. Deletin
 
 For vector points and handles, see the [path-editing guide](../skills/ograf-authoring/references/path-editing.md).
 Clicking blank canvas keeps path editing active. Choose **Done** or press **Escape** to finish.
-For recent changes, see the [0.32.0 release notes](releases/0.32.0.md).
+For recent changes, see the [0.33.0 release notes](releases/0.33.0.md).
 
 To let playout change a text or image layer, turn on **Properties → Editable in playout**. Studio
 creates a data field named after the layer, starting with its current text or image, and binds it,

@@ -3,7 +3,7 @@ name: ograf-authoring
 description: Author, animate, validate, and export editable EBU OGraf broadcast graphics with OGraf Studio MCP. Use for templates, lower thirds, scoreboards, tickers, and data-driven graphics.
 ---
 
-# OGraf Authoring 0.32.0
+# OGraf Authoring 0.33.0
 
 Use OGraf Studio's canonical editable model. Require final OGraf certification.
 
