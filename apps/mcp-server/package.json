@@ -24,6 +24,7 @@
     "express": "^5.2.1",
     "flatbuffers": "^25.9.23",
     "jszip": "^3.10.2",
+    "qrcode-generator": "2.0.4",
     "ws": "^8.18.3",
     "zod": "^4.3.6"
   },

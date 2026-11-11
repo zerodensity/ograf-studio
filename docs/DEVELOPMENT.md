@@ -128,6 +128,11 @@ machine on your LAN, such as `192.168.1.25`. The default playout address is `127
 .\OGrafStudioServer.exe --playout-port 4320 --playout-host 192.168.1.25
 ```
 
+At launch, the console prints the viewer URL and shows its QR in a color terminal on the LAN
+address. A viewer can scan it before you publish. The waiting page opens the latest published
+graphic when it becomes available. Resize the terminal or zoom out to fit the whole code, which
+can occupy up to 74 columns and 37 rows.
+
 1. Open a template or a template set with Transition Logic. In **Preview & Export**, choose the
    export scope and select **Publish to LAN**. Studio certifies a real-time package for the session.
 2. Share the **Viewer link** for playback or the **Operator link** for playback and playout

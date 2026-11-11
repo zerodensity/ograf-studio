@@ -34,6 +34,19 @@ export async function loadSharedPlayoutAssets(embedded?: SharedPlayoutAssetPaths
 }
 
 const MAX_PUBLISH_BODY_BYTES = 48 * 1024 * 1024;
+const WAITING_PAGE = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="2">
+    <title>OGraf Live Preview</title>
+  </head>
+  <body>
+    <h1>Waiting for a published graphic</h1>
+    <p>This page refreshes every two seconds.</p>
+  </body>
+</html>`;
 const ID = z.string().min(1).max(256);
 const commandData = z.record(z.string(), z.unknown()).refine((data) => {
   let count = 0;
@@ -162,6 +175,8 @@ export function createSharedPlayoutHost(
 ) {
   const cap = { ...defaults, ...limits };
   const sessions = new Map<string, Session>();
+  const viewerEntryToken = randomBytes(16).toString('base64url');
+  let latestViewerToken: string | undefined;
   let totalBytes = 0;
   const app = express();
   app.disable('x-powered-by');
@@ -174,6 +189,8 @@ export function createSharedPlayoutHost(
       throw new PlayoutError(503, 'The shared playout listener is disabled.');
     return new URL(`http://${host.includes(':') ? `[${host}]` : host}:${address.port}`);
   };
+
+  const viewerEntryUrl = (): URL => new URL(`/v/${viewerEntryToken}`, origin());
 
   const session = (request: Request) => {
     const token = request.params.token;
@@ -198,6 +215,16 @@ export function createSharedPlayoutHost(
     if (request.get('host')?.toLowerCase() !== origin().host)
       throw new PlayoutError(400, 'Use the address in the playout link.');
     next();
+  });
+
+  app.get('/v/:token', (request, response) => {
+    if (request.params.token !== viewerEntryToken)
+      throw new PlayoutError(404, 'Unknown playout link.');
+    if (latestViewerToken) {
+      response.redirect(307, `/s/${latestViewerToken}/`);
+      return;
+    }
+    response.type('html').send(WAITING_PAGE);
   });
 
   app.get('/s/:token', (request, response) => {
@@ -355,6 +382,7 @@ export function createSharedPlayoutHost(
     const operator = randomBytes(24).toString('base64url');
     sessions.set(viewer, { publication, token: viewer, canControl: false });
     sessions.set(operator, { publication, token: operator, canControl: true });
+    latestViewerToken = viewer;
     totalBytes += bytes;
     return {
       publicationId: publication.id,
@@ -368,7 +396,7 @@ export function createSharedPlayoutHost(
       for (const response of publication.subscribers) response.destroy();
   }
 
-  return { httpServer, publish, disconnectClients, origin };
+  return { httpServer, publish, disconnectClients, origin, viewerEntryUrl };
 }
 
 export type SharedPlayoutHost = ReturnType<typeof createSharedPlayoutHost>;

@@ -50,7 +50,7 @@ async function setup(limits?: Parameters<typeof createSharedPlayoutHost>[2]) {
   hosts.push(host);
   const lan = await listen(host.httpServer);
   const editor = await listen(createOGrafAuthoringHost({ sharedPlayout: host }).httpServer);
-  return { editor, lan };
+  return { editor, lan, host };
 }
 
 function post(url: string, body: unknown, origin?: string) {
@@ -97,6 +97,37 @@ async function openEvents(url: string) {
 }
 
 describe('shared playout host', () => {
+  it('waits at a boot-scoped viewer link and opens the latest published viewer session', async () => {
+    const { editor, lan, host } = await setup();
+    const entry = host.viewerEntryUrl();
+    expect(entry.origin).toBe(new URL(lan).origin);
+    expect(entry.pathname).toMatch(/^\/v\/[A-Za-z0-9_-]{22}$/);
+    expect((await fetch(lan + 'v/unknown')).status).toBe(404);
+    const waiting = await fetch(entry);
+    expect(waiting.status).toBe(200);
+    expect(waiting.headers.get('cache-control')).toContain('no-store');
+    expect(await waiting.text()).toContain('<meta http-equiv="refresh" content="2">');
+
+    const first = await publish(editor);
+    const firstRedirect = await fetch(entry, { redirect: 'manual' });
+    expect(firstRedirect.status).toBe(307);
+    expect(firstRedirect.headers.get('location')).toBe(new URL(first.viewerUrl).pathname);
+
+    const second = await publish(editor);
+    const latest = await fetch(entry);
+    expect(latest.url).toBe(second.viewerUrl);
+    expect(await (await fetch(latest.url + 'state')).json()).toMatchObject({
+      publicationId: second.publicationId,
+      canControl: false,
+    });
+    expect((await post(latest.url + 'command', { command: { kind: 'play' } })).status).toBe(403);
+    expect(await (await fetch(first.viewerUrl + 'state')).json()).toMatchObject({
+      publicationId: first.publicationId,
+      canControl: false,
+    });
+    expect((await fetch(lan + 'v/unknown')).status).toBe(404);
+  });
+
   it('serves exactly the published files and keeps authoring behind a separate listener', async () => {
     const { editor, lan } = await setup();
     const disabled = await listen(createOGrafAuthoringHost().httpServer);

@@ -6,6 +6,7 @@ import { OGRAF_CLIENT_SETUP } from '@ograf-editor/agent-tools';
 import { createOGrafAuthoringHost } from './index';
 import { assertStaticEditorRoot } from './staticEditor';
 import { exportBundledAuthoringSkill, formatStandaloneSetupPrompt } from './standaloneSetup';
+import { formatTerminalQr } from './terminalQr';
 import {
   createSharedPlayoutHost,
   loadSharedPlayoutAssets,
@@ -117,10 +118,23 @@ async function main(): Promise<void> {
   console.log(`Editor:    ${baseUrl}/`);
   console.log(`MCP:       ${baseUrl}/mcp`);
   console.log(`Health:    ${baseUrl}/health`);
-  if (sharedPlayout)
+  if (sharedPlayout) {
     console.log(
       `Shared playout: ${sharedPlayout.origin().origin} (publish from Studio for private links)`,
     );
+    const viewerUrl = sharedPlayout.viewerEntryUrl();
+    console.log(`Viewer:    ${viewerUrl.href}`);
+    if (
+      !viewerUrl.hostname.startsWith('127.') &&
+      process.stdout.isTTY &&
+      process.env.TERM !== 'dumb' &&
+      process.env.NO_COLOR === undefined
+    ) {
+      const qr = formatTerminalQr(viewerUrl.href);
+      if ((process.stdout.columns ?? 80) >= qr.columns) console.log(qr.text);
+      else console.log(`Widen the terminal to ${qr.columns} columns to scan the viewer QR.`);
+    }
+  }
   console.log(`Workspace: ${workspace.root}`);
   if (embeddedSkillAsset)
     console.log(
