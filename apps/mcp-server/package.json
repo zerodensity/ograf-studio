@@ -23,7 +23,7 @@
     "@ograf-editor/validation": "*",
     "express": "^5.2.1",
     "flatbuffers": "^25.9.23",
-    "jszip": "^3.10.1",
+    "jszip": "^3.10.2",
     "ws": "^8.18.3",
     "zod": "^4.3.6"
   },
