@@ -68,7 +68,7 @@ import {
   applyCompiledMasks,
   applyCompiledLayerVisualState,
   applyCompiledAutoLayout,
-  hasAutoSizedTextClip,
+  needsMeasuredAutoSizeTextBounds,
   applyCompiledMotionPaths,
   applyCompiledModifiers,
   MediaCueRuntime,
@@ -1167,6 +1167,9 @@ export function Stage({ style }: { style?: CSSProperties }) {
       applyCompiledMasks(descriptor, layerRefs.current, new Map());
       return;
     }
+    // The shared pose pass measures Auto Size text before applying its mask.
+    if (descriptor.layers.some((layer) => layer.mask && needsMeasuredAutoSizeTextBounds(layer)))
+      return;
     const frame = canvasFrame(composition);
     const data = editorRuntimeData(composition, descriptor.layers);
     applyCompiledMasks(
@@ -1336,7 +1339,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
         layer.element.type === 'pattern' ||
         layer.layoutParentId ||
         layer.autoLayout?.direction !== 'none' ||
-        hasAutoSizedTextClip(layer) ||
+        needsMeasuredAutoSizeTextBounds(layer) ||
         layer.modifiers?.length ||
         layer.motionPath,
     );
@@ -1413,9 +1416,10 @@ export function Stage({ style }: { style?: CSSProperties }) {
     refreshLoopData.current = sync;
     const unsubscribeClock = shaderPreviewClock.subscribe(sync);
     const fontSet = viewportRef.current?.ownerDocument.fonts;
+    // Prime text measurements before the listener that resamples them on font changes.
+    sync();
     fontSet?.addEventListener('loadingdone', sync);
     fontSet?.addEventListener('loadingerror', sync);
-    sync();
     return () => {
       clearEditorLoopSamples(composition);
       if (refreshLoopData.current === sync) refreshLoopData.current = null;
