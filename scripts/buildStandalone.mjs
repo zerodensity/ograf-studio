@@ -11,7 +11,13 @@ const standaloneEntrypoint = resolve(repositoryRoot, 'apps/mcp-server/src/standa
 const editorRoot = resolve(repositoryRoot, 'apps/editor/dist');
 await verifyBundledStudioPluginDistribution(editorRoot);
 const runtimeFile = resolve(repositoryRoot, 'packages/ograf-runtime/dist/graphic-runtime.js');
-const playoutFiles = ['shared-playout.html', 'shared-playout.js', 'ograf-player.js'];
+const playoutSources = {
+  'shared-playout.html': 'packages/ograf-web-player/shared-playout.html',
+  'shared-playout.js': 'packages/ograf-web-player/shared-playout.js',
+  'ograf-player.js': 'packages/ograf-web-player/ograf-player.js',
+  'preview-controls.css': 'apps/editor/src/panels/PreviewExportPanel.css',
+  'preview-font.ttf': 'apps/editor/src/assets/font-library/nunito.ttf',
+};
 const authoringSkillFile = resolve(repositoryRoot, 'skills/ograf-authoring/ograf-authoring.zip');
 const windowsIcon = resolve(repositoryRoot, 'assets/ograf-studio.ico');
 const target = process.env.OGRAF_STANDALONE_TARGET ?? 'bun-windows-x64-baseline';
@@ -61,11 +67,11 @@ const assetEntries = editorFiles.map((file, index) => {
   const logicalPath = `/${relative(editorRoot, file).replaceAll('\\', '/')}`;
   return `${JSON.stringify(logicalPath)}: asset${index}`;
 });
-const playoutImports = playoutFiles.map((name, index) => {
-  const file = resolve(repositoryRoot, 'packages/ograf-web-player', name);
+const playoutImports = Object.values(playoutSources).map((path, index) => {
+  const file = resolve(repositoryRoot, path);
   return `import playoutAsset${index} from ${JSON.stringify(file.replaceAll('\\', '/'))} with { type: 'file' };`;
 });
-const playoutEntries = playoutFiles.map(
+const playoutEntries = Object.keys(playoutSources).map(
   (name, index) => `${JSON.stringify(name)}: playoutAsset${index}`,
 );
 await writeFile(

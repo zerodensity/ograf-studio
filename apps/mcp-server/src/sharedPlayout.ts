@@ -14,6 +14,8 @@ export const SHARED_PLAYOUT_ASSET_FILES = [
   'shared-playout.html',
   'shared-playout.js',
   'ograf-player.js',
+  'preview-controls.css',
+  'preview-font.ttf',
 ] as const;
 
 type AssetName = (typeof SHARED_PLAYOUT_ASSET_FILES)[number];
@@ -26,7 +28,14 @@ export async function loadSharedPlayoutAssets(embedded?: SharedPlayoutAssetPaths
       SHARED_PLAYOUT_ASSET_FILES.map(async (name) => {
         const path =
           embedded?.[name] ??
-          new URL(`../../../packages/ograf-web-player/${name}`, import.meta.url);
+          new URL(
+            name === 'preview-controls.css'
+              ? '../../editor/src/panels/PreviewExportPanel.css'
+              : name === 'preview-font.ttf'
+                ? '../../editor/src/assets/font-library/nunito.ttf'
+                : `../../../packages/ograf-web-player/${name}`,
+            import.meta.url,
+          );
         return [name, await readFile(path)] as const;
       }),
     ),
@@ -34,19 +43,6 @@ export async function loadSharedPlayoutAssets(embedded?: SharedPlayoutAssetPaths
 }
 
 const MAX_PUBLISH_BODY_BYTES = 48 * 1024 * 1024;
-const WAITING_PAGE = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="refresh" content="2">
-    <title>OGraf Live Preview</title>
-  </head>
-  <body>
-    <h1>Waiting for a published graphic</h1>
-    <p>This page refreshes every two seconds.</p>
-  </body>
-</html>`;
 const ID = z.string().min(1).max(256);
 const commandData = z.record(z.string(), z.unknown()).refine((data) => {
   let count = 0;
@@ -69,13 +65,16 @@ const commandData = z.record(z.string(), z.unknown()).refine((data) => {
 });
 
 const commandSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('play'), delta: z.int().optional() }),
+  z
+    .strictObject({ kind: z.literal('play'), delta: z.int().optional(), goto: z.int().optional() })
+    .refine(({ delta, goto }) => delta === undefined || goto === undefined),
   z.strictObject({ kind: z.literal('stop') }),
   z.strictObject({ kind: z.literal('update'), data: commandData }),
   z.strictObject({ kind: z.literal('action'), actionId: ID, payload: commandData.optional() }),
 ]);
 
 const requestSchema = z.strictObject({
+  publicationId: ID,
   requestId: ID,
   expectedRevision: z.int().nonnegative(),
   command: commandSchema,
@@ -99,18 +98,20 @@ const publishSchema = z.strictObject({
 
 type Command = z.infer<typeof commandSchema>;
 type JournalEntry = { revision: number; command: Command };
+type Audience = 'viewer' | 'operator' | 'studio';
 type Publication = {
   id: string;
-  manifestFileName: string;
+  assetToken: string;
+  manifestUrl: string;
+  studioManifestUrl: string;
+  bytes: number;
   dataKeys: Set<string>;
   actionIds: Set<string>;
   files: Map<string, Buffer>;
   commands: JournalEntry[];
   receipts: Map<string, JournalEntry>;
   journalBytes: number;
-  subscribers: Set<Response>;
 };
-type Session = { publication: Publication; token: string; canControl: boolean };
 
 const defaults = {
   maxPublications: 8,
@@ -121,11 +122,14 @@ const defaults = {
   maxJournalBytes: 512 * 1024,
 };
 
+const studioApiPath = '/api/shared-playout';
+
 class PlayoutError extends Error {
   constructor(
     readonly status: number,
     message: string,
     readonly revision?: number,
+    readonly publicationId?: string | null,
   ) {
     super(message);
   }
@@ -137,7 +141,11 @@ function sendErrors(error: unknown, _request: Request, response: Response, next:
     return;
   }
   if (error instanceof PlayoutError) {
-    response.status(error.status).json({ error: error.message, revision: error.revision });
+    response.status(error.status).json({
+      error: error.message,
+      revision: error.revision,
+      publicationId: error.publicationId,
+    });
     return;
   }
   const status = (error as { status?: number } | null)?.status;
@@ -149,7 +157,7 @@ function sendErrors(error: unknown, _request: Request, response: Response, next:
 
 function isPackagePath(path: string) {
   return (
-    !/[\\%?#\p{Cc}]/u.test(path) &&
+    !/[\\%?#\p{Cc}\p{Cs}]/u.test(path) &&
     path.split('/').every((part) => part && part !== '.' && part !== '..')
   );
 }
@@ -167,16 +175,18 @@ function playoutHeaders(_request: Request, response: Response, next: NextFunctio
   next();
 }
 
-/** The listener exposes only published package bytes and token-scoped playout state. */
+/** The listener serves one live preview and the immutable packages it references. */
 export function createSharedPlayoutHost(
   host: string,
   assets: Assets,
   limits: Partial<typeof defaults> = {},
 ) {
   const cap = { ...defaults, ...limits };
-  const sessions = new Map<string, Session>();
-  const viewerEntryToken = randomBytes(16).toString('base64url');
-  let latestViewerToken: string | undefined;
+  const packages = new Map<string, Publication>();
+  const subscribers = new Map<Response, Audience>();
+  const operatorToken = randomBytes(24).toString('base64url');
+  const operatorPath = `/control/${operatorToken}/`;
+  let current: Publication | null = null;
   let totalBytes = 0;
   const app = express();
   app.disable('x-powered-by');
@@ -190,25 +200,45 @@ export function createSharedPlayoutHost(
     return new URL(`http://${host.includes(':') ? `[${host}]` : host}:${address.port}`);
   };
 
-  const viewerEntryUrl = (): URL => new URL(`/v/${viewerEntryToken}`, origin());
-
-  const session = (request: Request) => {
-    const token = request.params.token;
-    const result = typeof token === 'string' && sessions.get(token);
-    if (!result) throw new PlayoutError(404, 'Unknown playout link.');
-    return result;
-  };
-
-  const snapshot = ({ publication, token, canControl }: Session) => ({
-    publicationId: publication.id,
-    manifestUrl: new URL(
-      `/s/${token}/package/${encodePackagePath(publication.manifestFileName)}`,
-      origin(),
-    ).href,
-    canControl,
-    revision: publication.commands.length,
-    commands: publication.commands,
+  const viewerEntryUrl = (): URL => new URL('/preview/', origin());
+  const operatorEntryUrl = (): URL => new URL(operatorPath, origin());
+  const snapshot = (audience: Audience) => ({
+    publicationId: current?.id ?? null,
+    manifestUrl:
+      (audience === 'studio' ? current?.studioManifestUrl : current?.manifestUrl) ?? null,
+    canControl: audience !== 'viewer',
+    revision: current?.commands.length ?? 0,
+    commands: current?.commands ?? [],
   });
+
+  function requireOperator(request: Request, _response: Response, next: NextFunction) {
+    if (request.params.token !== operatorToken)
+      throw new PlayoutError(404, 'Unknown playout link.');
+    next();
+  }
+
+  function writeToSubscriber(response: Response, message: string) {
+    if (response.writableLength > cap.maxJournalBytes) response.destroy();
+    else response.write(message);
+  }
+
+  function sendSnapshot(response: Response, audience: Audience) {
+    writeToSubscriber(response, `event: snapshot\ndata: ${JSON.stringify(snapshot(audience))}\n\n`);
+  }
+
+  function subscribe(response: Response, audience: Audience) {
+    if (subscribers.size >= cap.maxSubscribers)
+      throw new PlayoutError(503, 'Too many connected previews.');
+    response.set({ 'Content-Type': 'text/event-stream', 'X-Accel-Buffering': 'no' });
+    const keepAlive = setInterval(() => writeToSubscriber(response, ': keepalive\n\n'), 15_000);
+    keepAlive.unref();
+    response.on('close', () => {
+      clearInterval(keepAlive);
+      subscribers.delete(response);
+    });
+    subscribers.set(response, audience);
+    sendSnapshot(response, audience);
+  }
 
   app.use(playoutHeaders);
   app.use((request, _response, next) => {
@@ -217,124 +247,118 @@ export function createSharedPlayoutHost(
     next();
   });
 
-  app.get('/v/:token', (request, response) => {
-    if (request.params.token !== viewerEntryToken)
-      throw new PlayoutError(404, 'Unknown playout link.');
-    if (latestViewerToken) {
-      response.redirect(307, `/s/${latestViewerToken}/`);
-      return;
+  function mountView(path: string, audience: 'viewer' | 'operator') {
+    const canControl = audience === 'operator';
+    const authorize = canControl
+      ? requireOperator
+      : (_request: Request, _response: Response, next: NextFunction) => next();
+    app.get(path, authorize, (_request, response) => {
+      response.redirect(307, canControl ? operatorPath : '/preview/');
+    });
+    app.get(`${path}/`, authorize, (_request, response) => {
+      response.type('html').send(assets.get('shared-playout.html'));
+    });
+    for (const name of SHARED_PLAYOUT_ASSET_FILES) {
+      if (name === 'shared-playout.html') continue;
+      app.get(`${path}/${name}`, authorize, (_request, response) => {
+        response.type(extname(name)).send(assets.get(name));
+      });
     }
-    response.type('html').send(WAITING_PAGE);
-  });
-
-  app.get('/s/:token', (request, response) => {
-    response.redirect(307, `/s/${session(request).token}/`);
-  });
-  app.get('/s/:token/', (request, response) => {
-    session(request);
-    response.type('html').send(assets.get('shared-playout.html'));
-  });
-  for (const name of ['shared-playout.js', 'ograf-player.js'] as const) {
-    app.get(`/s/:token/${name}`, (request, response) => {
-      session(request);
-      response.type('js').send(assets.get(name));
+    app.get(`${path}/state`, authorize, (_request, response) => {
+      response.json(snapshot(audience));
+    });
+    app.get(`${path}/events`, authorize, (_request, response) => {
+      subscribe(response, audience);
     });
   }
-  app.get('/s/:token/package/*path', (request, response) => {
-    const { publication } = session(request);
+  mountView('/preview', 'viewer');
+  mountView('/control/:token', 'operator');
+
+  function servePackage(request: Request, response: Response) {
+    const token = request.params.token;
+    const publication = typeof token === 'string' && packages.get(token);
     const path = Array.isArray(request.params.path)
       ? request.params.path.join('/')
       : request.params.path;
-    if (typeof path !== 'string' || !isPackagePath(path))
+    if (!publication || typeof path !== 'string' || !isPackagePath(path))
       throw new PlayoutError(404, 'Package file not found.');
     const file = publication.files.get(path);
     if (!file) throw new PlayoutError(404, 'Package file not found.');
     response.type(extname(path) || 'application/octet-stream').send(file);
-  });
-  app.get('/s/:token/state', (request, response) => {
-    response.json(snapshot(session(request)));
-  });
-  app.get('/s/:token/events', (request, response) => {
-    const current = session(request);
-    const subscribers = current.publication.subscribers;
-    if (subscribers.size >= cap.maxSubscribers)
-      throw new PlayoutError(503, 'Too many connected previews.');
-    response.set({ 'Content-Type': 'text/event-stream', 'X-Accel-Buffering': 'no' });
-    const keepAlive = setInterval(() => {
-      if (response.writableLength <= cap.maxJournalBytes) response.write(': keepalive\n\n');
-      else response.destroy();
-    }, 15_000);
-    keepAlive.unref();
-    response.on('close', () => {
-      clearInterval(keepAlive);
-      subscribers.delete(response);
-    });
-    subscribers.add(response);
-    response.write(`event: snapshot\ndata: ${JSON.stringify(snapshot(current))}\n\n`);
+  }
+  app.get('/s/:token/package/*path', servePackage);
+  app.post('/preview/command', () => {
+    throw new PlayoutError(403, 'This link is view-only.');
   });
 
   app.post(
-    '/s/:token/command',
+    '/control/:token/command',
+    requireOperator,
     (request, _response, next) => {
-      if (!session(request).canControl) throw new PlayoutError(403, 'This link is view-only.');
       const source = request.get('origin');
       if (source && source !== origin().origin)
         throw new PlayoutError(403, 'Invalid playout origin.');
       next();
     },
     express.json({ limit: MAX_PLAYOUT_REQUEST_BYTES }),
-    (request, response) => {
-      const { publication } = session(request);
-      const parsed = requestSchema.safeParse(request.body);
-      if (!parsed.success) throw new PlayoutError(400, 'Invalid playout command.');
-      const { command, expectedRevision, requestId } = parsed.data;
-      const revision = publication.commands.length;
-      const previous = publication.receipts.get(requestId);
-      if (previous) {
-        if (JSON.stringify(previous.command) !== JSON.stringify(command))
-          throw new PlayoutError(
-            409,
-            'This request ID was already used for a different command.',
-            revision,
-          );
-        response.json({ revision: previous.revision });
-        return;
-      }
-      if (expectedRevision !== revision)
-        throw new PlayoutError(409, 'Playout revision changed.', revision);
-      if (
-        (command.kind === 'update' &&
-          Object.keys(command.data).some((key) => !publication.dataKeys.has(key))) ||
-        (command.kind === 'action' && !publication.actionIds.has(command.actionId))
-      )
-        throw new PlayoutError(400, 'The published graphic does not expose that field or action.');
-
-      const entry = { revision: revision + 1, command };
-      const serialized = JSON.stringify(entry);
-      const bytes = Buffer.byteLength(serialized);
-      if (revision >= cap.maxCommands || publication.journalBytes + bytes > cap.maxJournalBytes)
-        throw new PlayoutError(
-          409,
-          'Playout journal is full. Publish a new session to continue.',
-          revision,
-        );
-
-      publication.commands.push(entry);
-      publication.receipts.set(requestId, entry);
-      publication.journalBytes += bytes;
-      for (const subscriber of publication.subscribers) {
-        if (subscriber.writableLength > cap.maxJournalBytes) subscriber.destroy();
-        else subscriber.write(`event: command\ndata: ${serialized}\n\n`);
-      }
-      response.json({ revision: entry.revision });
-    },
+    handleCommand,
   );
   app.use(sendErrors);
 
+  function handleCommand(request: Request, response: Response) {
+    const parsed = requestSchema.safeParse(request.body);
+    if (!parsed.success) throw new PlayoutError(400, 'Invalid playout command.');
+    const { publicationId, command, expectedRevision, requestId } = parsed.data;
+    const publication = current;
+    if (!publication || publication.id !== publicationId)
+      throw new PlayoutError(
+        409,
+        'The published graphic changed.',
+        publication?.commands.length ?? 0,
+        publication?.id ?? null,
+      );
+    const revision = publication.commands.length;
+    const previous = publication.receipts.get(requestId);
+    if (previous) {
+      if (JSON.stringify(previous.command) !== JSON.stringify(command))
+        throw new PlayoutError(
+          409,
+          'This request ID was already used for a different command.',
+          revision,
+        );
+      response.json({ revision: previous.revision });
+      return;
+    }
+    if (expectedRevision !== revision)
+      throw new PlayoutError(409, 'Playout revision changed.', revision);
+    if (
+      (command.kind === 'update' &&
+        Object.keys(command.data).some((key) => !publication.dataKeys.has(key))) ||
+      (command.kind === 'action' && !publication.actionIds.has(command.actionId))
+    )
+      throw new PlayoutError(400, 'The published graphic does not expose that field or action.');
+
+    const entry = { revision: revision + 1, command };
+    const serialized = JSON.stringify(entry);
+    const bytes = Buffer.byteLength(serialized);
+    if (revision >= cap.maxCommands || publication.journalBytes + bytes > cap.maxJournalBytes)
+      throw new PlayoutError(
+        409,
+        'Playout journal is full. Publish a new session to continue.',
+        revision,
+      );
+
+    publication.commands.push(entry);
+    publication.receipts.set(requestId, entry);
+    publication.journalBytes += bytes;
+    const event = JSON.stringify({ publicationId, ...entry });
+    for (const subscriber of subscribers.keys())
+      writeToSubscriber(subscriber, `event: command\ndata: ${event}\n\n`);
+    response.json({ revision: entry.revision });
+  }
+
   function publish(input: unknown) {
     const base = origin();
-    if (sessions.size / 2 >= cap.maxPublications)
-      throw new PlayoutError(409, 'Shared playout publication limit reached.');
     const parsed = publishSchema.safeParse(input);
     if (!parsed.success)
       throw new PlayoutError(400, 'Expected a published real-time OGraf package.');
@@ -354,7 +378,7 @@ export function createSharedPlayoutHost(
       if (!isPackagePath(path) || files.has(path))
         throw new PlayoutError(400, 'Package contains an unsafe or duplicate path.');
       const count = Buffer.byteLength(path) + Buffer.byteLength(data, base64 ? 'base64' : 'utf8');
-      if (bytes + count > cap.maxPackageBytes || totalBytes + bytes + count > cap.maxTotalBytes)
+      if (bytes + count > cap.maxPackageBytes || bytes + count > cap.maxTotalBytes)
         throw new PlayoutError(413, 'Shared playout package storage limit reached.');
       const buffer = Buffer.from(data, base64 ? 'base64' : 'utf8');
       if (base64 && buffer.toString('base64') !== data)
@@ -367,36 +391,66 @@ export function createSharedPlayoutHost(
     addFile('main.js', mainJs);
     for (const resource of resources) addFile(resource.path, resource.data, resource.base64);
 
+    const links = { viewerUrl: viewerEntryUrl().href, operatorUrl: operatorEntryUrl().href };
+    const previous = current;
+    if (
+      previous &&
+      previous.bytes === bytes &&
+      previous.files.size === files.size &&
+      [...files].every(([path, data]) => previous.files.get(path)?.equals(data))
+    )
+      return { publicationId: previous.id, ...links };
+
+    const assetToken = randomBytes(24).toString('base64url');
+    const manifestPath = encodePackagePath(manifestFileName);
+    const initial: JournalEntry = { revision: 1, command: { kind: 'play', delta: 1 } };
+    const journalBytes = Buffer.byteLength(JSON.stringify(initial));
+    if (cap.maxPublications < 1 || cap.maxCommands < 1 || journalBytes > cap.maxJournalBytes)
+      throw new PlayoutError(409, 'Shared playout publication limit reached.');
     const publication: Publication = {
       id: randomUUID(),
-      manifestFileName,
+      assetToken,
+      manifestUrl: new URL(`/s/${assetToken}/package/${manifestPath}`, base).href,
+      studioManifestUrl: `${studioApiPath}/packages/${assetToken}/${manifestPath}`,
+      bytes,
       dataKeys: new Set(Object.keys(manifest.schema?.properties ?? {})),
       actionIds: new Set(manifest.customActions?.map(({ id }) => id)),
       files,
-      commands: [],
+      commands: [initial],
       receipts: new Map(),
-      journalBytes: 0,
-      subscribers: new Set(),
+      journalBytes,
     };
-    const viewer = randomBytes(24).toString('base64url');
-    const operator = randomBytes(24).toString('base64url');
-    sessions.set(viewer, { publication, token: viewer, canControl: false });
-    sessions.set(operator, { publication, token: operator, canControl: true });
-    latestViewerToken = viewer;
+
+    // Validate the replacement first. Retain as many recent packages as the cap allows
+    // so clients switching snapshots can finish reading the previous assets.
+    while (packages.size >= cap.maxPublications || totalBytes + bytes > cap.maxTotalBytes) {
+      const oldest = packages.values().next().value!;
+      packages.delete(oldest.assetToken);
+      totalBytes -= oldest.bytes;
+    }
+    packages.set(assetToken, publication);
     totalBytes += bytes;
-    return {
-      publicationId: publication.id,
-      viewerUrl: new URL(`/s/${viewer}/`, base).href,
-      operatorUrl: new URL(`/s/${operator}/`, base).href,
-    };
+    current = publication;
+    for (const [subscriber, audience] of subscribers) sendSnapshot(subscriber, audience);
+    return { publicationId: publication.id, ...links };
   }
 
   function disconnectClients() {
-    for (const { publication } of sessions.values())
-      for (const response of publication.subscribers) response.destroy();
+    for (const response of subscribers.keys()) response.destroy();
   }
 
-  return { httpServer, publish, disconnectClients, origin, viewerEntryUrl };
+  return {
+    httpServer,
+    publish,
+    disconnectClients,
+    origin,
+    viewerEntryUrl,
+    operatorEntryUrl,
+    readStudioState: () => snapshot('studio'),
+    subscribeStudio: (response: Response) => subscribe(response, 'studio'),
+    servePackage,
+    handleCommand,
+  };
 }
 
 export type SharedPlayoutHost = ReturnType<typeof createSharedPlayoutHost>;
@@ -405,23 +459,55 @@ export type SharedPlayoutHost = ReturnType<typeof createSharedPlayoutHost>;
 export function installSharedPlayoutPublishing(app: Express, host?: SharedPlayoutHost): void {
   const router = express.Router();
   router.use(playoutHeaders);
-  router.get('/status', (_request, response) =>
-    response.json({ enabled: Boolean(host?.httpServer.listening) }),
+  router.use((request, _response, next) => {
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress ?? ''))
+      throw new PlayoutError(403, 'Studio playout control requires a loopback connection.');
+    next();
+  });
+  function activeHost(): SharedPlayoutHost {
+    if (!host?.httpServer.listening) throw new PlayoutError(503, 'Shared playout is disabled.');
+    return host;
+  }
+  function requireAuthoringOrigin(request: Request, _response: Response, next: NextFunction) {
+    activeHost();
+    const origin = request.get('origin');
+    if (origin && origin !== `http://${request.get('host')}`)
+      throw new PlayoutError(403, 'Invalid authoring origin.');
+    next();
+  }
+  router.get('/status', (_request, response) => {
+    if (!host?.httpServer.listening) return response.json({ enabled: false });
+    response.json({
+      enabled: true,
+      viewerUrl: host.viewerEntryUrl().href,
+      operatorUrl: host.operatorEntryUrl().href,
+    });
+  });
+  router.get('/state', (_request, response) => {
+    response.json(activeHost().readStudioState());
+  });
+  router.get('/events', (_request, response) => {
+    activeHost().subscribeStudio(response);
+  });
+  router.get('/packages/:token/*path', (request, response) => {
+    activeHost().servePackage(request, response);
+  });
+  router.post(
+    '/command',
+    requireAuthoringOrigin,
+    express.json({ limit: MAX_PLAYOUT_REQUEST_BYTES }),
+    (request, response) => {
+      activeHost().handleCommand(request, response);
+    },
   );
   router.post(
     '/publish',
-    (request, _response, next) => {
-      if (!host?.httpServer.listening) throw new PlayoutError(503, 'Shared playout is disabled.');
-      const origin = request.get('origin');
-      if (origin && origin !== `http://${request.get('host')}`)
-        throw new PlayoutError(403, 'Invalid authoring origin.');
-      next();
-    },
+    requireAuthoringOrigin,
     express.json({ limit: MAX_PUBLISH_BODY_BYTES }),
     (request, response) => {
-      response.status(201).json(host!.publish(request.body));
+      response.status(201).json(activeHost().publish(request.body));
     },
   );
   router.use(sendErrors);
-  app.use('/api/shared-playout', router);
+  app.use(studioApiPath, router);
 }

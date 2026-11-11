@@ -128,8 +128,11 @@ export async function mountOGrafGraphic(options) {
   const { container, manifestUrl, data, renderCharacteristics, signal, onEvent } = options ?? {};
   const fit = options?.fit !== false;
   const allowCrossOrigin = options?.allowCrossOrigin === true;
-  if (!(container instanceof HTMLElement) || container.ownerDocument !== document)
-    throw new Error('container must be an HTML element in the player module’s document.');
+  const containerDocument = container?.ownerDocument;
+  const owner = containerDocument === document ? globalThis.window : containerDocument?.defaultView;
+  const ContainerElement = containerDocument === document ? HTMLElement : owner?.HTMLElement;
+  if (!ContainerElement || !(container instanceof ContainerElement))
+    throw new Error('container must be an HTML element in a browser document.');
   if (typeof manifestUrl !== 'string' || !manifestUrl.trim())
     throw new Error('Provide the URL of a hosted .ograf.json manifest.');
   const emit = (event) => {
@@ -214,7 +217,7 @@ export async function mountOGrafGraphic(options) {
       observer.observe(viewport);
     } else if (fit) {
       resizeListener = resize;
-      window.addEventListener('resize', resizeListener);
+      owner?.addEventListener('resize', resizeListener);
     }
     resize();
     const defaults = dataFromSchemaDefaults(manifest.schema);
@@ -279,7 +282,7 @@ export async function mountOGrafGraphic(options) {
             throw error;
           } finally {
             observer?.disconnect();
-            if (resizeListener) window.removeEventListener('resize', resizeListener);
+            if (resizeListener) owner?.removeEventListener('resize', resizeListener);
             viewport.remove();
           }
         });
@@ -288,7 +291,7 @@ export async function mountOGrafGraphic(options) {
     };
   } catch (error) {
     observer?.disconnect();
-    if (resizeListener) window.removeEventListener('resize', resizeListener);
+    if (resizeListener) owner?.removeEventListener('resize', resizeListener);
     // load may allocate resources before rejecting, so always attempt disposal
     // once the graphic was mounted, even when readiness was never reached.
     if (graphic && typeof graphic.dispose === 'function') {

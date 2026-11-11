@@ -30,12 +30,14 @@ describe('standalone server configuration', () => {
         ['--port=4400', '--workspace', workspaceRoot, '--open'],
         {},
         resolve('fixtures', 'operator-home'),
+        {},
       ),
     ).toEqual({
       port: 4400,
       workspaceRoot,
       openBrowser: true,
       help: false,
+      playout: { host: '127.0.0.1', port: 4402 },
     });
   });
 
@@ -44,9 +46,38 @@ describe('standalone server configuration', () => {
     expect(() => parseStandaloneServerOptions(['--network'], {})).toThrow(/Unknown option/);
   });
 
-  it('keeps playout opt-in on a separate explicit interface', () => {
-    expect(parseStandaloneServerOptions([], {}).playout).toBeUndefined();
-    expect(parseStandaloneServerOptions(['--playout-port=4401'], {}).playout).toEqual({
+  it('defaults to a separate preview listener on a private LAN IP or loopback', () => {
+    const ipv4 = {
+      family: 'IPv4' as const,
+      address: '192.168.0.4',
+      netmask: '255.255.255.0',
+      internal: false,
+      cidr: '192.168.0.4/24',
+      mac: '00:00:00:00:00:00',
+    };
+    expect(
+      parseStandaloneServerOptions([], {}, undefined, {
+        Public: [{ ...ipv4, address: '203.0.113.4' }],
+        Ethernet: [ipv4],
+      }).playout,
+    ).toEqual({
+      host: '192.168.0.4',
+      port: 4320,
+    });
+    expect(parseStandaloneServerOptions([], {}, undefined, {}).playout).toEqual({
+      host: '127.0.0.1',
+      port: 4320,
+    });
+    expect(parseStandaloneServerOptions(['--port=65535'], {}, undefined, {}).playout?.port).toBe(
+      65533,
+    );
+  });
+
+  it('allows a custom playout interface and port or a disabled listener', () => {
+    expect(parseStandaloneServerOptions(['--no-playout'], {}).playout).toBeUndefined();
+    expect(
+      parseStandaloneServerOptions(['--playout-port=4401'], {}, undefined, {}).playout,
+    ).toEqual({
       host: '127.0.0.1',
       port: 4401,
     });
@@ -58,8 +89,12 @@ describe('standalone server configuration', () => {
       parseStandaloneServerOptions(['--playout-port=4401', '--playout-host=::1'], {}).playout,
     ).toEqual({ host: '::1', port: 4401 });
     expect(() => parseStandaloneServerOptions(['--playout-port=4318'], {})).toThrow(/differ/);
-    expect(() => parseStandaloneServerOptions(['--playout-host=192.168.0.4'], {})).toThrow(
-      /requires/,
+    expect(parseStandaloneServerOptions(['--playout-host=192.168.0.4'], {}).playout).toEqual({
+      host: '192.168.0.4',
+      port: 4320,
+    });
+    expect(() => parseStandaloneServerOptions(['--no-playout', '--playout-port=4401'], {})).toThrow(
+      /cannot be combined/,
     );
     expect(() =>
       parseStandaloneServerOptions(['--playout-port=4401', '--playout-host=localhost'], {}),

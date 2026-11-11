@@ -112,15 +112,20 @@ import { FrameCueLog, type FrameCueLogEntry } from './FrameCueLog';
 import { ChartRendererUpgradeNotice } from './ChartRendererUpgradeNotice';
 import {
   publishPlayoutControls,
+  sharedSlotDataKey,
+  stageSharedPreviewSlotField,
   unregisterPlayoutControls,
   type PlayoutControlsSession,
 } from '../state/playoutControlsStore';
+import { acknowledgePreviewSlotFields } from '../state/previewSlotDataStore';
 import { PreviewControlsHeading } from './PreviewControlsHeading';
 import { usePreviewControlsPosition } from './usePreviewControlsPosition';
 import { usePreviewControlsInteraction } from './usePreviewControlsInteraction';
 import { didFinishPreviewEdit } from './previewControlsInteraction';
 import { PreviewError } from './PreviewError';
-import { SharedPlayoutPublish } from './SharedPlayoutPublish';
+import { SharedPlayoutLinks } from './SharedPlayoutLinks';
+import { useSharedPlayoutEditor } from '../state/sharedPlayoutEditor';
+import { useSharedLivePreview } from '../state/sharedLivePreview';
 import { usePreviewPresentationSuspended } from './usePreviewPresentationSuspended';
 import { useTickerUpdateStatuses } from './useTickerUpdateStatuses';
 import { resolveSourceOverlayGeometry } from './sourceOverlay';
@@ -214,23 +219,39 @@ export function SingleTemplatePreviewExportPanel() {
   const needsRulePlayoutPreview = project.compositions.some(hasRulePlayoutActions);
   const behavior = useBehaviorPreviewStore();
   const behaviorActive = !syncEditorPreview && Boolean(behavior.requestId);
+  const [renderType, setRenderType] = useState<RenderType>('realtime');
+  const sharedLinks = useSharedPlayoutEditor((state) => state.links);
+  const publishedSource = useSharedPlayoutEditor((state) => state.publishedSource);
+  const sharedPreparationError = useSharedPlayoutEditor((state) => state.error);
+  const sharedLiveEnabled = Boolean(
+    sharedLinks && !syncEditorPreview && !behaviorActive && renderType === 'realtime',
+  );
+  const sharedSet =
+    sharedLiveEnabled && publishedSource && 'set' in publishedSource ? publishedSource.set : null;
+  const sharedDefinition = sharedSet?.transitionLogic;
+  const sharedTemplate = sharedSet?.templates.find((template) => template.id === activeTemplateId);
+  const previewComposition =
+    sharedLiveEnabled && publishedSource && 'composition' in publishedSource
+      ? publishedSource.composition
+      : (sharedTemplate?.project.compositions.find((entry) => entry.id === composition.id) ??
+        composition);
   const output =
     syncEditorPreview && matchingEditorSource
       ? matchingEditorSource.output
       : behaviorActive
         ? { width: behavior.width, height: behavior.height }
-        : getCompositionOutputRect(composition);
+        : getCompositionOutputRect(previewComposition);
   const testValues = useTestDataStore((s) => s.values);
   const functionOutputs = useMemo(
-    () => new Set((composition.functions ?? []).flatMap((fn) => Object.values(fn.outputs))),
-    [composition.functions],
+    () => new Set((previewComposition.functions ?? []).flatMap((fn) => Object.values(fn.outputs))),
+    [previewComposition.functions],
   );
   const previewFields = useMemo(
     () =>
       behaviorActive
         ? behavior.dataFields
-        : composition.dataFields.filter((field) => !functionOutputs.has(field.id)),
-    [behaviorActive, behavior.dataFields, composition.dataFields, functionOutputs],
+        : previewComposition.dataFields.filter((field) => !functionOutputs.has(field.id)),
+    [behaviorActive, behavior.dataFields, previewComposition.dataFields, functionOutputs],
   );
   const previewDefaults = useMemo(
     () =>
@@ -241,8 +262,10 @@ export function SingleTemplatePreviewExportPanel() {
               behavior.data[field.key] ?? field.defaultValue,
             ]),
           )
-        : testValues,
-    [behaviorActive, previewFields, behavior.data, testValues],
+        : sharedLiveEnabled
+          ? Object.fromEntries(previewFields.map((field) => [field.key, field.defaultValue]))
+          : testValues,
+    [behaviorActive, previewFields, behavior.data, sharedLiveEnabled, testValues],
   );
   const pluginPolicyRevision = useRendererPluginSettingsStore((state) => state.revision);
 
@@ -286,6 +309,14 @@ export function SingleTemplatePreviewExportPanel() {
     descriptor: CompiledGraphicDescriptor;
   } | null>(null);
   const presentationSuspended = usePreviewPresentationSuspended(viewportRef, isFullscreen);
+  const sharedLive = useSharedLivePreview(
+    sharedLiveEnabled,
+    containerRef,
+    presentationSuspended,
+    ownerDocument,
+  );
+  const { send: sendSharedCommand } = sharedLive;
+  const sharedError = sharedLiveEnabled ? sharedPreparationError || sharedLive.error : '';
   const presentationSuspendedRef = useRef(presentationSuspended);
   // A layout effect, so a tab being shown resumes before its first paint.
   useLayoutEffect(() => {
@@ -309,19 +340,48 @@ export function SingleTemplatePreviewExportPanel() {
     <FrameCueLog entries={frameCueEntries} onClear={() => setFrameCueEntries([])} />
   );
   const [nativeCurrentStep, setCurrentStep] = useState<number | undefined>();
-  const [renderType, setRenderType] = useState<RenderType>('realtime');
   const [nativePreviewLoaded, setIsPreviewLoaded] = useState(false);
   const currentStep = syncEditorPreview
     ? undefined
-    : behaviorActive
-      ? behavior.currentStep
-      : nativeCurrentStep;
+    : sharedLiveEnabled
+      ? sharedLive.currentStep
+      : behaviorActive
+        ? behavior.currentStep
+        : nativeCurrentStep;
   const isPreviewLoaded = syncEditorPreview
     ? Boolean(matchingEditorSource)
-    : behaviorActive
-      ? Boolean(behavior.snapshot?.loaded && !behavior.loading)
-      : nativePreviewLoaded;
+    : sharedLiveEnabled
+      ? sharedLive.ready
+      : behaviorActive
+        ? Boolean(behavior.snapshot?.loaded && !behavior.loading)
+        : nativePreviewLoaded;
   const canControlPreview = isPreviewLoaded && (!behaviorActive || !behavior.busy);
+  const selectedSharedSlot =
+    sharedDefinition &&
+    Object.values(sharedLive.snapshot?.slots ?? {}).find(
+      (slot) =>
+        !(slot.transition && !slot.incoming) &&
+        (slot.incoming ?? slot.current)?.templateId === activeTemplateId,
+    );
+  const selectedSharedGraphic = selectedSharedSlot
+    ? (selectedSharedSlot.incoming ?? selectedSharedSlot.current)
+    : undefined;
+  const selectedSharedOnAir = Boolean(selectedSharedGraphic);
+  const selectedSharedState = sharedDefinition?.states.find((state) =>
+    selectedSharedGraphic
+      ? state.id === selectedSharedGraphic.stateId
+      : state.templateId === activeTemplateId,
+  );
+  const [sharedEdits, setSharedEdits] = useState<{
+    publicationId: typeof sharedLive.publicationId;
+    templateId: string | null;
+    values: Record<string, TestValue>;
+  } | null>(null);
+  const activeSharedEdits =
+    sharedEdits?.publicationId === sharedLive.publicationId &&
+    sharedEdits.templateId === activeTemplateId
+      ? sharedEdits
+      : null;
   const dataSessionKey = JSON.stringify([
     activeTemplateId,
     project.id,
@@ -339,12 +399,56 @@ export function SingleTemplatePreviewExportPanel() {
   );
   // Reset synchronously so the new graphic's initial load cannot receive the old template's data.
   if (resolvedDataSession !== dataSession) setDataSession(resolvedDataSession);
-  const dataForm = syncEditorPreview
-    ? resolvePreviewDataFormSession(null, dataSessionKey, previewFields, testValues, composition)
-        .values
-    : resolvedDataSession.values;
+  const acceptedSharedData = sharedSet ? selectedSharedGraphic?.data : sharedLive.data;
+  const dataForm = useMemo(
+    () =>
+      sharedLiveEnabled
+        ? ({ ...previewDefaults, ...acceptedSharedData, ...activeSharedEdits?.values } as Record<
+            string,
+            TestValue
+          >)
+        : syncEditorPreview
+          ? resolvePreviewDataFormSession(
+              null,
+              dataSessionKey,
+              previewFields,
+              testValues,
+              composition,
+            ).values
+          : resolvedDataSession.values,
+    [
+      sharedLiveEnabled,
+      previewDefaults,
+      acceptedSharedData,
+      activeSharedEdits,
+      syncEditorPreview,
+      dataSessionKey,
+      previewFields,
+      testValues,
+      composition,
+      resolvedDataSession.values,
+    ],
+  );
   const updateDataField = useCallback(
     (key: string, value: TestValue) => {
+      if (sharedLiveEnabled) {
+        const publicationId = sharedLive.publicationId;
+        if (!publicationId) return;
+        if (sharedSet && sharedDefinition && selectedSharedState)
+          stageSharedPreviewSlotField(sharedSet, sharedDefinition, selectedSharedState, key, value);
+        setSharedEdits((previous) => ({
+          publicationId,
+          templateId: activeTemplateId,
+          values: {
+            ...(previous?.publicationId === publicationId &&
+            previous.templateId === activeTemplateId
+              ? previous.values
+              : undefined),
+            [key]: value,
+          },
+        }));
+        return;
+      }
       if (syncEditorPreview) {
         const field = composition.dataFields.find((candidate) => candidate.key === key);
         if (field)
@@ -364,10 +468,22 @@ export function SingleTemplatePreviewExportPanel() {
         return { ...current, values: { ...current.values, [key]: value } };
       });
     },
-    [syncEditorPreview, composition, dataSessionKey, previewFields, previewDefaults],
+    [
+      sharedLiveEnabled,
+      sharedLive.publicationId,
+      sharedSet,
+      sharedDefinition,
+      selectedSharedState,
+      activeTemplateId,
+      syncEditorPreview,
+      composition,
+      dataSessionKey,
+      previewFields,
+      previewDefaults,
+    ],
   );
   const [exportStatus, setExportStatus] = useState('');
-  const [exportAction, setExportAction] = useState<'export' | 'save' | 'publish' | null>(null);
+  const [exportAction, setExportAction] = useState<'export' | 'save' | null>(null);
   const isExporting = exportAction !== null;
   const certifiedSave = useSyncExternalStore(
     subscribeCertifiedCoordinatedSave,
@@ -540,7 +656,11 @@ export function SingleTemplatePreviewExportPanel() {
   const previewDescriptor = previewDescriptorRef.current.mounted;
   const tickerUpdates = useTickerUpdateStatuses(
     syncEditorPreview ? (matchingEditorSource?.root ?? null) : viewportRef,
-    behaviorActive ? behavior.requestId : previewDescriptor,
+    sharedLiveEnabled
+      ? sharedLive.graphic
+      : behaviorActive
+        ? behavior.requestId
+        : previewDescriptor,
   );
   const previewData = useMemo(
     () => resolvePreviewDataRecord({ ...composition, dataFields: previewFields }, dataForm),
@@ -575,6 +695,77 @@ export function SingleTemplatePreviewExportPanel() {
       ].slice(0, 30),
     );
   }, []);
+
+  const callShared = useCallback(
+    async (method: string, command: Parameters<typeof sendSharedCommand>[0]) => {
+      try {
+        setFullscreenError('');
+        const result = await sendSharedCommand(command);
+        appendLog(method, command, result);
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setFullscreenError(message);
+        appendLog(method, command, { statusCode: 550, statusMessage: message });
+        return { statusCode: 550, statusMessage: message };
+      }
+    },
+    [appendLog, sendSharedCommand],
+  );
+
+  const sendSharedData = useCallback(
+    (values: Record<string, TestValue>) => {
+      if (!sharedSet) return callShared('updateAction', { kind: 'update', data: values });
+      if (!selectedSharedOnAir || !selectedSharedState) return;
+      return callShared('updateAction', {
+        kind: 'action',
+        actionId: 'transition.patch',
+        payload: {
+          slotId: selectedSharedState.slotId,
+          stateId: selectedSharedState.id,
+          data: values,
+        },
+      });
+    },
+    [callShared, selectedSharedOnAir, selectedSharedState, sharedSet],
+  );
+
+  useEffect(() => {
+    if (!sharedLiveEnabled || !sharedLive.ready || !activeSharedEdits) return;
+    if (sharedSet && !selectedSharedOnAir) return;
+    const pending = activeSharedEdits;
+    const timer = window.setTimeout(() => {
+      void sendSharedData(pending.values)?.then((result) => {
+        if (successful(result) && sharedSet && sharedDefinition && selectedSharedState)
+          acknowledgePreviewSlotFields(
+            sharedSlotDataKey(sharedSet, sharedDefinition, selectedSharedState),
+            pending.values,
+          );
+        setSharedEdits((edits) => {
+          if (
+            edits?.publicationId !== pending.publicationId ||
+            edits.templateId !== pending.templateId
+          )
+            return edits;
+          const remaining = Object.fromEntries(
+            Object.entries(edits.values).filter(([key, value]) => value !== pending.values[key]),
+          );
+          return Object.keys(remaining).length ? { ...edits, values: remaining } : null;
+        });
+      });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [
+    sharedLiveEnabled,
+    sharedLive.ready,
+    activeSharedEdits,
+    sendSharedData,
+    sharedSet,
+    sharedDefinition,
+    selectedSharedState,
+    selectedSharedOnAir,
+    window,
+  ]);
 
   const call = useCallback(
     async <T,>(
@@ -711,7 +902,7 @@ export function SingleTemplatePreviewExportPanel() {
   // the instance keeps its current Step, content clock and GPU resources while a control moves.
   // Source, bindings, backing and other structural authoring edits still create a fresh preview.
   useEffect(() => {
-    if (syncEditorPreview) return;
+    if (syncEditorPreview || sharedLiveEnabled) return;
     if (behaviorActive) {
       setIsPreviewLoaded(false);
       setLog([]);
@@ -821,6 +1012,7 @@ export function SingleTemplatePreviewExportPanel() {
     };
   }, [
     syncEditorPreview,
+    sharedLiveEnabled,
     behaviorActive,
     needsRulePlayoutPreview,
     activeTemplateId,
@@ -840,7 +1032,7 @@ export function SingleTemplatePreviewExportPanel() {
   }, [project, composition, exportProfile]);
 
   useEffect(() => {
-    if (syncEditorPreview) return;
+    if (syncEditorPreview || sharedLiveEnabled) return;
     if (rundownPlayingRef.current) return;
     if (!canControlPreview) return;
     if (!behaviorActive && needsRulePlayoutPreview) return;
@@ -866,6 +1058,7 @@ export function SingleTemplatePreviewExportPanel() {
     return () => window.clearTimeout(timeout);
   }, [
     syncEditorPreview,
+    sharedLiveEnabled,
     call,
     canControlPreview,
     behaviorActive,
@@ -881,6 +1074,10 @@ export function SingleTemplatePreviewExportPanel() {
         const timeline = useTimelineStore.getState();
         if (timeline.isPlaying) timeline.controller?.pause();
         else timeline.controller?.play();
+        return;
+      }
+      if (sharedLiveEnabled) {
+        if (canControlPreview) void callShared('playAction', { kind: 'play', ...params });
         return;
       }
       if (behaviorActive) {
@@ -907,6 +1104,8 @@ export function SingleTemplatePreviewExportPanel() {
     },
     [
       syncEditorPreview,
+      sharedLiveEnabled,
+      callShared,
       behaviorActive,
       needsRulePlayoutPreview,
       canControlPreview,
@@ -926,7 +1125,7 @@ export function SingleTemplatePreviewExportPanel() {
       }
       const graphic = graphicRef.current;
       if (
-        (!behaviorActive && !graphic && !needsRulePlayoutPreview) ||
+        (!sharedLiveEnabled && !behaviorActive && !graphic && !needsRulePlayoutPreview) ||
         !canControlPreview ||
         arrowLandingRef.current ||
         (graphic && transportCallsRef.current.has(graphic))
@@ -953,6 +1152,7 @@ export function SingleTemplatePreviewExportPanel() {
       try {
         setFullscreenError('');
         if (!activateAdjacentProjectSetTemplate(delta)) arrowLandingRef.current = null;
+        if (sharedLiveEnabled) arrowLandingRef.current = null;
       } catch (cause) {
         arrowLandingRef.current = null;
         setFullscreenError(cause instanceof Error ? cause.message : String(cause));
@@ -960,6 +1160,7 @@ export function SingleTemplatePreviewExportPanel() {
     },
     [
       syncEditorPreview,
+      sharedLiveEnabled,
       behaviorActive,
       needsRulePlayoutPreview,
       currentStep,
@@ -982,13 +1183,13 @@ export function SingleTemplatePreviewExportPanel() {
     }
     try {
       await enterPreviewFullscreen(viewport);
-      if (!syncEditorPreview && !behaviorActive && needsRulePlayoutPreview)
+      if (!sharedLiveEnabled && !syncEditorPreview && !behaviorActive && needsRulePlayoutPreview)
         await requestRulePlayoutPreview({ autoplay: false, data: latestPreviewDataRef.current });
     } catch (error: unknown) {
       setFullscreenError(error instanceof Error ? error.message : 'Unable to enter fullscreen.');
       throw error;
     }
-  }, [syncEditorPreview, behaviorActive, needsRulePlayoutPreview]);
+  }, [sharedLiveEnabled, syncEditorPreview, behaviorActive, needsRulePlayoutPreview]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -1081,6 +1282,10 @@ export function SingleTemplatePreviewExportPanel() {
       useTimelineStore.getState().controller?.stop();
       return;
     }
+    if (sharedLiveEnabled) {
+      if (canControlPreview) void callShared('stopAction', { kind: 'stop' });
+      return;
+    }
     if (behaviorActive) {
       if (canControlPreview) void outBehaviorPreview().catch(() => undefined);
       return;
@@ -1093,11 +1298,30 @@ export function SingleTemplatePreviewExportPanel() {
   };
 
   const handleCustomAction = (actionId: string) => {
+    if (sharedLiveEnabled) {
+      if (!canControlPreview) return;
+      if (!sharedSet) void callShared('customAction', { kind: 'action', actionId });
+      else if (selectedSharedGraphic && selectedSharedState) {
+        void callShared('customAction', {
+          kind: 'action',
+          actionId: 'template.action',
+          payload: { slotId: selectedSharedState.slotId, actionId },
+        });
+      }
+      return;
+    }
     const params = { id: actionId, payload: {} };
     void call('customAction', params, (g) => g.customAction(params));
   };
 
   const updateDataBatch = (data: Record<string, TestValue>) => {
+    if (sharedLiveEnabled) {
+      if (canControlPreview) {
+        if (!sharedSet || selectedSharedGraphic) void sendSharedData(data);
+        else for (const [key, value] of Object.entries(data)) updateDataField(key, value);
+      }
+      return;
+    }
     if (syncEditorPreview) {
       useTestDataStore
         .getState()
@@ -1152,6 +1376,68 @@ export function SingleTemplatePreviewExportPanel() {
     if (syncEditorPreview)
       throw new Error('Turn off editor sync to play a rundown with transitions.');
     if (rundownPlayingRef.current) throw new Error('A rundown is already playing.');
+    const check = (result: unknown) => {
+      if (!successful(result)) throw new Error(`Preview command failed: ${JSON.stringify(result)}`);
+    };
+    if (sharedLiveEnabled) {
+      const state = selectedSharedState;
+      if (sharedSet && !state) throw new Error('Assign this template to a playout lane first.');
+      const target = state && { slotId: state.slotId, stateId: state.id };
+      let firstRow: Record<string, TestValue> = {};
+      const update = async (data: Record<string, TestValue>) => {
+        check(
+          await callShared(
+            'updateAction',
+            target
+              ? { kind: 'action', actionId: 'transition.patch', payload: { ...target, data } }
+              : { kind: 'update', data },
+          ),
+        );
+      };
+      rundownPlayingRef.current = true;
+      try {
+        await playRundown(
+          rows,
+          {
+            prepare: async (data) => {
+              if (target) firstRow = data;
+              else await update(data);
+            },
+            take: async () =>
+              check(
+                await callShared(
+                  'playAction',
+                  target
+                    ? {
+                        kind: 'action',
+                        actionId: 'transition.take',
+                        payload: { ...target, data: firstRow },
+                      }
+                    : { kind: 'play', goto: 0 },
+                ),
+              ),
+            update,
+            out: async () =>
+              check(
+                await callShared(
+                  'stopAction',
+                  target
+                    ? {
+                        kind: 'action',
+                        actionId: 'transition.out',
+                        payload: { slotId: target.slotId },
+                      }
+                    : { kind: 'stop' },
+                ),
+              ),
+          },
+          options,
+        );
+      } finally {
+        rundownPlayingRef.current = false;
+      }
+      return;
+    }
     if (behaviorActive && behavior.sourceTemplateId !== activeTemplateId)
       throw new Error('Select this template in Preview & Export before playing its rundown.');
     const graphic = graphicRef.current;
@@ -1161,9 +1447,6 @@ export function SingleTemplatePreviewExportPanel() {
       coordinatedId !== null && useBehaviorPreviewStore.getState().requestId === coordinatedId;
     if (!coordinated && (!graphic || !canControlPreview))
       throw new Error('Open Preview & Export and wait for the graphic to load.');
-    const check = (result: unknown) => {
-      if (!successful(result)) throw new Error(`Preview command failed: ${JSON.stringify(result)}`);
-    };
     const publish = (data: Record<string, TestValue>) => {
       const normalized = resolvePreviewDataRecord(
         { ...composition, dataFields: previewFields },
@@ -1241,7 +1524,7 @@ export function SingleTemplatePreviewExportPanel() {
     stepCount: previewStepCount,
     ready: canControlPreview,
     loading: !isPreviewLoaded,
-    error: fullscreenError || (behaviorActive ? (behavior.error ?? '') : ''),
+    error: fullscreenError || sharedError || (behaviorActive ? (behavior.error ?? '') : ''),
     behaviorActive,
     behaviorLabel: behavior.label ?? '',
     projectSet,
@@ -1254,6 +1537,17 @@ export function SingleTemplatePreviewExportPanel() {
     fields: previewFields,
     values: dataForm,
     customActions: syncEditorPreview ? [] : descriptor.customActions,
+    sharedTransition: sharedSet
+      ? {
+          source: sharedSet,
+          snapshot: sharedLive.snapshot,
+          manifest: sharedLive.manifest,
+          ready: sharedLive.ready,
+          error: sharedError,
+          sendAction: (actionId, payload) =>
+            callShared('customAction', { kind: 'action', actionId, payload }),
+        }
+      : undefined,
     changeTemplate,
     play: handlePlayAction,
     out: handleStop,
@@ -1530,7 +1824,7 @@ export function SingleTemplatePreviewExportPanel() {
                   width: output.width,
                   height: output.height,
                   transform: `scale(${zoom})`,
-                  ...(composition.backgroundColor === 'transparent'
+                  ...(previewComposition.backgroundColor === 'transparent'
                     ? transparencyCheckerboardStyle(zoom)
                     : undefined),
                 }}
@@ -1593,10 +1887,10 @@ export function SingleTemplatePreviewExportPanel() {
                 </p>
               </div>
             </aside>
-            {(!isPreviewLoaded || fullscreenError || (behaviorActive && behavior.error)) && (
+            {(!isPreviewLoaded || playoutControls.error) && (
               <div className="preview-fullscreen-loading">
-                {fullscreenError || (behaviorActive && behavior.error) ? (
-                  <PreviewError message={fullscreenError || behavior.error!} />
+                {playoutControls.error ? (
+                  <PreviewError message={playoutControls.error} />
                 ) : (
                   <span role="status">
                     {log.some((entry) => entry.method === 'load' && entry.isError)
@@ -1617,6 +1911,16 @@ export function SingleTemplatePreviewExportPanel() {
 
           {fullscreenError && (
             <PreviewError message={fullscreenError} className="preview-fullscreen-error" />
+          )}
+          {sharedError && (
+            <div className="preview-controls-row">
+              <PreviewError message={sharedError} />
+              {sharedLive.error && (
+                <button type="button" onClick={sharedLive.retry}>
+                  Retry preview
+                </button>
+              )}
+            </div>
           )}
 
           <div className="preview-controls">
@@ -2165,11 +2469,7 @@ export function SingleTemplatePreviewExportPanel() {
               {exportStatus}
             </p>
           )}
-          <SharedPlayoutPublish
-            source={exportSet ? { set: exportSet } : { project, composition }}
-            busy={isExporting || isCheckingCompatibility}
-            onPublishing={(publishing) => setExportAction(publishing ? 'publish' : null)}
-          />
+          <SharedPlayoutLinks />
         </CollapsibleSection>
       </div>
       {exportDialog && (

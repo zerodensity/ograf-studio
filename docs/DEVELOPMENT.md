@@ -119,30 +119,29 @@ workspace is `Documents\OGraf Studio\Projects`; `--workspace` and the existing
 while the default remains suitable for a console or background process. Run
 `OGrafStudioServer.exe --help` for the complete option list.
 
-### Publish a shared preview
+### View Studio's Live preview on the LAN
 
-Enable the shared playout listener when starting Studio. Use an IP address assigned to this
-machine on your LAN, such as `192.168.1.25`. The default playout address is `127.0.0.1`.
+Start Studio normally. The console prints a fixed viewer URL and shows its QR in a color
+terminal when a private LAN address is available. Open the viewer URL in a browser or scan the QR.
+The viewer waits until Studio opens a template.
 
-```powershell
-.\OGrafStudioServer.exe --playout-port 4320 --playout-host 192.168.1.25
-```
+Opening a template or coordinated template set prepares a playback copy in memory. The viewer
+and the **Live** screen in **Preview & Export** use that same session, including its data and
+playout controls. The **Preview** menu presents that session with Studio's fullscreen controls.
+The designer can keep editing the source document separately. Opening another template updates
+the viewer at the same URL.
 
-At launch, the console prints the viewer URL and shows its QR in a color terminal on the LAN
-address. A viewer can scan it before you publish. The waiting page opens the latest published
-graphic when it becomes available. Resize the terminal or zoom out to fit the whole code, which
-can occupy up to 74 columns and 37 rows.
+Use the viewer on a trusted LAN. Anyone who can reach its URL can watch and retrieve the browser's
+playback files, including packaged assets and authored data defaults. Use the separate **Operator
+link** for controls and right-click the output to open them. Keep the Studio server process
+running after closing the editor tab.
+Reconnecting viewers restore the current playback copy and its accepted commands. Each browser
+renders at its own cadence. If a browser cannot start playback, **Retry preview** reloads the
+current shared session in that browser.
 
-1. Open a template or a template set with Transition Logic. In **Preview & Export**, choose the
-   export scope and select **Publish to LAN**. Studio certifies a real-time package for the session.
-2. Share the **Viewer link** for playback or the **Operator link** for playback and playout
-   controls. Each link grants its stated access to that published session.
-3. Close the editor tab when you are ready. Keep the Studio server process running to serve
-   the package and share commands. Reopening a session link restores the accepted playout
-   commands, including data updates.
-
-The prototype retains publications and their command history in memory for the life of the
-server process. Each browser renders the same published package at its own cadence.
+Use `--playout-host 127.0.0.1` for a viewer on this workstation, or specify another assigned IP
+and port with `--playout-host` and `--playout-port`. Use `--no-playout` to start Studio without
+the viewer listener. The editor and MCP stay on loopback.
 
 ### Export the bundled skill or print the setup prompt
 

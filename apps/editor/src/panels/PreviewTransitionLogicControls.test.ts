@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CoordinatedPlayoutSlot } from '@ograf-editor/ograf-types';
 import { createTransitionLogicNewsExample } from '../examples/transitionLogicNews';
 import { previewSlotDataKey, usePreviewSlotDataStore } from '../state/previewSlotDataStore';
-import { SlotControls } from './PreviewTransitionLogicControls';
+import { stageSharedPreviewSlotField } from '../state/playoutControlsStore';
+import { PreviewTransitionLogicControls, SlotControls } from './PreviewTransitionLogicControls';
 
 const dataForms = (markup: string) =>
   [...markup.matchAll(/<details class="preview-slot-data"([^>]*)><summary>(.*?)<\/summary>/g)].map(
@@ -135,6 +136,47 @@ describe('coordinated preview lane data controls', () => {
     expect(markup).toContain('Ticker');
     expect(markup).toContain('<fieldset class="preview-slot-data-fields">');
     expect(dataForms(markup)).toEqual([{ open: true, summary: 'Data · Ticker Next' }]);
+  });
+
+  it('uses the native lane controls and public staged data for shared live playout', () => {
+    const source = createTransitionLogicNewsExample(0);
+    const definition = source.transitionLogic!;
+    const state = definition.states.find((item) => item.id === 'name')!;
+    const template = source.templates.find((item) => item.id === state.templateId)!;
+    const composition = template.project.compositions.find(
+      (item) => item.id === template.project.mainCompositionId,
+    )!;
+    composition.dataFields.find((field) => field.key === 'role')!.exposeToOgraf = false;
+    const privateKey = previewSlotDataKey(
+      source.id,
+      definition.id,
+      state.slotId,
+      state.id,
+      state.templateId,
+    );
+    usePreviewSlotDataStore.setState({
+      observed: { [privateKey]: { name: 'PRIVATE REHEARSAL NAME', role: 'PRIVATE ROLE' } },
+    });
+    const sendAction = vi.fn();
+    const render = () =>
+      renderToStaticMarkup(
+        createElement(PreviewTransitionLogicControls, {
+          projectSet: source,
+          activeTemplateId: template.id,
+          dataTemplateId: template.id,
+          data: {},
+          shared: { source, snapshot: null, ready: false, sendAction },
+        }),
+      );
+    const initial = render();
+    expect(initial).toContain('Playout transitions');
+    expect(initial).toContain('Clear all');
+    expect(initial).toContain('Data · Correspondent');
+    expect(initial).not.toContain('PRIVATE REHEARSAL NAME');
+    expect(initial.split('</details>', 1)[0]).not.toContain('aria-label="Role"');
+    stageSharedPreviewSlotField(source, definition, state, 'name', 'STAGED SHARED NAME');
+    expect(render()).toContain('STAGED SHARED NAME');
+    expect(sendAction).not.toHaveBeenCalled();
   });
 
   it('changes the selected form without taking output or losing another state draft', () => {

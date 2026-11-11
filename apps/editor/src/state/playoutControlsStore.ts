@@ -1,8 +1,56 @@
 import { create } from 'zustand';
-import type { FieldDefinition } from '@ograf-editor/scene-model';
+import type {
+  FieldDefinition,
+  FieldValue,
+  TransitionLogicDefinition,
+  TransitionLogicState,
+} from '@ograf-editor/scene-model';
 import type { ProjectSetDocument } from './projectSet';
 import type { TestValue } from './testDataStore';
 import type { TickerUpdateStatus } from '@ograf-editor/ograf-runtime';
+import type {
+  CoordinatedPlayoutSnapshot,
+  OGrafManifest,
+  ReturnPayload,
+} from '@ograf-editor/ograf-types';
+import { previewSlotDataKey, stagePreviewSlotField } from './previewSlotDataStore';
+
+export function sharedSlotDataKey(
+  source: ProjectSetDocument,
+  definition: TransitionLogicDefinition,
+  state: TransitionLogicState,
+): string {
+  return previewSlotDataKey(
+    `shared:${source.id}`,
+    definition.id,
+    state.slotId,
+    state.id,
+    state.templateId,
+  );
+}
+
+/** A main preview data row and its lane form stage changes for the same next Take. */
+export function stageSharedPreviewSlotField(
+  source: ProjectSetDocument,
+  definition: TransitionLogicDefinition,
+  state: TransitionLogicState,
+  field: string,
+  value: FieldValue,
+): void {
+  stagePreviewSlotField(sharedSlotDataKey(source, definition, state), field, value);
+}
+
+export interface SharedTransitionPlayoutSession {
+  source?: ProjectSetDocument;
+  manifest?: Pick<OGrafManifest, 'customActions'> | null;
+  snapshot: CoordinatedPlayoutSnapshot | null;
+  ready: boolean;
+  error?: string;
+  sendAction: (
+    actionId: string,
+    payload?: Record<string, unknown>,
+  ) => Promise<ReturnPayload | undefined>;
+}
 
 /** A view of the mounted preview controller. No graphic instances or saved document state live here. */
 export interface PlayoutControlsSession {
@@ -19,6 +67,7 @@ export interface PlayoutControlsSession {
   behaviorActive: boolean;
   behaviorLabel: string;
   projectSet: ProjectSetDocument | null;
+  sharedTransition?: SharedTransitionPlayoutSession;
   activeTemplateId: string | null;
   dataTemplateId: string | null;
   dataTemplateName: string;

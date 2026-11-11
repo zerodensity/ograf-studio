@@ -11,6 +11,7 @@ import {
   createSharedPlayoutHost,
   loadSharedPlayoutAssets,
   type SharedPlayoutAssetPaths,
+  type SharedPlayoutHost,
 } from './sharedPlayout';
 import {
   OGRAF_STUDIO_REPOSITORY_URL,
@@ -56,6 +57,12 @@ async function listen(server: Server, port: number, host: string): Promise<void>
   });
 }
 
+function warnPlayoutUnavailable(error: unknown): void {
+  console.warn(
+    `Live preview unavailable: ${error instanceof Error ? error.message : String(error)}`,
+  );
+}
+
 async function main(): Promise<void> {
   const options = parseStandaloneServerOptions(process.argv.slice(2));
   if (options.help) {
@@ -87,12 +94,17 @@ async function main(): Promise<void> {
   const embeddedPlayoutAssets = (
     globalThis as { __OGRAF_STANDALONE_PLAYOUT_ASSETS__?: SharedPlayoutAssetPaths }
   ).__OGRAF_STANDALONE_PLAYOUT_ASSETS__;
-  const sharedPlayout = options.playout
-    ? createSharedPlayoutHost(
+  let sharedPlayout: SharedPlayoutHost | undefined;
+  if (options.playout) {
+    try {
+      sharedPlayout = createSharedPlayoutHost(
         options.playout.host,
         await loadSharedPlayoutAssets(embeddedPlayoutAssets),
-      )
-    : undefined;
+      );
+    } catch (error) {
+      warnPlayoutUnavailable(error);
+    }
+  }
   const { httpServer, workspace } = createOGrafAuthoringHost({
     ...(embeddedEditorAssets ? { embeddedEditorAssets } : { editorRoot }),
     workspaceRoot: options.workspaceRoot,
@@ -104,8 +116,8 @@ async function main(): Promise<void> {
     try {
       await listen(sharedPlayout.httpServer, options.playout.port, options.playout.host);
     } catch (error) {
-      await closeServer(httpServer);
-      throw error;
+      warnPlayoutUnavailable(error);
+      sharedPlayout = undefined;
     }
   }
 
@@ -119,13 +131,11 @@ async function main(): Promise<void> {
   console.log(`MCP:       ${baseUrl}/mcp`);
   console.log(`Health:    ${baseUrl}/health`);
   if (sharedPlayout) {
-    console.log(
-      `Shared playout: ${sharedPlayout.origin().origin} (publish from Studio for private links)`,
-    );
     const viewerUrl = sharedPlayout.viewerEntryUrl();
     console.log(`Viewer:    ${viewerUrl.href}`);
     if (
       !viewerUrl.hostname.startsWith('127.') &&
+      viewerUrl.hostname !== '[::1]' &&
       process.stdout.isTTY &&
       process.env.TERM !== 'dumb' &&
       process.env.NO_COLOR === undefined

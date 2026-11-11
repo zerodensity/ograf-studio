@@ -5,133 +5,111 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
     <title>OGraf Live Preview</title>
+    <link rel="stylesheet" href="./preview-controls.css" />
     <style>
+      @font-face {
+        font-family: 'Nunito';
+        src: url('./preview-font.ttf') format('truetype');
+        font-weight: 200 900;
+        font-display: swap;
+      }
       :root {
         color-scheme: dark;
-        font-family: system-ui, sans-serif;
-        background: #141820;
-        color: #eef2f8;
+        font:
+          12px/1.3 'Nunito',
+          'Segoe UI',
+          system-ui,
+          sans-serif;
+        color: #dadada;
+        background: #000;
+        --accent: #399ed4;
+        --radius-control: 2px;
+        --bg-panel-raised: #353535;
+        --mono: ui-monospace, Consolas, monospace;
       }
-      body {
-        margin: 0 auto;
-        max-width: 1400px;
-        padding: clamp(12px, 3vw, 32px);
-      }
-      header,
-      .row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: end;
-        gap: 10px;
-      }
-      header {
-        align-items: baseline;
-        justify-content: space-between;
-        margin-bottom: 16px;
-      }
-      h1,
-      h2,
-      p {
+      #layout {
         margin: 0;
+        box-sizing: border-box;
       }
-      h1 {
-        font-size: 1.4rem;
+      #stage {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        overflow: hidden;
       }
-      h2 {
-        font-size: 1rem;
+      #stage > div {
+        width: min(100vw, var(--graphic-width, 100vw)) !important;
       }
-      #status,
-      #lane-status,
-      #revision {
-        color: #b9c8da;
+      #stage[data-switching='true'] > * {
+        visibility: hidden;
+      }
+      #feedback {
+        z-index: 1;
+        position: relative;
+        margin: 20px;
+        text-align: center;
+      }
+      #title {
+        margin: 0;
+        font-size: 12px;
       }
       #error {
         color: #ffb4aa;
-        margin-block: 0 12px;
       }
-      #stage {
-        min-width: 0;
-        background: #090b10;
-        overflow: hidden;
+      #controls {
+        max-height: calc(100% - 16px);
       }
-      #stage:empty {
-        aspect-ratio: 16 / 9;
-      }
-      #layout {
+      #operator-fields {
         display: grid;
-        gap: 18px;
-        align-items: start;
+        gap: 8px;
       }
-      #layout[data-role='operator'] {
-        grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
-      }
-      aside,
-      fieldset,
-      .fields {
+      #operator-fields fieldset {
         display: grid;
-        gap: 12px;
-        min-inline-size: 0;
-      }
-      aside[hidden] {
-        display: none;
-      }
-      fieldset {
+        gap: 5px;
         margin: 0;
-        padding: 12px;
-        border: 1px solid #46536a;
-        border-radius: 6px;
-      }
-      label {
-        display: grid;
-        gap: 4px;
+        padding: 6px 0 0;
         min-width: 0;
+        border: 0;
+        border-top: 1px solid var(--border);
       }
-      input,
-      select,
-      textarea,
-      button {
-        box-sizing: border-box;
+      #operator-fields .preview-data-row > textarea {
         min-width: 0;
-        padding: 7px 9px;
-        border: 1px solid #63748e;
-        border-radius: 4px;
-        background: #212a38;
-        color: inherit;
-        font: inherit;
-      }
-      input[type='checkbox'] {
-        justify-self: start;
-      }
-      textarea {
         resize: vertical;
       }
-      button {
-        cursor: pointer;
-      }
-      button:disabled {
-        cursor: default;
-        opacity: 0.48;
-      }
-      @media (max-width: 720px) {
-        #layout[data-role='operator'] {
-          grid-template-columns: minmax(0, 1fr);
-        }
+      [hidden] {
+        display: none !important;
       }
     </style>
     <script type="module" src="./shared-playout.js"></script>
   </head>
-  <body>
-    <header>
+  <body id="layout" class="preview-stage-wrap" data-preview-overlay>
+    <main id="stage" aria-label="Graphic output" tabindex="0"></main>
+    <div id="feedback">
       <h1 id="title">OGraf Live Preview</h1>
-      <div class="row">
-        <p id="status" role="status">Connecting…</p>
-        <p id="revision"></p>
+      <p id="status" role="status">Connecting…</p>
+      <p id="error" role="alert" hidden></p>
+      <button id="retry-preview" type="button" hidden>Retry preview</button>
+    </div>
+    <aside id="controls" class="preview-fullscreen-data" aria-label="Playout controls" hidden>
+      <div class="preview-popup-body">
+        <header class="preview-fullscreen-data-heading">
+          <button
+            id="move-controls"
+            class="preview-controls-drag-handle"
+            type="button"
+            title="Drag to move"
+          >
+            <span aria-hidden="true">⠿</span><strong>Preview controls</strong>
+          </button>
+          <span id="preview-step" class="preview-step-indicator">Off air</span>
+          <button id="fullscreen" type="button">Fullscreen</button>
+        </header>
+        <div id="operator-fields"></div>
+        <p class="preview-fullscreen-data-note">
+          Right-click for controls · Drag to move · D toggles · Escape exits.
+        </p>
       </div>
-    </header>
-    <p id="error" role="alert" hidden></p>
-    <main id="layout">
-      <section id="stage" aria-label="Graphic output"></section>
-      <aside id="controls" aria-label="Playout controls" hidden></aside>
-    </main>
+    </aside>
   </body>
 </html>

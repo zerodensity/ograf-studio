@@ -35,7 +35,11 @@ export function PreviewPlayoutControls({
   );
   // Match the lane controls' render scope, including Ready/Off before the first Take.
   // Boolean selectors avoid rerendering this shared popup/pane on playback snapshots.
-  const laneControlsOwnData = !session.editorSynchronized && (hasLaneDefinition || hasLaneSession);
+  const laneControlsOwnData =
+    !session.editorSynchronized &&
+    (session.sharedTransition
+      ? Boolean((session.sharedTransition.source ?? session.projectSet)?.transitionLogic)
+      : hasLaneDefinition || hasLaneSession);
   const showTemplateControls =
     session.editorSynchronized || (!laneControlsOwnData && !session.behaviorActive);
   const backwardLabel = previewArrowNavigationLabel(
@@ -133,6 +137,7 @@ export function PreviewPlayoutControls({
           activeTemplateId={session.activeTemplateId}
           dataTemplateId={session.dataTemplateId}
           data={session.data}
+          shared={session.sharedTransition}
         />
       )}
       <PreviewBackgroundControls />

@@ -594,7 +594,8 @@ function supervisorKernel(config: {
     host.onmessage = (message) => receive(message.data);
     host.onmessageerror = () => fail(active?.task?.id ?? 0, 'Unreadable parent message.');
     host.start();
-    prepare();
+    // The parent sends its bounded probe after this transport acknowledgment.
+    // Preparing the child here would consume the supervisor connection budget.
     if (!closed) send('supervisor-ready', 0);
   };
 }

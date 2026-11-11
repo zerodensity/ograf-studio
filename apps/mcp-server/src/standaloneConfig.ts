@@ -1,4 +1,4 @@
-import { homedir } from 'node:os';
+import { homedir, networkInterfaces } from 'node:os';
 import { isIP } from 'node:net';
 import { resolve } from 'node:path';
 import { OGRAF_CLIENT_SETUP } from '@ograf-editor/agent-tools';
@@ -84,6 +84,22 @@ function parsePlayoutHost(value: string): string {
   return family === 6 ? host.slice(1, -1) : host;
 }
 
+function defaultPlayoutHost(interfaces: ReturnType<typeof networkInterfaces>): string {
+  for (const addresses of Object.values(interfaces)) {
+    for (const entry of addresses ?? []) {
+      if (entry.internal || entry.family !== 'IPv4') continue;
+      const [first, second = 0] = entry.address.split('.').map(Number);
+      if (
+        first === 10 ||
+        (first === 172 && second >= 16 && second <= 31) ||
+        (first === 192 && second === 168)
+      )
+        return entry.address;
+    }
+  }
+  return '127.0.0.1';
+}
+
 export function defaultStandaloneWorkspaceRoot(
   environment: NodeJS.ProcessEnv = process.env,
   userHome = homedir(),
@@ -98,6 +114,7 @@ export function parseStandaloneServerOptions(
   args: string[],
   environment: NodeJS.ProcessEnv = process.env,
   userHome = homedir(),
+  interfaces = networkInterfaces(),
 ): StandaloneServerOptions {
   let port = parsePort(environment.OGRAF_MCP_PORT ?? '4318');
   let workspaceRoot = defaultStandaloneWorkspaceRoot(environment, userHome);
@@ -107,6 +124,7 @@ export function parseStandaloneServerOptions(
   let exportSkillPath: string | undefined;
   let playoutPort: number | undefined;
   let playoutHost: string | undefined;
+  let noPlayout = false;
   const { exportFlag, promptFlag } = OGRAF_CLIENT_SETUP;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -117,6 +135,10 @@ export function parseStandaloneServerOptions(
     }
     if (argument === '--no-open') {
       openBrowser = false;
+      continue;
+    }
+    if (argument === '--no-playout') {
+      noPlayout = true;
       continue;
     }
     if (argument === '--help' || argument === '-h') {
@@ -162,10 +184,11 @@ export function parseStandaloneServerOptions(
 
   if (printSetupPrompt && exportSkillPath)
     throw new Error(`Choose either ${promptFlag} or ${exportFlag}.`);
-  if (playoutHost && !playoutPort)
-    throw new Error('--playout-host requires --playout-port to enable shared playout.');
+  if (noPlayout && (playoutHost || playoutPort))
+    throw new Error('--no-playout cannot be combined with a shared playout address or port.');
   if (playoutPort === port)
     throw new Error('--playout-port must differ from the editor and MCP port.');
+  const defaultPlayoutPort = port <= 65_533 ? port + 2 : port - 2;
   return {
     port,
     workspaceRoot,
@@ -173,7 +196,14 @@ export function parseStandaloneServerOptions(
     help,
     ...(printSetupPrompt ? { printSetupPrompt } : {}),
     ...(exportSkillPath ? { exportSkillPath } : {}),
-    ...(playoutPort ? { playout: { host: playoutHost ?? '127.0.0.1', port: playoutPort } } : {}),
+    ...(!noPlayout
+      ? {
+          playout: {
+            host: playoutHost ?? defaultPlayoutHost(interfaces),
+            port: playoutPort ?? defaultPlayoutPort,
+          },
+        }
+      : {}),
   };
 }
 
@@ -183,8 +213,9 @@ Usage: ${standaloneExecutableName()} [options]
 
 Options:
   --port <number>       HTTP/MCP port (default: 4318)
-  --playout-port <number>  Enable a separate shared playout listener
-  --playout-host <IP>      Shared playout interface IP (default: 127.0.0.1)
+  --playout-port <number>  Live preview port (default: editor port + 2)
+  --playout-host <IP>      Live preview interface IP (default: private LAN IPv4 or loopback)
+  --no-playout            Disable the live preview listener
   --workspace <path>   Writable project workspace
   --open               Open the editor in the default browser
   --no-open            Do not open a browser (default)

@@ -4,50 +4,218 @@ const layout = document.querySelector('#layout');
 const title = document.querySelector('#title');
 const stage = document.querySelector('#stage');
 const status = document.querySelector('#status');
-const revisionLabel = document.querySelector('#revision');
+const feedback = document.querySelector('#feedback');
 const errorOutput = document.querySelector('#error');
+const retryPreview = document.querySelector('#retry-preview');
 const controls = document.querySelector('#controls');
+const operatorFields = document.querySelector('#operator-fields');
+const moveControls = document.querySelector('#move-controls');
+const previewStep = document.querySelector('#preview-step');
+const fullscreen = document.querySelector('#fullscreen');
+
+if (new URLSearchParams(location.search).get('embedded') === '1')
+  document.documentElement.dataset.embedded = '';
 
 let player;
 let publicationId;
+let announcedPublicationId;
+let mounting;
+let failedPublicationId;
+let retrying;
 let data = {};
-let eventSource;
 let canControl = false;
 let synchronized = false;
-let sending = false;
+let sending;
 let appliedRevision = 0;
 let serverRevision = 0;
 let eventQueue = Promise.resolve();
 let refreshForms = () => {};
+let currentStep;
+let controlsOpen = false;
+let controlsPosition;
+let drag;
+
+function activePreview() {
+  return Boolean(player) && publicationId === announcedPublicationId;
+}
+
+function refreshFeedback() {
+  const ready = activePreview() && synchronized;
+  title.hidden = status.hidden = ready;
+  feedback.hidden = ready && errorOutput.hidden && retryPreview.hidden;
+}
 
 function refreshStatus() {
-  const ready = Boolean(player) && synchronized;
-  layout.dataset.role = canControl ? 'operator' : 'viewer';
-  controls.hidden = !canControl;
-  status.textContent = ready
-    ? canControl
-      ? 'Connected as operator'
-      : 'Connected as viewer'
-    : player
-      ? 'Reconnecting…'
-      : 'Loading graphic…';
-  revisionLabel.textContent = ready ? `Revision ${appliedRevision}` : '';
-  if (ready) revisionLabel.dataset.revision = String(appliedRevision);
-  else delete revisionLabel.dataset.revision;
-  for (const button of controls.querySelectorAll('button')) {
+  const active = activePreview();
+  const ready = active && synchronized;
+  const operator = active && canControl;
+  layout.dataset.role = operator ? 'operator' : 'viewer';
+  if (!active && controlsOpen) {
+    controlsOpen = false;
+    endDrag();
+  }
+  controls.hidden = !active || !controlsOpen;
+  if (!controls.hidden && controlsPosition) placeControls(controlsPosition);
+  const slots = player?.element?.getPlayoutSnapshot?.()?.slots;
+  const laneOnAir =
+    slots && Object.values(slots).some((slot) => slot.current || slot.incoming || slot.outgoing);
+  const stepCount = player?.manifest.stepCount ?? 0;
+  previewStep.textContent =
+    currentStep === undefined || (slots && !laneOnAir)
+      ? laneOnAir
+        ? 'On air'
+        : 'Off air'
+      : `Step ${currentStep + 1}${stepCount > 0 ? ` of ${stepCount}` : ''}`;
+  stage.dataset.switching = String(publicationId !== announcedPublicationId);
+  const failed = Boolean(failedPublicationId) && failedPublicationId === announcedPublicationId;
+  retryPreview.hidden = !failed || Boolean(retrying);
+  if (ready) status.textContent = canControl ? 'Connected as operator' : 'Connected as viewer';
+  else if (retrying) status.textContent = 'Retrying preview…';
+  else if (failed) status.textContent = 'Preview failed to load.';
+  else if (synchronized && announcedPublicationId === null)
+    status.textContent = 'Waiting for Studio to open a template.';
+  else if (active || announcedPublicationId === null) status.textContent = 'Reconnecting…';
+  else if (announcedPublicationId) status.textContent = 'Loading graphic…';
+  else status.textContent = 'Connecting…';
+  if (ready) layout.dataset.revision = String(appliedRevision);
+  else delete layout.dataset.revision;
+  refreshFeedback();
+  for (const button of operatorFields.querySelectorAll('button')) {
     button.disabled =
       !ready ||
-      sending ||
+      Boolean(sending) ||
       appliedRevision < serverRevision ||
       button.dataset.unavailable === 'true';
   }
-  for (const input of controls.querySelectorAll('input, select, textarea'))
-    input.disabled = sending;
+  for (const input of operatorFields.querySelectorAll('input, select, textarea'))
+    input.disabled = Boolean(sending);
 }
 
 function showError(error) {
   errorOutput.textContent = error instanceof Error ? error.message : String(error ?? '');
   errorOutput.hidden = !errorOutput.textContent;
+  refreshFeedback();
+}
+
+function fitStage() {
+  const resolution = player?.renderCharacteristics?.resolution;
+  if (!resolution?.width || !resolution?.height) {
+    stage.style.removeProperty('--graphic-width');
+    return;
+  }
+  const width = Math.min(
+    window.innerWidth,
+    (window.innerHeight * resolution.width) / resolution.height,
+  );
+  stage.style.setProperty('--graphic-width', `${width}px`);
+}
+
+function placeControls({ left, top }) {
+  const freeX = Math.max(0, window.innerWidth - controls.offsetWidth);
+  const freeY = Math.max(0, window.innerHeight - controls.offsetHeight);
+  const marginX = Math.min(14, freeX / 2);
+  const marginY = Math.min(14, freeY / 2);
+  controlsPosition = {
+    left: Math.max(marginX, Math.min(freeX - marginX, left)),
+    top: Math.max(marginY, Math.min(freeY - marginY, top)),
+  };
+  Object.assign(controls.style, {
+    left: `${controlsPosition.left}px`,
+    top: `${controlsPosition.top}px`,
+    right: 'auto',
+    bottom: 'auto',
+  });
+}
+
+function endDrag() {
+  if (!drag) return;
+  const { pointerId } = drag;
+  drag = undefined;
+  moveControls.classList.remove('is-dragging');
+  if (moveControls.hasPointerCapture(pointerId)) moveControls.releasePointerCapture(pointerId);
+}
+
+function showControls(open) {
+  controlsOpen = open;
+  if (!open) endDrag();
+  refreshStatus();
+}
+
+function installPopup() {
+  layout.addEventListener('contextmenu', (event) => {
+    if (!activePreview()) return;
+    event.preventDefault();
+    if (controls.contains(event.target)) return;
+    endDrag();
+    controlsPosition = { left: event.clientX, top: event.clientY };
+    showControls(true);
+  });
+  layout.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (controlsOpen && event.button === 0 && !controls.contains(event.target))
+        showControls(false);
+    },
+    true,
+  );
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && controlsOpen) {
+      event.preventDefault();
+      showControls(false);
+    } else if (
+      event.key.toLowerCase() === 'd' &&
+      activePreview() &&
+      !event.repeat &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !event.target?.closest?.('input, select, textarea, [contenteditable="true"]')
+    ) {
+      event.preventDefault();
+      showControls(!controlsOpen);
+    }
+  });
+
+  moveControls.addEventListener('pointerdown', (event) => {
+    if (controls.hidden || event.button !== 0 || !event.isPrimary) return;
+    event.preventDefault();
+    const { left, top } = controls.getBoundingClientRect();
+    drag = { pointerId: event.pointerId, left, top, x: event.clientX, y: event.clientY };
+    moveControls.setPointerCapture(event.pointerId);
+    moveControls.classList.add('is-dragging');
+  });
+  moveControls.addEventListener('pointermove', (event) => {
+    if (drag?.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    placeControls({
+      left: drag.left + event.clientX - drag.x,
+      top: drag.top + event.clientY - drag.y,
+    });
+  });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+    moveControls.addEventListener(type, (event) => {
+      if (drag?.pointerId === event.pointerId) endDrag();
+    });
+
+  const resized = () => {
+    fitStage();
+    if (!controls.hidden && controlsPosition) placeControls(controlsPosition);
+  };
+  window.addEventListener('resize', resized);
+  fullscreen.hidden =
+    typeof layout.requestFullscreen !== 'function' || typeof document.exitFullscreen !== 'function';
+  fullscreen.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await layout.requestFullscreen();
+    } catch (error) {
+      showError(error);
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    fullscreen.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
+    resized();
+  });
 }
 
 function element(tag, text) {
@@ -56,14 +224,19 @@ function element(tag, text) {
   return node;
 }
 
+function labelField(caption, input) {
+  const field = element('label');
+  field.className = 'preview-data-row';
+  field.append(element('span', caption), input);
+  return field;
+}
+
 function selectField(label, schema, value) {
   const select = element('select');
   for (const option of schema.enum ?? [])
     select.add(new Option(schema.gddOptions?.labels?.[option] ?? option, option));
   if (value !== undefined) select.value = value;
-  const field = element('label', label);
-  field.append(select);
-  return { select, field };
+  return { select, field: labelField(label, select) };
 }
 
 function button(label, run) {
@@ -82,13 +255,13 @@ function button(label, run) {
 function panel(label) {
   const group = element('fieldset');
   group.append(element('legend', label));
-  controls.append(group);
+  operatorFields.append(group);
   return group;
 }
 
 function row() {
   const group = element('div');
-  group.className = 'row';
+  group.className = 'preview-controls-row';
   return group;
 }
 
@@ -126,7 +299,6 @@ function dataFields(container, schema, initial, onLaneChange) {
     const boolean = property.type === 'boolean';
     const json = !['string', 'integer', 'number', 'boolean'].includes(property.type);
     const input = element(choices ? 'select' : json ? 'textarea' : 'input');
-    const label = element('label', property.title || key);
     input.name = key;
     input.required = !boolean && (schema.required ?? []).includes(key);
     if (choices) {
@@ -189,8 +361,7 @@ function dataFields(container, schema, initial, onLaneChange) {
       changed = true;
       if (key === 'slotId') onLaneChange?.(read());
     });
-    label.append(input);
-    container.append(label);
+    container.append(labelField(property.title || key, input));
     fields.set(key, {
       read,
       changed: () => changed,
@@ -222,8 +393,8 @@ function dataFields(container, schema, initial, onLaneChange) {
   };
 }
 
-async function requestState() {
-  const response = await fetch('./state', { cache: 'no-store' });
+async function requestState(signal) {
+  const response = await fetch('./state', { cache: 'no-store', signal });
   if (!response.ok) throw new Error(`Could not read the shared session (HTTP ${response.status}).`);
   return response.json();
 }
@@ -236,19 +407,28 @@ function requestId() {
 }
 
 async function sendCommand(command, form) {
-  if (!synchronized || !canControl || sending || appliedRevision < serverRevision) return;
-  sending = true;
+  if (!player || !synchronized || !canControl || sending || appliedRevision < serverRevision)
+    return;
+  const request = { publicationId, abort: new AbortController() };
+  sending = request;
   showError();
   refreshStatus();
   try {
     const response = await fetch('./command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestId: requestId(), expectedRevision: serverRevision, command }),
+      signal: request.abort.signal,
+      body: JSON.stringify({
+        publicationId: request.publicationId,
+        requestId: requestId(),
+        expectedRevision: serverRevision,
+        command,
+      }),
     });
     const result = await response.json();
+    if (sending !== request) return;
     if (!response.ok) {
-      if (response.status === 409) enqueue(async () => applySnapshot(await requestState()));
+      if (response.status === 409) enqueue(() => recoverSnapshot(request.publicationId));
       throw new Error(
         result.message || result.error || `Command rejected (HTTP ${response.status}).`,
       );
@@ -257,10 +437,12 @@ async function sendCommand(command, form) {
     form?.settle();
     refreshForms();
   } catch (error) {
-    showError(error);
+    if (sending === request) showError(error);
   } finally {
-    sending = false;
-    refreshStatus();
+    if (sending === request) {
+      sending = undefined;
+      refreshStatus();
+    }
   }
 }
 
@@ -277,7 +459,7 @@ function mountLaneControls(lanes, actions) {
   );
   const stateHost = element('div');
   const fieldsHost = element('div');
-  fieldsHost.className = 'fields';
+  fieldsHost.className = 'preview-data-form';
   const laneStatus = element('p');
   laneStatus.id = 'lane-status';
   const buttons = row();
@@ -321,7 +503,7 @@ function mountLaneControls(lanes, actions) {
   if (patch) buttons.append(patch);
   const out = actions.has('transition.out')
     ? button(
-        'Take out',
+        'Take Out',
         () =>
           void sendCommand({
             kind: 'action',
@@ -373,17 +555,24 @@ function mountLaneControls(lanes, actions) {
 }
 
 function mountSingleControls(schema) {
-  const group = panel('Playback');
   const buttons = row();
+  const back = button('⏮ Back', () => void sendCommand({ kind: 'play', delta: -1 }));
+  back.title = 'Go back one step';
+  const take = button('Take In ▶', () => void sendCommand({ kind: 'play', delta: 1 }));
   buttons.append(
-    button('Take / Next', () => void sendCommand({ kind: 'play', delta: 1 })),
-    button('Take out', () => void sendCommand({ kind: 'stop' })),
+    back,
+    take,
+    button('Take Out', () => void sendCommand({ kind: 'stop' })),
   );
-  group.append(buttons);
-  if (!Object.keys(schema?.properties ?? {}).length) return () => {};
+  operatorFields.append(buttons);
+  const refreshTransport = () => {
+    back.dataset.unavailable = String(currentStep === undefined);
+    take.textContent = currentStep === undefined ? 'Take In ▶' : 'Next ⏭';
+  };
+  if (!Object.keys(schema?.properties ?? {}).length) return refreshTransport;
   const fields = panel('Data');
   const fieldHost = element('div');
-  fieldHost.className = 'fields';
+  fieldHost.className = 'preview-data-form';
   const form = dataFields(fieldHost, schema, data);
   fields.append(
     fieldHost,
@@ -393,7 +582,10 @@ function mountSingleControls(schema) {
       else showError('Change a data field first.');
     }),
   );
-  return () => form.refresh(data);
+  return () => {
+    refreshTransport();
+    form.refresh(data);
+  };
 }
 
 function mountCustomActions(actions) {
@@ -406,7 +598,7 @@ function mountCustomActions(actions) {
     },
   });
   const fieldsHost = element('div');
-  fieldsHost.className = 'fields';
+  fieldsHost.className = 'preview-data-form';
   let form;
   function showFields(selection = {}) {
     const schema = actions.find((item) => item.id === choice.select.value)?.schema;
@@ -434,10 +626,9 @@ function mountCustomActions(actions) {
 }
 
 function mountControls() {
-  controls.replaceChildren();
+  operatorFields.replaceChildren();
   refreshForms = () => {};
   if (!canControl) return;
-  controls.append(element('h2', 'Playout controls'));
   const { schema, customActions = [] } = player.manifest;
   const actions = new Map(customActions.map((action) => [action.id, action]));
   const lanes = schema?.properties?.slots?.properties ?? {};
@@ -450,21 +641,30 @@ function mountControls() {
 }
 
 async function applyEntry(entry, replay) {
+  const currentPublication = publicationId;
   const { command, revision } = entry;
+  if (!player || currentPublication !== announcedPublicationId) return;
+  if (entry.publicationId !== undefined && entry.publicationId !== currentPublication) return;
   if (revision <= appliedRevision) return;
   if (revision !== appliedRevision + 1) throw new Error('The shared command history has a gap.');
   const options = replay ? { skipAnimation: true } : {};
   try {
     switch (command.kind) {
-      case 'play':
-        await player.play({ ...options, delta: command.delta ?? 1 });
+      case 'play': {
+        const result = await player.play({
+          ...options,
+          ...(command.goto === undefined ? { delta: command.delta ?? 1 } : { goto: command.goto }),
+        });
+        if (currentPublication === announcedPublicationId) currentStep = result?.currentStep;
         break;
+      }
       case 'stop':
         await player.stop(options);
+        if (currentPublication === announcedPublicationId) currentStep = undefined;
         break;
       case 'update':
         await player.update(command.data, options);
-        data = { ...data, ...command.data };
+        if (currentPublication === announcedPublicationId) data = { ...data, ...command.data };
         break;
       case 'action':
         await player.action(command.actionId, command.payload, options);
@@ -473,77 +673,193 @@ async function applyEntry(entry, replay) {
         throw new Error('Unsupported shared playout command.');
     }
   } catch (error) {
+    if (replay && revision === 1 && command.kind === 'play') throw error;
     // An accepted command may fail on this renderer. Preserve its place in the
     // session sequence so reconnect does not run the same command twice.
-    showError(`Revision ${revision}: ${error instanceof Error ? error.message : String(error)}`);
+    if (currentPublication === announcedPublicationId)
+      showError(`Revision ${revision}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  appliedRevision = revision;
+  if (currentPublication === announcedPublicationId) appliedRevision = revision;
+}
+
+async function discardPlayer(expectedPublication) {
+  synchronized = false;
+  const previous = player;
+  player = undefined;
+  publicationId = undefined;
+  operatorFields.replaceChildren();
+  refreshForms = () => {};
+  currentStep = undefined;
+  appliedRevision = 0;
+  serverRevision = 0;
+  title.textContent = 'OGraf Live Preview';
+  fitStage();
+  refreshStatus();
+  try {
+    await previous?.dispose();
+  } catch (error) {
+    if (expectedPublication === announcedPublicationId) showError(error);
+  } finally {
+    stage.replaceChildren();
+  }
 }
 
 async function applySnapshot(snapshot) {
-  const remount = !player || publicationId !== snapshot.publicationId;
+  const nextPublication = snapshot.publicationId;
+  if (nextPublication !== announcedPublicationId) return false;
+  const remount = publicationId !== nextPublication || (nextPublication !== null && !player);
   const rebuildControls = remount || canControl !== snapshot.canControl;
   canControl = snapshot.canControl;
-  if (remount) {
-    synchronized = false;
-    await player?.dispose();
-    player = undefined;
-    appliedRevision = 0;
-    serverRevision = 0;
-    player = await mountOGrafGraphic({ container: stage, manifestUrl: snapshot.manifestUrl });
-    publicationId = snapshot.publicationId;
-    data = dataFromSchemaDefaults(player.manifest.schema) ?? {};
-    title.textContent = player.manifest.name || 'OGraf Live Preview';
-  }
-  serverRevision = Math.max(serverRevision, snapshot.revision);
-  for (const entry of snapshot.commands) await applyEntry(entry, true);
-  if (appliedRevision < snapshot.revision)
-    throw new Error('The shared session snapshot is incomplete.');
-  if (rebuildControls) mountControls();
-  refreshForms();
-  refreshStatus();
-}
-
-function enqueue(operation) {
-  eventQueue = eventQueue.then(operation).catch((error) => {
-    synchronized = false;
-    showError(error);
+  try {
+    if (remount) {
+      if (failedPublicationId === nextPublication) showError();
+      failedPublicationId = undefined;
+      await discardPlayer(nextPublication);
+      if (nextPublication !== announcedPublicationId) return false;
+      if (nextPublication === null) {
+        publicationId = null;
+        return true;
+      }
+      const abort = new AbortController();
+      mounting = abort;
+      try {
+        const next = await mountOGrafGraphic({
+          container: stage,
+          manifestUrl: snapshot.manifestUrl,
+          signal: abort.signal,
+        });
+        if (nextPublication !== announcedPublicationId) {
+          await next.dispose().catch(() => undefined);
+          return false;
+        }
+        player = next;
+        fitStage();
+      } catch (error) {
+        if (abort.signal.aborted) return false;
+        throw error;
+      } finally {
+        mounting = undefined;
+      }
+      publicationId = nextPublication;
+      data = dataFromSchemaDefaults(player.manifest.schema) ?? {};
+      title.textContent = player.manifest.name || 'OGraf Live Preview';
+    }
+    if (nextPublication === null) return true;
+    serverRevision = Math.max(serverRevision, snapshot.revision);
+    for (const entry of snapshot.commands) await applyEntry(entry, true);
+    if (nextPublication !== announcedPublicationId) return false;
+    if (appliedRevision < snapshot.revision)
+      throw new Error('The shared session snapshot is incomplete.');
+    if (rebuildControls) mountControls();
+    refreshForms();
     refreshStatus();
-  });
+    return true;
+  } catch (error) {
+    if (nextPublication !== announcedPublicationId) return false;
+    if (remount && nextPublication !== null) {
+      failedPublicationId = nextPublication;
+      await discardPlayer(nextPublication);
+    }
+    throw error;
+  }
 }
 
-async function start() {
-  await applySnapshot(await requestState());
-  eventSource = new EventSource('./events');
+async function recoverSnapshot(expectedPublication) {
+  const snapshot = await requestState();
+  if (snapshot.publicationId === expectedPublication) await applySnapshot(snapshot);
+}
+
+function enqueue(operation, expectedPublication = announcedPublicationId) {
+  eventQueue = eventQueue
+    .then(() => {
+      if (expectedPublication === announcedPublicationId) return operation();
+    })
+    .catch((error) => {
+      if (expectedPublication !== announcedPublicationId) return;
+      synchronized = false;
+      showError(error);
+      refreshStatus();
+    });
+}
+
+function start() {
+  const eventSource = new EventSource('./events');
   let connection = 0;
+  const synchronize = async (snapshot, currentConnection) => {
+    if (!(await applySnapshot(snapshot))) return;
+    synchronized = currentConnection === connection && eventSource.readyState === EventSource.OPEN;
+    refreshStatus();
+  };
+  retryPreview.addEventListener('click', () => {
+    const currentPublication = announcedPublicationId;
+    if (!currentPublication || currentPublication !== failedPublicationId || retrying) return;
+    const currentConnection = connection;
+    const retry = { abort: new AbortController() };
+    retrying = retry;
+    showError();
+    refreshStatus();
+    enqueue(async () => {
+      try {
+        if (failedPublicationId !== currentPublication) return;
+        const snapshot = await requestState(retry.abort.signal);
+        if (snapshot.publicationId === currentPublication)
+          await synchronize(snapshot, currentConnection);
+      } finally {
+        if (retrying === retry) {
+          retrying = undefined;
+          refreshStatus();
+        }
+      }
+    }, currentPublication);
+  });
   eventSource.addEventListener('error', () => {
     connection++;
     synchronized = false;
     refreshStatus();
+    if (eventSource.readyState === EventSource.CLOSED)
+      void requestState().catch((error) => {
+        status.textContent = 'Could not connect';
+        showError(error);
+      });
   });
   eventSource.addEventListener('snapshot', (event) => {
     const currentConnection = connection;
-    enqueue(async () => {
-      await applySnapshot(JSON.parse(event.data));
-      synchronized =
-        currentConnection === connection && eventSource.readyState === EventSource.OPEN;
+    let snapshot;
+    try {
+      snapshot = JSON.parse(event.data);
+    } catch {
+      showError('Could not read the shared session snapshot.');
+      return;
+    }
+    if (snapshot.publicationId !== announcedPublicationId) {
+      announcedPublicationId = snapshot.publicationId;
+      synchronized = false;
+      sending?.abort.abort();
+      sending = undefined;
+      retrying?.abort.abort();
+      retrying = undefined;
+      failedPublicationId = undefined;
+      mounting?.abort();
+      showError();
       refreshStatus();
-    });
+    }
+    enqueue(() => synchronize(snapshot, currentConnection), snapshot.publicationId);
   });
   eventSource.addEventListener('command', (event) => {
     enqueue(async () => {
       const entry = JSON.parse(event.data);
+      if (entry.publicationId !== publicationId || entry.publicationId !== announcedPublicationId)
+        return;
       serverRevision = Math.max(serverRevision, entry.revision);
       refreshStatus();
-      if (entry.revision > appliedRevision + 1) await applySnapshot(await requestState());
+      if (entry.revision > appliedRevision + 1) await recoverSnapshot(entry.publicationId);
       await applyEntry(entry, false);
+      if (entry.publicationId !== announcedPublicationId) return;
       refreshForms();
       refreshStatus();
     });
   });
 }
 
-start().catch((error) => {
-  status.textContent = 'Could not connect';
-  showError(error);
-});
+installPopup();
+start();

@@ -3,7 +3,7 @@ import { formatTerminalQr } from './terminalQr';
 
 describe('terminal QR', () => {
   it('fits the longest IPv4 viewer URL in 80 columns with a quiet zone', () => {
-    const url = 'http://255.255.255.254:65535/v/AAAAAAAAAAAAAAAAAAAAAA';
+    const url = 'http://255.255.255.254:65535/preview/';
     const { columns, text } = formatTerminalQr(url);
     const rows = text.split('\n');
     expect(columns).toBe(74);
