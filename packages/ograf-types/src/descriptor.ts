@@ -19,6 +19,7 @@ import type {
   LayerLoopClip,
   GradientPaint,
   MediaCue,
+  FrameCue,
   RendererPluginSnapshot,
   FieldDefinition,
 } from '@ograf-editor/scene-model';
@@ -70,6 +71,8 @@ export interface CompiledFontResource {
 
 export interface CompiledLayer {
   id: string;
+  /** Optional author-chosen DOM key, separate from the renderer's internal identity. */
+  exportKey?: string;
   /** Optional operator-facing label for runtime ticker queue feedback. */
   name?: string;
   /** Persistent membership retained only for deterministic modifier references. */
@@ -229,6 +232,8 @@ export interface CompiledGraphicDescriptor {
   fonts?: CompiledFontResource[];
   rendererPlugins?: Array<RendererPluginSnapshot & { moduleUrl?: string }>;
   mediaCues?: MediaCue[];
+  /** Studio-authored outbound notifications, not part of the OGraf manifest. */
+  frameCues?: FrameCue[];
   /** Stable authoring field IDs used by modifiers, resolved to ordinary OGraf data keys. */
   modifierDataKeys?: Record<string, string>;
   modifierDataDefaults?: Record<string, unknown>;

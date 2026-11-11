@@ -2151,6 +2151,57 @@ and narrowly scoped communication. Playback also depends on browser support and 
 features such as WebGL, audio, webcam and external data. Validate the real hosted package in the
 target browser before publishing a tutorial.
 
+#### Find a layer by export key
+
+Select a layer and set **Export key** in Properties to give it a stable identifier in an export.
+Use up to 64 letters, digits, underscores or hyphens, starting with a letter. Keys are case
+sensitive and unique within each template. Renaming or moving the layer keeps its key, and
+duplicating it leaves the new layer's key blank.
+
+JavaScript with access to the exported web component can look up a layer on a live instance.
+The same lookup works for a single graphic or a coordinated set.
+
+```js
+const scoreline = graphic.instances[instanceId]?.layers['scoreline'];
+```
+
+`Object.values(graphic.instances)` lists the current instances. A single graphic has one entry
+after load. Coordinated entries include `templateId` and `laneId` to identify the mounts that
+are on air, including overlapping graphics during transitions. Read the map again after a
+transition. Use the graphic's data fields and OGraf `updateAction()` to change values during
+playout. Re-export a previously exported package to use the shared instance lookup.
+
+#### Receive a frame cue during playback
+
+Move the playhead to the desired frame and choose **+ Cue** in the Timeline. Set the cue's name,
+frame, and optional JSON payload, then click **Apply**. Select its marker to edit or delete it.
+
+Open **Frame Cue Log** in Studio's **Preview & Export** pane and take the graphic in or out.
+In an exported HTML preview, press **D** to show the controls and open the same section.
+The log records the 20 most recent cues during real-time playback, including their authored
+frames, instance IDs, and any payload. Coordinated cues also show their lane and template IDs.
+The count updates while the section is collapsed. Use **Clear** to start a fresh log.
+Re-export an existing HTML preview to include the panel.
+
+The graphic dispatches `ograf-studio-cue` on forward real-time playback. The event detail
+contains the cue's `id`, `name`, `frame`, `instanceId`, and optional `payload`. A coordinated
+cue also includes `templateId` and `laneId`. The frame is on the template's authored timeline.
+
+```js
+graphic.addEventListener('ograf-studio-cue', ({ detail }) => {
+  if (detail.name === 'score-revealed') {
+    const scoreline = graphic.instances[detail.instanceId]?.layers['scoreline'];
+    console.log(scoreline, detail.payload);
+  }
+});
+```
+
+Each cue fires once when playback crosses its frame, even if the browser misses a display frame.
+Playback from Start includes a cue on frame zero. Take Out fires cues in the portion of the Out
+phase that plays. In coordinated sets, cues follow phases that play the template's authored
+animation. Scrubbing, reverse playback, skips and non-real-time frame renders stay silent.
+A host in a separate renderer or cross-origin iframe needs a bridge to receive the event.
+
 ### Workspace, motion and review
 
 New browser profiles start in the **Essentials** workspace with Layers, Properties and Timeline.

@@ -851,14 +851,28 @@
   font-size: 11px;
 }
 
-.preview-developer > summary {
+.preview-developer > summary,
+.preview-frame-cue-log > summary {
   cursor: pointer;
   color: var(--text-dim);
   font-size: 11px;
 }
 
-.preview-developer[open] > summary {
+.preview-developer[open] > summary,
+.preview-frame-cue-log[open] > summary {
   margin-bottom: 4px;
+}
+
+.preview-frame-cue-log .preview-log {
+  list-style: none;
+  margin: 4px 0 0;
+  padding-inline: 0;
+}
+
+.preview-frame-cue-log .preview-log-entry {
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
 }
 
 .preview-developer-error {

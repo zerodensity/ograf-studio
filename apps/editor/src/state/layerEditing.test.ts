@@ -50,6 +50,34 @@ describe('layer editing commands', () => {
     useTimelineStore.getState().setAutoKeyframe(true);
   });
 
+  it('keeps authored export keys stable and clears them on layer copies', () => {
+    const store = useProjectStore.getState();
+    const sourceId = store.addLayer('text');
+    const otherId = store.addLayer('rectangle');
+    const layer = (id: string) => activeComposition().layers.find((item) => item.id === id)!;
+
+    store.setLayerExportKey(sourceId, '  Scoreline-1  ');
+    expect(layer(sourceId).exportKey).toBe('Scoreline-1');
+    expect(() => store.setLayerExportKey(otherId, 'Scoreline-1')).toThrow(/already used/);
+    expect(() => store.setLayerExportKey(otherId, 'invalid key')).toThrow(/start with a letter/);
+    expect(layer(otherId).exportKey).toBeUndefined();
+    store.renameLayer(sourceId, 'Renamed score');
+    store.reorderLayers([otherId, sourceId]);
+    expect(layer(sourceId).exportKey).toBe('Scoreline-1');
+
+    const [duplicate] = store.duplicateLayers([sourceId]);
+    const [pasted] = store.pasteLayers([layer(sourceId)]);
+    expect(layer(duplicate!).exportKey).toBeUndefined();
+    expect(layer(pasted!).exportKey).toBeUndefined();
+    expect(layer(sourceId).exportKey).toBe('Scoreline-1');
+
+    store.toggleLayerLock(sourceId);
+    expect(() => store.setLayerExportKey(sourceId, '')).toThrow(/Unlock/);
+    store.toggleLayerLock(sourceId);
+    store.setLayerExportKey(sourceId, '  ');
+    expect(layer(sourceId)).not.toHaveProperty('exportKey');
+  });
+
   it('pastes independent layer copies with fresh IDs and an offset', () => {
     const sourceId = useProjectStore.getState().addLayer('rectangle');
     useProjectStore.getState().updateLayerTransform(sourceId, 7, { x: 321, y: 222 });

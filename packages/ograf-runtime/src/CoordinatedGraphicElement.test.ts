@@ -50,6 +50,7 @@ const mock = vi.hoisted(() => {
     players: [] as Array<{ renderFrame(frame: number): void; disposed: boolean }>,
     mounts: [] as Array<{
       host: Host;
+      layerElement(id: string): Host | undefined;
       data: Record<string, unknown>;
       startFrame: number;
       ready: Promise<void>;
@@ -144,6 +145,7 @@ vi.mock('./transitionLogicRendering', () => ({
   sharedLayerKey: (instanceId: string, layerId: string) => JSON.stringify([instanceId, layerId]),
   mountTransitionLogicComposition: (options: {
     parent: InstanceType<typeof mock.Host>;
+    descriptor: CompiledGraphicDescriptor;
     data: Record<string, unknown>;
     startFrame: number;
     ruleDataChanged?: (patch: Record<string, unknown>, frame: number) => void;
@@ -151,9 +153,12 @@ vi.mock('./transitionLogicRendering', () => ({
   }) => {
     const host = new mock.Host();
     options.parent.append(host);
+    const layers = new Map(options.descriptor.layers.map(({ id }) => [id, new mock.Host()]));
+    host.append(...layers.values());
     const ready = mock.readiness.get(String(options.data.resource ?? '')) ?? Promise.resolve();
     const mount = {
       host,
+      layerElement: (id: string) => layers.get(id),
       data: structuredClone(options.data),
       startFrame: options.startFrame,
       ready,
@@ -177,6 +182,7 @@ vi.mock('./transitionLogicRendering', () => ({
       render: vi.fn(),
       dispose: vi.fn(() => {
         mount.disposed = true;
+        layers.clear();
         host.remove();
       }),
     };
@@ -348,6 +354,97 @@ beforeEach(() => {
   mock.players.length = 0;
   mock.mounts.length = 0;
   mock.readiness.clear();
+});
+
+describe('coordinated export instances', () => {
+  function keyedDescriptor(): CompiledTransitionLogicDescriptor {
+    const source = descriptor();
+    const layer = (
+      id: string,
+      exportKey?: string,
+    ): CompiledGraphicDescriptor['layers'][number] => ({
+      id,
+      ...(exportKey ? { exportKey } : {}),
+      isVisible: true,
+      element: createRectangleLayer().element,
+      effects: createLayerEffects(),
+      keyframes: [{ id: 'base', frame: 0, easing: 'linear', transform: createDefaultTransform() }],
+      animationTracks: {},
+      bindings: [],
+    });
+    for (const template of source.templates) {
+      template.descriptor = {
+        ...template.descriptor,
+        layers: [layer('score', 'scoreline'), layer('proxy', 'panel'), layer('unkeyed')],
+      };
+    }
+    const sharedInstance = source.sharedInstances[0]!;
+    sharedInstance.descriptor = { ...sharedInstance.descriptor, layers: [layer('backing')] };
+    return source;
+  }
+
+  it('exposes rendered incoming and outgoing instances while omitting a pending mount', async () => {
+    const graphic = await create('realtime', keyedDescriptor());
+    expect(Object.keys(graphic.instances)).toEqual([]);
+    await take(graphic, 'headline', {}, true);
+    const headline = Object.values(graphic.instances)[0]!;
+    expect(headline).toMatchObject({ templateId: 'headline', laneId: 'main' });
+    expect(Object.keys(headline.layers)).toEqual(['scoreline', 'panel']);
+    expect(headline.layers.scoreline).toBe(live()[0]!.layerElement('score'));
+    expect(headline.layers.panel).toBe(shared().layerElement('backing'));
+
+    const resource = pending();
+    mock.readiness.set('next', resource.promise);
+    const replacement = take(graphic, 'breaking', { resource: 'next' });
+    await flush();
+    expect(live().some((mount) => mount.host.dataset.ografTransitionState === 'breaking')).toBe(
+      true,
+    );
+    expect(Object.keys(graphic.instances)).toEqual([headline.instanceId]);
+    resource.resolve();
+    await flush();
+    await tick(10);
+
+    const breaking = Object.values(graphic.instances).find(
+      (item) => item.templateId === 'breaking',
+    )!;
+    expect(breaking.instanceId).not.toBe(headline.instanceId);
+    expect(breaking.laneId).toBe('main');
+    expect(breaking.layers.scoreline).not.toBe(headline.layers.scoreline);
+    expect(breaking.layers.panel).toBe(headline.layers.panel);
+    expect(graphic.instances[headline.instanceId]?.layers.scoreline).toBe(
+      headline.layers.scoreline,
+    );
+
+    await tick(25);
+    expect(await replacement).toEqual({ statusCode: 200 });
+    expect(Object.keys(graphic.instances)).toEqual([breaking.instanceId]);
+    await graphic.dispose();
+    expect(Object.keys(graphic.instances)).toEqual([]);
+  });
+
+  it('keeps a logical instance ID and chooses the incoming wrapper during a same-state update', async () => {
+    const graphic = await create('realtime', keyedDescriptor());
+    await take(graphic, 'headline', { headline: 'Before' }, true);
+    const before = Object.values(graphic.instances)[0]!;
+    const update = take(graphic, 'headline', { headline: 'After' });
+    await flush();
+    await tick(10);
+
+    const incoming = live().find((mount) => mount.data.headline === 'After')!;
+    expect(live()).toHaveLength(2);
+    expect(Object.keys(graphic.instances)).toEqual([before.instanceId]);
+    expect(graphic.instances[before.instanceId]?.layers.scoreline).toBe(
+      incoming.layerElement('score'),
+    );
+    expect(graphic.instances[before.instanceId]?.layers.scoreline).not.toBe(
+      before.layers.scoreline,
+    );
+
+    await tick(25);
+    expect(await update).toEqual({ statusCode: 200 });
+    expect(Object.keys(graphic.instances)).toEqual([before.instanceId]);
+  });
 });
 
 describe('in-place coordinated live data patches', () => {
@@ -3809,5 +3906,202 @@ describe('prepared skipped-stage presentation', () => {
     });
     expect(direct.render).toHaveBeenCalledOnce();
     expect(stateMount('b').render).toHaveBeenCalledOnce();
+  });
+});
+
+describe('coordinated authored frame cues', () => {
+  function cueSource(): CompiledTransitionLogicDescriptor {
+    const source = descriptor();
+    Object.assign(source.definition.transitions[0]!, {
+      outgoingFrames: 8,
+      incomingStartFrame: 4,
+      incomingFrames: 12,
+    });
+    for (const template of source.templates) {
+      template.descriptor = {
+        ...template.descriptor,
+        keyframes: [
+          { id: 'start', role: 'start', frame: 0 },
+          { id: 'first', role: 'step', frame: 12 },
+          { id: 'last', role: 'step', frame: 24 },
+          { id: 'end', role: 'end', frame: 36 },
+        ],
+        stepKeyframeIds: ['first', 'last'],
+        stepCount: 2,
+        startKeyframeId: 'start',
+        endKeyframeId: 'end',
+        layers: [
+          {
+            id: `${template.id}-layer`,
+            exportKey: 'score',
+            element: createRectangleLayer().element,
+            effects: createLayerEffects(),
+            isVisible: true,
+            keyframes: [],
+            animationTracks: {},
+            bindings: [],
+          },
+        ],
+        frameCues: [
+          { id: 'end', name: 'End', frame: 36 },
+          { id: 'start', name: 'Start', frame: 0 },
+          { id: 'mid-a', name: 'Mid A', frame: 6, payload: { score: 3 } },
+          { id: 'mid-b', name: 'Mid B', frame: 6 },
+          { id: 'first', name: 'First Step', frame: 12 },
+          { id: 'between', name: 'Skipped later Step', frame: 20 },
+          { id: 'last', name: 'Last Step anchor', frame: 24 },
+          { id: 'out', name: 'Out', frame: 30 },
+        ],
+      };
+    }
+    return source;
+  }
+
+  function observeCues(graphic: CoordinatedGraphicElement) {
+    const events: Array<{
+      detail: import('./graphicInstances').StudioFrameCueDetail;
+      hasLayer: boolean;
+    }> = [];
+    Object.defineProperty(graphic, 'dispatchEvent', {
+      value: (event: CustomEvent<import('./graphicInstances').StudioFrameCueDetail>) => {
+        if (event.type === 'ograf-studio-cue')
+          events.push({
+            detail: event.detail,
+            hasLayer: Boolean(graphic.instances[event.detail.instanceId]?.layers.score),
+          });
+        return true;
+      },
+    });
+    return events;
+  }
+
+  it('emits in crossing order for overlapping In/Out and keeps the terminal Out layer addressable', async () => {
+    const graphic = await create('realtime', cueSource());
+    const events = observeCues(graphic);
+    expect(await graphic.prepareSlot({ slotId: 'main', stateId: 'headline' })).toMatchObject({
+      statusCode: 200,
+    });
+    await tick(2);
+    expect(events).toEqual([]);
+    const first = graphic.takePreparedSlot({ slotId: 'main' });
+    await flush();
+    await tick(5);
+    expect(events).toEqual([]);
+    await tick(6);
+    await tick(6);
+    expect(events.map(({ detail }) => detail.id)).toEqual(['start']);
+    await tick(22);
+    expect(await first).toMatchObject({ statusCode: 200 });
+    expect(events.map(({ detail }) => detail.id)).toEqual(['start', 'mid-a', 'mid-b', 'first']);
+    expect(events[1]?.detail).toMatchObject({
+      name: 'Mid A',
+      frame: 6,
+      payload: { score: 3 },
+      templateId: 'headline',
+      laneId: 'main',
+    });
+    const outgoing = events[0]!.detail.instanceId;
+    events.length = 0;
+
+    const replacement = take(graphic, 'breaking');
+    await flush();
+    await tick(42);
+    expect(await replacement).toMatchObject({ statusCode: 200 });
+    expect(events.map(({ detail }) => [detail.templateId, detail.id])).toEqual([
+      ['headline', 'out'],
+      ['breaking', 'start'],
+      ['headline', 'end'],
+      ['breaking', 'mid-a'],
+      ['breaking', 'mid-b'],
+      ['breaking', 'first'],
+    ]);
+    expect(events.every((event) => event.hasLayer)).toBe(true);
+    expect(events[0]?.detail.instanceId).toBe(outgoing);
+    expect(events[1]?.detail.instanceId).not.toBe(outgoing);
+    expect(graphic.instances[outgoing]).toBeUndefined();
+  });
+
+  it('does not lose cues from a queued plan that starts and settles inside one clock tick', async () => {
+    const graphic = await create('realtime', cueSource());
+    const events = observeCues(graphic);
+    const first = take(graphic, 'headline');
+    await flush();
+    await tick(3);
+    const queued = take(graphic, 'breaking');
+    await flush();
+    await tick(45);
+    expect(await first).toMatchObject({ statusCode: 200 });
+    expect(await queued).toMatchObject({ statusCode: 200 });
+    expect(events.map(({ detail }) => `${detail.templateId}:${detail.id}`)).toEqual([
+      'headline:start',
+      'headline:mid-a',
+      'headline:mid-b',
+      'headline:first',
+      'headline:out',
+      'breaking:start',
+      'headline:end',
+      'breaking:mid-a',
+      'breaking:mid-b',
+      'breaking:first',
+    ]);
+    expect(events.every((event) => event.hasLayer)).toBe(true);
+  });
+
+  it('emits through whole-graphic Play boundary splitting and ignores backward samples', async () => {
+    const graphic = await create('realtime', cueSource());
+    const events = observeCues(graphic);
+    expect(
+      await graphic.updateAction({ data: { slots: { main: { stateId: 'headline', data: {} } } } }),
+    ).toMatchObject({ statusCode: 200 });
+    const play = graphic.playAction({ goto: 0 });
+    await flush();
+    await tick(10);
+    expect(events.map(({ detail }) => detail.frame)).toEqual([0, 0, 6, 6, 6, 6]);
+    expect(new Set(events.map(({ detail }) => detail.laneId))).toEqual(new Set(['main', 'ticker']));
+    await tick(9);
+    await tick(10);
+    expect(events).toHaveLength(6);
+    await tick(25);
+    expect(await play).toMatchObject({ statusCode: 200 });
+    for (const lane of ['main', 'ticker'])
+      expect(
+        events.filter(({ detail }) => detail.laneId === lane).map(({ detail }) => detail.id),
+      ).toEqual(['start', 'mid-a', 'mid-b', 'first']);
+  });
+
+  it('keeps cuts, cleared windows and offline schedule seeks silent', async () => {
+    const graphic = await create('realtime', cueSource());
+    const events = observeCues(graphic);
+    expect(await take(graphic, 'headline', {}, true)).toMatchObject({ statusCode: 200 });
+    await tick(2);
+    const taking = take(graphic, 'breaking');
+    await flush();
+    await tick(3);
+    expect(
+      await graphic.customAction({ id: 'transition.clear', payload: { slotId: 'main' } }),
+    ).toMatchObject({ statusCode: 200 });
+    await tick(40);
+    expect(await taking).toMatchObject({ statusCode: 200 });
+    expect(events).toEqual([]);
+
+    const offline = await create('non-realtime', cueSource());
+    const offlineEvents = observeCues(offline);
+    expect(
+      await offline.setActionsSchedule({
+        schedule: [
+          {
+            timestamp: 0,
+            action: {
+              type: 'customAction',
+              params: { id: 'transition.take', payload: { slotId: 'main', stateId: 'headline' } },
+            },
+          },
+          { timestamp: 600, action: { type: 'stopAction', params: {} } },
+        ],
+      }),
+    ).toMatchObject({ statusCode: 200 });
+    for (const timestamp of [1400, 200, 1400])
+      expect(await offline.goToTime({ timestamp })).toMatchObject({ statusCode: 200 });
+    expect(offlineEvents).toEqual([]);
   });
 });

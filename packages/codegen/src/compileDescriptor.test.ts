@@ -39,6 +39,18 @@ const POSE = {
 };
 
 describe('compileDescriptor', () => {
+  it('includes author-chosen keys only for keyed layers in the exported descriptor', () => {
+    const keyed = createLayerOfKind('text');
+    keyed.exportKey = 'scoreline';
+    const unkeyed = createLayerOfKind('rectangle');
+    const descriptor = compileDescriptor(compositionWith([keyed, unkeyed]));
+    expect(descriptor.layers[0]).toMatchObject({ id: keyed.id, exportKey: 'scoreline' });
+    expect(descriptor.layers[1]).not.toHaveProperty('exportKey');
+    expect(generateMainJs(descriptor, 'class GraphicElement {}')).toContain(
+      '"exportKey":"scoreline"',
+    );
+  });
+
   it('retains keyboard events, guards, delayed targets and data actions in standalone output', () => {
     const layer = createLayerOfKind('rectangle');
     const field = createFieldDefinition('integer', { key: 'count', defaultValue: 0 });

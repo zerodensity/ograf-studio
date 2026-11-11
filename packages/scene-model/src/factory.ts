@@ -679,6 +679,7 @@ export function createComposition(overrides: Partial<Composition> = {}): Composi
     runtimeCollections: [],
     dataConnections: [],
     mediaCues: [],
+    frameCues: [],
     patterns: [],
     rendererPlugins: [],
     customActions: [],

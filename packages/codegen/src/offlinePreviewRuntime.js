@@ -189,6 +189,59 @@ function createOfflinePreviewView(report, onControlsVisibilityChange) {
   };
 }
 
+/** Record the cue events emitted by the mounted single or coordinated graphic. */
+function installFrameCueLog(graphic) {
+  const doc = graphic.ownerDocument;
+  const entries = doc.getElementById('frame-cue-entries');
+  const count = doc.getElementById('frame-cue-count');
+  const empty = doc.getElementById('frame-cue-empty');
+  const clear = doc.getElementById('frame-cue-clear');
+  const limit = 20;
+
+  function refresh() {
+    count.textContent = String(entries.childElementCount);
+    empty.hidden = entries.childElementCount > 0;
+    clear.disabled = !empty.hidden;
+  }
+
+  function onCue({ detail }) {
+    if (!detail || typeof detail.name !== 'string' || !Number.isSafeInteger(detail.frame)) return;
+    const item = doc.createElement('li');
+    const name = doc.createElement('strong');
+    name.textContent = detail.name;
+    const metadata = doc.createElement('small');
+    metadata.textContent = [
+      `Frame ${detail.frame}`,
+      detail.instanceId && `Instance ${detail.instanceId}`,
+      detail.laneId && `Lane ${detail.laneId}`,
+      detail.templateId && `Template ${detail.templateId}`,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    item.append(name, metadata);
+    if (detail.payload !== undefined) {
+      const payload = doc.createElement('code');
+      payload.textContent = JSON.stringify(detail.payload);
+      item.append(payload);
+    }
+    entries.prepend(item);
+    if (entries.childElementCount > limit) entries.lastElementChild.remove();
+    refresh();
+  }
+
+  function clearLog() {
+    entries.replaceChildren();
+    refresh();
+  }
+
+  graphic.addEventListener('ograf-studio-cue', onCue);
+  clear.addEventListener('click', clearLog);
+  return () => {
+    graphic.removeEventListener('ograf-studio-cue', onCue);
+    clear.removeEventListener('click', clearLog);
+  };
+}
+
 (async function () {
   'use strict';
   const payload = JSON.parse(document.getElementById('ograf-package').textContent);
@@ -220,6 +273,7 @@ function createOfflinePreviewView(report, onControlsVisibilityChange) {
   let currentStep;
   let scheduler;
   let fpsMonitor;
+  let releaseFrameCueLog;
   let playoutMutations = 0;
   const laneForms = new Map();
 
@@ -919,6 +973,7 @@ function createOfflinePreviewView(report, onControlsVisibilityChange) {
     fpsMonitor = undefined;
     fpsToggle.removeEventListener('change', refreshFpsVisibility);
     releaseControlsInteraction();
+    releaseFrameCueLog?.();
     view.dispose();
     nodosBinding?.dispose();
     try {
@@ -966,6 +1021,7 @@ function createOfflinePreviewView(report, onControlsVisibilityChange) {
     const tag = `ograf-offline-${Math.random().toString(36).slice(2)}`;
     customElements.define(tag, class extends module.default {});
     graphic = document.createElement(tag);
+    releaseFrameCueLog = installFrameCueLog(graphic);
     stage.appendChild(graphic);
     view.setDimensions(width, height);
     const load = async () =>

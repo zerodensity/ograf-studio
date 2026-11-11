@@ -97,6 +97,31 @@ function fixture() {
 }
 
 describe('persistent component inheritance', () => {
+  it('keeps export keys with authored instances through reconciliation and reset', () => {
+    const composition = createComposition();
+    const source = authored('text');
+    source.exportKey = 'scoreline';
+    composition.layers.push(source);
+    const definition = buildComponentDefinition(composition, [source.id], 'Score');
+    expect(definition.layers[0]).not.toHaveProperty('exportKey');
+    composition.components.push(definition);
+    linkExistingComponentLayers(composition, definition, [source.id]);
+    const duplicate = instantiateComponentDefinition(composition, definition).layers[0]!;
+    composition.layers.push(duplicate);
+    expect(duplicate).not.toHaveProperty('exportKey');
+    duplicate.exportKey = 'away-score';
+
+    definition.layers[0]!.name = 'Updated source';
+    reconcileComponentInstances(composition);
+    resetComponentInstanceOverrides(composition, [source.id, duplicate.id]);
+    expect(composition.layers.map((layer) => layer.exportKey)).toEqual(['scoreline', 'away-score']);
+    expect(
+      composition.layers.every(
+        (layer) => !layer.componentLink?.overridePaths?.includes('/exportKey'),
+      ),
+    ).toBe(true);
+  });
+
   it('keeps an explicitly deleted inherited pose absent without freezing unrelated source changes', () => {
     const { composition, definition, duplicate, headline } = fixture();
     const localId = duplicate.layerIds[headline.id]!;

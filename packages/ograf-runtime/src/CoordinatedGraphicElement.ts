@@ -44,12 +44,21 @@ import {
   planTransitionLogicPlay,
   safeTransitionLogicStartupStates,
   visualRulePlayoutActionErrors,
+  type FrameCue,
   type TransitionLogicDefinition,
   type TransitionLogicEvent,
+  type TransitionLogicPlan,
   type TransitionLogicSelection,
   type TransitionLogicSession,
+  type TransitionLogicSlotSample,
 } from '@ograf-editor/scene-model';
 import { FramePlayer } from './framePlayer';
+import {
+  collectExportedLayers,
+  dispatchStudioFrameCue,
+  type GraphicInstance,
+  type GraphicInstances,
+} from './graphicInstances';
 import {
   PreparedInstanceCache,
   DEFAULT_PREPARED_INSTANCE_BYTES,
@@ -65,7 +74,10 @@ import {
   type TransitionLogicUpdateMotion,
   type RuntimePlayoutRuleAction,
 } from './transitionLogicRendering';
-import type { TransitionLogicLifecyclePose } from './transitionLogicLifecycle';
+import {
+  sampleTransitionLogicLifecycle,
+  type TransitionLogicLifecyclePose,
+} from './transitionLogicLifecycle';
 import {
   applyTransitionLogicContentPose,
   sampleTransitionLogicContentAnimation,
@@ -75,6 +87,14 @@ const TIMEOUT_MS = 30_000;
 const MAX_SCHEDULE = 10_000;
 const MAX_RULE_CHAIN = 32;
 const MAX_PENDING_RULES = 10_000;
+
+interface CoordinatedFrameCueWindow {
+  planId: string;
+  laneId: string;
+  selection: TransitionLogicSelection;
+  cues: Array<{ at: number; cue: FrameCue }>;
+  next: number;
+}
 /**
  * Pose a template's content during a transition. Visibility runs 0..1: fade changes opacity, slide
  * also moves content up out of and into place, and wipe reveals the incoming content from the left
@@ -260,6 +280,9 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
   #surface: HTMLDivElement | null = null;
   #player: FramePlayer | null = null;
   #mounts = new Map<string, TransitionLogicMount>();
+  #renderedSlots: readonly Pick<TransitionLogicSlotSample, 'slotId' | 'incoming' | 'outgoing'>[] =
+    [];
+  #frameCueInstances: { selection: TransitionLogicSelection; slotId: string }[] = [];
   #instanceCache = new PreparedInstanceCache<CachedPreparedInstance>({
     dispose: (entry) => entry.mount.dispose(),
   });
@@ -308,6 +331,8 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
   #recordedActions: ScheduledAction[] = [];
   #recordingTruncated = false;
   #skipRequests = new Map<string, boolean>();
+  #hasFrameCues = false;
+  #frameCueWindows: CoordinatedFrameCueWindow[] = [];
   #takeovers = new Map<string, string[]>();
   #takeoverOutRequests = new Set<string>();
   #ruleWork: Array<TransitionLogicRuleWork & { cause: string[]; order: number }> = [];
@@ -333,6 +358,61 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
 
   get transitionDescriptor(): CompiledTransitionLogicDescriptor {
     return (this.constructor as typeof CoordinatedGraphicElement).transitionDescriptor;
+  }
+
+  /** Snapshot the mounted layer wrappers when a host reads the lookup. */
+  get instances(): GraphicInstances {
+    const instances: Record<string, GraphicInstance> = Object.create(null);
+    const add = (selection: TransitionLogicSelection | null, laneId: string) => {
+      if (!selection || Object.hasOwn(instances, selection.instanceId)) return;
+      const mount = this.#mounts.get(snapshotKey(selection));
+      if (!mount) return;
+      const template = this.#template(selection.templateId);
+      const sharedLayers = new Map(template.sharedLayers.map((link) => [link.layerId, link]));
+      const layers = collectExportedLayers(template.descriptor.layers, (id) => {
+        const shared = sharedLayers.get(id);
+        return shared
+          ? this.#shared.get(shared.instanceId)?.layerElement(shared.sourceLayerId)
+          : mount.layerElement(id);
+      });
+      instances[selection.instanceId] = Object.freeze({
+        instanceId: selection.instanceId,
+        templateId: selection.templateId,
+        laneId,
+        layers: Object.freeze(layers),
+      });
+    };
+    for (const slot of this.#renderedSlots) {
+      // Same-state updates can render two snapshots of one logical instance.
+      add(slot.incoming, slot.slotId);
+      add(slot.outgoing, slot.slotId);
+    }
+    for (const { selection, slotId } of this.#frameCueInstances) add(selection, slotId);
+    return Object.freeze(instances);
+  }
+
+  #withFrameCueInstance(
+    selection: TransitionLogicSelection,
+    slotId: string,
+    emit: () => void,
+  ): void {
+    const rendered = this.#renderedSlots.some(
+      (slot) =>
+        slot.incoming?.instanceId === selection.instanceId ||
+        slot.outgoing?.instanceId === selection.instanceId,
+    );
+    if (rendered || !this.#mounts.has(snapshotKey(selection))) {
+      emit();
+      return;
+    }
+    // A terminal cue is delivered while its mount is still available, before pruning.
+    const instances = this.#frameCueInstances;
+    instances.push({ selection, slotId });
+    try {
+      emit();
+    } finally {
+      instances.pop();
+    }
   }
 
   handleKeyboardInput(trigger: RuntimeKeyboardTrigger, input: VisualRuleKeyboardInput): boolean {
@@ -643,6 +723,8 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
     this.#cancelPlayBatch('Graphic was disposed or reloaded.');
     ++this.#generation;
     this.#loaded = false;
+    this.#renderedSlots = [];
+    this.#frameCueInstances = [];
     this.#cancelPrepared(undefined, false);
     for (const entry of this.#probeReleases) entry.mount.dispose();
     this.#probeReleases.clear();
@@ -679,6 +761,8 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
     this.#recordedActions = [];
     this.#recordingTruncated = false;
     this.#skipRequests.clear();
+    this.#hasFrameCues = false;
+    this.#frameCueWindows = [];
     this.#takeovers.clear();
     this.#takeoverOutRequests.clear();
     this.#retainedData.clear();
@@ -904,8 +988,7 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
             : [],
         ),
       );
-      this.#dispatch({ type: 'advance', frame: next });
-      this.#render(next);
+      this.#advanceAndRender(next);
       await this.#readyVisible();
       await this.#drainRules(next);
       await this.#progressPlayBatch();
@@ -1108,10 +1191,7 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
         const target = this.#realtimeFrameTarget;
         if (target <= this.#frame) return;
         if (this.#playBatch && !this.#playBatch.preparing) await this.#advanceWithRules(target);
-        else {
-          this.#dispatch({ type: 'advance', frame: target });
-          this.#render(target);
-        }
+        else this.#advanceAndRender(target);
       }
     })();
     this.#realtimeAdvance = work;
@@ -2380,7 +2460,105 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
     });
   }
 
-  #dispatch(event: TransitionLogicEvent): void {
+  #armFrameCues(plan: TransitionLogicPlan): void {
+    if (
+      !this.#hasFrameCues ||
+      this.#renderType !== 'realtime' ||
+      this.#skipRequests.get(plan.requestId) ||
+      plan.endFrame <= plan.startFrame ||
+      plan.from?.instanceId === plan.to?.instanceId
+    )
+      return;
+    const recipe = this.#definition!.transitions.find((entry) => entry.id === plan.transitionId)!;
+    for (const phase of ['out', 'in'] as const) {
+      const outgoing = phase === 'out';
+      const selection = outgoing ? plan.from : plan.to;
+      const durationFrames = outgoing ? recipe.outgoingFrames : recipe.incomingFrames;
+      const choice = outgoing ? recipe.outgoingAnimation : recipe.incomingAnimation;
+      // A wrapper preset holds the authored pose, and a cut does not traverse it at all.
+      if (!selection || durationFrames <= 0 || (choice && choice.type !== 'template')) continue;
+      const descriptor = this.#template(selection.templateId).descriptor;
+      if (!descriptor.frameCues?.length) continue;
+      const startFrame = plan.startFrame + (outgoing ? 0 : recipe.incomingStartFrame);
+      const lifecycle = { phase, startFrame, durationFrames };
+      const from = sampleTransitionLogicLifecycle(
+        descriptor,
+        startFrame,
+        startFrame,
+        lifecycle,
+      ).frame;
+      const to = sampleTransitionLogicLifecycle(
+        descriptor,
+        startFrame + durationFrames,
+        startFrame,
+        lifecycle,
+      ).frame;
+      if (to <= from) continue;
+      const cues = descriptor.frameCues
+        .filter((cue) => (cue.frame > from || (!outgoing && cue.frame === from)) && cue.frame <= to)
+        .map((cue) => ({
+          at: startFrame + ((cue.frame - from) / (to - from)) * durationFrames,
+          cue,
+        }))
+        .sort((a, b) => a.at - b.at);
+      if (cues.length)
+        this.#frameCueWindows.push({
+          planId: plan.id,
+          laneId: plan.slotId,
+          selection,
+          cues,
+          next: 0,
+        });
+    }
+  }
+
+  #discardUnplayedCueWindows(): void {
+    if (!this.#frameCueWindows.length) return;
+    const plans = new Set(Object.values(this.#session!.slots).map((slot) => slot.transition?.id));
+    this.#frameCueWindows = this.#frameCueWindows.filter(
+      (window) => window.next < window.cues.length && plans.has(window.planId),
+    );
+  }
+
+  #emitFrameCues(frame: number, generation: number): void {
+    const crossed: Array<{ window: CoordinatedFrameCueWindow; at: number; cue: FrameCue }> = [];
+    for (const window of this.#frameCueWindows) {
+      while (window.next < window.cues.length && window.cues[window.next]!.at <= frame) {
+        const hit = window.cues[window.next++]!;
+        crossed.push({ window, ...hit });
+      }
+    }
+    crossed.sort((a, b) => a.at - b.at);
+    for (const { window, cue } of crossed) {
+      if (!this.#loaded || generation !== this.#generation) break;
+      const { selection, laneId } = window;
+      this.#withFrameCueInstance(selection, laneId, () =>
+        dispatchStudioFrameCue(this, cue, {
+          instanceId: selection.instanceId,
+          templateId: selection.templateId,
+          laneId,
+        }),
+      );
+    }
+  }
+
+  #advanceAndRender(frame: number): void {
+    if (this.#renderType === 'realtime' && frame < this.#frame) return;
+    const generation = this.#generation;
+    const cues = this.#hasFrameCues && this.#renderType === 'realtime' && frame > this.#frame;
+    try {
+      this.#dispatch({ type: 'advance', frame }, cues);
+      this.#render(frame);
+      if (cues) this.#emitFrameCues(frame, generation);
+    } finally {
+      if (cues && generation === this.#generation && this.#session) {
+        this.#discardUnplayedCueWindows();
+        this.#prune();
+      }
+    }
+  }
+
+  #dispatch(event: TransitionLogicEvent, retainCueMounts = false): void {
     if (event.type !== 'advance') this.#cancelWarmup();
     const beforeSelections = new Map(
       Object.entries(this.#session!.slots).map(([id, slot]) => [
@@ -2501,6 +2679,7 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
             effect.plan.startFrame,
           );
         plans.set(effect.slotId, effect.plan);
+        this.#armFrameCues(effect.plan);
         if (effect.plan.to) {
           const key = snapshotKey(effect.plan.to);
           this.#starts.set(key, effect.plan.startFrame);
@@ -2631,7 +2810,10 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
         }
       }
     }
-    this.#prune();
+    if (!retainCueMounts) {
+      this.#discardUnplayedCueWindows();
+      this.#prune();
+    }
     this.#acknowledgeFinalPlayBarrier();
     this.#publish(event.type !== 'advance' || result.effects.length > 0);
     this.#kickRules();
@@ -2880,6 +3062,7 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
         if (mount.host.style.visibility) mount.host.style.visibility = '';
       }
     }
+    this.#renderedSlots = sample.slots;
     if (this.#surface) this.#surface.style.visibility = '';
   }
 
@@ -3314,6 +3497,9 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
       )
         throw new Error('Replay clock epoch must be a finite JavaScript date timestamp.');
       this.#descriptor = jsonCopy(this.transitionDescriptor);
+      this.#hasFrameCues = this.#descriptor.templates.some(
+        (template) => !!template.descriptor.frameCues?.length,
+      );
       if (
         this.#descriptor.version !== 1 ||
         !Number.isFinite(this.#descriptor.frameRate) ||
@@ -3375,8 +3561,7 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
             }
             this.#realtimeFrameTarget = frame;
             try {
-              this.#dispatch({ type: 'advance', frame });
-              this.#render(frame);
+              this.#advanceAndRender(frame);
             } catch (cause) {
               this.#renderError = cause instanceof Error ? cause : new Error(String(cause));
               this.#failPlayBatch(this.#renderError);

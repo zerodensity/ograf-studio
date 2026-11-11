@@ -53,6 +53,30 @@ describe('canonical OGraf validation', () => {
     );
   });
 
+  it('rejects duplicate or malformed layer export keys in imported templates', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const first = createLayerOfKind('text');
+    const second = createLayerOfKind('rectangle');
+    first.keyframes = [createLayerKeyframe(0, defaultTransformForRole('text', 'step'))];
+    second.keyframes = [createLayerKeyframe(0, defaultTransformForRole('rectangle', 'step'))];
+    first.exportKey = 'Scoreline';
+    second.exportKey = 'scoreline';
+    composition.layers = [first, second];
+    expect(validateProject(project).errors).toEqual([]);
+
+    second.exportKey = 'Scoreline';
+    expect(validateProject(project).errors).toContainEqual(
+      expect.stringContaining('duplicate layer export key "Scoreline"'),
+    );
+    for (const key of ['bad key', '', 'a'.repeat(65), 7]) {
+      second.exportKey = key as string;
+      expect(validateProject(project).errors).toContainEqual(
+        expect.stringContaining('An export key must start with a letter'),
+      );
+    }
+  });
+
   it('accepts interactive keyboard rules and rejects missing or malformed keys', () => {
     const project = createProject();
     const layer = createLayerOfKind('rectangle');

@@ -37,6 +37,11 @@ export function assessStaticExitHold(
     return fail(
       'Timed media, functions, actions, collections or connections require authored timing.',
     );
+  if (
+    Array.isArray(composition.frameCues) &&
+    composition.frameCues.some((cue) => cue?.frame > stepFrame && cue.frame <= startFrame)
+  )
+    return fail('Frame cues in the proposed hold require authored timing.');
   for (const layer of composition.layers) {
     if (layer.isGuide) continue;
     const element = layer.element;

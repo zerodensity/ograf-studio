@@ -45,6 +45,8 @@ import {
   visualRuleKeyboardErrors,
   validateLogicFunctionDefinitions,
   layerTransformBindingErrors,
+  layerExportKeyError,
+  frameCueErrors,
   type VisualRuleOperator,
   type VisualRuleTrigger,
 } from '@ograf-editor/scene-model';
@@ -497,6 +499,8 @@ function validateComposition(composition: Composition, errors: string[], warning
   for (const error of validateLogicFunctionDefinitions(composition.functions, composition))
     errors.push(`Composition "${composition.name}": ${error}`);
   const prefix = `Composition "${composition.name}"`;
+  for (const error of frameCueErrors(composition.frameCues, getTotalFrames(composition)))
+    errors.push(`${prefix}: ${error}`);
   const connections = composition.dataConnections ?? [];
   if (!Array.isArray(connections) || connections.length > MAX_DATA_CONNECTIONS)
     errors.push(
@@ -755,6 +759,16 @@ function validateComposition(composition: Composition, errors: string[], warning
   }
   for (const duplicate of duplicates(composition.layers.map((layer) => layer.id))) {
     errors.push(`${prefix}: duplicate layer id "${duplicate}".`);
+  }
+  const layerExportKeys = new Set<string>();
+  for (const layer of composition.layers) {
+    const error = layerExportKeyError(layer.exportKey);
+    if (error) errors.push(`${prefix}: layer "${layer.name}": ${error}`);
+    else if (layer.exportKey !== undefined) {
+      if (layerExportKeys.has(layer.exportKey))
+        errors.push(`${prefix}: duplicate layer export key "${layer.exportKey}".`);
+      layerExportKeys.add(layer.exportKey);
+    }
   }
   for (const duplicate of duplicates(composition.assets.map((asset) => asset.id))) {
     errors.push(`${prefix}: duplicate asset id "${duplicate}".`);
