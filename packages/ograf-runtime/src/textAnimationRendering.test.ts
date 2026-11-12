@@ -3,6 +3,7 @@ import {
   createDefaultGradient,
   createShaderElement,
   createTextElement,
+  normalizeTextPropertyAnimator,
   sampleTextCountAnimation,
   sampleTextCountRoll,
   type TextAnimation,
@@ -39,14 +40,32 @@ class TextNode {
   textContent = '';
   ownerDocument = { createElement: () => new TextNode() };
   attributes: Record<string, string> = {};
+  private detach?: () => void;
+
+  get childNodes(): TextNode[] {
+    if (!this.textContent) return [...this.children];
+    const text = new TextNode();
+    text.textContent = this.textContent;
+    text.detach = () => {
+      this.textContent = '';
+    };
+    return [text, ...this.children];
+  }
 
   appendChild(child: TextNode) {
+    child.detach?.();
     this.children.push(child);
+    child.detach = () => {
+      this.children = this.children.filter((item) => item !== child);
+    };
     return child;
   }
 
-  append(value: string) {
-    this.textContent += value;
+  append(...values: Array<string | TextNode>) {
+    for (const value of values) {
+      if (typeof value === 'string') this.textContent += value;
+      else this.appendChild(value);
+    }
   }
 
   setAttribute(name: string, value: string) {
@@ -156,6 +175,92 @@ describe.each(['gradient', 'shader'] as const)('%s text entrance sampling', (pai
     renderTextAnimationAtFrame(host, element, 10);
     expect(segments[0]!.style.transform).toBe('');
     expect(segments[0]!.style.backfaceVisibility).toBe('');
+  });
+});
+
+describe('Arabic-script text entrance shaping', () => {
+  it('animates one intact mixed Urdu block across completion, backward seek and replay', () => {
+    const content = 'سَلام، خبر 42 (Live)\nپاکستان ۲۰۲۶';
+    const node = new TextNode();
+    const host = node as unknown as HTMLElement;
+    const element = createTextElement({ content, language: 'ur', direction: 'auto' });
+    element.textAnimation = {
+      ...element.textAnimation,
+      type: 'rise',
+      split: 'grapheme',
+      durationFrames: 8,
+    };
+    mountTextAnimationContent(host, element);
+    const segments = node.querySelectorAll('[data-ograf-text-segment]');
+    expect(segments).toHaveLength(1);
+    const block = segments[0]!;
+    expect(node.querySelector('[data-ograf-text-shaping-group]')).toBe(block);
+    expect(block.textContent).toBe(content);
+
+    const sample = (frame: number) => {
+      renderTextAnimationAtFrame(host, element, frame);
+      expect(node.querySelector('[data-ograf-text-shaping-group]')).toBe(block);
+      expect(block.textContent).toBe(content);
+      return { ...block.style };
+    };
+    expect(sample(0)).toMatchObject({ opacity: '0', transform: 'translateY(0.75em)' });
+    const halfway = sample(4);
+    expect(halfway).toMatchObject({ opacity: '0.875', transform: 'translateY(0.09375em)' });
+    const complete = sample(8);
+    expect(complete).toMatchObject({ opacity: '1', transform: '' });
+    expect(sample(100)).toEqual(complete);
+    expect(sample(4)).toEqual(halfway);
+    expect(sample(0)).toMatchObject({ opacity: '0', transform: 'translateY(0.75em)' });
+  });
+
+  it('keeps a property animator on a single inner flow alongside the Rise transform', () => {
+    const content = 'سَلام، خبر 42';
+    const node = new TextNode();
+    const host = Object.assign(node, {
+      matches: (selector: string) => selector === '[data-ograf-modifier-text="true"]',
+      closest: () => null,
+    }) as unknown as HTMLElement;
+    const element = createTextElement({ content, language: 'ur' });
+    element.textAnimation = {
+      ...element.textAnimation,
+      type: 'rise',
+      durationFrames: 8,
+      animators: [normalizeTextPropertyAnimator({ durationFrames: 16, properties: { x: 12 } })],
+    };
+    mountTextAnimationContent(host, element);
+    const outer = node.querySelector('[data-ograf-text-shaping-group]')!;
+    const inners = outer.querySelectorAll('[data-ograf-text-animator-glyph]');
+    expect(inners).toHaveLength(1);
+    const inner = inners[0]!;
+
+    for (const [frame, rise, translation] of [
+      [4, 'translateY(0.09375em)', 'translate(6px, 0px)'],
+      [8, '', 'translate(0px, 0px)'],
+      [4, 'translateY(0.09375em)', 'translate(6px, 0px)'],
+    ] as const) {
+      renderTextAnimationAtFrame(host, element, frame);
+      expect(outer.style.transform).toBe(rise);
+      expect(inner.style.transform).toBe(`${translation} rotate(0deg) scale(1)`);
+      expect(outer.querySelectorAll('[data-ograf-text-animator-glyph]')).toEqual([inner]);
+      expect(textContents(outer)).toBe(content);
+    }
+  });
+
+  it.each([
+    { content: 'سَلام خبر', split: 'word', expected: ['سَلام', 'خبر'] },
+    { content: '١٢۳', split: 'grapheme', expected: ['١', '٢', '۳'] },
+    // Tatweel can also appear in Latin text on a path, which requires individual graphemes.
+    { content: 'A\u0640B', split: 'grapheme', expected: ['A', '\u0640', 'B'] },
+  ] as const)('keeps $split units for $content', ({ content, split, expected }) => {
+    const node = new TextNode();
+    const host = node as unknown as HTMLElement;
+    const element = createTextElement({ content, language: 'ur' });
+    element.textAnimation = { ...element.textAnimation, type: 'rise', split };
+    mountTextAnimationContent(host, element);
+    expect(node.querySelector('[data-ograf-text-shaping-group]')).toBeNull();
+    expect(
+      node.querySelectorAll('[data-ograf-text-segment]').map((unit) => textContents(unit)),
+    ).toEqual(expected);
   });
 });
 

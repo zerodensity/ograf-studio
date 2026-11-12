@@ -17,6 +17,7 @@ import {
   textAnimationSegmentProgress,
   textAnimationSegmentVisual,
   textAnimationSplit,
+  usesShapedTextMotion,
   visibleTextAnimationSegmentCount,
   type TextElement,
   type TextRun,
@@ -726,14 +727,19 @@ export function mountTextAnimationContent(
   }
   let animationIndex = 0;
   const split = textAnimationSplit(animation);
-  for (const record of segmentTextAnimationUnits(source, split, element.language)) {
+  const shapedMotion = usesShapedTextMotion(source, animation);
+  const records = shapedMotion
+    ? [{ text: source, index: 0 }]
+    : segmentTextAnimationUnits(source, split, element.language);
+  for (const record of records) {
     if (!isAnimatedTextSegment(record, split)) {
       flow.append(record.text);
       continue;
     }
     const segment = content.ownerDocument.createElement('span');
     segment.dataset.ografTextSegment = String(animationIndex);
-    segment.style.display = 'inline-block';
+    segment.style.display = shapedMotion ? 'block' : 'inline-block';
+    if (shapedMotion) segment.dataset.ografTextShapingGroup = 'true';
     segment.style.visibility = animation.type === 'typewriter' ? 'hidden' : SHOWN;
     segment.style.opacity =
       animation.type === 'typewriter' || animation.type === 'none' ? '1' : '0';
