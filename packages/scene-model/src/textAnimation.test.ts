@@ -92,6 +92,37 @@ describe('text animation model', () => {
     expect(textAnimationVisibleText(element, 10)).toBe('AB');
   });
 
+  it('samples a mixed Urdu entrance as one visible unit without changing word or digit timing', () => {
+    const content = 'سَلام، خبر 42 (Live)\nپاکستان ۲۰۲۶';
+    const animation = {
+      ...DEFAULT_TEXT_ANIMATION,
+      type: 'rise',
+      durationFrames: 8,
+    } as const;
+    const mixed = createTextElement({ content, language: 'ur', textAnimation: animation });
+    expect(textAnimationVisibleText(mixed, 0)).toBe('');
+    expect(textAnimationVisibleText(mixed, 3)).toBe('');
+    expect(textAnimationVisibleText(mixed, 4)).toBe(content);
+    expect(textAnimationVisibleText(mixed, 8)).toBe(content);
+    expect(textAnimationVisibleText(mixed, 3)).toBe('');
+
+    const words = createTextElement({
+      content: 'سَلام خبر',
+      language: 'ur',
+      textAnimation: { ...animation, split: 'word' },
+    });
+    expect(textAnimationVisibleText(words, 4).trimEnd()).toBe('سَلام');
+    expect(textAnimationVisibleText(words, 8)).toBe(words.content);
+
+    const digits = createTextElement({
+      content: '١٢۳',
+      language: 'ur',
+      textAnimation: animation,
+    });
+    expect(textAnimationVisibleText(digits, 4)).toBe('١٢');
+    expect(textAnimationVisibleText(digits, 8)).toBe(digits.content);
+  });
+
   it('keeps every entrance preset available through normalization', () => {
     for (const type of [
       'fade',

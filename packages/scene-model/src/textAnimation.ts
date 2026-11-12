@@ -587,6 +587,25 @@ export function visibleTextAnimationSegmentCount(
   return Math.min(total, Math.floor(progress * total + 1e-9));
 }
 
+const shapedTextMotionPresets: ReadonlySet<TextAnimation['type']> = new Set([
+  'fade',
+  'rise',
+  'pop',
+  'flip',
+  'blur',
+  'rotate',
+  'stretch',
+]);
+
+/** Keep Arabic letters, marks and surrounding bidi text in one browser-shaped run. */
+export function usesShapedTextMotion(source: string, animation: TextAnimation): boolean {
+  return (
+    animation.split === 'grapheme' &&
+    shapedTextMotionPresets.has(animation.type) &&
+    /(?=\p{Letter})\p{Script=Arabic}/u.test(source)
+  );
+}
+
 export function textAnimationVisibleText(element: TextElement, frame: number): string {
   const animation = normalizeTextAnimation(element.textAnimation);
   if (animation.type === 'none') return element.content;
@@ -595,6 +614,8 @@ export function textAnimationVisibleText(element: TextElement, frame: number): s
     : element.content;
   if (isCountingTextAnimation(animation.type))
     return sampleTextCountAnimation(source, animation, frame, element.language) ?? source;
+  if (usesShapedTextMotion(source, animation))
+    return textAnimationSegmentProgress(0, 1, frame, animation.durationFrames) >= 0.5 ? source : '';
   const split = textAnimationSplit(animation);
   const units = segmentTextAnimationUnits(source, split, element.language);
   const total = units.filter((unit) => isAnimatedTextSegment(unit, split)).length;
