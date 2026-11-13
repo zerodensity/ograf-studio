@@ -685,7 +685,9 @@ describe('authored standalone Out property keys', () => {
     const layer = host.shadowRoot!.children.find(
       (child) => child.dataset.ografLayerId === 'staged-out',
     )!;
-    expect(Number.parseFloat(layer.style.transform.slice('translate('.length))).toBeCloseTo(x);
+    const transform = layer.style.transform;
+    if (!transform?.startsWith('translate(')) throw new Error('Expected a translated Out layer.');
+    expect(Number.parseFloat(transform.slice('translate('.length))).toBeCloseTo(x);
     expect(Number(layer.style.opacity)).toBeCloseTo(opacity);
   }
 
