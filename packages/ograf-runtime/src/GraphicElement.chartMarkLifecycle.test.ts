@@ -4,9 +4,11 @@ import {
   createChartElement,
   createDefaultTransform,
   createLayerEffects,
+  createLayerLoopClip,
   createShaderPaint,
   createTextElement,
   createProject,
+  createRectangleLayer,
   materializeLowerThird,
   sampleChartMarkAnimations,
   type Element,
@@ -621,6 +623,185 @@ describe('individual chart marks during direct multi-Step Take Out', () => {
       expect(await graphic.dispose()).toMatchObject({ statusCode: 200 });
     },
   );
+});
+
+describe('authored standalone Out property keys', () => {
+  const key = (frame: number, value: number) => ({
+    id: `key-${frame}`,
+    frame,
+    value,
+    easing: 'linear' as const,
+  });
+
+  class Graphic extends GraphicElement {
+    static descriptor: CompiledGraphicDescriptor = {
+      ...descriptor(),
+      layers: [
+        {
+          id: 'staged-out',
+          element: createRectangleLayer().element,
+          isVisible: true,
+          effects: createLayerEffects(),
+          keyframes: descriptor().layers[0]!.keyframes,
+          animationTracks: {
+            x: [
+              key(20, 10),
+              key(60, 300),
+              key(100, 20),
+              key(105, 160),
+              key(110, -40),
+              key(120, 80),
+            ],
+            opacity: [
+              key(20, 1),
+              key(60, 0.4),
+              key(100, 1),
+              key(105, 0.35),
+              key(110, 0.8),
+              key(120, 0),
+            ],
+          },
+          bindings: [],
+          loop: null,
+        },
+      ],
+    };
+  }
+
+  async function load(renderType: 'realtime' | 'non-realtime', graphic = new Graphic()) {
+    graphic.connectedCallback();
+    expect(
+      await graphic.load({
+        renderType,
+        renderCharacteristics: { resolution: { width: 640, height: 360 }, frameRate: 10 },
+        data: {},
+      }),
+    ).toMatchObject({ statusCode: 200 });
+    return graphic;
+  }
+
+  function expectPose(graphic: Graphic, x: number, opacity: number) {
+    const host = graphic as unknown as InstanceType<typeof fixture.Host>;
+    const layer = host.shadowRoot!.children.find(
+      (child) => child.dataset.ografLayerId === 'staged-out',
+    )!;
+    expect(Number.parseFloat(layer.style.transform.slice('translate('.length))).toBeCloseTo(x);
+    expect(Number(layer.style.opacity)).toBeCloseTo(opacity);
+  }
+
+  it.each(['stopAction', 'playAction'] as const)(
+    'plays intermediate Out keys from the final Step in realtime via %s',
+    async (action) => {
+      const graphic = await load('realtime');
+      expect(await graphic.playAction({ goto: 1, skipAnimation: true })).toMatchObject({
+        currentStep: 1,
+      });
+      const out = action === 'stopAction' ? graphic.stopAction({}) : graphic.playAction({});
+      await vi.waitFor(() => expect(fixture.control.pending).not.toBeNull());
+      expect(fixture.control.pending!.options.durationMs).toBe(2000);
+      fixture.advance(0.25);
+      expectPose(graphic, 160, 0.35);
+      fixture.advance(0.5);
+      expectPose(graphic, -40, 0.8);
+      fixture.advance(1);
+      expect(await out).toMatchObject({ statusCode: 200 });
+      expectPose(graphic, 80, 0);
+      await graphic.dispose();
+    },
+  );
+
+  it.each(['stopAction', 'playAction'] as const)(
+    'samples intermediate Out keys through forward and backward scheduled %s seeks',
+    async (action) => {
+      const graphic = await load('non-realtime');
+      expect(
+        await graphic.setActionsSchedule({
+          schedule: [
+            {
+              timestamp: 0,
+              action: { type: 'playAction', params: { goto: 1, skipAnimation: true } },
+            },
+            { timestamp: 500, action: { type: action, params: {} } },
+          ],
+        }),
+      ).toMatchObject({ statusCode: 200 });
+      for (const [timestamp, x, opacity] of [
+        [500, 20, 1],
+        [1000, 160, 0.35],
+        [1500, -40, 0.8],
+        [2500, 80, 0],
+        [1000, 160, 0.35],
+      ] as const) {
+        expect(await graphic.goToTime({ timestamp })).toMatchObject({ statusCode: 200 });
+        expectPose(graphic, x, opacity);
+      }
+      await graphic.dispose();
+    },
+  );
+
+  it('takes Out directly from the sampled pose if a scheduled Step transition is interrupted', async () => {
+    const graphic = await load('non-realtime');
+    expect(
+      await graphic.setActionsSchedule({
+        schedule: [
+          { timestamp: 0, action: { type: 'playAction', params: { skipAnimation: true } } },
+          { timestamp: 500, action: { type: 'playAction', params: {} } },
+          { timestamp: 4500, action: { type: 'stopAction', params: {} } },
+        ],
+      }),
+    ).toMatchObject({ statusCode: 200 });
+    for (const [timestamp, x, opacity] of [
+      [4500, 300, 0.4],
+      [5500, 190, 0.2],
+      [6500, 80, 0],
+    ] as const) {
+      expect(await graphic.goToTime({ timestamp })).toMatchObject({ statusCode: 200 });
+      expectPose(graphic, x, opacity);
+    }
+    await graphic.dispose();
+  });
+
+  it('freezes a scheduled custom-action loop as the authored Out begins', async () => {
+    class LoopedGraphic extends Graphic {
+      static descriptor: CompiledGraphicDescriptor = {
+        ...Graphic.descriptor,
+        customActions: [{ id: 'hold-x', name: 'Hold X', durationFrames: 20 }],
+        layers: [
+          {
+            ...Graphic.descriptor.layers[0]!,
+            loop: createLayerLoopClip({
+              durationFrames: 20,
+              activation: { type: 'customAction', customActionId: 'hold-x' },
+              tracks: { x: [key(0, 250), key(20, 250)] },
+            }),
+          },
+        ],
+      };
+    }
+    const graphic = await load('non-realtime', new LoopedGraphic());
+    expect(
+      await graphic.setActionsSchedule({
+        schedule: [
+          {
+            timestamp: 0,
+            action: { type: 'playAction', params: { goto: 1, skipAnimation: true } },
+          },
+          { timestamp: 200, action: { type: 'customAction', params: { id: 'hold-x' } } },
+          { timestamp: 500, action: { type: 'stopAction', params: {} } },
+        ],
+      }),
+    ).toMatchObject({ statusCode: 200 });
+    for (const [timestamp, x, opacity] of [
+      [499, 250, 1],
+      [500, 250, 1],
+      [1000, 332.5, 0.35],
+      [2500, 80, 0],
+    ] as const) {
+      expect(await graphic.goToTime({ timestamp })).toMatchObject({ statusCode: 200 });
+      expectPose(graphic, x, opacity);
+    }
+    await graphic.dispose();
+  });
 });
 
 describe('short recipe standalone playout', () => {
