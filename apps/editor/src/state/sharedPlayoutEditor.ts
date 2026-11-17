@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { CoordinatedPlayoutSnapshot } from '@ograf-editor/ograf-types';
-import { isUntouchedBlankTiming } from './newTemplateTiming';
+import type { Composition } from '@ograf-editor/scene-model';
 import { useProjectSetStore } from './projectSetStore';
 import { getActiveComposition, useProjectStore } from './projectStore';
 import { transitionLogicEditorSetSnapshot } from './transitionLogicEditing';
@@ -55,6 +55,17 @@ interface PreviewTarget {
   source: SharedPlayoutSource;
 }
 
+function hasSharedPlayoutContent(composition: Composition): boolean {
+  return (
+    (composition.backgroundPaint ?? composition.backgroundColor) !== 'transparent' ||
+    composition.layers.some((layer) => !layer.isGuide) ||
+    composition.mediaCues.length > 0 ||
+    (composition.frameCues?.length ?? 0) > 0 ||
+    composition.customActions.length > 0 ||
+    (composition.functions?.length ?? 0) > 0
+  );
+}
+
 function currentTarget(previous: PreviewTarget | null): PreviewTarget | null {
   const { project, activeCompositionId, documentLoadRevision } = useProjectStore.getState();
   const { projectSet, activeTemplateId } = useProjectSetStore.getState();
@@ -70,7 +81,9 @@ function currentTarget(previous: PreviewTarget | null): PreviewTarget | null {
     };
   }
   const composition = getActiveComposition(project, activeCompositionId);
-  if (project.compositions.length === 1 && isUntouchedBlankTiming(composition)) return null;
+  // Both Studio and MCP create empty starters with different timeline defaults. Publishing one
+  // would seed Play and freeze the empty copy under the same key used for later authoring.
+  if (!hasSharedPlayoutContent(composition)) return null;
   const key = JSON.stringify([
     'template',
     documentLoadRevision,

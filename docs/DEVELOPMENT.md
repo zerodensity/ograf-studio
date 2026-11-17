@@ -123,7 +123,8 @@ while the default remains suitable for a console or background process. Run
 
 Start Studio normally. The console prints a fixed viewer URL and shows its QR in a color
 terminal when a private LAN address is available. Open the viewer URL in a browser or scan the QR.
-The viewer waits until Studio opens a template.
+The viewer waits until Studio opens a template with playout content. Starting an empty template
+keeps any existing shared session on air until the new template has content to publish.
 
 Opening a template or coordinated template set prepares a playback copy in memory. The viewer
 and the **Live** screen in **Preview & Export** use that same session, including its data and
