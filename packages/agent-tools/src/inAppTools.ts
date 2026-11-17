@@ -49,29 +49,30 @@ export interface ProviderToolDefinition {
 
 /** Compact provider-only wording; canonical MCP records and validation remain unchanged. */
 const IN_APP_DESCRIPTIONS: Record<string, string> = {
-  ograf_get_capabilities: 'Contracts/editor readiness.',
+  ograf_get_capabilities: 'Contracts/readiness.',
   ograf_get_project: 'Project/revision.',
   ograf_inspect_scene: 'Links/motion/warnings/revision.',
-  ograf_query_scene: 'Find scene layers.',
-  ograf_get_timeline: 'Tracks/lifecycle/loops; incoming easing.',
-  ograf_sample_tracks: 'Sample pose; absolute on-air loopElapsedFrame. No browser.',
+  ograf_query_scene: 'Find layers.',
+  ograf_get_timeline: 'Tracks/lifecycle/loops/incoming easing.',
+  ograf_sample_tracks: 'Pose; absolute on-air loopElapsedFrame; no browser.',
   ograf_capture:
-    'PNG(first Step); composition matte/dataOverrides only. URL5min; base64 opt-in. Not certification.',
+    'PNG(first Step); composition-only matte/dataOverrides; URL5min; opt-in base64; uncertified.',
   ograf_render_strip:
-    'PNG strip≤12frames; defaults lifecycle/midpoints. maxDimension/tile; URL5min, base64 opt-in.',
+    'PNG strip≤12frames(lifecycle/midpoints default); maxDimension/tile; URL5min; opt-in base64.',
   ograf_apply_operations: 'Atomic apply/dry-run/preview/propose(Accept/Reject).',
-  ograf_validate_project: 'Advisory semantic/field/text/broadcast QA; not certification.',
-  ograf_review_design: 'Advisory QA+IDs; includeStrip adds frames. Not certification.',
+  ograf_validate_project: 'Advisory semantic/field/text/broadcast QA; uncertified.',
+  ograf_review_design: 'Advisory QA+IDs; includeStrip=frames; uncertified.',
   ograf_measure_text: 'Browser text fit/overflow/clipping at frame.',
-  ograf_undo: 'Undo last agent transaction.',
-  ograf_redo: 'Redo last agent transaction.',
-  ograf_get_template_set: 'Set/revision; projects/usage opt-in; IDs or offset/limit.',
-  ograf_update_template_set: 'Set revision; confirm removal/replacement; files via UI.',
-  ograf_read_result_page: 'Retained JSON by resultId/path/offset; Studio supplies owner/budget.',
+  ograf_undo: 'Undo agent transaction.',
+  ograf_redo: 'Redo agent transaction.',
+  ograf_get_template_set: 'Set/revision; opt-in projects/usage; IDs/offset/limit.',
+  ograf_update_template_set:
+    'Set revision; read templateSets capabilities; confirm removal/replacement; UI files.',
+  ograf_read_result_page: 'Retained JSON: resultId/path/offset; Studio owner/budget.',
   ograf_get_playout:
-    'Read revision/readiness/current/pending/errors/tickers. target:preview=Studio; omitted/live=independent.',
+    'Revision/readiness/current/pending/errors/tickers; target:preview=Studio; live(default)=independent.',
   ograf_control_playout:
-    'Revision+unique requestId; poll/retry ID if uncertain. target:preview=Studio(on-air updates); omitted/live=independent. Update in-place/transition; prepared Take. Parent Out/Clear cascade without restore; template-action includes clocks.',
+    'Revision+unique requestId; poll/retry same ID. target:preview=Studio(on-air Update only); live(default)=independent. Out/Clear cascades without restore; read templateSets capabilities.',
 };
 
 export function providerToolDefinition(record: AgentToolRecord): ProviderToolDefinition {
@@ -115,8 +116,9 @@ export function providerToolDefinition(record: AgentToolRecord): ProviderToolDef
         typeof definition?.description === 'string' &&
         definition.description.startsWith('Definition/null. v6')
       )
-        definition.description =
-          'v1–6/null. v6 updateMode; v5 in/out(template/builtin/plugin)+pinned animationPresetPlugins. Move nonshared/morph shared; keep guards/defaults/precedence. parentSlotId cascades Out/Clear; takeOutSlotIds waits targets/dependents Out, no restore.';
+        // The complete versioned motion/update/dependency contract is returned by capabilities;
+        // avoid repeating it in every provider request. Canonical MCP annotations are untouched.
+        delete definition.description;
     }
   }
   return {
