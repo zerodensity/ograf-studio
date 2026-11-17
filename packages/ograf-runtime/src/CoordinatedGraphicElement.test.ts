@@ -9,12 +9,23 @@ import type {
 import {
   clockTimerActionId,
   createDefaultTransform,
+  createFieldDefinition,
+  createLayerKeyframe,
   createLayerEffects,
+  createLayerOfKind,
+  createProject,
   createRectangleLayer,
   createTextElement,
+  defaultTransformFor,
+  instantiateComponentDefinition,
   normalizeClockTimerSettings,
+  type ComponentDefinition,
   type TransitionLogicSharedValue,
 } from '@ograf-editor/scene-model';
+import {
+  buildCoordinatedExportArtifactsWithRuntime,
+  type CoordinatedExportInput,
+} from '@ograf-editor/codegen';
 import type { TransitionLogicRuleWork } from './transitionLogicRendering';
 
 const mock = vi.hoisted(() => {
@@ -1530,6 +1541,208 @@ describe('coordinated template custom actions', () => {
     expect(graphic.getPlayoutSnapshot().slots.main!.current).toBeNull();
     expect(graphic.getPlayoutSnapshot().slots.main!.desired).toBeNull();
   });
+});
+
+describe('coordinated discovery matches runtime behavior', () => {
+  function discoveryInput(): CoordinatedExportInput {
+    const definition = descriptor().definition;
+    definition.version = 4;
+    definition.sharedInstances = [];
+    definition.initialSharedValues = [];
+    for (const state of definition.states) delete state.sharedValues;
+    const templates = definition.states.map((state) => {
+      const project = createProject({ name: state.name });
+      project.compositions[0]!.dataFields = [
+        createFieldDefinition('text', { key: 'headline', defaultValue: state.name }),
+        createFieldDefinition('text', { key: `${state.id}_only`, defaultValue: state.id }),
+        createFieldDefinition('object', {
+          key: 'settings',
+          properties: [
+            createFieldDefinition('text', { key: 'first' }),
+            createFieldDefinition('text', { key: 'second' }),
+          ],
+          defaultValue: { first: 'A', second: 'B' },
+        }),
+      ];
+      return { id: state.templateId, name: state.name, project };
+    });
+    definition.states[0]!.dataDefaults = { settings: { first: 'Overridden' } };
+    definition.states.push({
+      id: 'headline-variant',
+      name: 'Headline variant',
+      slotId: 'main',
+      templateId: 'headline',
+      dataDefaults: { headline: 'State preset' },
+    });
+    return { id: 'discovery', name: 'Discovery', definition, templates, componentAssets: [] };
+  }
+
+  it.each(['realtime', 'non-realtime'] as const)(
+    'publishes state form defaults equal to Prepare and Take data in %s',
+    async (renderType) => {
+      const artifacts = buildCoordinatedExportArtifactsWithRuntime(
+        discoveryInput(),
+        'class CoordinatedGraphicElement {}',
+      );
+      expect(artifacts.valid, artifacts.errors.join('\n')).toBe(true);
+      const discovery = artifacts.manifest.v_ografDiscovery;
+      if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+      const graphic = await create(renderType, artifacts.transitionDescriptor!);
+      for (const state of discovery.catalog.states) {
+        expect(await graphic.prepareSlot({ slotId: state.slotId, stateId: state.id })).toEqual({
+          statusCode: 200,
+        });
+        const prepared = graphic.getPlayoutSnapshot().prepared[state.slotId]!;
+        expect(prepared.status).toBe('ready');
+        expect(state.defaults).toEqual(prepared.data);
+        expect(state.schema.default).toEqual(prepared.data);
+        expect(
+          await graphic.customAction({
+            id: 'transition.take',
+            payload: { slotId: state.slotId, stateId: state.id },
+            skipAnimation: true,
+          }),
+        ).toEqual({ statusCode: 200 });
+        expect(graphic.getPlayoutSnapshot().slots[state.slotId]!.current?.data).toEqual(
+          state.defaults,
+        );
+      }
+      expect(discovery.catalog.states[0]!.defaults.settings).toEqual({ first: 'Overridden' });
+    },
+  );
+
+  it.each(['automatic', 'manual'] as const)(
+    'discovers shared timer fallbacks and aliases that route to the correct instance (%s)',
+    async (source) => {
+      const input = discoveryInput();
+      const timer = createLayerOfKind('text');
+      timer.id = 'source-clock';
+      timer.keyframes = [createLayerKeyframe(0, defaultTransformFor('text'))];
+      if (timer.element.type !== 'text') throw new Error('Expected text');
+      timer.element.clock = normalizeClockTimerSettings({
+        mode: 'count-up',
+        source,
+        autoStart: false,
+      });
+      const label = createLayerOfKind('text');
+      label.id = 'source-label';
+      label.keyframes = [createLayerKeyframe(0, defaultTransformFor('text'))];
+      const asset: ComponentDefinition = {
+        id: 'timer-asset',
+        name: 'Timer',
+        scope: 'set',
+        layers: [timer, label],
+        dataFields: [],
+      };
+      input.componentAssets = [asset];
+      const instanceIds = ['timer-one', 'timer-two'];
+      for (const id of instanceIds) {
+        input.definition.sharedInstances.push({
+          id,
+          name: id,
+          slotId: 'main',
+          componentAssetId: asset.id,
+          continuityKey: id,
+        });
+        for (const layer of asset.layers)
+          input.definition.initialSharedValues.push({
+            instanceId: id,
+            sourceLayerId: layer.id,
+            property: 'opacity',
+            value: 0,
+          });
+        for (const template of input.templates.filter(
+          (entry) => entry.id === 'correspondent' || entry.id === 'headline',
+        )) {
+          const composition = template.project.compositions[0]!;
+          composition.components = [asset];
+          const placement = instantiateComponentDefinition(
+            composition,
+            asset,
+            { x: 0, y: 0 },
+            true,
+            {
+              instanceId: id,
+              groupId: `${template.id}-${id}`,
+              layerIds: {
+                [timer.id]: `${template.id}-${id}-clock`,
+                [label.id]: `${template.id}-${id}-label`,
+              },
+              fieldIds: {},
+              keyIds: {},
+            },
+          );
+          composition.layers.push(
+            ...placement.layers.filter(
+              (layer) =>
+                template.id === 'headline' || layer.componentLink?.sourceLayerId !== timer.id,
+            ),
+          );
+          for (const state of input.definition.states.filter(
+            (entry) => entry.templateId === template.id,
+          ))
+            (state.sharedValues ??= []).push(
+              ...asset.layers.map((layer) => ({
+                instanceId: id,
+                sourceLayerId: layer.id,
+                property: 'opacity',
+                value: 1,
+              })),
+            );
+        }
+      }
+      const artifacts = buildCoordinatedExportArtifactsWithRuntime(
+        input,
+        'class CoordinatedGraphicElement {}',
+      );
+      expect(artifacts.valid, artifacts.errors.join('\n')).toBe(true);
+      const discovery = artifacts.manifest.v_ografDiscovery;
+      if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+      const graphic = await create('non-realtime', artifacts.transitionDescriptor!);
+      for (const stateId of ['correspondent', 'headline']) {
+        expect(await take(graphic, stateId, {}, true)).toEqual({ statusCode: 200 });
+        const state = discovery.catalog.states.find((entry) => entry.id === stateId)!;
+        const commands =
+          source === 'manual'
+            ? (['reset', 'restart'] as const)
+            : (['start', 'pause', 'reset', 'restart'] as const);
+        expect(state.actions).toHaveLength(instanceIds.length * commands.length);
+        expect(new Set(state.actions.map((action) => action.id)).size).toBe(state.actions.length);
+        for (const id of instanceIds)
+          for (const command of commands) {
+            const qualified = clockTimerActionId(JSON.stringify([id, timer.id]), command);
+            const actionId =
+              stateId === 'headline'
+                ? clockTimerActionId(`${stateId}-${id}-clock`, command)
+                : qualified;
+            expect(state.actions.map((action) => action.id)).toContain(actionId);
+            if (stateId === 'headline')
+              expect(state.actions.map((action) => action.id)).not.toContain(qualified);
+            for (const mount of mock.mounts) mount.customAction.mockClear();
+            expect(
+              await graphic.customAction({
+                id: 'template.action',
+                payload: { slotId: state.slotId, actionId },
+              }),
+            ).toEqual({ statusCode: 200 });
+            const retained = mock.mounts.filter(
+              (mount) => mount.host.dataset.ografTransitionShared,
+            );
+            expect(
+              retained.find((mount) => mount.host.dataset.ografTransitionShared === id)!
+                .customAction,
+            ).toHaveBeenCalledWith(clockTimerActionId(timer.id, command), 0, false);
+            // Other retained mounts receive the Rules event with timer dispatch disabled.
+            for (const mount of retained.filter(
+              (mount) => mount.host.dataset.ografTransitionShared !== id,
+            ))
+              expect(mount.customAction.mock.calls).toEqual([[actionId, 0, false, false]]);
+          }
+      }
+      for (const stateId of ['breaking', 'ticker'])
+        expect(discovery.catalog.states.find((state) => state.id === stateId)!.actions).toEqual([]);
+    },
+  );
 });
 
 describe('coordinated timer action routing', () => {

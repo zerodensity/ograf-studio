@@ -43,7 +43,7 @@ export interface ExportArtifacts {
   descriptor?: CompiledGraphicDescriptor;
   /** Coordinated set descriptor; the package has one controller for all template states. */
   transitionDescriptor?: CompiledTransitionLogicDescriptor;
-  /** Public per-state data forms used only by the optional self-contained preview. */
+  /** Public per-state forms shared by discovery certification and the self-contained preview. */
   offlinePreviewStateSchemas?: Record<string, Record<string, Record<string, unknown>>>;
   manifest: OGrafManifest;
   manifestFileName: string;

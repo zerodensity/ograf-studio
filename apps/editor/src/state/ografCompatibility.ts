@@ -2,6 +2,7 @@ import graphicRuntimeSource from '@ograf-editor/ograf-runtime/dist/graphic-runti
 import {
   buildExportArtifactsWithRuntime,
   compileDescriptor,
+  discoveryModuleErrors,
   EXPORTED_RESOURCE_URLS_KEY,
   validatePackageLayout,
   type ExportArtifacts,
@@ -22,6 +23,7 @@ import {
   type Element,
   type Project,
 } from '@ograf-editor/scene-model';
+import { validateManifest } from '@ograf-editor/validation';
 import { createCertificationResourceUrls } from './certificationResources';
 import { awaitExportOperation } from './exportAbort';
 import {
@@ -763,6 +765,15 @@ async function validateModuleAndLifecycle(
       return { moduleErrors, lifecycleErrors };
     }
 
+    moduleErrors.push(
+      ...discoveryModuleErrors(
+        artifacts.manifest,
+        graphicModule.default,
+        artifacts.offlinePreviewStateSchemas,
+      ),
+    );
+    if (moduleErrors.length) return { moduleErrors, lifecycleErrors };
+
     const tagName = `ograf-compatibility-${crypto.randomUUID()}`;
     realm.window.customElements.define(tagName, graphicModule.default);
     const methodProbe = realm.document.createElement(tagName) as CallableGraphic;
@@ -1031,10 +1042,13 @@ export async function certifyExportArtifacts(
     policyErrors.push(cause instanceof Error ? cause.message : String(cause));
   }
   const projectErrors = [...artifacts.projectErrors, ...policyErrors];
-  const manifestErrors = artifacts.manifestErrors;
+  const manifestErrors = validateManifest(artifacts.manifest).errors;
   const packageErrors = validatePackageLayout(artifacts);
   const staticChecksPassed =
-    artifacts.valid && packageErrors.length === 0 && policyErrors.length === 0;
+    artifacts.valid &&
+    manifestErrors.length === 0 &&
+    packageErrors.length === 0 &&
+    policyErrors.length === 0;
   const { moduleErrors, lifecycleErrors } = staticChecksPassed
     ? await validateModuleAndLifecycle(artifacts, signal)
     : {

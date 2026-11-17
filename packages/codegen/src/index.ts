@@ -4,6 +4,7 @@ export * from './compileDescriptor';
 export * from './assembleManifest';
 export * from './buildExportArtifacts';
 export * from './buildCoordinatedExportArtifacts';
+export * from './discovery';
 export * from './compileTransitionContentAnimations';
 export * from './exportProfiles';
 export * from './runtimeLicenses';
