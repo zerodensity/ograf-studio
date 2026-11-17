@@ -388,6 +388,21 @@ describe('export package artifacts', () => {
     expect(result.checks.find((check) => check.id === 'module')?.valid).toBe(false);
   });
 
+  it('revalidates discovery metadata on the exact artifacts before browser execution', async () => {
+    const project = createProject();
+    const artifacts = buildExportArtifacts(project, project.compositions[0]!);
+    expect(artifacts.manifestErrors).toEqual([]);
+    Object.assign(artifacts.manifest.v_ografDiscovery!, { version: 2 });
+    const result = await certifyExportArtifacts(artifacts);
+    expect(result.valid).toBe(false);
+    expect(result.checks.find((check) => check.id === 'manifest')!.errors.join(' ')).toContain(
+      'v_ografDiscovery',
+    );
+    expect(result.checks.find((check) => check.id === 'module')!.errors).toEqual([
+      'Not run because project, manifest, or package validation failed.',
+    ]);
+  });
+
   it('rejects a project whose main composition reference is broken', async () => {
     const project = createProject({ mainCompositionId: 'missing' });
     const result = await certifyProject(project);

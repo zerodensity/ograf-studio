@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createProject } from '@ograf-editor/scene-model';
 import { getExportProfile, projectForExportProfile } from './exportProfiles';
+import { buildExportArtifactsWithRuntime } from './buildExportArtifacts';
+import { discoveryModuleErrors } from './discovery';
+import { validateManifest } from '@ograf-editor/validation';
 
 describe('export profiles', () => {
   it.each([
@@ -23,5 +26,16 @@ describe('export profiles', () => {
       supportsRealTime: false,
       supportsNonRealTime: true,
     });
+    const artifacts = buildExportArtifactsWithRuntime(
+      source,
+      source.compositions[0]!,
+      'class GraphicElement {}',
+      getExportProfile(id),
+    );
+    expect(artifacts.valid, artifacts.errors.join('\n')).toBe(true);
+    expect(artifacts.manifest.v_ografDiscovery).toEqual({ version: 1, kind: 'graphic' });
+    expect(artifacts.manifest).not.toHaveProperty('v_ografTransitionLogic');
+    expect(validateManifest(JSON.parse(JSON.stringify(artifacts.manifest))).valid).toBe(true);
+    expect(discoveryModuleErrors(artifacts.manifest, class Graphic {})).toEqual([]);
   });
 });

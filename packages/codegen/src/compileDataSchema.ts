@@ -12,6 +12,8 @@ import type { CompiledDataExposure } from '@ograf-editor/ograf-types';
 
 export { fieldExposedToOgraf } from '@ograf-editor/scene-model';
 
+const SCHEMA_COMBINATORS = ['allOf', 'anyOf', 'oneOf'] as const;
+
 /** Keep public defaults as selective as their property schema. */
 export function publicFieldValueForExport(field: FieldDefinition, value: FieldValue): FieldValue {
   const result = fieldValueForExport(field, value);
@@ -59,6 +61,26 @@ export function publicDataForExport(
       result[field.key] = publicFieldValueForExport(field, result[field.key] as FieldValue);
   }
   return result;
+}
+
+/** A patch form must not fill omitted fields from the template's authored defaults. */
+export function publicPatchDataSchema(source: Record<string, unknown>): Record<string, unknown> {
+  const schema = structuredClone(source);
+  const stripDefaults = (node: Record<string, unknown>) => {
+    delete node.default;
+    if (node.properties && typeof node.properties === 'object')
+      for (const child of Object.values(node.properties))
+        if (child && typeof child === 'object') stripDefaults(child as Record<string, unknown>);
+    if (node.items && typeof node.items === 'object' && !Array.isArray(node.items))
+      stripDefaults(node.items as Record<string, unknown>);
+    for (const key of SCHEMA_COMBINATORS)
+      if (Array.isArray(node[key]))
+        for (const child of node[key])
+          if (child && typeof child === 'object') stripDefaults(child as Record<string, unknown>);
+  };
+  stripDefaults(schema);
+  delete schema.required;
+  return { ...schema, default: {} };
 }
 
 export interface JSONSchemaProperty {

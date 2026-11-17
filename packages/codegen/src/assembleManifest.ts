@@ -146,6 +146,7 @@ export function assembleManifest(
     });
 
   const manifest: OGrafManifest = {
+    v_ografDiscovery: { version: 1, kind: 'graphic' },
     $schema: OGRAF_MANIFEST_SCHEMA_URL,
     id: project.id,
     name: project.name,

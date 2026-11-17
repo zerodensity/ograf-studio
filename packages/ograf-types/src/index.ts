@@ -2,6 +2,8 @@
 // Hand-authored from the spec as understood at the time of writing — not generated from the live
 // JSON Schema. Vendor-extension (`v_`-prefixed) fields used by Studio are explicitly typed.
 
+import type { OGrafDiscovery } from './discovery';
+
 export type RenderType = 'realtime' | 'non-realtime';
 
 export interface RenderCharacteristics {
@@ -162,6 +164,8 @@ export interface ManifestAuthoringPrompts {
 export interface OGrafManifest {
   /** Host output layer: a signed JavaScript safe integer. Missing values resolve to 0. */
   v_layer?: number;
+  /** Static export classification and public package catalog, available without importing main. */
+  v_ografDiscovery?: OGrafDiscovery;
   $schema: string;
   id: string;
   name: string;
@@ -231,3 +235,4 @@ export type SharedGraphicInput =
 
 export * from './descriptor';
 export * from './transitionLogicDescriptor';
+export * from './discovery';
