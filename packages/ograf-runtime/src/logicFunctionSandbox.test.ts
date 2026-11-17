@@ -115,6 +115,21 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe('isolated function host protocol', () => {
+  it('uses a cryptographic 128-bit supervisor token when randomUUID is unavailable', async () => {
+    const getRandomValues = vi.fn((bytes: Uint8Array) => bytes.fill(0x0a));
+    vi.stubGlobal('crypto', { getRandomValues });
+    try {
+      const env = environment();
+      expect(getRandomValues).toHaveBeenCalledOnce();
+      expect(getRandomValues.mock.calls[0]![0]).toHaveLength(16);
+      expect(env.config.token).toBe('0a'.repeat(16));
+      await env.prepare();
+      env.sandbox.dispose();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('uses an opaque fixed-scaffold frame, denies capabilities and escapes embedded source', async () => {
     const source = '() => ({ state: "</script><script>bad()</script>" })';
     const env = environment(source);
@@ -777,8 +792,50 @@ describe('trusted supervisor worker ownership', () => {
       id: number,
       extra: Record<string, unknown> = {},
     ) => worker.onmessage!({ data: { channel, token: env.config.token, kind, id, ...extra } });
-    return { ...env, workers, workerSources, parent, urls, handlers, invoke, sendWorker: send };
+    const probe = () => {
+      parent.onmessage!({ data: { channel, kind: 'probe', id: 1 } });
+      const worker = workers[0]!;
+      send(worker, 'prepared', 0, { compileMs: 1 });
+      send(worker, 'started', 1);
+      send(worker, 'ready', 1, { elapsedMs: 1 });
+    };
+    return {
+      ...env,
+      workers,
+      workerSources,
+      parent,
+      urls,
+      handlers,
+      invoke,
+      probe,
+      sendWorker: send,
+    };
   }
+
+  it('acknowledges the private connection before preparing any user worker', () => {
+    const env = frameEnvironment();
+    expect(env.parent.postMessage).toHaveBeenCalledExactlyOnceWith({
+      channel,
+      token: env.config.token,
+      kind: 'supervisor-ready',
+      id: 0,
+    });
+    expect(env.workers).toHaveLength(0);
+    expect(env.urls.createObjectURL).not.toHaveBeenCalled();
+
+    env.probe();
+    expect(env.workers).toHaveLength(2);
+    expect(env.workers[0]!.postMessage).toHaveBeenCalledExactlyOnceWith({
+      id: 1,
+      probe: true,
+      context: undefined,
+    });
+    expect(env.workers[0]!.terminate).toHaveBeenCalledOnce();
+    expect(env.workers[1]!.postMessage).not.toHaveBeenCalled();
+    expect(env.workers[1]!.terminate).not.toHaveBeenCalled();
+    env.handlers.get('pagehide')!({});
+    env.sandbox.dispose();
+  });
 
   it('rejects other senders and terminates/revokes immediately on invalid Worker traffic', () => {
     const env = frameEnvironment();
@@ -804,15 +861,14 @@ describe('trusted supervisor worker ownership', () => {
 
   it('keeps only one unused prepared worker and shares immutable script bytes without reusing globals', () => {
     const env = frameEnvironment();
-    const first = env.workers[0]!;
-    expect(env.workers).toHaveLength(1);
-    env.sendWorker(first, 'prepared', 0, { compileMs: 2 });
-    expect(first.postMessage).not.toHaveBeenCalled();
     env.invoke(8);
+    const first = env.workers[0]!;
     expect(env.workers).toHaveLength(2);
     const second = env.workers[1]!;
     env.sendWorker(second, 'prepared', 0, { compileMs: 1 });
     expect(second.postMessage).not.toHaveBeenCalled();
+    expect(first.postMessage).not.toHaveBeenCalled();
+    env.sendWorker(first, 'prepared', 0, { compileMs: 2 });
     expect(first.postMessage).toHaveBeenCalledExactlyOnceWith({
       id: 8,
       probe: false,
@@ -882,8 +938,8 @@ describe('trusted supervisor worker ownership', () => {
 
   it('discards an expired unused spare without faulting the function or starting a retry loop', async () => {
     const env = frameEnvironment();
-    env.sendWorker(env.workers[0]!, 'prepared', 0, { compileMs: 1 });
     env.invoke(8);
+    env.sendWorker(env.workers[0]!, 'prepared', 0, { compileMs: 1 });
     env.sendWorker(env.workers[0]!, 'started', 8);
     env.sendWorker(env.workers[0]!, 'result', 8, { json: '{}', elapsedMs: 1 });
     const count = env.workers.length;
@@ -908,12 +964,14 @@ describe('trusted supervisor worker ownership', () => {
 
   it('replaces a consumed stale preparation at most once before any user code starts', async () => {
     const env = frameEnvironment();
+    env.probe();
+    const unused = env.workers[1]!;
     await vi.advanceTimersByTimeAsync(1900);
     env.invoke(8);
     await vi.advanceTimersByTimeAsync(100);
-    expect(env.workers[0]!.terminate).toHaveBeenCalledOnce();
-    expect(env.workers[0]!.postMessage).not.toHaveBeenCalled();
-    const replacement = env.workers[1]!;
+    expect(unused.terminate).toHaveBeenCalledOnce();
+    expect(unused.postMessage).not.toHaveBeenCalled();
+    const replacement = env.workers[2]!;
     env.sendWorker(replacement, 'prepared', 0, { compileMs: 30 });
     expect(replacement.postMessage).toHaveBeenCalledExactlyOnceWith({
       id: 8,
@@ -932,12 +990,15 @@ describe('trusted supervisor worker ownership', () => {
 
   it('never extends the original two-second request startup deadline during recovery', async () => {
     const env = frameEnvironment();
+    env.probe();
     await vi.advanceTimersByTimeAsync(1900);
     env.invoke(8);
     await vi.advanceTimersByTimeAsync(2000);
     expect(env.parent.postMessage.mock.calls.at(-1)![0]).toMatchObject({ kind: 'error', id: 8 });
     expect(env.workers.every((worker) => worker.terminate.mock.calls.length === 1)).toBe(true);
-    expect(env.workers.every((worker) => worker.postMessage.mock.calls.length === 0)).toBe(true);
+    expect(env.workers.slice(1).every((worker) => worker.postMessage.mock.calls.length === 0)).toBe(
+      true,
+    );
     expect(env.urls.revokeObjectURL).toHaveBeenCalledOnce();
     const count = env.workers.length;
     await vi.advanceTimersByTimeAsync(5000);

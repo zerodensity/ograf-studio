@@ -5,6 +5,7 @@ import {
   createLayerKeyframe,
   createLayerOfKind,
   createFieldDefinition,
+  layerMaskSvg,
 } from '@ograf-editor/scene-model';
 import { compileDescriptor } from '@ograf-editor/codegen';
 import { applyCompiledAutoLayout } from './autoLayoutRendering';
@@ -51,6 +52,70 @@ describe('compiled automatic layout', () => {
       applyCompiledAutoLayout(descriptor, new Map([[layer.id, state]]), {}, elements);
       expect(state.transform).toMatchObject({ width: 80, height: 40 });
       expect(measure).toHaveBeenCalledTimes(3);
+    } finally {
+      measure.mockRestore();
+    }
+  });
+
+  it('uses the current Auto Size text bounds for a separate shape mask', () => {
+    const maskSource = createLayerOfKind('rectangle');
+    maskSource.keyframes = [
+      createLayerKeyframe(0, createDefaultTransform({ width: 400, height: 100 })),
+    ];
+    const headline = createLayerOfKind('text');
+    if (headline.element.type !== 'text') throw new Error('Expected text');
+    headline.element.autoFit = 'auto-size';
+    headline.element.overflowPolicy = 'clip';
+    headline.mask = { sourceLayerId: maskSource.id, mode: 'alpha', inverted: false };
+    headline.keyframes = [
+      createLayerKeyframe(0, createDefaultTransform({ x: 100, y: 50, width: 80, height: 40 })),
+    ];
+    const text = createFieldDefinition('text', { key: 'headline', defaultValue: 'News' });
+    const size = createFieldDefinition('number', { key: 'fontSize', defaultValue: 30 });
+    headline.bindings = [
+      { fieldId: text.id, targetProperty: 'content' },
+      { fieldId: size.id, targetProperty: 'fontSize' },
+    ];
+    const descriptor = compileDescriptor(
+      createComposition({ layers: [maskSource, headline], dataFields: [text, size] }),
+    );
+    const layers = new Map(descriptor.layers.map((layer) => [layer.id, layer]));
+    const elements = new Map([
+      [headline.id, { querySelector: () => null } as unknown as HTMLElement],
+    ]);
+    const measure = vi
+      .spyOn(modifierRendering, 'measureModifierText')
+      .mockImplementation((_document, element) =>
+        element.type === 'text'
+          ? { width: (element.content.length * element.fontSize) / 2, height: element.fontSize }
+          : null,
+      );
+    try {
+      for (const [content, fontSize] of [
+        ['News', 30],
+        ['A longer headline', 37.25],
+        ['News', 30],
+      ] as const) {
+        const data = { headline: content, fontSize };
+        const states = new Map(
+          descriptor.layers.map((layer) => [
+            layer.id,
+            sampleCompiledLayerVisualState(layer, 0, undefined, data),
+          ]),
+        );
+        applyCompiledAutoLayout(descriptor, states, data, elements);
+        const width = (content.length * fontSize) / 2;
+        expect(states.get(headline.id)?.transform).toMatchObject({
+          x: 100,
+          y: 50,
+          width,
+          height: fontSize,
+        });
+        expect(states.get(maskSource.id)?.transform).toMatchObject({ width: 400, height: 100 });
+        expect(layerMaskSvg(headline.id, layers, states, 'headline-mask')).toContain(
+          `width="${width}" height="${fontSize}" style="mask-type:alpha"`,
+        );
+      }
     } finally {
       measure.mockRestore();
     }

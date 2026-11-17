@@ -47,11 +47,22 @@ export function mountTextPropertyAnimators(content: HTMLElement, element: TextEl
   const source = element.runs.length
     ? element.runs.map((run) => run.text).join('')
     : element.content;
-  const words = segmentTextAnimationUnits(source, 'word', element.language).filter((item) =>
-    item.text.trim(),
-  );
+  const shapingGroup = content.querySelector<HTMLElement>('[data-ograf-text-shaping-group]');
+  const words = shapingGroup
+    ? [{ text: source, index: 0 }]
+    : segmentTextAnimationUnits(source, 'word', element.language).filter((item) =>
+        item.text.trim(),
+      );
   const glyphs: Glyph[] = [];
-  if (!dynamicRoll) {
+  if (shapingGroup) {
+    // The preset moves the outer block. Apply property animation to its intact inner text flow.
+    const wrapper = content.ownerDocument.createElement('span');
+    wrapper.dataset.ografTextAnimatorGlyph = 'true';
+    wrapper.style.display = 'block';
+    wrapper.append(...shapingGroup.childNodes);
+    shapingGroup.appendChild(wrapper);
+    glyphs.push({ element: wrapper, sourceIndex: 0, word: 0, line: 0 });
+  } else if (!dynamicRoll) {
     const walker = content.ownerDocument.createTreeWalker(
       content,
       5 /* SHOW_ELEMENT | SHOW_TEXT */,

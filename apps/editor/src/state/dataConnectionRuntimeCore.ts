@@ -20,7 +20,7 @@ export interface DataConnectionConsumer {
   fields: FieldDefinition[];
   previous(): Record<string, FieldValue>;
   /** False retains the latest payload until the destination can safely receive it. */
-  apply(values: Record<string, FieldValue>): boolean | Promise<boolean>;
+  apply(values: Record<string, FieldValue>, payload: unknown): boolean | Promise<boolean>;
 }
 export interface DataConnectionReader {
   read(signal: AbortSignal): Promise<unknown>;
@@ -95,7 +95,7 @@ export function createDataConnectionRuntime(options: {
     }
     entry.delivering.add(consumer.key);
     try {
-      const applied = await consumer.apply(values);
+      const applied = await consumer.apply(values, payloadAtStart);
       if (!owns(entry, consumer)) return;
       if (applied) entry.delivered.set(consumer.key, identity);
       publish(entry, consumer, {

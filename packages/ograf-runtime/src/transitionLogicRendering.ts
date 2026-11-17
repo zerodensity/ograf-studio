@@ -16,7 +16,12 @@ import { applyCompiledModifiers } from './modifierRendering';
 import { compositionHasBackdropBlur, setCompositionBackdropRoot } from './backdropEffectRendering';
 import { waitForLayerEffectsReady } from './effectCompositing';
 import { expandRuntimeCollections, isRuntimeCollectionLayerActive } from './runtimeCollections';
-import { bindRuntimePointerPosition, runtimeRelatedLayerId } from './runtimePointer';
+import {
+  bindRuntimePointerPosition,
+  runtimePointerPosition,
+  runtimeRelatedLayerId,
+  type RuntimePointerPosition,
+} from './runtimePointer';
 import { claimsRuntimeKeyboardInput } from './runtimeKeyboard';
 import {
   RuntimeVisualRules,
@@ -57,7 +62,11 @@ import {
   resolveBoundElement,
   waitForElementContentReady,
 } from './renderElement';
-import type { CompiledFontResource, CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
+import type {
+  CompiledFontResource,
+  CompiledGraphicDescriptor,
+  SharedGraphicPointerEdge,
+} from '@ograf-editor/ograf-types';
 import {
   hasElementMediaPaint,
   hasElementShaderPaint,
@@ -217,6 +226,8 @@ export interface TransitionLogicMount {
     input: import('@ograf-editor/scene-model').VisualRuleKeyboardInput,
     frame: number,
   ): boolean;
+  applySharedPointerPosition?(event: Pick<MouseEvent, 'clientX' | 'clientY'> | null): void;
+  applySharedPointerEdge?(input: SharedGraphicPointerEdge, frame: number): boolean;
   inheritRules(
     previous: TransitionLogicMount,
     previousData: Record<string, unknown>,
@@ -310,6 +321,11 @@ export function mountTransitionLogicComposition(options: {
   scheduleRule?(work: TransitionLogicRuleWork): void;
   /** Commit rule-driven data to the owning selection without replacing its animated DOM. */
   ruleDataChanged?(patch: Record<string, unknown>, frame: number): void;
+  captureSharedPointer?(
+    input: SharedGraphicPointerEdge,
+    event: MouseEvent,
+    position?: boolean,
+  ): void;
 }): TransitionLogicMount {
   const { parent, sharedKeys, hiddenLayers } = options;
   let data = options.data;
@@ -466,6 +482,17 @@ export function mountTransitionLogicComposition(options: {
   let fontDocument: Document | null = null;
   let fontsReady: Promise<unknown> = Promise.resolve();
   const clickTimers = new Set<ReturnType<typeof setTimeout>>();
+  const sharedPointerEdges = new Map<string, (input: SharedGraphicPointerEdge) => boolean>();
+  const updatePointer = (pointer: RuntimePointerPosition | null) => {
+    if (disposed) return;
+    const fired = rules.pointerChanged(onAir ? pointer : null, data);
+    if (pointer && !rules.hasMouseConditions) return;
+    const timestamp = (currentFrame * 1000) / descriptor.frameRate;
+    rules.update(data, timestamp);
+    rules.publish(timestamp);
+    for (const layer of descriptor.layers) refreshContent(layer, layerEls.get(layer.id)!);
+    if (onAir) scheduleRules(fired, currentFrame, true);
+  };
   const disposePointer =
     !options.deterministic && options.scheduleRule
       ? bindRuntimePointerPosition({
@@ -475,16 +502,7 @@ export function mountTransitionLogicComposition(options: {
           viewport: host,
           descriptor,
           enabled: () => !disposed && onAir && host.style.visibility !== 'hidden',
-          changed: (pointer) => {
-            if (disposed) return;
-            const fired = rules.pointerChanged(onAir ? pointer : null, data);
-            if (pointer && !rules.hasMouseConditions) return;
-            const timestamp = (currentFrame * 1000) / descriptor.frameRate;
-            rules.update(data, timestamp);
-            rules.publish(timestamp);
-            for (const layer of descriptor.layers) refreshContent(layer, layerEls.get(layer.id)!);
-            if (onAir) scheduleRules(fired, currentFrame, true);
-          },
+          changed: updatePointer,
         })
       : () => {};
 
@@ -957,8 +975,9 @@ export function mountTransitionLogicComposition(options: {
             | 'pointer-down'
             | 'pointer-up',
           relatedHostLayerId?: string,
+          replay = false,
         ) => {
-          if (!interactive()) return;
+          if (!replay && !interactive()) return;
           scheduleRules(
             rules.eventFired(trigger, data, {
               hostLayerId: layer.id,
@@ -968,41 +987,63 @@ export function mountTransitionLogicComposition(options: {
             true,
           );
         };
+        const capture = (
+          type: SharedGraphicPointerEdge['type'],
+          event: MouseEvent,
+          relatedLayerId?: string,
+          position?: boolean,
+        ) => {
+          if (interactive())
+            options.captureSharedPointer?.(
+              {
+                type,
+                target: { layerId: layer.id },
+                ...(relatedLayerId ? { relatedLayerId } : {}),
+              },
+              event,
+              position,
+            );
+        };
         element.addEventListener('click', (event) => {
           if (event.detail > 1) return;
           if (!triggers.has('click')) return;
           if (triggers.has('double-click')) {
             const timer = setTimeout(() => {
               clickTimers.delete(timer);
+              capture('click', event, undefined, false);
               fire('click');
             }, 500);
             clickTimers.add(timer);
-          } else fire('click');
+          } else {
+            capture('click', event);
+            fire('click');
+          }
         });
-        element.addEventListener('dblclick', () => {
+        element.addEventListener('dblclick', (event) => {
           for (const timer of clickTimers) clearTimeout(timer);
           clickTimers.clear();
+          capture('double-click', event);
           fire('double-click');
         });
         let hovered = false;
+        const hover = (next: boolean, relatedHostLayerId?: string) => {
+          if (hovered === next || (next && !hasHover)) return;
+          hovered = next;
+          rules.hoverChanged(layer.id, next, data, relatedHostLayerId);
+          rules.update(data, (currentFrame * 1000) / descriptor.frameRate);
+          if (next) scheduleRules(rules.hoverEntered(layer.id, data), currentFrame, true);
+        };
         element.addEventListener('pointerenter', (event) => {
           if (!interactive()) return;
           const relatedHostLayerId = runtimeRelatedLayerId(event, layerEls);
-          if (hasHover && !hovered) {
-            hovered = true;
-            rules.hoverChanged(layer.id, true, data, relatedHostLayerId);
-            rules.update(data, (currentFrame * 1000) / descriptor.frameRate);
-            scheduleRules(rules.hoverEntered(layer.id, data), currentFrame, true);
-          }
+          capture('pointer-enter', event, relatedHostLayerId);
+          hover(true, relatedHostLayerId);
           fire('pointer-enter', relatedHostLayerId);
         });
         element.addEventListener('pointerleave', (event) => {
           const relatedHostLayerId = runtimeRelatedLayerId(event, layerEls);
-          if (hovered) {
-            hovered = false;
-            rules.hoverChanged(layer.id, false, data, relatedHostLayerId);
-            rules.update(data, (currentFrame * 1000) / descriptor.frameRate);
-          }
+          capture('pointer-exit', event, relatedHostLayerId, false);
+          hover(false, relatedHostLayerId);
           fire('pointer-leave', relatedHostLayerId);
         });
         let pressed = false;
@@ -1010,15 +1051,46 @@ export function mountTransitionLogicComposition(options: {
           if (event.button !== 0) return;
           pressed = true;
           if (triggers.has('pointer-up')) element.setPointerCapture?.(event.pointerId);
+          capture('pointer-down', event);
           fire('pointer-down');
         });
         element.addEventListener('pointerup', (event) => {
           if (event.button !== 0 || !pressed) return;
           pressed = false;
+          capture('pointer-up', event);
           fire('pointer-up');
         });
-        element.addEventListener('pointercancel', () => {
+        element.addEventListener('pointercancel', (event) => {
+          if (pressed) capture('pointer-cancel', event, undefined, false);
           pressed = false;
+        });
+        sharedPointerEdges.set(layer.id, (input) => {
+          switch (input.type) {
+            case 'pointer-enter':
+            case 'pointer-exit':
+              hover(input.type === 'pointer-enter', input.relatedLayerId);
+              fire(
+                input.type === 'pointer-enter' ? 'pointer-enter' : 'pointer-leave',
+                input.relatedLayerId,
+                true,
+              );
+              break;
+            case 'pointer-down':
+              pressed = true;
+              fire(input.type, undefined, true);
+              break;
+            case 'pointer-up':
+              if (!pressed) return false;
+              pressed = false;
+              fire(input.type, undefined, true);
+              break;
+            case 'pointer-cancel':
+              pressed = false;
+              break;
+            default:
+              fire(input.type, undefined, true);
+          }
+          return true;
         });
       }
     }
@@ -1126,6 +1198,15 @@ export function mountTransitionLogicComposition(options: {
   const mount: TransitionLogicMount = {
     host,
     layerElement: (id) => layerEls.get(id),
+    applySharedPointerPosition(event) {
+      if (!disposed && onAir && !options.deterministic && options.scheduleRule)
+        updatePointer(event ? runtimePointerPosition(host, descriptor, event) : null);
+    },
+    applySharedPointerEdge(input, frame) {
+      if (disposed || !onAir || options.deterministic || !options.scheduleRule) return false;
+      currentFrame = frame;
+      return sharedPointerEdges.get(input.target.layerId)?.(input) ?? false;
+    },
     get startFrame() {
       return startFrame;
     },

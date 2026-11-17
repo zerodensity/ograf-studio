@@ -11,6 +11,7 @@ import { PreviewError } from './PreviewError';
 import { EditorPreviewControls } from './EditorPreviewControls';
 import { TickerPendingUpdates } from './TickerPendingUpdates';
 import { PreviewBackgroundControls } from './PreviewBackgroundControls';
+import { SyncViewersControl } from './SyncViewersControl';
 import { PreviewFpsControls } from '../components/PreviewFpsOverlay';
 
 /** The fullscreen popup and dockable controls operate the same registered preview. */
@@ -35,7 +36,11 @@ export function PreviewPlayoutControls({
   );
   // Match the lane controls' render scope, including Ready/Off before the first Take.
   // Boolean selectors avoid rerendering this shared popup/pane on playback snapshots.
-  const laneControlsOwnData = !session.editorSynchronized && (hasLaneDefinition || hasLaneSession);
+  const laneControlsOwnData =
+    !session.editorSynchronized &&
+    (session.sharedTransition
+      ? Boolean((session.sharedTransition.source ?? session.projectSet)?.transitionLogic)
+      : hasLaneDefinition || hasLaneSession);
   const showTemplateControls =
     session.editorSynchronized || (!laneControlsOwnData && !session.behaviorActive);
   const backwardLabel = previewArrowNavigationLabel(
@@ -119,6 +124,7 @@ export function PreviewPlayoutControls({
         )}
       </div>
       {session.editorSynchronized && <EditorPreviewControls />}
+      {session.viewerSync && <SyncViewersControl session={session.viewerSync} />}
       <TickerPendingUpdates statuses={session.tickerUpdates ?? []} />
       {showStatus && session.loading && (
         <p className="playout-controls-note" role="status">
@@ -133,6 +139,7 @@ export function PreviewPlayoutControls({
           activeTemplateId={session.activeTemplateId}
           dataTemplateId={session.dataTemplateId}
           data={session.data}
+          shared={session.sharedTransition}
         />
       )}
       <PreviewBackgroundControls />

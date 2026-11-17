@@ -196,6 +196,33 @@ describe('OGraf player lifecycle', () => {
     expect(player.element.disposeCount).toBe(1);
   });
 
+  it('adopts the exported graphic into the detached preview document before loading', async () => {
+    const owner = { addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    const detachedDocument = { defaultView: owner };
+    class DetachedElement extends TestElement {
+      ownerDocument = detachedDocument;
+      appendChild(child) {
+        super.appendChild(child);
+        const adopt = (element) => {
+          element.ownerDocument = detachedDocument;
+          element.children.forEach(adopt);
+        };
+        adopt(child);
+      }
+    }
+    Object.assign(owner, { HTMLElement: DetachedElement });
+    const detached = new DetachedElement();
+    const player = await mountOGrafGraphic({
+      container: detached,
+      manifestUrl: '/graphic/graphic.ograf.json',
+    });
+    expect(player.element.ownerDocument).toBe(detachedDocument);
+    expect(owner.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function));
+    await player.dispose();
+    expect(detached.children).toHaveLength(0);
+    expect(owner.removeEventListener).toHaveBeenCalledWith('resize', expect.any(Function));
+  });
+
   it('disposes and removes the mounted component when load fails', async () => {
     const errorEvent = vi.fn();
     await expect(

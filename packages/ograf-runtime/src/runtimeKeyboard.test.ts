@@ -74,6 +74,7 @@ describe('graphic-local keyboard listeners', () => {
     expect(receive).toHaveBeenLastCalledWith(
       'key-down',
       expect.objectContaining({ key: 'a', ctrlKey: true }),
+      down,
     );
     expect(down.defaultPrevented).toBe(true);
     receive.mockReturnValue(false);

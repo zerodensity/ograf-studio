@@ -594,7 +594,8 @@ function supervisorKernel(config: {
     host.onmessage = (message) => receive(message.data);
     host.onmessageerror = () => fail(active?.task?.id ?? 0, 'Unreadable parent message.');
     host.start();
-    prepare();
+    // The parent sends its bounded probe after this transport acknowledgment.
+    // Preparing the child here would consume the supervisor connection budget.
     if (!closed) send('supervisor-ready', 0);
   };
 }
@@ -792,7 +793,13 @@ export function createLogicFunctionSandbox(
     throw error('Source must contain a function expression of at most 128 KiB.');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 16 || timeoutMs > 1000)
     throw error('Execution timeout must be 16–1000 ms.');
-  const token = crypto.randomUUID();
+  // Plain LAN HTTP still has getRandomValues even when randomUUID is unavailable.
+  const token =
+    typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+          byte.toString(16).padStart(2, '0'),
+        ).join('');
   let control: MessagePort | null = null;
   let cleanupControl: MessagePort | null = null;
   const iframe = ownerDocument.createElement('iframe');

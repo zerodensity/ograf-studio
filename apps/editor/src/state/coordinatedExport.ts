@@ -25,10 +25,11 @@ interface CoordinatedExportOptions {
   signal?: AbortSignal;
 }
 
-async function certifyCoordinatedArtifacts(
+/** Certifies the exact coordinated files before packaging or publication. */
+export async function certifyCoordinatedArtifacts(
   set: ProjectSetDocument,
-  profile: ExportProfile | undefined,
-  { onProgress, signal }: CoordinatedExportOptions,
+  profile?: ExportProfile,
+  { onProgress, signal }: CoordinatedExportOptions = {},
 ): Promise<Omit<CertifiedCoordinatedPackage, 'blob'>> {
   signal?.throwIfAborted();
   onProgress?.('compilation');

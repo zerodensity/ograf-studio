@@ -13,12 +13,14 @@ import {
 } from './modifierRendering';
 import { getTextClipMargins } from './textClipMargins';
 
-export function hasAutoSizedTextClip(layer: CompiledGraphicDescriptor['layers'][number]): boolean {
+export function needsMeasuredAutoSizeTextBounds(
+  layer: CompiledGraphicDescriptor['layers'][number],
+): boolean {
   return (
     !layer.textPath &&
     layer.element.type === 'text' &&
     layer.element.autoFit === 'auto-size' &&
-    !!getTextClipMargins(layer.element)
+    (!!layer.mask || !!getTextClipMargins(layer.element))
   );
 }
 
@@ -64,7 +66,7 @@ export function applyCompiledAutoLayout(
     (layer) =>
       layer.element.type === 'text' &&
       layer.element.autoFit === 'auto-size' &&
-      (hasFlow || hasAutoSizedTextClip(layer)),
+      (hasFlow || needsMeasuredAutoSizeTextBounds(layer)),
   );
   if (!hasFlow && !textLayers.length) return;
   const measured = new Map<string, { width: number; height: number }>();
@@ -107,9 +109,8 @@ export function applyCompiledAutoLayout(
           height: Math.ceil(natural.height + stroke),
         });
       }
-      // Standalone Auto Size text also needs the current measured box when it opts into a
-      // clipping margin. The margin itself changes paint bounds, not layout dimensions.
-      if (state && hasAutoSizedTextClip(layer)) {
+      // A shape mask or text clip margin needs the current Auto Size box outside layout flow.
+      if (state && needsMeasuredAutoSizeTextBounds(layer)) {
         const size = measured.get(layer.id)!;
         state.transform.width = size.width;
         state.transform.height = size.height;

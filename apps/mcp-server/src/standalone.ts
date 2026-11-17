@@ -6,6 +6,13 @@ import { OGRAF_CLIENT_SETUP } from '@ograf-editor/agent-tools';
 import { createOGrafAuthoringHost } from './index';
 import { assertStaticEditorRoot } from './staticEditor';
 import { exportBundledAuthoringSkill, formatStandaloneSetupPrompt } from './standaloneSetup';
+import { formatTerminalQr } from './terminalQr';
+import {
+  createSharedPlayoutHost,
+  loadSharedPlayoutAssets,
+  type SharedPlayoutAssetPaths,
+  type SharedPlayoutHost,
+} from './sharedPlayout';
 import {
   OGRAF_STUDIO_REPOSITORY_URL,
   OGRAF_STUDIO_STANDALONE_VERSION,
@@ -40,6 +47,22 @@ async function closeServer(server: Server): Promise<void> {
   );
 }
 
+async function listen(server: Server, port: number, host: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+}
+
+function warnPlayoutUnavailable(error: unknown): void {
+  console.warn(
+    `Live preview unavailable: ${error instanceof Error ? error.message : String(error)}`,
+  );
+}
+
 async function main(): Promise<void> {
   const options = parseStandaloneServerOptions(process.argv.slice(2));
   if (options.help) {
@@ -68,18 +91,35 @@ async function main(): Promise<void> {
   if (!embeddedEditorAssets) await assertStaticEditorRoot(editorRoot);
   await mkdir(options.workspaceRoot, { recursive: true });
 
+  const embeddedPlayoutAssets = (
+    globalThis as { __OGRAF_STANDALONE_PLAYOUT_ASSETS__?: SharedPlayoutAssetPaths }
+  ).__OGRAF_STANDALONE_PLAYOUT_ASSETS__;
+  let sharedPlayout: SharedPlayoutHost | undefined;
+  if (options.playout) {
+    try {
+      sharedPlayout = createSharedPlayoutHost(
+        options.playout.host,
+        await loadSharedPlayoutAssets(embeddedPlayoutAssets),
+      );
+    } catch (error) {
+      warnPlayoutUnavailable(error);
+    }
+  }
   const { httpServer, workspace } = createOGrafAuthoringHost({
     ...(embeddedEditorAssets ? { embeddedEditorAssets } : { editorRoot }),
     workspaceRoot: options.workspaceRoot,
     bundledAuthoringSkill: Boolean(embeddedSkillAsset),
+    sharedPlayout,
   });
-  await new Promise<void>((resolve, reject) => {
-    httpServer.once('error', reject);
-    httpServer.listen(options.port, '127.0.0.1', () => {
-      httpServer.off('error', reject);
-      resolve();
-    });
-  });
+  await listen(httpServer, options.port, '127.0.0.1');
+  if (sharedPlayout && options.playout) {
+    try {
+      await listen(sharedPlayout.httpServer, options.playout.port, options.playout.host);
+    } catch (error) {
+      warnPlayoutUnavailable(error);
+      sharedPlayout = undefined;
+    }
+  }
 
   const baseUrl = `http://127.0.0.1:${options.port}`;
   console.log(ZERO_DENSITY_ASCII_ART);
@@ -90,6 +130,21 @@ async function main(): Promise<void> {
   console.log(`Editor:    ${baseUrl}/`);
   console.log(`MCP:       ${baseUrl}/mcp`);
   console.log(`Health:    ${baseUrl}/health`);
+  if (sharedPlayout) {
+    const viewerUrl = sharedPlayout.viewerEntryUrl();
+    console.log(`Viewer:    ${viewerUrl.href}`);
+    if (
+      !viewerUrl.hostname.startsWith('127.') &&
+      viewerUrl.hostname !== '[::1]' &&
+      process.stdout.isTTY &&
+      process.env.TERM !== 'dumb' &&
+      process.env.NO_COLOR === undefined
+    ) {
+      const qr = formatTerminalQr(viewerUrl.href);
+      if ((process.stdout.columns ?? 80) >= qr.columns) console.log(qr.text);
+      else console.log(`Widen the terminal to ${qr.columns} columns to scan the viewer QR.`);
+    }
+  }
   console.log(`Workspace: ${workspace.root}`);
   if (embeddedSkillAsset)
     console.log(
@@ -102,7 +157,9 @@ async function main(): Promise<void> {
   const shutdown = () => {
     if (closing) return;
     closing = true;
-    void closeServer(httpServer).finally(() => process.exit(0));
+    sharedPlayout?.disconnectClients();
+    const listeners = sharedPlayout ? [httpServer, sharedPlayout.httpServer] : [httpServer];
+    void Promise.allSettled(listeners.map(closeServer)).then(() => process.exit(0));
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

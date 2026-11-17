@@ -186,5 +186,46 @@ export interface OGrafManifest {
 export const OGRAF_MANIFEST_SCHEMA_URL =
   'https://ograf.ebu.io/v1/specification/json-schemas/graphics/schema.json';
 
+/** Private Studio preview transport. Coordinates are fractions of the visible graphic. */
+export interface SharedGraphicPointerPosition {
+  x: number;
+  y: number;
+}
+
+export interface SharedGraphicPointerTarget {
+  layerId: string;
+  slotId?: string;
+  stateId?: string;
+  sharedKey?: string;
+}
+
+export type SharedGraphicPointerEdge = {
+  type:
+    | 'pointer-enter'
+    | 'pointer-exit'
+    | 'pointer-down'
+    | 'pointer-up'
+    | 'pointer-cancel'
+    | 'click'
+    | 'double-click';
+  target: SharedGraphicPointerTarget;
+  position?: SharedGraphicPointerPosition;
+  relatedLayerId?: string;
+};
+
+export type SharedGraphicInput =
+  | { type: 'pointer-move'; position: SharedGraphicPointerPosition }
+  | { type: 'pointer-leave' }
+  | SharedGraphicPointerEdge
+  | {
+      type: 'key-down' | 'key-up';
+      key: string;
+      ctrlKey?: boolean;
+      altKey?: boolean;
+      shiftKey?: boolean;
+      metaKey?: boolean;
+      repeat?: boolean;
+    };
+
 export * from './descriptor';
 export * from './transitionLogicDescriptor';

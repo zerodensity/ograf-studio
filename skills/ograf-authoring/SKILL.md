@@ -3,7 +3,7 @@ name: ograf-authoring
 description: Author, animate, validate, and export editable EBU OGraf broadcast graphics with OGraf Studio MCP. Use for templates, lower thirds, scoreboards, tickers, and data-driven graphics.
 ---
 
-# OGraf Authoring 0.33.0
+# OGraf Authoring 0.34.0
 
 Use OGraf Studio's canonical editable model. Require final OGraf certification.
 
@@ -391,7 +391,9 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   `cursorBlinkFrames`. `replayOnUpdate` responds to changed Content bindings;
   `customActionId` references an existing OGraf custom action. The initial animation begins at
   frame zero; keep its duration inside IN when text must be complete at the first Step. Grapheme
-  mode preserves emoji and combining marks. Playback and cursor blinking remain frame-sampled
+  mode preserves emoji and combining marks. For Arabic-script text, character-based Fade,
+  Rise, Pop, Flip, Blur, Rotate, and Stretch animate one shaped block to preserve joining and
+  mixed text order. Playback and cursor blinking remain frame-sampled
   under backward `goToTime()` seeks.
 - Counting presets finish at the single formatted number in Content. Use `countFrom:number|null`
   for an explicit or automatic start. They retain numeric formatting and surrounding text;

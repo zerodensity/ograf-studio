@@ -85,8 +85,8 @@ describe('application data connection lifecycle', () => {
     result.reconcile([editor, preview]);
     await flush();
     expect(read).toHaveBeenCalledTimes(1);
-    expect(editor.apply).toHaveBeenCalledWith({ 'price-field': 20 });
-    expect(preview.apply).toHaveBeenCalledWith({ 'price-field': 20 });
+    expect(editor.apply).toHaveBeenCalledWith({ 'price-field': 20 }, { price: 20 });
+    expect(preview.apply).toHaveBeenCalledWith({ 'price-field': 20 }, { price: 20 });
     await vi.advanceTimersByTimeAsync(3100);
     expect(read).toHaveBeenCalledTimes(4);
     expect(editor.apply).toHaveBeenCalledTimes(1);
@@ -170,7 +170,7 @@ describe('application data connection lifecycle', () => {
       message: 'Feed unavailable',
     });
     await vi.advanceTimersByTimeAsync(1000);
-    expect(target.apply).toHaveBeenCalledWith({ 'price-field': 20 });
+    expect(target.apply).toHaveBeenCalledWith({ 'price-field': 20 }, { price: 20 });
   });
   it('keeps zero-interval connections manual and coalesces simultaneous Refresh requests', async () => {
     const { result, read } = runtime();

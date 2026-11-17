@@ -67,7 +67,7 @@ export class OGrafExportCertificationError extends Error {
 }
 
 /** Builds the package of a snapshot of the project, with its thumbnail, and throws unless it is OGraf-certified. */
-async function buildCertifiedArtifacts(
+export async function buildCertifiedProjectArtifacts(
   project: Project,
   composition: Composition,
   profile?: ExportProfile,
@@ -124,7 +124,7 @@ export async function createCertifiedProjectPackage(
   profile?: ExportProfile,
   { signal }: { signal?: AbortSignal } = {},
 ): Promise<CertifiedProjectPackage> {
-  const { artifacts, compatibility } = await buildCertifiedArtifacts(
+  const { artifacts, compatibility } = await buildCertifiedProjectArtifacts(
     project,
     composition,
     profile,
@@ -141,7 +141,11 @@ export async function createCertifiedProjectHtml(
   composition: Composition,
   profile?: ExportProfile,
 ): Promise<CertifiedProjectPackage> {
-  const { artifacts, compatibility } = await buildCertifiedArtifacts(project, composition, profile);
+  const { artifacts, compatibility } = await buildCertifiedProjectArtifacts(
+    project,
+    composition,
+    profile,
+  );
   return { artifacts, compatibility, blob: createStandaloneHtmlFile(artifacts).blob };
 }
 
@@ -153,7 +157,11 @@ export async function exportProjectAsZip(
   options: { downloadOnly?: boolean; ownerWindow?: Window; format?: ExportFileFormat } = {},
 ): Promise<ExportZipResult> {
   const { format = 'zip', ...saveOptions } = options;
-  const { artifacts, compatibility } = await buildCertifiedArtifacts(project, composition, profile);
+  const { artifacts, compatibility } = await buildCertifiedProjectArtifacts(
+    project,
+    composition,
+    profile,
+  );
   const suffix = profile?.fileNameSuffix ?? '';
   const files: ExportFile[] = [];
   if (format !== 'html') {
@@ -207,7 +215,7 @@ export async function buildNodosPreset(
 }> {
   if (profile?.mode === 'non-realtime' || (!profile && !project.supportsRealTime))
     throw new Error('A Nodos preset requires a Real-time or Dual-mode output profile.');
-  const { snapshotComposition, artifacts, compatibility } = await buildCertifiedArtifacts(
+  const { snapshotComposition, artifacts, compatibility } = await buildCertifiedProjectArtifacts(
     project,
     composition,
     profile,

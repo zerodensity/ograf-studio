@@ -41,27 +41,33 @@ export function dispatchPreviewKeyboardInput(
   container: HTMLElement | null,
   event: KeyboardEvent,
   onError: (error: unknown) => void,
+  mountedGraphic?: Element | null,
 ): boolean {
-  const graphic = container?.firstElementChild as
+  const graphic = (mountedGraphic ?? container?.firstElementChild) as
     | (Element & {
         handleKeyboardInput?: (
           trigger: 'key-down' | 'key-up',
           input: VisualRuleKeyboardInput,
+          sourceEvent?: KeyboardEvent,
         ) => boolean;
       })
     | null
     | undefined;
   if (!graphic?.handleKeyboardInput) return false;
   try {
-    return graphic.handleKeyboardInput(event.type === 'keyup' ? 'key-up' : 'key-down', {
-      key: event.key,
-      ctrlKey: event.ctrlKey,
-      altKey: event.altKey,
-      shiftKey: event.shiftKey,
-      metaKey: event.metaKey,
-      repeat: event.repeat,
-      isComposing: event.isComposing,
-    });
+    return graphic.handleKeyboardInput(
+      event.type === 'keyup' ? 'key-up' : 'key-down',
+      {
+        key: event.key,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+        metaKey: event.metaKey,
+        repeat: event.repeat,
+        isComposing: event.isComposing,
+      },
+      event,
+    );
   } catch (error) {
     onError(error);
     return true;

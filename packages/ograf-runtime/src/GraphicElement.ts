@@ -22,6 +22,7 @@ import {
   type ReturnPayload,
   type ScheduledAction,
   type SetActionsScheduleParams,
+  type SharedGraphicInput,
   type StopActionParams,
   type UpdateActionParams,
 } from '@ograf-editor/ograf-types';
@@ -104,7 +105,16 @@ import {
   runtimeCollectionItemSelection,
 } from './runtimeCollections';
 import { registerDocumentFonts } from './documentFonts';
-import { bindRuntimePointerPosition, runtimeRelatedLayerId } from './runtimePointer';
+import {
+  bindRuntimePointerPosition,
+  runtimePointerInComposition,
+  runtimeRelatedLayerId,
+} from './runtimePointer';
+import {
+  createSharedInputCapture,
+  validSharedPointerPosition,
+  type SharedInputHandler,
+} from './sharedGraphicInput';
 import {
   bindRuntimeKeyboard,
   claimsRuntimeKeyboardInput,
@@ -244,6 +254,7 @@ interface LoopExitCorrection {
       discreteShader: Partial<Record<AnimatableLayerProperty, number>>;
       stack: Record<string, number>;
       modifiers: Record<string, number>;
+      patternFrame?: number;
     }
   >;
 }
@@ -280,6 +291,22 @@ function exitDurationFrames(descriptor: CompiledGraphicDescriptor): number {
     descriptor.transitions.find(
       (transition) => transition.toKeyframeId === descriptor.endKeyframeId,
     )?.durationFrames ?? 0
+  );
+}
+
+/** A settled final Step can play every authored Out key without crossing another Step. */
+function shouldPlayAuthoredOut(
+  descriptor: CompiledGraphicDescriptor,
+  step: number | undefined,
+  frame: number,
+): boolean {
+  const finalStep = descriptor.stepKeyframeIds.length - 1;
+  if (step === undefined || step !== finalStep) return false;
+  const key = descriptor.keyframes.find((key) => key.id === descriptor.stepKeyframeIds[finalStep]);
+  return (
+    key !== undefined &&
+    Math.abs(frame - key.frame) < 0.000_001 &&
+    (descriptor.exitTailStartFrame === undefined || descriptor.exitTailStartFrame <= key.frame)
   );
 }
 
@@ -416,6 +443,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #disposeKeyboard: (() => void) | null = null;
   #keyboardOnAir = false;
   #loaded = false;
+  #sharedInput = createSharedInputCapture(
+    this,
+    () => this.#loaded && this.#renderType === 'realtime',
+  );
   #schedule: ScheduledAction[] = [];
   #externalSchedule = new WeakSet<ScheduledAction>();
   /** Snapshot of `#lastData` taken when `setActionsSchedule` is called — the baseline `goToTime`
@@ -625,7 +656,53 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#buildDom();
   }
 
-  handleKeyboardInput(trigger: RuntimeKeyboardTrigger, input: VisualRuleKeyboardInput): boolean {
+  setSharedInputHandler(handler: SharedInputHandler | null): void {
+    this.#sharedInput.set(handler);
+  }
+
+  applySharedInput(input: SharedGraphicInput): boolean {
+    if (!this.#loaded || this.#renderType !== 'realtime') return false;
+    if ('key' in input) return this.handleKeyboardInput(input.type, input);
+    if (input.type === 'pointer-leave') {
+      this.#updatePointer(null);
+      return true;
+    }
+    if (input.position) {
+      if (!validSharedPointerPosition(input.position)) return false;
+      this.#updatePointer(runtimePointerInComposition(input.position, this.descriptor));
+    }
+    if (input.type === 'pointer-move') return true;
+    const { layerId, slotId, stateId, sharedKey } = input.target;
+    if (slotId || stateId || sharedKey) return false;
+    const layer = this.activeDescriptor.layers.find((candidate) => candidate.id === layerId);
+    if (!layer) return false;
+    switch (input.type) {
+      case 'pointer-enter':
+      case 'pointer-exit':
+        this.#pointerHover(layer, input.type === 'pointer-enter', input.relatedLayerId);
+        break;
+      case 'pointer-down':
+        this.#pressedLayers.add(layerId);
+        this.#triggerPointerRule(layer, input.type);
+        break;
+      case 'pointer-up':
+        if (!this.#pressedLayers.delete(layerId)) return false;
+        this.#triggerPointerRule(layer, input.type);
+        break;
+      case 'pointer-cancel':
+        this.#pressedLayers.delete(layerId);
+        break;
+      default:
+        this.#triggerPointerRule(layer, input.type);
+    }
+    return true;
+  }
+
+  handleKeyboardInput(
+    trigger: RuntimeKeyboardTrigger,
+    input: VisualRuleKeyboardInput,
+    sourceEvent?: KeyboardEvent,
+  ): boolean {
     if (
       this.#renderType !== 'realtime' ||
       !this.#keyboardOnAir ||
@@ -637,6 +714,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       !claimsRuntimeKeyboardInput(this.activeDescriptor.layers, trigger, input)
     )
       return false;
+    this.#sharedInput.keyboard(trigger, input, sourceEvent);
     const fired = this.#rules.eventFired(trigger, this.#lastData, { keyboard: input });
     if (fired.length) this.#runRules(fired);
     return true;
@@ -647,6 +725,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       if (this.isConnected) return;
       this.#keyboardOnAir = false;
       this.#loaded = false;
+      this.#sharedInput.set(null);
       this.#disposeKeyboard?.();
       this.#disposeKeyboard = null;
       this.#disposeLogicFunctions();
@@ -1207,6 +1286,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           }
         }
         if (remaining > 0) {
+          if (correction.patternFrame !== undefined) state.patternFrame = correction.patternFrame;
           for (const [property, value] of Object.entries(correction.discreteShader) as [
             AnimatableLayerProperty,
             number,
@@ -1368,7 +1448,12 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     >();
     for (const layer of this.activeDescriptor.layers) {
       const epoch = epochs.get(layer.id);
-      if (epoch === undefined || !layer.loop || !shouldExit(layer)) continue;
+      if (
+        epoch === undefined ||
+        (!layer.loop && layer.element.type !== 'pattern') ||
+        !shouldExit(layer)
+      )
+        continue;
       const elapsed = Math.max(0, ((clockMs - epoch) / 1000) * this.descriptor.frameRate);
       const looped = sampleCompiledLayerVisualState(
         layer,
@@ -1387,8 +1472,9 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       const paint: Partial<Record<AnimatableLayerProperty, number>> = {};
       const discreteShader: Partial<Record<AnimatableLayerProperty, number>> = {};
       const boundElement = this.#resolveLayerElement(layer, data);
-      for (const property of Object.keys(layer.loop.tracks) as AnimatableLayerProperty[]) {
-        if (!layer.loop.tracks[property]?.length) continue;
+      const loopTracks = layer.loop?.tracks ?? {};
+      for (const property of Object.keys(loopTracks) as AnimatableLayerProperty[]) {
+        if (!loopTracks[property]?.length) continue;
         if (TRANSFORM_ANIMATION_PROPERTIES.includes(property as keyof LayerTransform)) {
           const key = property as keyof LayerTransform;
           transform[key] = looped.transform[key] - base.transform[key];
@@ -1398,6 +1484,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         } else if (
           isGradientStopOffsetProperty(property) ||
           property === 'strokeWidth' ||
+          property === 'motionPathProgress' ||
           isRevealAnimationProperty(property)
         ) {
           paint[property] =
@@ -1413,17 +1500,25 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       }
       const stack: Record<string, number> = {};
       for (const property of numericEffectProperties(layer.effects))
-        if (layer.loop.tracks[property]?.length)
+        if (loopTracks[property]?.length)
           stack[property] =
             Number(effectParameterValue(looped.effects, property)) -
             Number(effectParameterValue(base.effects, property));
       const modifiers: Record<string, number> = {};
       for (const property of numericModifierProperties(layer))
-        if (layer.loop.tracks[property]?.length)
+        if (loopTracks[property]?.length)
           modifiers[property] =
             (modifierParameterValue(looped.modifiers ?? [], property) ?? 0) -
             (modifierParameterValue(base.modifiers ?? [], property) ?? 0);
-      layers.set(layer.id, { transform, effects, paint, stack, discreteShader, modifiers });
+      layers.set(layer.id, {
+        transform,
+        effects,
+        paint,
+        stack,
+        discreteShader,
+        modifiers,
+        ...(looped.patternFrame === undefined ? {} : { patternFrame: looped.patternFrame }),
+      });
     }
     this.#loopExitCorrection =
       layers.size > 0 ? { startFrame: baseFrame, targetFrame, layers } : null;
@@ -1560,12 +1655,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       viewport: this,
       descriptor,
       enabled: () => this.#renderType === 'realtime',
-      changed: (pointer) => {
-        this.#logicFunctions?.pointerChanged(this.#renderType === 'realtime' ? pointer : null);
-        if (this.#renderType !== 'realtime' || !this.#rules) return;
-        const fired = this.#rules.pointerChanged(pointer, this.#lastData);
-        if (!pointer || this.#rules.hasMouseConditions) this.#runRules(fired);
-      },
+      changed: (pointer) => this.#updatePointer(pointer),
     });
     const backdropRootRequired = compositionHasBackdropBlur(renderDescriptor.layers);
     this.style.backgroundColor = backdropRootRequired ? 'transparent' : descriptor.backgroundColor;
@@ -1608,16 +1698,32 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       )
         el.style.cursor = 'pointer';
       if (pointerTriggers.size > 0) {
+        const target = { layerId: layer.id };
         el.addEventListener('pointerenter', (event) => {
-          if (event.pointerType !== 'touch')
-            this.#pointerHover(layer, true, runtimeRelatedLayerId(event, this.#layerEls));
+          if (event.pointerType === 'touch') return;
+          const relatedLayerId = runtimeRelatedLayerId(event, this.#layerEls);
+          this.#sharedInput.pointer(
+            { type: 'pointer-enter', target, ...(relatedLayerId ? { relatedLayerId } : {}) },
+            event,
+          );
+          this.#pointerHover(layer, true, relatedLayerId);
         });
         el.addEventListener('pointerleave', (event) => {
-          if (event.pointerType !== 'touch')
-            this.#pointerHover(layer, false, runtimeRelatedLayerId(event, this.#layerEls));
+          if (event.pointerType === 'touch') return;
+          const relatedLayerId = runtimeRelatedLayerId(event, this.#layerEls);
+          this.#sharedInput.pointer(
+            { type: 'pointer-exit', target, ...(relatedLayerId ? { relatedLayerId } : {}) },
+            event,
+            false,
+          );
+          this.#pointerHover(layer, false, relatedLayerId);
         });
         el.addEventListener('click', (event) => {
           if (event.detail > 1) return;
+          const fire = (includePosition: boolean) => {
+            this.#sharedInput.pointer({ type: 'click', target }, event, includePosition);
+            this.#triggerPointerRule(layer, 'click');
+          };
           if (pointerTriggers.has('double-click')) {
             const pending = this.#clickTimers.get(layer.id);
             if (pending) clearTimeout(pending);
@@ -1625,17 +1731,18 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
               layer.id,
               setTimeout(() => {
                 this.#clickTimers.delete(layer.id);
-                this.#triggerPointerRule(layer, 'click');
+                fire(false);
               }, 500),
             );
           } else {
-            this.#triggerPointerRule(layer, 'click');
+            fire(true);
           }
         });
-        el.addEventListener('dblclick', () => {
+        el.addEventListener('dblclick', (event) => {
           const pending = this.#clickTimers.get(layer.id);
           if (pending) clearTimeout(pending);
           this.#clickTimers.delete(layer.id);
+          this.#sharedInput.pointer({ type: 'double-click', target }, event);
           this.#triggerPointerRule(layer, 'double-click');
         });
         el.addEventListener('pointerdown', (event) => {
@@ -1643,13 +1750,18 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           this.#pressedLayers.add(layer.id);
           // A release off the layer still belongs to the press that started on it.
           if (pointerTriggers.has('pointer-up')) el.setPointerCapture?.(event.pointerId);
+          this.#sharedInput.pointer({ type: 'pointer-down', target }, event);
           this.#triggerPointerRule(layer, 'pointer-down');
         });
         el.addEventListener('pointerup', (event) => {
           if (event.button !== 0 || !this.#pressedLayers.delete(layer.id)) return;
+          this.#sharedInput.pointer({ type: 'pointer-up', target }, event);
           this.#triggerPointerRule(layer, 'pointer-up');
         });
-        el.addEventListener('pointercancel', () => this.#pressedLayers.delete(layer.id));
+        el.addEventListener('pointercancel', (event) => {
+          if (this.#pressedLayers.delete(layer.id))
+            this.#sharedInput.pointer({ type: 'pointer-cancel', target }, event, false);
+        });
       }
       if (layer.collectionItem) {
         el.dataset.ografCollectionId = layer.collectionItem.collectionId;
@@ -2125,6 +2237,13 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     await this.#logicFunctions.ready;
   }
 
+  #updatePointer(pointer: { x: number; y: number } | null): void {
+    this.#logicFunctions?.pointerChanged(this.#renderType === 'realtime' ? pointer : null);
+    if (this.#renderType !== 'realtime' || !this.#rules) return;
+    const fired = this.#rules.pointerChanged(pointer, this.#lastData);
+    if (!pointer || this.#rules.hasMouseConditions) this.#runRules(fired);
+  }
+
   #pointerHover(
     layer: CompiledGraphicDescriptor['layers'][number],
     hovered: boolean,
@@ -2378,7 +2497,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         this.#disposeKeyboard = bindRuntimeKeyboard(
           this,
           hasRuntimeKeyboardRules(this.activeDescriptor.layers),
-          (trigger, input) => this.handleKeyboardInput(trigger, input),
+          (trigger, input, event) => this.handleKeyboardInput(trigger, input, event),
         );
       }
       this.#loaded = true;
@@ -2397,6 +2516,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#disposeLogicFunctions();
     this.#keyboardOnAir = false;
     this.#loaded = false;
+    this.#sharedInput.set(null);
     this.#disposeKeyboard?.();
     this.#disposeKeyboard = null;
     try {
@@ -2586,9 +2706,12 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const exitsToEnd =
         previousStep !== undefined && target.keyframeId === this.descriptor.endKeyframeId;
+      const directOut =
+        exitsToEnd &&
+        !shouldPlayAuthoredOut(this.descriptor, previousStep, this.#timeline?.frame() ?? 0);
       if (previousStep === undefined && target.currentStep !== undefined)
         this.#startChartAnimations(Boolean(params.skipAnimation));
-      if (exitsToEnd) this.#beginDirectLifecycleTransition(targetFrame, now);
+      if (directOut) this.#beginDirectLifecycleTransition(targetFrame, now);
       else {
         this.#beginLoopExit(
           targetFrame,
@@ -2641,10 +2764,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       const targetFrame =
         this.descriptor.keyframes.find((keyframe) => keyframe.id === this.descriptor.endKeyframeId)
           ?.frame ?? 0;
-      this.#beginDirectLifecycleTransition(
-        targetFrame,
-        typeof performance !== 'undefined' ? performance.now() : Date.now(),
-      );
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (shouldPlayAuthoredOut(this.descriptor, this.#currentStep, this.#timeline?.frame() ?? 0))
+        this.#beginLoopExit(targetFrame, now, () => true);
+      else this.#beginDirectLifecycleTransition(targetFrame, now);
       this.#deactivateAllLoops();
       this.#fireLifecycleRules('stop');
       const durationSeconds = exitDurationFrames(this.descriptor) / this.descriptor.frameRate;
@@ -3159,6 +3282,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       if (progress >= 1) {
         animation = undefined;
         directSample = undefined;
+        this.#loopExitCorrection = null;
       }
       return positionSeconds;
     };
@@ -3396,10 +3520,18 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         const targetSeconds = keyframeSeconds(targetKeyframeId);
         const exitsToEnd =
           previousStep !== undefined && targetKeyframeId === this.descriptor.endKeyframeId;
+        const directOut =
+          exitsToEnd &&
+          (animation !== undefined ||
+            !shouldPlayAuthoredOut(
+              this.descriptor,
+              previousStep,
+              positionSeconds * this.descriptor.frameRate,
+            ));
         const durationMs = exitsToEnd
           ? (exitDurationFrames(this.descriptor) / this.descriptor.frameRate) * 1000
           : Math.abs(targetSeconds - positionSeconds) * 1000;
-        if (!exitsToEnd) {
+        if (!directOut) {
           this.#beginLoopExit(
             targetSeconds * this.descriptor.frameRate,
             scheduled.timestamp,
@@ -3417,7 +3549,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
                 startSeconds: positionSeconds,
                 targetSeconds,
                 durationMs,
-                ...(exitsToEnd
+                ...(directOut
                   ? {
                       directTransition: this.#createDirectLifecycleTransition(
                         positionSeconds * this.descriptor.frameRate,
@@ -3434,6 +3566,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         if (target.currentStep === undefined) {
           lifecycleEpoch = undefined;
           stepArrivalTimestamp = undefined;
+          customActionEpochs.clear();
           queueRuleWork(scheduled.timestamp, { kind: 'event', trigger: 'stop' });
         } else {
           const arrival = scheduled.timestamp + (animation?.durationMs ?? 0);
@@ -3453,11 +3586,27 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           events.push({ timestamp: scheduled.timestamp, command: 'take-out' });
         const stopParams = params as StopActionParams;
         const outgoingEpochs = loopEpochsAt(scheduled.timestamp);
-        this.#loopExitCorrection = null;
+        const directOut =
+          animation !== undefined ||
+          !shouldPlayAuthoredOut(
+            this.descriptor,
+            step,
+            positionSeconds * this.descriptor.frameRate,
+          );
         step = undefined;
         targetKeyframeId = this.descriptor.endKeyframeId;
         const targetSeconds = keyframeSeconds(targetKeyframeId);
         const durationMs = (exitDurationFrames(this.descriptor) / this.descriptor.frameRate) * 1000;
+        if (directOut) this.#loopExitCorrection = null;
+        else
+          this.#beginLoopExit(
+            targetSeconds * this.descriptor.frameRate,
+            scheduled.timestamp,
+            () => true,
+            positionSeconds * this.descriptor.frameRate,
+            outgoingEpochs,
+            displayData,
+          );
         animation =
           stopParams.skipAnimation || durationMs === 0
             ? undefined
@@ -3466,18 +3615,23 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
                 startSeconds: positionSeconds,
                 targetSeconds,
                 durationMs,
-                directTransition: this.#createDirectLifecycleTransition(
-                  positionSeconds * this.descriptor.frameRate,
-                  targetSeconds * this.descriptor.frameRate,
-                  scheduled.timestamp,
-                  outgoingEpochs,
-                  displayData,
-                ),
+                ...(directOut
+                  ? {
+                      directTransition: this.#createDirectLifecycleTransition(
+                        positionSeconds * this.descriptor.frameRate,
+                        targetSeconds * this.descriptor.frameRate,
+                        scheduled.timestamp,
+                        outgoingEpochs,
+                        displayData,
+                      ),
+                    }
+                  : {}),
               };
         directSample = undefined;
         if (!animation) positionSeconds = targetSeconds;
         lifecycleEpoch = undefined;
         stepArrivalTimestamp = undefined;
+        customActionEpochs.clear();
         queueRuleWork(scheduled.timestamp, { kind: 'event', trigger: 'stop' });
       } else if (type === 'customAction') {
         const customParams = params as CustomActionParams;

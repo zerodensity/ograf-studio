@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CoordinatedPlayoutSlot } from '@ograf-editor/ograf-types';
-import type {
-  FieldValue,
-  TransitionLogicDefinition,
-  TransitionLogicState,
+import { compileCustomActions, publicFieldValueForExport } from '@ograf-editor/codegen';
+import type { CoordinatedPlayoutSlot, OGrafManifest } from '@ograf-editor/ograf-types';
+import {
+  fieldExposedToOgraf,
+  type Composition,
+  type FieldValue,
+  type TransitionLogicDefinition,
+  type TransitionLogicState,
 } from '@ograf-editor/scene-model';
 import type { ProjectSetDocument } from '../state/projectSet';
+import {
+  sharedSlotDataKey,
+  stageSharedPreviewSlotField,
+  type SharedTransitionPlayoutSession,
+} from '../state/playoutControlsStore';
 import { useProjectStore } from '../state/projectStore';
 import {
   transitionLogicDraftChanged,
@@ -39,11 +47,18 @@ import {
   usePreviewSlotSelectionStore,
 } from '../state/previewSlotSelectionStore';
 import {
+  acknowledgePreviewSlotFields,
+  cachedPreviewSlotRuntimeData,
+  observePreviewSlotValues,
+  previewSlotComposition,
   previewSlotDataKey,
   resolvePreviewSlotForm,
   usePreviewSlotDataStore,
 } from '../state/previewSlotDataStore';
+import { resolvePreviewDataRecord, resolveStatePresetPreviewData } from '../state/previewData';
 import { PreviewDataFields } from './PreviewDataFields';
+
+type SlotFieldChange = (stateId: string, field: string, value: FieldValue) => void;
 
 function SlotDataFields({
   source,
@@ -54,6 +69,7 @@ function SlotDataFields({
   onAir,
   disabled,
   action,
+  onChange,
 }: {
   source: ProjectSetDocument;
   definition: TransitionLogicDefinition;
@@ -63,18 +79,44 @@ function SlotDataFields({
   onAir: boolean;
   disabled: boolean;
   action: (operation: () => void | Promise<void>) => void;
+  onChange?: SlotFieldChange;
 }) {
   // This component is keyed by the selected state. Switching reveals the new form,
   // while ordinary runtime snapshots keep its disclosure and focused controls intact.
   const [expanded, setExpanded] = useState(true);
-  const key = previewSlotDataKey(source.id, definition.id, slotId, state.id, state.templateId);
+  const key = onChange
+    ? sharedSlotDataKey(source, definition, state)
+    : previewSlotDataKey(source.id, definition.id, slotId, state.id, state.templateId);
   const draft = usePreviewSlotDataStore((store) => store.drafts[key]);
   const observed = usePreviewSlotDataStore((store) => store.observed[key]);
+  const shared = Boolean(onChange);
   const incomingId = status?.incoming?.stateId;
   const currentId = status?.current?.stateId;
   const outgoingId = status?.outgoing?.stateId;
   const form = useMemo(
-    () => resolvePreviewSlotForm(source, definition, state.id, status, draft),
+    () => {
+      if (!shared) return resolvePreviewSlotForm(source, definition, state.id, status, draft);
+      const resolved = previewSlotComposition(source, definition, state.id);
+      if (!resolved) return null;
+      const fields = resolved.composition.dataFields.filter(fieldExposedToOgraf);
+      const selection = status?.incoming ?? status?.current ?? status?.outgoing;
+      const values =
+        selection?.stateId === state.id
+          ? cachedPreviewSlotRuntimeData(resolved.composition, state.id, selection.data)
+          : (observed ?? resolveStatePresetPreviewData(resolved.composition, state.dataDefaults));
+      return {
+        fields,
+        values: Object.fromEntries(
+          fields.map((field) => [
+            field.key,
+            publicFieldValueForExport(
+              field,
+              Object.hasOwn(draft ?? {}, field.key) ? draft![field.key]! : values[field.key]!,
+            ),
+          ]),
+        ),
+      };
+    },
     // Runtime progress snapshots arrive each frame. Data changes are published separately,
     // so do not rehydrate template fields merely because animation progress advanced.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,6 +130,7 @@ function SlotDataFields({
       outgoingId,
       observed,
       draft,
+      shared,
     ],
   );
   if (!form?.fields.length) return null;
@@ -115,7 +158,9 @@ function SlotDataFields({
           }
           onChange={(fieldKey, value) => {
             // The color picker can be portaled outside the disabled fieldset.
-            if (!disabled)
+            if (disabled) return;
+            if (onChange) onChange(state.id, fieldKey, value);
+            else
               action(() =>
                 editBehaviorPreviewSlotField(source, definition, state.id, fieldKey, value),
               );
@@ -142,6 +187,7 @@ export function SlotControls({
   customActions,
   onCustomAction,
   action,
+  onFieldChange,
 }: {
   selectionKey: string;
   source: ProjectSetDocument | null;
@@ -158,6 +204,7 @@ export function SlotControls({
   customActions: Array<{ id: string; name: string }>;
   onCustomAction: (actionId: string) => void;
   action: (operation: () => void | Promise<void>) => void;
+  onFieldChange?: SlotFieldChange;
 }) {
   const choice = usePreviewSlotSelectionStore((state) => state.choices[selectionKey]);
   const onScreen = status?.incoming ?? status?.current;
@@ -264,6 +311,7 @@ export function SlotControls({
           onAir={selected.id === onAirState?.id}
           disabled={fieldsDisabled}
           action={action}
+          onChange={onFieldChange}
         />
       )}
       {status?.error && <PreviewError message={status.error} />}
@@ -271,18 +319,285 @@ export function SlotControls({
   );
 }
 
-/** Compact design-preview controls. These commands never address live/MCP output. */
-export function PreviewTransitionLogicControls({
-  projectSet,
-  activeTemplateId,
-  dataTemplateId,
-  data,
-}: {
+interface PreviewTransitionLogicControlsProps {
   projectSet: ProjectSetDocument | null;
   activeTemplateId: string | null;
   dataTemplateId: string | null;
   data: Record<string, FieldValue>;
+  shared?: SharedTransitionPlayoutSession;
+}
+
+export function PreviewTransitionLogicControls(props: PreviewTransitionLogicControlsProps) {
+  const { shared, projectSet, activeTemplateId } = props;
+  if (!shared) return <LocalTransitionLogicControls {...props} />;
+  const source = shared.source ?? projectSet;
+  if (!source?.transitionLogic) return null;
+  return (
+    <SharedTransitionLogicControls
+      source={source}
+      definition={source.transitionLogic}
+      activeTemplateId={activeTemplateId}
+      session={shared}
+    />
+  );
+}
+
+const pendingSharedSlotEdits = new WeakMap<
+  ProjectSetDocument,
+  Map<string, ReturnType<typeof setTimeout>>
+>();
+const compiledSharedSlotActions = new WeakMap<
+  Composition,
+  ReturnType<typeof compileCustomActions>
+>();
+
+function sharedSlotPatch(
+  source: ProjectSetDocument,
+  definition: TransitionLogicDefinition,
+  state: TransitionLogicState,
+) {
+  const key = sharedSlotDataKey(source, definition, state);
+  const draft = usePreviewSlotDataStore.getState().drafts[key];
+  const resolved = previewSlotComposition(source, definition, state.id);
+  if (!draft || !resolved) return { key, draft: {}, data: {} };
+  const values = resolvePreviewDataRecord(resolved.composition, draft);
+  const data = Object.fromEntries(
+    resolved.composition.dataFields
+      .filter((field) => Object.hasOwn(draft, field.key) && fieldExposedToOgraf(field))
+      .map((field) => [field.key, publicFieldValueForExport(field, values[field.key]!)]),
+  );
+  return { key, draft, data };
+}
+
+function laneActionIds(
+  manifest: Pick<OGrafManifest, 'customActions'>,
+  slotId: string,
+): Set<string> {
+  const schema = manifest.customActions?.find((action) => action.id === 'template.action')?.schema;
+  const rules = schema?.allOf as
+    | Array<{
+        if?: { properties?: { slotId?: { const?: string } } };
+        then?: { properties?: { actionId?: { enum?: string[] } } };
+      }>
+    | undefined;
+  const laneRule = rules?.find((rule) => rule.if?.properties?.slotId?.const === slotId);
+  return new Set(laneRule?.then?.properties?.actionId?.enum);
+}
+
+function SharedTransitionLogicControls({
+  source,
+  definition,
+  activeTemplateId,
+  session,
+}: {
+  source: ProjectSetDocument;
+  definition: TransitionLogicDefinition;
+  activeTemplateId: string | null;
+  session: SharedTransitionPlayoutSession;
 }) {
+  const [error, setError] = useState('');
+  const generation = useRef(0);
+  const latest = useRef(session);
+  latest.current = session;
+  useEffect(() => {
+    setError('');
+    return () => {
+      generation.current += 1;
+    };
+  }, [source]);
+
+  useEffect(() => {
+    for (const [slotId, slot] of Object.entries(session.snapshot?.slots ?? {})) {
+      const selection = slot.incoming ?? slot.current;
+      if (!selection || (slot.transition && !slot.incoming)) continue;
+      const resolved = previewSlotComposition(source, definition, selection.stateId);
+      if (!resolved || resolved.state.slotId !== slotId) continue;
+      const key = sharedSlotDataKey(source, definition, resolved.state);
+      const values = cachedPreviewSlotRuntimeData(
+        resolved.composition,
+        selection.stateId,
+        selection.data,
+      );
+      observePreviewSlotValues(key, values);
+    }
+  }, [source, definition, session.snapshot]);
+
+  const action = (operation: () => void | Promise<void>) => {
+    const current = ++generation.current;
+    setError('');
+    void Promise.resolve()
+      .then(operation)
+      .catch((cause) => {
+        if (current === generation.current)
+          setError(cause instanceof Error ? cause.message : String(cause));
+      });
+  };
+  const send = async (id: string, payload?: Record<string, unknown>) => {
+    const result = await latest.current.sendAction(id, payload);
+    if (!result) return false;
+    if (result.statusCode >= 400)
+      throw new Error(result.statusMessage || `Playout command failed (${result.statusCode}).`);
+    return true;
+  };
+  const onAir = (state: TransitionLogicState) => {
+    const slot = latest.current.snapshot?.slots[state.slotId];
+    return (
+      (slot?.incoming ?? slot?.current)?.stateId === state.id &&
+      (!slot?.transition || Boolean(slot.incoming))
+    );
+  };
+  const take = (state: TransitionLogicState) =>
+    action(async () => {
+      const { key, draft, data } = sharedSlotPatch(source, definition, state);
+      if (
+        await send('transition.take', {
+          slotId: state.slotId,
+          stateId: state.id,
+          ...(Object.keys(data).length ? { data } : {}),
+        })
+      )
+        acknowledgePreviewSlotFields(key, draft);
+    });
+  const edit = (stateId: string, field: string, value: FieldValue) => {
+    const state = definition.states.find((entry) => entry.id === stateId);
+    if (!state) return;
+    stageSharedPreviewSlotField(source, definition, state, field, value);
+    if (!onAir(state)) return;
+    let pending = pendingSharedSlotEdits.get(source);
+    if (!pending) {
+      pending = new Map();
+      pendingSharedSlotEdits.set(source, pending);
+    }
+    const edits = pending;
+    clearTimeout(edits.get(stateId));
+    edits.set(
+      stateId,
+      setTimeout(() => {
+        edits.delete(stateId);
+        if (!latest.current.ready || !onAir(state)) return;
+        action(async () => {
+          const { key, draft, data } = sharedSlotPatch(source, definition, state);
+          if (
+            Object.keys(data).length &&
+            (await send('transition.patch', { slotId: state.slotId, stateId, data }))
+          )
+            acknowledgePreviewSlotFields(key, draft);
+        });
+      }, 120),
+    );
+  };
+  const snapshot = session.snapshot;
+  const disabled = !session.ready || !snapshot?.loaded;
+  const issue = error || session.error || snapshot?.error;
+  const lanes = useMemo(
+    () =>
+      [...definition.slots]
+        .sort((a, b) => a.order - b.order)
+        .map((slot) => {
+          const allowed = session.manifest && laneActionIds(session.manifest, slot.id);
+          const states = definition.states.filter((state) => state.slotId === slot.id);
+          return { slot, states, allowed };
+        }),
+    [definition, session.manifest],
+  );
+  const run = (id: string, payload?: Record<string, unknown>) =>
+    action(async () => {
+      await send(id, payload);
+    });
+  return (
+    <section
+      className="preview-transition-controls"
+      aria-label="Playout transitions preview controls"
+    >
+      <div className="preview-transition-heading">
+        <h4>Playout transitions</h4>
+        <small>{disabled ? 'Ready' : 'Preview'}</small>
+      </div>
+      {disabled && !issue && (
+        <p className="preview-fullscreen-data-note" role="status">
+          Preparing graphics…
+        </p>
+      )}
+      {lanes.map(({ slot, states, allowed }) => {
+        const status = snapshot?.slots[slot.id];
+        const selection = status?.incoming ?? status?.current;
+        const resolved = selection && previewSlotComposition(source, definition, selection.stateId);
+        let actions = resolved && compiledSharedSlotActions.get(resolved.composition);
+        if (resolved && !actions) {
+          actions = compileCustomActions(resolved.composition);
+          compiledSharedSlotActions.set(resolved.composition, actions);
+        }
+        const key = previewSlotSelectionKey(source.id, definition.id, activeTemplateId, slot.id);
+        return (
+          <SlotControls
+            key={key}
+            selectionKey={key}
+            slot={slot}
+            source={source}
+            definition={definition}
+            states={states}
+            status={status}
+            activeTemplateId={activeTemplateId}
+            requestedStateId={null}
+            disabled={disabled}
+            fieldsDisabled={disabled}
+            onTake={(stateId) => {
+              const state = states.find((entry) => entry.id === stateId);
+              if (state) take(state);
+            }}
+            onOut={() => run('transition.out', { slotId: slot.id })}
+            customActions={
+              (allowed ? actions?.filter((item) => allowed.has(item.id)) : actions) ?? []
+            }
+            onCustomAction={(actionId) => run('template.action', { slotId: slot.id, actionId })}
+            action={action}
+            onFieldChange={edit}
+          />
+        );
+      })}
+      <div className="preview-controls-row preview-transition-transport">
+        <button
+          type="button"
+          disabled={disabled}
+          title="Immediately clear all graphics from this preview."
+          onClick={() => run('transition.clear', {})}
+        >
+          Clear all
+        </button>
+      </div>
+      {snapshot?.loops?.map((loop) => {
+        const payload = { slotId: loop.slotId, groupId: loop.groupId };
+        return (
+          <div
+            className="preview-controls-row preview-transition-transport"
+            key={`${loop.slotId}/${loop.groupId}`}
+          >
+            <small>{loop.name}</small>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => run(loop.paused ? 'loop.resume' : 'loop.pause', payload)}
+            >
+              {loop.paused ? 'Resume loop' : 'Pause loop'}
+            </button>
+            <button type="button" disabled={disabled} onClick={() => run('loop.next', payload)}>
+              Next headline
+            </button>
+          </div>
+        );
+      })}
+      {issue && <PreviewError message={issue} />}
+    </section>
+  );
+}
+
+/** Draft rehearsals keep their own isolated coordinator. */
+function LocalTransitionLogicControls({
+  projectSet,
+  activeTemplateId,
+  dataTemplateId,
+  data,
+}: PreviewTransitionLogicControlsProps) {
   const project = useProjectStore((state) => state.project);
   const draft = useTransitionLogicDraftStore((state) =>
     projectSet ? state.drafts[projectSet.id] : undefined,

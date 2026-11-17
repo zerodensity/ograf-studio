@@ -15,6 +15,7 @@ import type {
   ReturnPayload,
   ScheduledAction,
   SetActionsScheduleParams,
+  SharedGraphicInput,
   StopActionParams,
   TransitionLogicControlData,
   UpdateActionParams,
@@ -27,6 +28,11 @@ import {
   hasRuntimeKeyboardRules,
   type RuntimeKeyboardTrigger,
 } from './runtimeKeyboard';
+import {
+  createSharedInputCapture,
+  validSharedPointerPosition,
+  type SharedInputHandler,
+} from './sharedGraphicInput';
 import type { VisualRuleKeyboardInput } from '@ograf-editor/scene-model';
 import {
   clockTimerActionId,
@@ -317,6 +323,10 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
   #generation = 0;
   #queue: Promise<unknown> = Promise.resolve();
   #loaded = false;
+  #sharedInput = createSharedInputCapture(
+    this,
+    () => this.#loaded && this.#renderType === 'realtime',
+  );
   #renderError: Error | null = null;
   #waiters = new Map<
     string,
@@ -415,7 +425,56 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
     }
   }
 
-  handleKeyboardInput(trigger: RuntimeKeyboardTrigger, input: VisualRuleKeyboardInput): boolean {
+  setSharedInputHandler(handler: SharedInputHandler | null): void {
+    this.#sharedInput.set(handler);
+  }
+
+  applySharedInput(input: SharedGraphicInput): boolean {
+    if (!this.#loaded || this.#renderType !== 'realtime' || !this.#session) return false;
+    if ('key' in input) return this.handleKeyboardInput(input.type, input);
+    if (input.type === 'pointer-leave' || input.position) {
+      let point: Pick<MouseEvent, 'clientX' | 'clientY'> | null = null;
+      if (input.type !== 'pointer-leave' && input.position) {
+        if (!validSharedPointerPosition(input.position)) return false;
+        const rect = this.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0)
+          point = {
+            clientX: rect.left + input.position.x * rect.width,
+            clientY: rect.top + input.position.y * rect.height,
+          };
+      }
+      const mounts = new Set(this.#activeShared);
+      for (const slot of this.#renderedSlots)
+        for (const selection of [slot.incoming, slot.outgoing]) {
+          if (!selection) continue;
+          const mount = this.#mounts.get(snapshotKey(selection));
+          if (mount) mounts.add(mount);
+        }
+      for (const mount of mounts) mount.applySharedPointerPosition?.(point);
+    }
+    if (input.type === 'pointer-leave' || input.type === 'pointer-move') return true;
+    const { sharedKey, slotId, stateId } = input.target;
+    if (sharedKey) {
+      if (slotId || stateId) return false;
+      const mount = this.#shared.get(sharedKey);
+      return mount && this.#activeShared.has(mount)
+        ? (mount.applySharedPointerEdge?.(input, this.#frame) ?? false)
+        : false;
+    }
+    if (!slotId || !stateId) return false;
+    const slot = this.#session.slots[slotId];
+    const selected = (
+      slot?.transition ? [slot.transition.to, slot.transition.from] : [slot?.settled]
+    ).find((selection) => selection?.stateId === stateId);
+    const mount = selected && this.#mounts.get(snapshotKey(selected));
+    return mount?.applySharedPointerEdge?.(input, this.#frame) ?? false;
+  }
+
+  handleKeyboardInput(
+    trigger: RuntimeKeyboardTrigger,
+    input: VisualRuleKeyboardInput,
+    sourceEvent?: KeyboardEvent,
+  ): boolean {
     if (
       !this.#loaded ||
       this.#renderType !== 'realtime' ||
@@ -450,6 +509,7 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
     let claimed = false;
     for (const mount of recipients)
       claimed = mount.handleKeyboardInput?.(trigger, input, this.#frame) || claimed;
+    if (claimed) this.#sharedInput.keyboard(trigger, input, sourceEvent);
     return claimed;
   }
 
@@ -2105,6 +2165,12 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
         scheduleRule: (work) => this.#queueRule(`template:${template.id}`, mount, work),
         ruleDataChanged: (patch, frame) =>
           this.#patchSelectionData(slotId, snapshotKey(binding.selection), patch, frame),
+        captureSharedPointer: (input, event, position) =>
+          this.#sharedInput.pointer(
+            { ...input, target: { ...input.target, slotId, stateId: binding.selection.stateId } },
+            event,
+            position,
+          ),
       });
       this.#mountBindings.set(mount, binding);
     }
@@ -3474,6 +3540,12 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
         ),
         scheduleRule: (work) => this.#queueRule(`shared:${instance.id}`, mount, work),
         ruleDataChanged: (patch, frame) => this.#patchSharedRuleData(instance.id, patch, frame),
+        captureSharedPointer: (input, event, position) =>
+          this.#sharedInput.pointer(
+            { ...input, target: { ...input.target, sharedKey: instance.id } },
+            event,
+            position,
+          ),
       });
       mount.host.dataset.ografTransitionShared = instance.id;
       mount.host.style.zIndex = String(
@@ -3585,7 +3657,7 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
         this.#disposeKeyboard = bindRuntimeKeyboard(
           this,
           hasRuntimeKeyboardRules(layers),
-          (trigger, input) => this.handleKeyboardInput(trigger, input),
+          (trigger, input, event) => this.handleKeyboardInput(trigger, input, event),
         );
       }
       return { statusCode: 200 };
@@ -3596,6 +3668,7 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
   }
 
   async dispose(): Promise<ReturnPayload> {
+    this.#sharedInput.set(null);
     this.#reset();
     this.#listeners.clear();
     return { statusCode: 200 };

@@ -7,6 +7,7 @@ import {
 } from '@ograf-editor/scene-model';
 import type { CoordinatedPlayoutSnapshot } from '@ograf-editor/ograf-types';
 import type { ProjectSetDocument } from './projectSet';
+import type { SharedPlayoutSource } from './sharedPlayoutPublish';
 import { resolveDesignerElement } from './dataBinding';
 
 const mocks = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   factory: vi.fn(),
   update: vi.fn(),
   sourceRead: vi.fn(),
+  sharedFeed: vi.fn(),
 }));
 vi.mock('../data/publicMarkets', () => ({
   createPublicMarketsProvider: (...args: unknown[]) => {
@@ -34,6 +36,17 @@ vi.mock('./behaviorPreviewStore', async () => {
     useBehaviorPreviewStore: create(() => ({ requestId: null, loading: false, snapshot: null })),
   };
 });
+vi.mock('./sharedPlayoutEditor', async () => {
+  const { create } = await import('zustand');
+  return {
+    useSharedPlayoutEditor: create<{
+      publicationId: string | null;
+      publishedSource: SharedPlayoutSource | null;
+      liveSnapshot: CoordinatedPlayoutSnapshot | null;
+    }>(() => ({ publicationId: null, publishedSource: null, liveSnapshot: null })),
+  };
+});
+vi.mock('./sharedPlayoutPublish', () => ({ publishSharedPlayoutFeed: mocks.sharedFeed }));
 const {
   initializeDataConnectionRuntime,
   useDataConnectionRuntimeStore,
@@ -41,6 +54,7 @@ const {
   refreshDataConnection,
 } = await import('./dataConnectionRuntime');
 const { useBehaviorPreviewStore } = await import('./behaviorPreviewStore');
+const { useSharedPlayoutEditor } = await import('./sharedPlayoutEditor');
 const { useProjectStore } = await import('./projectStore');
 const { useProjectSetStore } = await import('./projectSetStore');
 const { useTestDataStore } = await import('./testDataStore');
@@ -198,6 +212,7 @@ beforeEach(() => {
   mocks.factory.mockReset();
   mocks.update.mockReset().mockResolvedValue(undefined);
   mocks.sourceRead.mockReset();
+  mocks.sharedFeed.mockReset().mockResolvedValue(undefined);
   mocks.source = null;
   useTestDataStore.getState().resetAll();
 });
@@ -207,10 +222,148 @@ afterEach(() => {
   mocks.source = null;
   useProjectSetStore.setState({ projectSet: null, activeTemplateId: null });
   useBehaviorPreviewStore.setState({ requestId: null, snapshot: null });
+  useSharedPlayoutEditor.setState({
+    publicationId: null,
+    publishedSource: null,
+    liveSnapshot: null,
+  });
   vi.useRealTimers();
 });
 
 describe('native connection routing to Studio', () => {
+  it('publishes only connected public fields for a matching single preview from the same poll', async () => {
+    const project = createProject({ name: 'Standalone feed' });
+    const composition = project.compositions[0]!;
+    composition.dataFields = [
+      createFieldDefinition('number', { id: 'price', key: 'price', defaultValue: 10 }),
+      createFieldDefinition('number', {
+        id: 'private',
+        key: 'private',
+        defaultValue: 0,
+        exposeToOgraf: false,
+      }),
+      createFieldDefinition('text', { id: 'missing', key: 'missing', defaultValue: 'Authored' }),
+    ];
+    composition.dataConnections = [
+      {
+        id: 'feed',
+        name: 'Markets',
+        source: 'public-markets',
+        format: 'json',
+        url: '',
+        embeddedText: '',
+        refreshMs: 1000,
+        missing: 'keep-last',
+        enabled: true,
+        mappings: composition.dataFields.map(({ id }) => ({ fieldId: id, sourcePath: id })),
+      },
+    ];
+    useProjectStore.getState().loadProject(project);
+    useTestDataStore.getState().setValue('missing', 'Manual edit', [], composition.dataFields);
+    useSharedPlayoutEditor.setState({
+      publicationId: 'live-one',
+      publishedSource: { project, composition },
+    });
+    mocks.read.mockResolvedValue({ price: 80, private: 70 });
+    stop = initializeDataConnectionRuntime();
+    await flush();
+    expect(mocks.read).toHaveBeenCalledTimes(1);
+    expect(useTestDataStore.getState().values).toMatchObject({
+      price: 80,
+      private: 70,
+      missing: 'Manual edit',
+    });
+    expect(mocks.sharedFeed).toHaveBeenCalledExactlyOnceWith(
+      'live-one',
+      { kind: 'graphic' },
+      { price: 80 },
+      expect.any(AbortSignal),
+    );
+    useTestDataStore.getState().setValue('price', 900, [], composition.dataFields);
+    await flush();
+    expect(mocks.sharedFeed).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends coordinated feed data only to settled shared lanes and keeps private rehearsal active', async () => {
+    const { set, snapshot } = fixture();
+    const entering = structuredClone(snapshot);
+    entering.slots['lane-0']!.transition = {
+      id: 'entering',
+      requestId: 'take-0',
+      transitionId: 'in',
+      startFrame: 0,
+      endFrame: 50,
+      progress: 0.2,
+    };
+    useSharedPlayoutEditor.setState({
+      publicationId: 'live-set',
+      publishedSource: { set: structuredClone(set) },
+      liveSnapshot: entering,
+    });
+    stop = initializeDataConnectionRuntime();
+    await flush();
+    expect(mocks.read).toHaveBeenCalledTimes(1);
+    expect(mocks.update).toHaveBeenCalledTimes(2);
+    expect(mocks.sharedFeed).toHaveBeenCalledExactlyOnceWith(
+      'live-set',
+      { kind: 'slot', slotId: 'lane-1', stateId: 'state-1' },
+      { price: 100 },
+      expect.any(AbortSignal),
+    );
+    mocks.sourceRead.mockClear();
+    useSharedPlayoutEditor.setState({ liveSnapshot: { ...entering, frame: 12 } });
+    await flush();
+    expect(mocks.sourceRead).not.toHaveBeenCalled();
+    useSharedPlayoutEditor.setState({ liveSnapshot: snapshot });
+    await flush();
+    expect(mocks.read).toHaveBeenCalledTimes(1);
+    expect(mocks.sharedFeed).toHaveBeenLastCalledWith(
+      'live-set',
+      { kind: 'slot', slotId: 'lane-0', stateId: 'state-0' },
+      { price: 100 },
+      expect.any(AbortSignal),
+    );
+    expect(mocks.sharedFeed).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps missing connection fields separate for two shared lanes with the same template', async () => {
+    const { projects, set, snapshot } = fixture();
+    const project = projects[0]!;
+    const composition = project.compositions[0]!;
+    composition.dataFields.push(
+      createFieldDefinition('text', { id: 'caption', key: 'caption', defaultValue: 'Saved' }),
+    );
+    composition.dataConnections[0]!.mappings.push({ fieldId: 'caption', sourcePath: 'caption' });
+    useProjectStore.getState().loadProject(project);
+    const sharedSet = structuredClone(set);
+    sharedSet.templates[0]!.project = structuredClone(project);
+    useProjectSetStore.setState({
+      projectSet: sharedSet,
+      activeTemplateId: sharedSet.templates[0]!.id,
+    });
+    mocks.source = null;
+    const shared = structuredClone(snapshot);
+    const first = shared.slots['lane-0']!.current!;
+    const second = shared.slots['lane-1']!.current!;
+    first.data.caption = 'First operator value';
+    second.templateId = first.templateId;
+    second.data.caption = 'Second operator value';
+    useSharedPlayoutEditor.setState({
+      publicationId: 'same-template',
+      publishedSource: { set: structuredClone(sharedSet) },
+      liveSnapshot: shared,
+    });
+    stop = initializeDataConnectionRuntime();
+    await flush();
+    expect(mocks.sharedFeed).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.sharedFeed.mock.calls.map(([, destination, patch]) => [destination, patch]),
+    ).toEqual([
+      [{ kind: 'slot', slotId: 'lane-0', stateId: 'state-0' }, { price: 100 }],
+      [{ kind: 'slot', slotId: 'lane-1', stateId: 'state-1' }, { price: 100 }],
+    ]);
+  });
+
   it.each([
     ['missing border color', missingBorderColor, /border color/],
     [
