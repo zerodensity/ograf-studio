@@ -1015,6 +1015,10 @@ function exportedPrepareDescriptor(descriptor) {
       for (const binding of layer.bindings ?? (layer.binding ? [layer.binding] : []))
         if (binding.targetProperty === 'src' && binding.valueMap)
           binding.valueMap = Object.fromEntries(Object.entries(binding.valueMap).map(([key, value]) => [key, exportedResourceValue(value)]));
+    for (const rule of layer.visualRules ?? [])
+      for (const action of rule.actions ?? [])
+        if (action.type === 'property' && action.targetProperty === 'src')
+          action.value = exportedResourceValue(action.value);
   }
   for (const font of descriptor.fonts ?? []) font.source = exportedResourceValue(font.source);
   for (const plugin of descriptor.rendererPlugins ?? []) if (plugin.moduleUrl) plugin.moduleUrl = exportedResourceValue(plugin.moduleUrl);
@@ -1104,6 +1108,30 @@ export function buildCoordinatedExportArtifactsWithRuntime(
   const packagedShared = new Map<string, PackagedComposition>();
   const sharedBindingFields = new Map<string, Map<string, Record<string, string>>>();
   const resources = new Map<string, ExportArtifacts['resources'][number]>();
+  const mediaByMime = new Map<string, Map<string, string>>();
+  const duplicateMediaPaths = new Set<string>();
+  // Intern generated binary assets while composing references so that the descriptor, manifest,
+  // thumbnail renderer and offline player all identify the same archive entry.
+  function shareMediaPath(resource: ExportArtifacts['resources'][number]): string {
+    if (
+      !resource.base64 ||
+      !/^(?:image\/(?:png|jpeg|gif|webp)|font\/(?:ttf|otf|woff2?)|audio\/(?:mpeg|wav|ogg)|video\/(?:mp4|webm))$/.test(
+        resource.mimeType ?? '',
+      ) ||
+      !/^(?:templates|shared)\/\d+\/assets\/[a-z\d_-][a-z\d_.-]*$/i.test(resource.path)
+    )
+      return resource.path;
+    let mediaByContent = mediaByMime.get(resource.mimeType!);
+    if (!mediaByContent) {
+      mediaByContent = new Map();
+      mediaByMime.set(resource.mimeType!, mediaByContent);
+    }
+    const previous = mediaByContent.get(resource.data);
+    if (!previous) mediaByContent.set(resource.data, resource.path);
+    if (!previous || previous === resource.path) return resource.path;
+    duplicateMediaPaths.add(resource.path);
+    return previous;
+  }
   function registerResource(resource: ExportArtifacts['resources'][number], label: string): void {
     const previous = resources.get(resource.path);
     if (
@@ -1151,10 +1179,11 @@ export function buildCoordinatedExportArtifactsWithRuntime(
       composition,
       compileDescriptor(composition),
       namespace,
+      shareMediaPath,
     );
     const availablePaths = new Set(packaged.resources.map((resource) => resource.path));
     for (const value of resourceValues(packaged))
-      if (!availablePaths.has(value) && !/^(https?:|data:)/i.test(value))
+      if (!availablePaths.has(value) && !resources.has(value) && !/^(https?:|data:)/i.test(value))
         projectErrors.push(
           `${label}: resource "${value}" is not packaged or an absolute HTTP(S)/data URL. Import the resource into the template before exporting.`,
         );
@@ -1800,6 +1829,7 @@ export function buildCoordinatedExportArtifactsWithRuntime(
     base64: false,
     mimeType: 'text/markdown',
   });
+  for (const duplicate of duplicateMediaPaths) resources.delete(duplicate);
   const manifestErrors = validateManifest(manifest).errors;
   const result: ExportArtifacts = {
     nodosInputContract: buildNodosInputContract(

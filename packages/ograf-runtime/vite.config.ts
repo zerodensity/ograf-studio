@@ -14,5 +14,11 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     minify: false,
+    rolldownOptions: {
+      output: {
+        // Function worker kernels are serialized from source and require their original names.
+        minify: { compress: false, mangle: false, codegen: { removeWhitespace: true } },
+      },
+    },
   },
 });

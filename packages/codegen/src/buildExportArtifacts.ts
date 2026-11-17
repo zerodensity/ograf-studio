@@ -59,6 +59,10 @@ export interface ExportArtifacts {
 /** A blob-mounted package supplies exact resource URLs without borrowing the host page's base. */
 export const EXPORTED_RESOURCE_URLS_KEY = '__ografPackageResourceUrls';
 
+type PackagedResource = ExportArtifacts['resources'][number];
+
+const INLINE_RULE_IMAGE = /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z\d+/]+={0,2}$/i;
+
 const EXTENSION_BY_MIME: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -94,6 +98,7 @@ function exportedRelativeResourceUrl(value) {
     if (!resourceUrl) throw new Error('Packaged resource is unavailable in the blob module: ' + value);
     return resourceUrl;
   }
+  if (exportedResourcePaths.has(value)) value = value.split('/').map(encodeURIComponent).join('/');
   return new URL(value, exportedModuleBaseUrl).href;
 }
 function exportedResourceUrl(value) {
@@ -157,6 +162,10 @@ for (const layer of exportedLayers) {
   } else if (layer.element.type === 'image-sequence') {
     layer.element.frames = layer.element.frames.map(exportedResourceUrl);
   }
+  for (const rule of layer.visualRules ?? [])
+    for (const action of rule.actions ?? [])
+      if (action.type === 'property' && action.targetProperty === 'src' && exportedResourcePaths.has(action.value))
+        action.value = exportedResourceUrl(action.value);
 }
 for (const font of exportedDescriptor.fonts ?? []) {
   if (font.source && !/^[a-z][a-z0-9+.-]*:/i.test(font.source)) {
@@ -202,6 +211,7 @@ export function packageDescriptorResources(
   composition: Composition,
   descriptor: CompiledGraphicDescriptor,
   namespace = '',
+  sharedMediaPath?: (resource: PackagedResource) => string,
 ): {
   descriptor: CompiledGraphicDescriptor;
   composition: Composition;
@@ -264,6 +274,10 @@ export function packageDescriptorResources(
   let fallbackCounter = 0;
   const pathByOriginalPath = new Map<string, string>();
   const namespaced = (path: string) => (namespace ? `${namespace}/${path}` : path);
+  const addResource = (resource: PackagedResource, share: boolean): string => {
+    resources.push(resource);
+    return share ? (sharedMediaPath?.(resource) ?? resource.path) : resource.path;
+  };
   const conflictsWithStudioLicense = (path: string) => {
     const candidate = path.toLowerCase();
     const reserved = STUDIO_RUNTIME_LICENSE_PATH.toLowerCase();
@@ -303,15 +317,18 @@ export function packageDescriptorResources(
     const path = namespaced(originalPath);
     if (conflictsWithStudioLicense(path))
       throw new Error(`Asset path "${path}" conflicts with the Studio runtime license path.`);
-    pathByOriginalPath.set(originalPath, path);
-    resources.push({
-      path,
-      data: parsed.data,
-      base64: parsed.base64,
-      mimeType: asset.mimeType || parsed.mimeType,
-    });
-    pathByAssetId.set(asset.id, path);
-    pathByDataUri.set(asset.dataUri, path);
+    const packagedPath = addResource(
+      {
+        path,
+        data: parsed.data,
+        base64: parsed.base64,
+        mimeType: asset.mimeType || parsed.mimeType,
+      },
+      !asset.packagePath?.trim(),
+    );
+    pathByOriginalPath.set(originalPath, packagedPath);
+    pathByAssetId.set(asset.id, packagedPath);
+    pathByDataUri.set(asset.dataUri, packagedPath);
     if (asset.licenseText?.trim()) {
       resources.push({
         path: namespaced(`licenses/${asset.id}-LICENSE.txt`),
@@ -321,7 +338,7 @@ export function packageDescriptorResources(
     }
   }
 
-  const packageUri = (uri: string): string => {
+  const packageResource = (uri: string, uniquePath = false): string => {
     if (uri.startsWith('asset:')) {
       const path = pathByAssetId.get(uri.slice('asset:'.length));
       if (!path) throw new Error(`Cannot package unknown asset reference "${uri}".`);
@@ -332,13 +349,23 @@ export function packageDescriptorResources(
     if (existing) return existing;
     const parsed = parseDataUri(uri);
     const registered = composition.assets.find((asset) => asset.dataUri === uri);
-    const basename = registered?.id ?? `embedded-${fallbackCounter++}`;
     const extension = EXTENSION_BY_MIME[parsed.mimeType] ?? 'bin';
-    const path = namespaced(`assets/${basename}.${extension}`);
-    resources.push({ path, data: parsed.data, base64: parsed.base64, mimeType: parsed.mimeType });
-    pathByDataUri.set(uri, path);
-    return path;
+    let path = namespaced(
+      `assets/${registered?.id ?? `embedded-${fallbackCounter++}`}.${extension}`,
+    );
+    if (uniquePath) {
+      while (resources.some((resource) => resource.path === path)) {
+        path = namespaced(`assets/embedded-${fallbackCounter++}.${extension}`);
+      }
+    }
+    const packagedPath = addResource(
+      { path, data: parsed.data, base64: parsed.base64, mimeType: parsed.mimeType },
+      true,
+    );
+    pathByDataUri.set(uri, packagedPath);
+    return packagedPath;
   };
+  const packageUri = (uri: string): string => packageResource(uri);
 
   const packagePaint = (paint: Paint | undefined): Paint | undefined => {
     if (isShaderPaint(paint) && paint.inputImage)
@@ -407,6 +434,17 @@ export function packageDescriptorResources(
       layer.element.src = packageUri(layer.element.src);
     } else if (layer.element.type === 'image-sequence') {
       layer.element.frames = layer.element.frames.map(packageUri);
+    }
+    for (const rule of layer.visualRules ?? []) {
+      for (const action of rule.actions) {
+        if (
+          action.type === 'property' &&
+          action.targetProperty === 'src' &&
+          typeof action.value === 'string' &&
+          INLINE_RULE_IMAGE.test(action.value)
+        )
+          action.value = packageResource(action.value, true);
+      }
     }
   }
   for (const cue of packaged.mediaCues ?? []) {

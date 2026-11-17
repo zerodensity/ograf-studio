@@ -1,5 +1,5 @@
 import {
-  applyElementDataValue,
+  applyElementDataValues,
   parseEffectProperty,
   valueAtSourcePath,
   withEffectParameter,
@@ -44,19 +44,22 @@ export function resolveLayerBindingElement(
   data: Record<string, unknown>,
 ): Element {
   const bindings = layer.bindings ?? (layer.binding ? [layer.binding] : []);
+  if (bindings.length === 0) return layer.element;
   const collectionIndex = layer.collectionItem
     ? runtimeCollectionItemSelection(layer, data)?.index
     : undefined;
-  return bindings.reduce<Element>((element, binding) => {
-    const root = data[binding.dataKey];
-    const itemIndex = layer.collectionItem ? collectionIndex : binding.itemIndex;
-    const itemValue =
-      itemIndex === undefined ? root : Array.isArray(root) ? root[itemIndex] : undefined;
-    const value = valueAtSourcePath(itemValue, binding.sourcePath);
-    if (value === undefined) return element;
-    const mappedValue = binding.valueMap?.[String(value)] ?? value;
-    return applyElementDataValue(element, binding.targetProperty, mappedValue);
-  }, layer.element);
+  function* values() {
+    for (const binding of bindings) {
+      const root = data[binding.dataKey];
+      const itemIndex = layer.collectionItem ? collectionIndex : binding.itemIndex;
+      const itemValue =
+        itemIndex === undefined ? root : Array.isArray(root) ? root[itemIndex] : undefined;
+      const value = valueAtSourcePath(itemValue, binding.sourcePath);
+      if (value === undefined) continue;
+      yield [binding.targetProperty, binding.valueMap?.[String(value)] ?? value] as const;
+    }
+  }
+  return applyElementDataValues(layer.element, values());
 }
 
 /** Effect parameters driven by data bindings alone. */

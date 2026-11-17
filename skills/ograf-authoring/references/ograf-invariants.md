@@ -261,6 +261,17 @@ validators and distinguish expected admission errors from successful startup.
 
 ### Playback performance review
 
+Treat property-track arrays as editable. An array identity or length alone cannot validate a sorted
+cache after keys are replaced or retimed. Preserve duplicate-frame ordering and incoming curves.
+Rules work can share a render within a single frame, while playout actions, frame changes and
+completed work before an error retain their presentation boundaries.
+
+For a constant text stroke, skip repeated layout reads only when the sampled dimensions and
+visibility are unchanged. A resized exact seek still refits synchronously before its pixels are
+ready. Exported resource sharing must keep actual archive paths consistent in descriptors, public
+defaults, late Rule/preset values and offline previews, and retain each license. Runtime bundle
+compaction preserves identifiers referenced by serialized worker kernels.
+
 Measure a fresh Load and first Take, repeated switches after preparation, and overlapping Out/In
 graphics separately. Await actions, record their responses and authored durations, and capture
 continuous frame timing or a performance trace while the output is visible. At 25 fps one authored

@@ -377,10 +377,13 @@ export function sortLayerKeyframes(keyframes: LayerKeyframe[]): LayerKeyframe[] 
   return [...keyframes].sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
 }
 
+const comparePropertyKeyframes = (a: LayerPropertyKeyframe, b: LayerPropertyKeyframe) =>
+  a.frame - b.frame || a.id.localeCompare(b.id);
+
 export function sortLayerPropertyKeyframes(
   keyframes: LayerPropertyKeyframe[],
 ): LayerPropertyKeyframe[] {
-  return [...keyframes].sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
+  return [...keyframes].sort(comparePropertyKeyframes);
 }
 
 function staticPropertyValue(layer: Layer, property: AnimatableLayerProperty): number {
@@ -515,9 +518,17 @@ export function getTrackValueAtFrame(
   frame: number,
   fallback: number,
 ): number {
-  const sorted = sortLayerPropertyKeyframes(keyframes);
-  const first = sorted[0];
-  if (!first) return fallback;
+  if (keyframes.length < 2) return keyframes[0]?.value ?? fallback;
+  // Compiled tracks normally arrive in order. Check the current contents instead of caching
+  // by array identity: some callers edit keys in place without changing the track's length.
+  let sorted = keyframes;
+  for (let index = 1; index < keyframes.length; index++) {
+    if (comparePropertyKeyframes(keyframes[index - 1]!, keyframes[index]!) > 0) {
+      sorted = sortLayerPropertyKeyframes(keyframes);
+      break;
+    }
+  }
+  const first = sorted[0]!;
   if (frame <= first.frame) return first.value;
   const last = sorted.at(-1)!;
   if (frame >= last.frame) return last.value;

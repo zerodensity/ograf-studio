@@ -3,10 +3,13 @@ import {
   createAsset,
   createComposition,
   createImageLayer,
+  createLayerKeyframe,
   createLayerOfKind,
+  createLayerVisualRule,
   createMediaPaint,
   createMediaCue,
   createProject,
+  defaultTransformFor,
 } from '@ograf-editor/scene-model';
 import type { CompiledGraphicDescriptor } from '@ograf-editor/ograf-types';
 import { compileDescriptor } from './compileDescriptor';
@@ -78,6 +81,66 @@ function evaluate(
 afterEach(() => vi.unstubAllGlobals());
 
 describe('exported package resource resolution', () => {
+  it('externalizes PNG rule sources and resolves the same archive bytes in HTTP and blob packages', () => {
+    const image = createImageLayer();
+    image.keyframes = [createLayerKeyframe(0, defaultTransformFor('image'))];
+    const embedded = 'data:image/png;base64,YQ==';
+    const unusual = 'data:image/svg+xml;charset=utf-8,%3Csvg%2F%3E';
+    const remote = 'https://cdn.example/current.png';
+    image.visualRules = [
+      createLayerVisualRule({
+        trigger: 'click',
+        actions: [embedded, unusual, remote].map((value) => ({
+          type: 'property' as const,
+          targetProperty: 'src',
+          value,
+        })),
+      }),
+    ];
+    const composition = createComposition({
+      layers: [image],
+      assets: [
+        createAsset({
+          id: 'embedded-0',
+          mimeType: 'image/png',
+          dataUri: 'data:image/png;base64,Yg==',
+        }),
+      ],
+    });
+    const project = createProject({
+      compositions: [composition],
+      mainCompositionId: composition.id,
+    });
+    const artifacts = buildExportArtifactsWithRuntime(project, composition, runtime);
+    expect(artifacts.errors).toEqual([]);
+    expect(artifacts.mainJs).not.toContain(embedded);
+    expect(artifacts.resources).toEqual(
+      expect.arrayContaining([
+        { path: 'assets/embedded-0.png', data: 'Yg==', mimeType: 'image/png', base64: true },
+        { path: 'assets/embedded-1.png', data: 'YQ==', mimeType: 'image/png', base64: true },
+      ]),
+    );
+    const values = (compiled: CompiledGraphicDescriptor) =>
+      compiled.layers[0]!.visualRules![0]!.actions.map(
+        (action) => 'value' in action && action.value,
+      );
+    const files = artifacts.resources.map((resource) => resource.path);
+    expect(
+      values(evaluate('https://renderer.example/main.js', artifacts.descriptor, files).descriptor),
+    ).toEqual(['https://renderer.example/assets/embedded-1.png', unusual, remote]);
+    const blobModule = 'blob:https://renderer.example/rules';
+    const blobImage = 'blob:https://renderer.example/rule-image';
+    vi.stubGlobal(EXPORTED_RESOURCE_URLS_KEY, {
+      [blobModule]: { 'assets/embedded-1.png': blobImage },
+    });
+    expect(values(evaluate(blobModule, artifacts.descriptor, files).descriptor)).toEqual([
+      blobImage,
+      unusual,
+      remote,
+    ]);
+    expect(image.visualRules[0]!.actions[0]).toMatchObject({ value: embedded });
+  });
+
   it('retains PR8 resolution for every relative font path without depending on resource enumeration', () => {
     vi.stubGlobal('document', { baseURI: 'https://wrong.example/editor/' });
     const compiled = descriptor();

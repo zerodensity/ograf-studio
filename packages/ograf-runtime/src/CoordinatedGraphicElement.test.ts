@@ -630,6 +630,159 @@ describe('in-place coordinated live data patches', () => {
     expect(local.disposed).toBe(false);
   });
 
+  it('presents same-frame rule-only state once, then drains work queued by that render', async () => {
+    const graphic = await create();
+    await take(graphic, 'headline', {}, true);
+    await tick(5);
+    const local = visible()[0]!;
+    const rendered: number[] = [];
+    let ruleValue = 0;
+    let queued = false;
+    local.render.mockImplementation(() => {
+      rendered.push(ruleValue);
+      if (ruleValue !== 24 || queued) return;
+      queued = true;
+      local.scheduleRule!({
+        id: 'queued-by-render',
+        frame: 5,
+        data: {},
+        run: () => {
+          ruleValue += 1;
+          return [];
+        },
+      });
+    });
+    for (let index = 0; index < 24; index++)
+      local.scheduleRule!({
+        id: `apply-${index}`,
+        frame: 5,
+        data: {},
+        run: () => {
+          ruleValue += 1;
+          return [];
+        },
+      });
+
+    await flush();
+
+    expect(rendered).toEqual([24, 25]);
+    expect(graphic.getPlayoutSnapshot().error).toBeNull();
+  });
+
+  it.each(['rule', 'playout action'] as const)(
+    'presents preceding rule-only work when a later %s fails',
+    async (failure) => {
+      const graphic = await create();
+      await take(graphic, 'headline', {}, true);
+      await tick(5);
+      const local = visible()[0]!;
+      const rendered: string[] = [];
+      let label = 'Before';
+      local.render.mockImplementation(() => rendered.push(label));
+      local.scheduleRule!({
+        id: 'change-label',
+        frame: 5,
+        data: {},
+        run: () => {
+          label = 'Changed by rule';
+          return [];
+        },
+      });
+      local.scheduleRule!({
+        id: 'fail',
+        frame: 5,
+        data: {},
+        run: () => {
+          if (failure === 'rule') throw new Error('Rule failed');
+          return [{ type: 'playout', operation: 'clear', slotId: 'missing' }];
+        },
+      });
+
+      await flush();
+
+      expect(rendered).toEqual(['Changed by rule']);
+      expect(graphic.getPlayoutSnapshot().error).toContain(
+        failure === 'rule' ? 'Rule failed' : 'Unknown slot missing',
+      );
+    },
+  );
+
+  it('drains Rules queued by the last render at the seek boundary on forward and backward replay', async () => {
+    const graphic = await create('non-realtime');
+    expect(
+      await graphic.setActionsSchedule({
+        schedule: [
+          {
+            timestamp: 0,
+            action: {
+              type: 'customAction',
+              params: {
+                id: 'transition.take',
+                payload: {
+                  slotId: 'main',
+                  stateId: 'headline',
+                  data: { resource: 'replay' },
+                },
+                skipAnimation: true,
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual({ statusCode: 200 });
+
+    const seek = async (timestamp: number) => {
+      const ready = pending();
+      mock.readiness.set('replay', ready.promise);
+      const result = graphic.goToTime({ timestamp });
+      await flush();
+      const mount = mock.mounts.find(
+        (entry) => !entry.disposed && entry.data.resource === 'replay',
+      );
+      if (!mount) {
+        ready.resolve();
+        await result;
+        throw new Error('The replay mount was not prepared.');
+      }
+      const executed: string[] = [];
+      let firstQueued = false;
+      let secondQueued = false;
+      mount.render.mockImplementation((frame: number) => {
+        if (frame !== 10) return;
+        if (!firstQueued) {
+          firstQueued = true;
+          mount.scheduleRule!({
+            id: 'first',
+            frame,
+            data: {},
+            run: () => {
+              executed.push('first');
+              return [];
+            },
+          });
+        } else if (executed.length === 1 && !secondQueued) {
+          secondQueued = true;
+          mount.scheduleRule!({
+            id: 'second',
+            frame,
+            data: {},
+            run: () => {
+              executed.push('second');
+              return [];
+            },
+          });
+        }
+      });
+      ready.resolve();
+      expect(await result).toEqual({ statusCode: 200 });
+      return executed;
+    };
+
+    expect(await seek(200)).toEqual(['first', 'second']);
+    expect(await seek(100)).toEqual([]);
+    expect(await seek(200)).toEqual(['first', 'second']);
+  });
+
   it('records sparse patches and replays them identically across backward seeks', async () => {
     const graphic = await create();
     await take(graphic, 'headline', { headline: 'Before', keep: 42 }, true);

@@ -210,17 +210,21 @@ let sourceInspectionBytes = 0;
 const MAX_CACHED_SHADER_SOURCES = 32;
 const MAX_CACHED_SHADER_BYTES = 8 * 1024 * 1024;
 
+function copyShaderParameter(parameter: ShaderParameterDefinition): ShaderParameterDefinition {
+  return {
+    ...parameter,
+    defaultValue: Array.isArray(parameter.defaultValue)
+      ? [...parameter.defaultValue]
+      : parameter.defaultValue,
+  };
+}
+
 function copyShaderInspection(inspection: ShaderInspection): ShaderInspection {
   return {
     ...inspection,
     errors: [...inspection.errors],
     warnings: [...inspection.warnings],
-    parameters: inspection.parameters.map((parameter) => ({
-      ...parameter,
-      defaultValue: Array.isArray(parameter.defaultValue)
-        ? [...parameter.defaultValue]
-        : parameter.defaultValue,
-    })),
+    parameters: inspection.parameters.map(copyShaderParameter),
   };
 }
 
@@ -295,12 +299,12 @@ function inspectShaderSourceUncached(source: unknown): ShaderInspection {
   };
 }
 
-/** Source contracts are immutable; keyed uniform updates must not reparse unchanged GLSL. */
-export function inspectShaderSource(source: unknown): ShaderInspection {
+/** Keep the cached source contract private to preserve its definitions across callers. */
+function shaderSourceContract(source: unknown): ShaderInspection {
   if (typeof source !== 'string' || source.length > MAX_SHADER_SOURCE_BYTES)
     return inspectShaderSourceUncached(source);
   const cached = sourceInspections.get(source);
-  if (cached) return copyShaderInspection(cached.inspection);
+  if (cached) return cached.inspection;
   const inspection = inspectShaderSourceUncached(source);
   const bytes = new TextEncoder().encode(source).byteLength;
   if (bytes <= MAX_SHADER_SOURCE_BYTES) {
@@ -316,17 +320,42 @@ export function inspectShaderSource(source: unknown): ShaderInspection {
     sourceInspections.set(source, { bytes, inspection });
     sourceInspectionBytes += bytes;
   }
-  return copyShaderInspection(inspection);
+  return inspection;
+}
+
+export function inspectShaderSource(source: unknown): ShaderInspection {
+  return copyShaderInspection(shaderSourceContract(source));
+}
+
+const parametersByContract = new WeakMap<
+  ShaderInspection,
+  Map<string, ShaderParameterDefinition>
+>();
+
+function shaderParametersByName(inspection: ShaderInspection) {
+  let parameters = parametersByContract.get(inspection);
+  if (!parameters) {
+    parameters = new Map(inspection.parameters.map((parameter) => [parameter.name, parameter]));
+    parametersByContract.set(inspection, parameters);
+  }
+  return parameters;
+}
+
+/** Look up one definition. Binding callers still validate the entire paint. */
+export function shaderParameterDefinition(
+  source: string,
+  name: string,
+): ShaderParameterDefinition | undefined {
+  const parameter = shaderParametersByName(shaderSourceContract(source)).get(name);
+  return parameter ? copyShaderParameter(parameter) : undefined;
 }
 
 export function resolveShaderParameters(
   element: ShaderElement,
 ): Record<string, ShaderParameterValue> {
-  const inspection = inspectShaderSource(element.fragmentSource);
+  const inspection = shaderSourceContract(element.fragmentSource);
   if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
-  const definitions = new Map(
-    inspection.parameters.map((definition) => [definition.name, definition]),
-  );
+  const definitions = shaderParametersByName(inspection);
   const values = element.parameters ?? {};
   if (!values || typeof values !== 'object' || Array.isArray(values))
     throw new Error('Shader parameters must be an object keyed by exposed symbol name.');

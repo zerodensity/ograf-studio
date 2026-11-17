@@ -510,17 +510,23 @@ export function applyCompiledLayerVisualState(
   const opacity = String(transform.opacity);
   const origin = `${transform.transformOriginX * 100}% ${transform.transformOriginY * 100}%`;
   const pose = `translate(${cssTransformNumber(transform.x)}px, ${cssTransformNumber(transform.y)}px) rotate(${cssTransformNumber(transform.rotation)}deg) scale(${cssTransformNumber(scale)})`;
+  const display =
+    state.isVisible === undefined ? element.style.display : state.isVisible ? '' : 'none';
+  const fitLayoutChanged =
+    element.style.width !== width ||
+    element.style.height !== height ||
+    element.style.display !== display;
   if (element.style.width !== width) element.style.width = width;
   if (element.style.height !== height) element.style.height = height;
   if (element.style.opacity !== opacity) element.style.opacity = opacity;
   if (element.style.transformOrigin !== origin) element.style.transformOrigin = origin;
   if (element.style.transform !== pose) element.style.transform = pose;
-  if (state.isVisible !== undefined) element.style.display = state.isVisible ? '' : 'none';
+  if (element.style.display !== display) element.style.display = display;
   applyModifierTextFit(element, state.textFit);
   applyRevealClip(element, state.paintTracks, state.crop);
   applyLayerEffectsFilter(element, state.effects, elapsedMs);
   applyMotionBlur(element, state.motionBlur);
-  applyAnimatedPaint(element, state.paintTracks, state.paintFrame);
+  applyAnimatedPaint(element, state.paintTracks, state.paintFrame, fitLayoutChanged);
   if (state.patternFrame !== undefined) renderPatternAtElapsed(element, state.patternFrame);
 }
 

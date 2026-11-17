@@ -70,6 +70,16 @@ through asynchronous GPU fences. Compilation and initialization errors still sur
 loss, disposal, failed waits or timeout reject unfinished work. Await these operations before
 reading exact pixels; a faster submission is not permission to capture an incomplete frame.
 
+Coordinated exports share identical generated binary media and fonts across templates. Their
+descriptors, data defaults and offline previews use the same physical resource paths, while
+explicit package paths and licenses stay separate. Embedded images selected by visual property
+Rules are packaged as assets as well.
+
+Rules-only work due at one frame shares a render, with presentation boundaries retained before
+playout actions, frame changes and errors. Text with a held stroke avoids repeated fitting when
+its layout is unchanged. A resize or visibility change still updates fitting synchronously,
+including during exact seeks.
+
 ## Fullscreen playback and visual checks
 
 The Templates pane normally refreshes thumbnails after committed edits. During Preview & Export
