@@ -72,9 +72,10 @@ class TextNode {
     this.attributes[name] = value;
   }
 
-  replaceChildren() {
+  replaceChildren(...children: TextNode[]) {
     this.children = [];
     this.textContent = '';
+    for (const child of children) this.appendChild(child);
   }
 
   querySelectorAll(selector: string): TextNode[] {
@@ -179,6 +180,69 @@ describe.each(['gradient', 'shader'] as const)('%s text entrance sampling', (pai
 });
 
 describe('Arabic-script text entrance shaping', () => {
+  it.each(['grapheme', 'word'] as const)(
+    'types mixed Urdu and Latin as a continuous %s prefix',
+    (split) => {
+      const content = 'سَلام ۲۰۲۶ — Studio 0.34';
+      const node = new TextNode();
+      const host = node as unknown as HTMLElement;
+      const element = createTextElement({ content, language: 'ur', direction: 'rtl' });
+      element.textAnimation = {
+        ...element.textAnimation,
+        type: 'typewriter',
+        split,
+        durationFrames: 90,
+        cursor: 'bar',
+        cursorBlinkFrames: 15,
+      };
+      mountTextAnimationContent(host, element);
+      const value = node.querySelector('[data-ograf-typewriter-value]')!;
+      const cursor = node.querySelector('[data-ograf-text-cursor]')!;
+      const sample = (frame: number) => {
+        renderTextAnimationAtFrame(host, element, frame);
+        return textContents(value);
+      };
+      expect(sample(0)).toBe('');
+      expect(cursor.style.position).toBe('absolute');
+      expect(sample(30)).toMatch(/^سَلام/u);
+      expect(cursor.style.display).toBe('inline-block');
+      const partial = sample(60);
+      expect(content.startsWith(partial)).toBe(true);
+      expect(partial.length).toBeLessThan(content.length);
+      expect(sample(90)).toBe(content);
+      expect(cursor.style.display).toBe('none');
+      expect(sample(60)).toBe(partial);
+      expect(sample(0)).toBe('');
+    },
+  );
+
+  it('reveals a native bidi paragraph and restores one shaped run at rest', () => {
+    const content = 'لاہور ۲۰۲۶ — Studio 0.34 کی آزمائش';
+    const node = new TextNode();
+    const host = node as unknown as HTMLElement;
+    const element = createTextElement({ content, language: 'ur', direction: 'rtl' });
+    element.textAnimation = { ...element.textAnimation, type: 'word-reveal', durationFrames: 90 };
+    mountTextAnimationContent(host, element);
+    const words = node.querySelectorAll('[data-ograf-text-segment]');
+    const english = words.find((word) => textContents(word) === 'Studio')!;
+    const inner = english.querySelector('[data-ograf-text-segment-inner]')!;
+    expect(words.every((word) => word.style.display === 'inline')).toBe(true);
+    expect(inner.style.display).toBe('inline');
+    renderTextAnimationAtFrame(host, element, 60);
+    expect(Number.parseFloat(english.style.opacity)).toBeGreaterThan(0);
+    expect(Number.parseFloat(english.style.opacity)).toBeLessThan(1);
+    expect(inner.style.top).toMatch(/em$/);
+    const interimTop = inner.style.top;
+    renderTextAnimationAtFrame(host, element, 90);
+    const settled = node.querySelectorAll('[data-ograf-text-segment]');
+    expect(settled).toHaveLength(1);
+    expect(textContents(settled[0]!)).toBe(content);
+    expect(settled[0]!.style.top).toBeUndefined();
+    renderTextAnimationAtFrame(host, element, 60);
+    expect(node.querySelectorAll('[data-ograf-text-segment]')).toEqual(words);
+    expect(inner.style.top).toBe(interimTop);
+  });
+
   it('animates one intact mixed Urdu block across completion, backward seek and replay', () => {
     const content = 'سَلام، خبر 42 (Live)\nپاکستان ۲۰۲۶';
     const node = new TextNode();
