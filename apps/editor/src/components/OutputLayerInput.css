@@ -1,0 +1,25 @@
+.output-layer-input {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.output-layer-input input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.output-layer-input small[role='alert'] {
+  color: var(--error, #f88);
+  white-space: normal;
+}
+
+.inspector-row > .output-layer-input {
+  margin: 1px 4px;
+  font: inherit;
+}
+
+.inspector-row:has(.output-layer-input [aria-invalid='true']) {
+  height: auto;
+}

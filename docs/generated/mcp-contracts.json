@@ -736,6 +736,7 @@
                 {
                   "properties": {
                     "type": { "const": "set_project_metadata" },
+                    "outputLayer": { "$ref": "#/$defs/11" },
                     "thumbnailFrame": { "anyOf": [{ "$ref": "#/$defs/u" }, { "type": "null" }] },
                     "id": { "$ref": "#/$defs/4" },
                     "name": { "type": "string" },
@@ -3550,6 +3551,18 @@
           "expectedRevision": { "$ref": "#/$defs/0" },
           "operation": {
             "oneOf": [
+              {
+                "properties": {
+                  "type": { "const": "set_output_layer" },
+                  "outputLayer": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["outputLayer"],
+                "additionalProperties": false
+              },
               {
                 "properties": {
                   "type": { "const": "set_transition_logic" },

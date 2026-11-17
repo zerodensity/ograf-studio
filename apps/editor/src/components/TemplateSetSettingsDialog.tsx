@@ -1,4 +1,6 @@
 import { ColorInput } from './ColorInput';
+import { OutputLayerInput } from './OutputLayerInput';
+import { OUTPUT_LAYER_ERROR, resolveOutputLayer } from '@ograf-editor/scene-model';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditorWindow } from '../layout/EditorWindow';
@@ -71,7 +73,8 @@ const SETTINGS_PAGES = {
     {
       id: 'output',
       label: 'Output & timing',
-      keywords: 'resolution size width height frame rate fps background render real-time',
+      keywords:
+        'resolution size width height frame rate fps background render real-time output layer v_layer package',
     },
     { id: 'timing', label: 'Data transitions', keywords: 'fade frames interruption queue replace' },
     {
@@ -94,7 +97,8 @@ const SETTINGS_PAGES = {
     {
       id: 'output',
       label: 'Output & timing',
-      keywords: 'composition name resolution size frame rate fps render data transitions fade',
+      keywords:
+        'composition name resolution size frame rate fps render data transitions fade output layer v_layer',
     },
     {
       id: 'background',
@@ -146,9 +150,18 @@ function TemplateSetSettingsDialog() {
           template.inheritSettings !== false,
         ]) ?? [],
       ),
+      resolveOutputLayer(projectSet?.outputLayer),
     ),
   );
-  const { settings, inheritance, baselineSettings, baselineInheritance } = setDraft;
+  const {
+    settings,
+    inheritance,
+    baselineSettings,
+    baselineInheritance,
+    outputLayer,
+    baselineOutputLayer,
+  } = setDraft;
+  const [layerInputValid, setLayerInputValid] = useState(true);
   const setSettings = (
     next: TemplateSetSettings | ((current: TemplateSetSettings) => TemplateSetSettings),
   ) =>
@@ -173,10 +186,13 @@ function TemplateSetSettingsDialog() {
         current,
         projectSet.settings ?? current.baselineSettings,
         liveInheritance,
+        resolveOutputLayer(projectSet.outputLayer),
       ),
     );
   }, [projectSet]);
   const pendingSetChanges =
+    outputLayer !== baselineOutputLayer ||
+    !layerInputValid ||
     JSON.stringify(settings) !== JSON.stringify(baselineSettings) ||
     Object.entries(inheritance).some(([id, inherit]) => baselineInheritance[id] !== inherit);
   const inheritingTemplates =
@@ -239,6 +255,7 @@ function TemplateSetSettingsDialog() {
   );
   const apply = (andClose: boolean) => {
     try {
+      if (!layerInputValid) throw new Error(OUTPUT_LAYER_ERROR);
       const latestSet = useProjectSetStore.getState().projectSet;
       if (!latestSet) throw new Error('Create or open a template set first.');
       const merged = mergeSettingsDraft(
@@ -251,12 +268,20 @@ function TemplateSetSettingsDialog() {
       const changedInheritance = Object.fromEntries(
         Object.entries(inheritance).filter(([id, inherit]) => baselineInheritance[id] !== inherit),
       );
-      saveTemplateSetSettings(merged, changedInheritance);
+      saveTemplateSetSettings(
+        merged,
+        changedInheritance,
+        outputLayer !== baselineOutputLayer
+          ? outputLayer
+          : resolveOutputLayer(latestSet.outputLayer),
+      );
       const saved = useProjectSetStore.getState().projectSet!;
       const savedInheritance = Object.fromEntries(
         saved.templates.map((template) => [template.id, template.inheritSettings !== false]),
       );
-      updateSetDraft(createSettingsDialogDraft(merged, savedInheritance));
+      updateSetDraft(
+        createSettingsDialogDraft(merged, savedInheritance, resolveOutputLayer(saved.outputLayer)),
+      );
       setError('');
       if (andClose) close();
     } catch (cause) {
@@ -427,6 +452,23 @@ function TemplateSetSettingsDialog() {
             )}
             {scope === 'template-set' && section === 'output' ? (
               <>
+                <h3>Coordinated package</h3>
+                <label>
+                  Package output layer
+                  <OutputLayerInput
+                    label="Package output layer"
+                    value={outputLayer}
+                    onValidityChange={setLayerInputValid}
+                    onChange={(value) =>
+                      updateSetDraft((current) => ({ ...current, outputLayer: value }))
+                    }
+                  />
+                </label>
+                <p>
+                  In RealityHub, higher values appear on top and equal values share a replacement
+                  target. All coordinated children use this layer. Standalone templates keep their
+                  own output layers. This setting does not change Studio preview playback.
+                </p>
                 <h3>Output defaults</h3>
                 <p>
                   Applied to the main composition of every inheriting template, including new and

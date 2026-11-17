@@ -42,10 +42,12 @@ interface Snapshot {
   revision: string;
   activeTemplateId: string | null;
   templateSet: {
+    outputLayer: number;
     brandKit?: DesignSystem;
     brandKitCss?: string;
     templates: Array<{
       id: string;
+      outputLayer: number;
       width: number;
       settingsOverrides: string[];
       brandKitOverrides: string[];
@@ -146,6 +148,46 @@ describe('Template Set MCP creation provenance', () => {
 });
 
 describe('Template Set MCP bridge inheritance and themes', () => {
+  it('keeps package layers independent through revisions, undo and template copies', () => {
+    const { templateId } = fixture();
+    useProjectStore.getState().setProjectMeta({ outputLayer: -10 });
+    history.resetHistory();
+    const before = read();
+    const updated = command({ type: 'set_output_layer', outputLayer: 50 });
+    expect(updated.templateSet.outputLayer).toBe(50);
+    expect(
+      updated.templateSet.templates.find((template) => template.id === templateId)!.outputLayer,
+    ).toBe(-10);
+    expect(() => command({ type: 'set_output_layer', outputLayer: 9 }, before.revision)).toThrow(
+      /revision conflict/,
+    );
+    const state = stateSnapshot();
+    for (const outputLayer of [null, '4', 0.5, Infinity, 2 ** 53])
+      expect(() => command({ type: 'set_output_layer', outputLayer })).toThrow(/safe integer/);
+    expect(stateSnapshot()).toEqual(state);
+    history.undo();
+    expect(read().templateSet.outputLayer).toBe(0);
+    expect(useProjectStore.getState().project.outputLayer).toBe(-10);
+    history.redo();
+    expect(read().templateSet.outputLayer).toBe(50);
+    const duplicated = command({
+      type: 'duplicate_template',
+      templateId,
+      originalPrompt: 'Duplicate this template.',
+    });
+    expect(
+      duplicated.templateSet.templates.find(
+        (template) => template.id === duplicated.activeTemplateId,
+      )!.outputLayer,
+    ).toBe(-10);
+    command({ type: 'copy_template', templateId });
+    const pasted = command({ type: 'paste_template', originalPrompt: 'Paste the template.' });
+    expect(
+      pasted.templateSet.templates.find((template) => template.id === pasted.activeTemplateId)!
+        .outputLayer,
+    ).toBe(-10);
+    expect(pasted.templateSet.outputLayer).toBe(50);
+  });
   it('reports bounded shared-asset usage and replacement impact without exposing asset bytes', () => {
     const first = createProject({ name: 'News' });
     const second = createProject({ name: 'Sports' });

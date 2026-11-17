@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { current, isDraft, produce } from 'immer';
 import {
   normalizeCanvasCrop,
+  requireOutputLayer,
   validateLogicFunctionDefinitions,
   assertLogicFunctionReferenceRemovable,
   type LogicFunctionDefinition,
@@ -376,6 +377,7 @@ interface ProjectActions {
         | 'supportsRealTime'
         | 'supportsNonRealTime'
         | 'thumbnailFrame'
+        | 'outputLayer'
       >
     >,
   ) => void;
@@ -2150,11 +2152,16 @@ export const useProjectStore = create<ProjectStore>()(
         useTimelineStore.getState().setCurrentFrame(onAirFrame(composition));
       },
 
-      setProjectMeta: (patch) =>
+      setProjectMeta: (patch) => {
+        const normalized =
+          patch.outputLayer === undefined
+            ? patch
+            : { ...patch, outputLayer: requireOutputLayer(patch.outputLayer) };
         set((state) => {
-          Object.assign(state.project, patch);
+          Object.assign(state.project, normalized);
           enforceMediaRuntimeProfile(state.project);
-        }),
+        });
+      },
 
       setCompositionCrop: (crop) =>
         set((state) => {

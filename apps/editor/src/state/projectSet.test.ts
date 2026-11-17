@@ -29,6 +29,24 @@ import {
 } from './projectSet';
 
 describe('empty template-set archive compatibility', () => {
+  it.each(['compact', 'compatible'] as const)(
+    'preserves independent template and package layers in %s archives',
+    async (archiveMode) => {
+      const project = createProject({ outputLayer: -100 });
+      const set = createProjectSet('Output layers', project);
+      expect(set.outputLayer).toBe(0);
+      set.outputLayer = Number.MAX_SAFE_INTEGER;
+      const archive = await createProjectSetArchive(set, { archiveMode });
+      const reopened = await openProjectSetArchive(new Uint8Array(await archive.arrayBuffer()));
+      expect(reopened.outputLayer).toBe(Number.MAX_SAFE_INTEGER);
+      expect(resolveProjectSetTemplate(reopened, reopened.templates[0]!.id).outputLayer).toBe(-100);
+      const legacy = structuredClone(set);
+      delete legacy.outputLayer;
+      delete legacy.templates[0]!.project.outputLayer;
+      expect(migrateProjectSetDocument(legacy).outputLayer).toBe(0);
+      expect(legacy).not.toHaveProperty('outputLayer');
+    },
+  );
   it('keeps ordinary DATA-prefixed names and field text while pooling actual embedded resources', async () => {
     const project = createProject({ name: 'DATA: STOCKS RISE' });
     const composition = project.compositions[0]!;

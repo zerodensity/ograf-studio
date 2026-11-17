@@ -19,6 +19,7 @@ export function buildCoordinatedProjectSetArtifacts(
   return buildCoordinatedExportArtifactsWithRuntime(
     {
       id: snapshot.id,
+      outputLayer: snapshot.outputLayer,
       name: snapshot.name,
       definition: snapshot.transitionLogic,
       templates: snapshot.templates.map((template) => ({

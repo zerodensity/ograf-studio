@@ -1,4 +1,5 @@
 import { createId } from './id';
+import { requireOutputLayer } from './outputLayer';
 import { createDefaultGradient } from './paint';
 import type {
   Asset,
@@ -709,5 +710,8 @@ export function createProject(overrides: Partial<Project> = {}): Project {
     compositions: [mainComposition],
     shaders: [],
     ...overrides,
+    outputLayer: requireOutputLayer(
+      overrides.outputLayer === undefined ? 0 : overrides.outputLayer,
+    ),
   };
 }

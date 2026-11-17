@@ -59,6 +59,7 @@ import {
   computeKeyframeFrames,
   createId,
   createProject,
+  resolveOutputLayer,
   fieldDefinitionAtPath,
   getLayerPropertyValueAtFrame,
   getLayerPropertyWithLighting,
@@ -1092,6 +1093,7 @@ function projectSnapshotProjection(
     projectedProject.name = project.name;
     projectedProject.description = project.description;
     projectedProject.version = project.version;
+    projectedProject.outputLayer = resolveOutputLayer(project.outputLayer);
     projectedProject.author = project.author;
   }
 
@@ -2108,6 +2110,19 @@ export function createOGrafToolRecords(
           'ograf_validate_project when browserTextOverflow=true',
         ],
         templateSets: {
+          outputLayers: {
+            manifestField: 'v_layer',
+            projectField: 'outputLayer',
+            default: 0,
+            minimum: Number.MIN_SAFE_INTEGER,
+            maximum: Number.MAX_SAFE_INTEGER,
+            standalone:
+              'Set outputLayer with set_project_metadata; each template keeps its own value.',
+            coordinated:
+              'Set the independent package root outputLayer with set_output_layer. Children use the root layer in RealityHub.',
+            playback:
+              'Higher values appear on top; equal values share a replacement target within one RealityHub output channel. Studio preview playback is unchanged.',
+          },
           available: bridge.health.templateSetsReady === true,
           read: 'ograf_get_template_set',
           update: 'ograf_update_template_set',
@@ -3339,7 +3354,12 @@ export function createOGrafToolRecords(
                   'Output, render modes, data transitions, canvas aids/snapping and inheritance edit shared defaults. Apply updates the open set and keeps the window open; OK applies and closes. Save the .ogs file to persist them. Per-property overrides and whole-template inheritance choices remain explicit; local guides and animation identities stay with each template.',
                 mcp: {
                   tool: 'ograf_update_template_set',
-                  operations: ['set_defaults', 'set_inheritance', 'set_setting_override'],
+                  operations: [
+                    'set_defaults',
+                    'set_inheritance',
+                    'set_setting_override',
+                    'set_output_layer',
+                  ],
                   concurrency:
                     'Use the current opaque set revision; re-read after conflicts or uncertain responses.',
                 },

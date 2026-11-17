@@ -2054,6 +2054,8 @@ export interface AuthoringPrompt {
 }
 
 export interface Project {
+  /** Standalone output routing metadata, exported as v_layer. Absent means layer 0. */
+  outputLayer?: number;
   /** User prompts in submission order, shared as project and export metadata. */
   authoringPrompts?: AuthoringPrompt[];
   /** Editor-only review, omitted when generating OGraf output. */

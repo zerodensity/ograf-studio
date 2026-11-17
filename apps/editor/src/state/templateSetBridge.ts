@@ -9,6 +9,8 @@ import {
   hasElementMediaPaint,
   isMediaPaint,
   normalizeCanvasCrop,
+  requireOutputLayer,
+  resolveOutputLayer,
   type FieldValue,
   type DesignSystem,
   type DesignToken,
@@ -272,6 +274,7 @@ function snapshot(
       ? {
           id: set.id,
           name: set.name,
+          outputLayer: resolveOutputLayer(set.outputLayer),
           storage: {
             defaultArchiveMode: 'compact',
             archiveSchemaVersion: PROJECT_SET_SCHEMA_VERSION,
@@ -312,6 +315,7 @@ function snapshot(
               id: template.id,
               name: template.name,
               projectId: project.id,
+              outputLayer: resolveOutputLayer(project.outputLayer),
               inheritSettings: template.inheritSettings !== false,
               settingsOverrides: template.settingsOverrides ?? [],
               brandKitOverrides: template.brandKitOverrides ?? [],
@@ -387,6 +391,9 @@ export function handleTemplateSetRequest(request: {
     applyProjectSetChange(updated, refresh);
   };
   switch (operation.type) {
+    case 'set_output_layer':
+      change({ ...requireSet(), outputLayer: requireOutputLayer(operation.outputLayer) });
+      break;
     case 'set_transition_logic': {
       const set = requireSet();
       const draft = useTransitionLogicDraftStore.getState().drafts[set.id];

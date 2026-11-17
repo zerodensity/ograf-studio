@@ -20,6 +20,8 @@ describe('generated in-app authoring prompt', () => {
     expect(first).toContain('lottieInspection');
     expect(first).toContain('byte-repeatable');
     expect(first).toContain('dataFieldUsage');
+    expect(first).toContain('set_output_layer');
+    expect(first).toContain('v_layer');
   });
 
   it('keeps a body under every section heading after stripping unavailable guidance', () => {

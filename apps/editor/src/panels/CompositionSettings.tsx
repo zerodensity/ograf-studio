@@ -1,4 +1,6 @@
 import { ColorInput } from '../components/ColorInput';
+import { OutputLayerInput } from '../components/OutputLayerInput';
+import { resolveOutputLayer } from '@ograf-editor/scene-model';
 import { CANVAS_LAYOUT_HELP } from './propertyHelp';
 import { WithWarning } from '../components/WarningBadge';
 import { PropertyRow } from '../components/PropertyRow';
@@ -172,6 +174,19 @@ export function CompositionSettings({
 
       {showSection('output') && (
         <>
+          <CollapsibleSection sectionId={sectionId('output-layer')} title="Output layer">
+            <PropertyRow
+              className="inspector-row"
+              help="Standalone export output layer. In RealityHub, higher values appear on top and equal values share a replacement target. Coordinated children use the package output layer."
+            >
+              <span>Output layer</span>
+              <OutputLayerInput
+                label="Output layer"
+                value={resolveOutputLayer(project.outputLayer)}
+                onChange={(outputLayer) => setProjectMeta({ outputLayer })}
+              />
+            </PropertyRow>
+          </CollapsibleSection>
           <CollapsibleSection sectionId={sectionId('composition')} title="Composition">
             <PropertyRow
               help={

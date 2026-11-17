@@ -66,8 +66,7 @@ const IN_APP_DESCRIPTIONS: Record<string, string> = {
   ograf_undo: 'Undo last agent transaction.',
   ograf_redo: 'Redo last agent transaction.',
   ograf_get_template_set: 'Set/revision; projects/usage opt-in; IDs or offset/limit.',
-  ograf_update_template_set:
-    'Current set revision; confirm removal/replacement; file pickers via UI.',
+  ograf_update_template_set: 'Set revision; confirm removal/replacement; files via UI.',
   ograf_read_result_page: 'Retained JSON by resultId/path/offset; Studio supplies owner/budget.',
   ograf_get_playout:
     'Read revision/readiness/current/pending/errors/tickers. target:preview=Studio; omitted/live=independent.',
