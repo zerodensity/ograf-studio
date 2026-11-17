@@ -937,11 +937,26 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
     const generation = this.#generation;
     this.#drainingRules = true;
     let count = 0;
+    let pendingRuleFrame: number | undefined;
+    const renderPendingRules = () => {
+      if (pendingRuleFrame === undefined) return;
+      pendingRuleFrame = undefined;
+      this.#render(this.#frame);
+    };
     try {
       for (;;) {
         this.#assertLive(generation);
         this.#ruleWork.sort((a, b) => a.frame - b.frame || a.order - b.order);
         const work = this.#ruleWork[0];
+        if (
+          pendingRuleFrame !== undefined &&
+          (!work || work.frame > until || work.frame !== pendingRuleFrame)
+        ) {
+          // Rendering can enqueue more due work. Re-read the queue, including in replay where
+          // there is no realtime microtask to pick up anything left behind.
+          renderPendingRules();
+          continue;
+        }
         if (!work || work.frame > until) return;
         this.#ruleWork.shift();
         if (++count > MAX_PENDING_RULES) throw new Error('Rules playout event limit exceeded.');
@@ -958,6 +973,14 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
           }
         };
         const actions = caused(() => work.run());
+        if (actions.length === 0) {
+          pendingRuleFrame = work.frame;
+          if (this.#renderType === 'realtime') until = this.#frame;
+          continue;
+        }
+        // A playout action can await resources or dispose a mount. Present the completed rule
+        // work before crossing that boundary, then retain the action's own render.
+        renderPendingRules();
         for (const action of actions) {
           // Local set-data/custom-action rules can synchronously enqueue further work, too.
           // Release the causal scope before awaiting resources so unrelated commands stay independent.
@@ -970,6 +993,19 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
         this.#render(this.#frame);
         if (this.#renderType === 'realtime') until = this.#frame;
       }
+    } catch (cause) {
+      if (generation === this.#generation && this.#loaded && !this.#renderError) {
+        try {
+          // Keep already-completed rule-only work visible if a later rule fails.
+          renderPendingRules();
+        } catch (renderError) {
+          throw new AggregateError(
+            [cause, renderError],
+            `${errorPayload(cause).statusMessage}; rendering the preceding Rules also failed: ${errorPayload(renderError).statusMessage}`,
+          );
+        }
+      }
+      throw cause;
     } finally {
       if (generation === this.#generation) {
         this.#drainingRules = false;

@@ -47,6 +47,9 @@ function workerKernel(config: { token: string; source: string; budget: number })
   const toString = String;
   const encoder = new TextEncoder();
   const encode = encoder.encode.bind(encoder);
+  // Keep this inside the serialized worker kernel. One UTF-16 unit takes at most three bytes.
+  const bytesOver = (text: string, limit: number) =>
+    text.length > limit || (text.length * 3 > limit && encode(text).byteLength > limit);
   const now = performance.now.bind(performance);
   const NativeSet = Set;
   const setHas = Function.prototype.call.bind(Set.prototype.has) as (
@@ -183,7 +186,7 @@ function workerKernel(config: { token: string; source: string; budget: number })
           // here instead of parsing the result and traversing state/data a second time.
           const fieldLimit =
             depth === 0 ? (key === 'state' ? 256 * 1024 : key === 'data' ? 64 * 1024 : null) : null;
-          if (fieldLimit !== null && encode(child).byteLength > fieldLimit)
+          if (fieldLimit !== null && bytesOver(child, fieldLimit))
             throw new ErrorType('Function result exceeds the JSON size limit.');
           pieces[count++] = `${stringify(key)}:${child}`;
         }
@@ -192,7 +195,7 @@ function workerKernel(config: { token: string; source: string; budget: number })
       return array ? `[${join(pieces, ',')}]` : `{${join(pieces, ',')}}`;
     };
     const text = encodeValue(value, 0);
-    if (encode(text).byteLength > byteLimit)
+    if (bytesOver(text, byteLimit))
       throw new ErrorType('Function result exceeds the JSON size limit.');
     return text;
   };
@@ -704,6 +707,14 @@ function frameBootstrap(config: {
     send('error', error instanceof Error ? error.message : 'Could not start isolated supervisor.');
   }
 }
+/** Check cheaply when the UTF-16 length proves the result, and encode the boundary cases. */
+export function utf8BytesOver(text: string, limit: number): boolean {
+  return (
+    text.length > limit ||
+    (text.length * 3 > limit && new TextEncoder().encode(text).byteLength > limit)
+  );
+}
+
 function jsonBytes(value: unknown, limit: number): string {
   const visiting = new Set<object>();
   let count = 0;
@@ -738,8 +749,7 @@ function jsonBytes(value: unknown, limit: number): string {
   };
   check(value, 0);
   const text = JSON.stringify(value);
-  if (new TextEncoder().encode(text).byteLength > limit)
-    throw new Error('JSON value exceeds its size limit.');
+  if (utf8BytesOver(text, limit)) throw new Error('JSON value exceeds its size limit.');
   return text;
 }
 
@@ -1052,10 +1062,7 @@ export function createLogicFunctionSandbox(
     try {
       let result: LogicFunctionResult | undefined;
       if (!task.probe) {
-        if (
-          typeof packet.json !== 'string' ||
-          new TextEncoder().encode(packet.json).byteLength > RESULT_BYTES
-        )
+        if (typeof packet.json !== 'string' || utf8BytesOver(packet.json, RESULT_BYTES))
           throw error('Result exceeds 512 KiB.');
         const value: unknown = JSON.parse(packet.json);
         if (!value || typeof value !== 'object' || Array.isArray(value))
