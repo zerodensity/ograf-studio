@@ -310,6 +310,21 @@ function applyTextMaskAncestor(
     context.filter =
       context.filter && context.filter !== 'none' ? `${context.filter} ${blur}` : blur;
   }
+  if (node.hasAttribute?.('data-ograf-inline-word-reveal')) {
+    const offset = Number.parseFloat(state.computed.top);
+    if (offset > 0) {
+      // Match the native inset on the relative inline word, including the font's overhang.
+      const bleed = Number.parseFloat(state.computed.fontSize) || 0;
+      context.beginPath();
+      context.rect(
+        x - bleed,
+        y - bleed,
+        bounds.width + 2 * bleed,
+        Math.max(0, bounds.height + bleed - offset),
+      );
+      context.clip();
+    }
+  }
   const clips = (overflow: string) => ['hidden', 'clip', 'scroll', 'auto'].includes(overflow);
   if (clips(state.computed.overflowX) || clips(state.computed.overflowY)) {
     context.beginPath();
@@ -348,6 +363,7 @@ function freezeTextMaskStyle(style: CSSStyleDeclaration): CSSStyleDeclaration {
     textTransform: style.textTransform,
     display: style.display,
     textOverflow: style.textOverflow,
+    top: style.top,
     overflowX: style.overflowX,
     overflowY: style.overflowY,
     whiteSpace: style.whiteSpace,

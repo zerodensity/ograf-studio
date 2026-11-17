@@ -19,6 +19,7 @@ import {
   textAnimationSplit,
   usesShapedTextMotion,
   visibleTextAnimationSegmentCount,
+  type TextAnimation,
   type TextElement,
   type TextRun,
 } from '@ograf-editor/scene-model';
@@ -75,6 +76,20 @@ interface MountedTextRoll {
 }
 
 const mountedTextRolls = new WeakMap<HTMLElement, MountedTextRoll>();
+interface ShapedTypewriter {
+  source: string;
+  ranges: StyledRange[];
+  starts: number[];
+  prefix: HTMLElement;
+  cursor: HTMLElement | null;
+  end?: number;
+}
+
+const shapedTypewriters = new WeakMap<HTMLElement, ShapedTypewriter>();
+const shapedWordReveals = new WeakMap<
+  HTMLElement,
+  { parent: HTMLElement; words: Node[]; settled: HTMLElement; complete: boolean }
+>();
 // A font or viewport resize can add copies while playback is paused. Keep the logical update
 // predecessor and sampled frame on the track so new copies can reproduce the current pose.
 const mountedCrawlAnimations = new WeakMap<
@@ -103,7 +118,7 @@ export function measureTextAnimationLayout<T>(content: HTMLElement, measure: () 
   const transforms = glyphs.map((glyph) => glyph.style.transform);
   const counts = [
     ...content.querySelectorAll<HTMLElement>(
-      '[data-ograf-text-count-value], [data-ograf-text-roll-value]',
+      '[data-ograf-text-count-value], [data-ograf-text-roll-value], [data-ograf-typewriter-value]',
     ),
   ];
   const displays = counts.map((count) => count.style.display);
@@ -274,6 +289,99 @@ function appendStyledText(
     target.appendChild(span);
     cursor = sliceEnd;
   }
+}
+
+function usesShapedReveal(source: string, element: TextElement): boolean {
+  return (
+    element.direction === 'rtl' ||
+    /[\p{Script=Arabic}\p{Script=Hebrew}\p{Bidi_Control}]/u.test(source)
+  );
+}
+
+function createTypewriterCursor(
+  flow: HTMLElement,
+  color: string,
+  kind: 'bar' | 'block',
+): HTMLElement {
+  const cursor = flow.ownerDocument.createElement('span');
+  cursor.dataset.ografTextCursor = kind;
+  cursor.setAttribute('aria-hidden', 'true');
+  Object.assign(cursor.style, {
+    display: 'inline-block',
+    width: kind === 'block' ? '0.55em' : '0.08em',
+    minWidth: kind === 'block' ? '0.55em' : '2px',
+    height: '0.9em',
+    background: color === 'transparent' ? '#ffffff' : color,
+    opacity: '1',
+  });
+  return cursor;
+}
+
+function mountShapedTypewriter(
+  flow: HTMLElement,
+  source: string,
+  ranges: StyledRange[],
+  element: TextElement,
+  animation: TextAnimation,
+): void {
+  const document = flow.ownerDocument;
+  const layout = document.createElement('span');
+  layout.style.display = 'block';
+  layout.style.visibility = 'hidden';
+  appendStyledText(layout, source, 0, ranges);
+  flow.style.position = 'relative';
+  flow.appendChild(layout);
+
+  const value = document.createElement('span');
+  value.dataset.ografTypewriterValue = 'true';
+  value.dataset.ografTextSegment = '0';
+  value.dataset.ografTextShapingGroup = 'true';
+  Object.assign(value.style, { display: 'block', position: 'absolute', inset: '0' });
+  flow.appendChild(value);
+
+  const prefix = document.createElement('span');
+  value.appendChild(prefix);
+  const cursor =
+    animation.cursor === 'none'
+      ? null
+      : createTypewriterCursor(flow, element.color, animation.cursor);
+  const anchor = cursor ? document.createElement('span') : null;
+  if (cursor && anchor) {
+    anchor.style.position = 'relative';
+    Object.assign(cursor.style, {
+      position: 'absolute',
+      insetInlineStart: '0',
+      marginInlineStart: '0.08em',
+    });
+    anchor.appendChild(cursor);
+    value.appendChild(anchor);
+  }
+  const starts = segmentTextAnimationUnits(source, animation.split, element.language)
+    .filter((record) => isAnimatedTextSegment(record, animation.split))
+    .map((record) => record.index);
+  const state = { source, ranges, starts, prefix, cursor };
+  shapedTypewriters.set(flow, state);
+  renderShapedTypewriter(state, animation, 0);
+}
+
+function renderShapedTypewriter(state: ShapedTypewriter, animation: TextAnimation, frame: number) {
+  const count = visibleTextAnimationSegmentCount(
+    state.starts.length,
+    frame,
+    animation.durationFrames,
+  );
+  const end = state.starts[count] ?? state.source.length;
+  if (end !== state.end) {
+    // Let the browser shape the entire visible prefix, including partially typed Urdu words.
+    if (state.ranges.length) state.prefix.replaceChildren();
+    appendStyledText(state.prefix, state.source.slice(0, end), 0, state.ranges);
+    state.end = end;
+  }
+  if (!state.cursor) return;
+  const complete = count >= state.starts.length;
+  const blinkOn = Math.floor(Math.max(0, frame) / animation.cursorBlinkFrames) % 2 === 0;
+  state.cursor.style.display = complete ? 'none' : 'inline-block';
+  state.cursor.style.opacity = blinkOn ? '1' : '0';
 }
 
 function mountCountingText(
@@ -725,6 +833,15 @@ export function mountTextAnimationContent(
     mountTextPropertyAnimators(content, element);
     return;
   }
+  const shapedReveal = usesShapedReveal(source, element);
+  if (animation.type === 'typewriter' && shapedReveal) {
+    mountShapedTypewriter(flow, source, ranges, element, animation);
+    content.appendChild(flow);
+    mountTextPropertyAnimators(content, element);
+    return;
+  }
+  const inlineWords = animation.type === 'word-reveal' && shapedReveal;
+  if (inlineWords) flow.dataset.ografTextShapingGroup = 'true';
   let animationIndex = 0;
   const split = textAnimationSplit(animation);
   const shapedMotion = usesShapedTextMotion(source, animation);
@@ -738,17 +855,23 @@ export function mountTextAnimationContent(
     }
     const segment = content.ownerDocument.createElement('span');
     segment.dataset.ografTextSegment = String(animationIndex);
-    segment.style.display = shapedMotion ? 'block' : 'inline-block';
+    segment.style.display = inlineWords ? 'inline' : shapedMotion ? 'block' : 'inline-block';
     if (shapedMotion) segment.dataset.ografTextShapingGroup = 'true';
     segment.style.visibility = animation.type === 'typewriter' ? 'hidden' : SHOWN;
     segment.style.opacity =
       animation.type === 'typewriter' || animation.type === 'none' ? '1' : '0';
     if (animation.type === 'word-reveal') {
-      segment.style.overflow = 'hidden';
-      segment.style.verticalAlign = 'bottom';
       const inner = content.ownerDocument.createElement('span');
       inner.dataset.ografTextSegmentInner = 'true';
-      inner.style.display = 'inline-block';
+      if (inlineWords) {
+        inner.style.display = 'inline';
+        inner.style.position = 'relative';
+        inner.dataset.ografInlineWordReveal = 'true';
+      } else {
+        segment.style.overflow = 'hidden';
+        segment.style.verticalAlign = 'bottom';
+        inner.style.display = 'inline-block';
+      }
       appendStyledText(inner, record.text, record.index, ranges);
       segment.appendChild(inner);
     } else appendStyledText(segment, record.text, record.index, ranges);
@@ -757,23 +880,28 @@ export function mountTextAnimationContent(
   }
 
   if (animation.type === 'typewriter' && animation.cursor !== 'none') {
-    const cursor = content.ownerDocument.createElement('span');
-    cursor.dataset.ografTextCursor = animation.cursor;
-    cursor.setAttribute('aria-hidden', 'true');
+    const cursor = createTypewriterCursor(flow, element.color, animation.cursor);
     Object.assign(cursor.style, {
-      display: 'inline-block',
-      width: animation.cursor === 'block' ? '0.55em' : '0.08em',
-      minWidth: animation.cursor === 'block' ? '0.55em' : '2px',
-      height: '0.9em',
       marginLeft: '0.08em',
       verticalAlign: '-0.08em',
-      background: element.color === 'transparent' ? '#ffffff' : element.color,
-      opacity: '1',
     });
     flow.insertBefore(cursor, flow.firstChild);
   }
   content.appendChild(flow);
   mountTextPropertyAnimators(content, element);
+  if (inlineWords) {
+    const parent = flow.querySelector<HTMLElement>('[data-ograf-text-animator-glyph]') ?? flow;
+    const settled = flow.ownerDocument.createElement('span');
+    settled.dataset.ografTextSegment = '0';
+    settled.style.display = 'block';
+    appendStyledText(settled, source, 0, ranges);
+    shapedWordReveals.set(flow, {
+      parent,
+      words: [...parent.childNodes],
+      settled,
+      complete: false,
+    });
+  }
 }
 
 export function textAnimationSegmentCount(container: HTMLElement): number {
@@ -811,6 +939,32 @@ function renderPresetTextAnimationAtFrame(
   }
   const flow = container.querySelector<HTMLElement>('[data-ograf-text-flow="true"]');
   if (!flow) return;
+  const shapedTypewriter = shapedTypewriters.get(flow);
+  if (shapedTypewriter) {
+    renderShapedTypewriter(shapedTypewriter, animation, frame);
+    if (flow.parentElement) refreshTextAnimationGradient(flow.parentElement, flow);
+    return;
+  }
+  const shapedWords = shapedWordReveals.get(flow);
+  if (shapedWords) {
+    const complete = frame >= animation.durationFrames;
+    if (complete !== shapedWords.complete) {
+      // Even ordinary inline boundaries can nudge native font positions by a fraction of a pixel.
+      // At rest, use the same continuous text as the unanimated layer.
+      if (complete) shapedWords.parent.replaceChildren(shapedWords.settled);
+      else shapedWords.parent.replaceChildren(...shapedWords.words);
+      shapedWords.complete = complete;
+      const gradient = flow.parentElement && animatedGradients.get(flow.parentElement);
+      if (gradient) {
+        delete gradient.signature;
+        delete gradient.layoutKey;
+      }
+    }
+    if (complete) {
+      if (flow.parentElement) refreshTextAnimationGradient(flow.parentElement, flow);
+      return;
+    }
+  }
   if (flow.parentElement) refreshTextAnimationGradient(flow.parentElement, flow);
   if (mountedTextRolls.has(flow)) {
     renderRollingText(flow, element, frame);
@@ -839,8 +993,13 @@ function renderPresetTextAnimationAtFrame(
       segment.style.backfaceVisibility = '';
       if (animation.type === 'word-reveal') {
         const inner = segment.querySelector<HTMLElement>('[data-ograf-text-segment-inner]');
-        if (inner)
+        if (inner?.dataset.ografInlineWordReveal === 'true') {
+          inner.style.top = progress < 1 ? `${visual.translateYEm}em` : '';
+          inner.style.clipPath =
+            progress > 0 && progress < 1 ? `inset(-1em -1em ${visual.translateYEm}em)` : '';
+        } else if (inner) {
           inner.style.transform = progress < 1 ? `translateY(${visual.translateYEm}em)` : '';
+        }
       } else if (progress >= 1) {
         return;
       } else if (animation.type === 'rise') {
