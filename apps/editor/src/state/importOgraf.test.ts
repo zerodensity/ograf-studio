@@ -37,6 +37,32 @@ async function packageBytes(files: Record<string, string>): Promise<Uint8Array> 
   return zip.generateAsync({ type: 'uint8array' });
 }
 
+describe('imported output layers', () => {
+  it.each(['manifest-only', 'compiled-descriptor', 'embedded-project'] as const)(
+    'uses manifest metadata over stale source metadata in %s recovery',
+    async (mode) => {
+      const project = createProject({ outputLayer: 99 });
+      const composition = project.compositions[0]!;
+      const descriptor = compileDescriptor(composition);
+      const original = assembleManifest(project, composition, descriptor);
+      for (const value of [-5, 0, Number.MAX_SAFE_INTEGER, undefined, '12', 1.5, null, 2 ** 53]) {
+        const manifest = { ...original, v_layer: value };
+        const files: Record<string, string> = { 'graphic.ograf.json': JSON.stringify(manifest) };
+        if (mode === 'compiled-descriptor')
+          files['main.js'] = generateMainJs(descriptor, 'class GraphicElement {}');
+        if (mode === 'embedded-project') files['source.ogs'] = JSON.stringify(project);
+        const result = await importOgrafData('layers.ograf.zip', await packageBytes(files));
+        expect(result.mode).toBe(mode);
+        expect(result.project.outputLayer).toBe(Number.isSafeInteger(value) ? value : 0);
+        expect(result.warnings.some((warning) => warning.includes('/v_layer'))).toBe(
+          value !== undefined && !Number.isSafeInteger(value),
+        );
+      }
+      expect(project.outputLayer).toBe(99);
+    },
+  );
+});
+
 describe('frame cues in single-template exports', () => {
   it('round-trips cue identity, authored order and JSON payload outside the manifest', async () => {
     const project = createProject();

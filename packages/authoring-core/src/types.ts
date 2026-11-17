@@ -158,6 +158,7 @@ export type AuthoringOperation =
   | { type: 'remove_style_pack'; compositionId?: string }
   | {
       type: 'set_project_metadata';
+      outputLayer?: number;
       thumbnailFrame?: number | null;
       id?: string;
       name?: string;

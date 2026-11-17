@@ -1,5 +1,11 @@
 # MCP tool workflows
 
+## Output layer metadata
+
+`outputLayer`: signed safe integer, default 0, exported as `v_layer`. Use `set_project_metadata`
+for standalone templates, set operation `set_output_layer` for the independent coordinated root.
+Higher values stack on top; equal values replace. Preview is unchanged.
+
 ## Discovery and inspection
 
 Canvas artwork has no binding badges. Inspect scene bindings or use Properties → Data Bindings;
@@ -138,17 +144,18 @@ Supported operation discriminators:
   `update_runtime_collection`, `remove_runtime_collection`
 - Actions: `add_custom_action`, `update_custom_action`, `remove_custom_action`
 
-`add_layer.kind` supports `rectangle`, `ellipse`, `chart`, `text`, `image`, `path`, `pattern`, `image-sequence`, and `lottie`. It returns the generated layer ID in `summary.generatedIds`. For Lottie, pass a complete self-contained Bodymovin JSON object in `element.animationData`, then inspect its warnings. Audio/video/live playback uses composition-level Media Cues, never canvas Audio layers.
+`add_layer.kind`: `rectangle`, `ellipse`, `chart`, `text`, `image`, `path`, `pattern`, `image-sequence`,
+`lottie`. IDs: `summary.generatedIds`. Lottie needs self-contained Bodymovin JSON in
+`element.animationData`; inspect warnings. Audio/video/live uses composition Media Cues,
+never canvas Audio layers.
 
-When `transform` is omitted, rectangle and ellipse layers begin at 200 × 200 as a square/circle.
-Pass explicit width and height for a panel or oval; later edits remain independent.
+Omitted `transform` creates 200 × 200 rectangles/ellipses. Set width/height for panels/ovals;
+later edits are independent.
 
-`set_layer_semantics` assigns an authoring role, normalized tags, and intent without changing pixels.
-Built-in broadcast recipes return complete layer/field/group mappings and create linked reusable
-component assets by default; `asComponent:false` keeps independent layers. See
-[broadcast recipes](./broadcast-recipes.md) for current native ticker, clock/timer, countdown,
-material styling, motion and compatibility contracts. Legacy `text.crawl` remains available for
-older graphics; new ticker recipes use the native mixed-content element.
+`set_layer_semantics` sets role, normalized tags and intent without pixel changes. Recipes return
+complete layer/field/group maps and linked components (`asComponent:false` for independent layers).
+See [broadcast recipes](./broadcast-recipes.md) for ticker, clock/timer, countdown, materials, motion
+and compatibility. Legacy `text.crawl` remains; new tickers use native mixed content.
 
 `set_test_rundowns` saves named authoring-only `{id,name,rows:[{id,values}]}` lists keyed by field
 ID. Data → Test data imports and checks rows; Preview & Export plays their Take, Update and Out.

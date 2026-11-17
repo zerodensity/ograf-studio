@@ -17,6 +17,8 @@ import {
   isElementImageSourceBinding,
   transitionLogicErrors,
   safeTransitionLogicStartupStates,
+  requireOutputLayer,
+  resolveOutputLayer,
   type ComponentDefinition,
   type ClockTimerCommand,
   type Composition,
@@ -47,6 +49,8 @@ import {
 
 /** Portable input. Callers resolve inherited set defaults before compiling. */
 export interface CoordinatedExportInput {
+  /** Independent package layer; template layers apply only to standalone exports. */
+  outputLayer?: number;
   id: string;
   name: string;
   definition: TransitionLogicDefinition;
@@ -1062,6 +1066,7 @@ export function buildCoordinatedExportArtifactsWithRuntime(
   runtimeSource: string,
   profile?: ExportProfile,
 ): ExportArtifacts {
+  if (input.outputLayer !== undefined) requireOutputLayer(input.outputLayer);
   const definition = structuredClone(input.definition);
   const assets = new Map(input.componentAssets.map((asset) => [asset.id, asset]));
   const graphErrors = transitionLogicErrors(definition, {
@@ -1596,6 +1601,7 @@ export function buildCoordinatedExportArtifactsWithRuntime(
     id: project.id,
     name: input.name,
     main: 'main.js',
+    v_layer: resolveOutputLayer(input.outputLayer),
     v_ografTransitionLogic: { version: 1 },
     ...(authoringPrompts ? { v_ografStudioAuthoringPrompts: authoringPrompts } : {}),
     version: project.version,

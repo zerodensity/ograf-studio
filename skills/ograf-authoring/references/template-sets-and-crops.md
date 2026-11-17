@@ -1,5 +1,27 @@
 # Template sets and crops
 
+## Output layer metadata
+
+Set a standalone template's layer with `set_project_metadata` and `outputLayer` in a numeric
+revision-checked authoring batch. Set the independent coordinated package root with
+`ograf_update_template_set`, its opaque set revision, and
+`operation:{type:"set_output_layer",outputLayer:100}`. Read resolved `outputLayer` values from
+project metadata, `templateSet.outputLayer`, and `templateSet.templates[].outputLayer`.
+
+Values are signed JavaScript safe integers (`-9007199254740991` through `9007199254740991`),
+defaulting to zero. Fractions, strings, null and unsafe integers are rejected for authoring.
+The value is not part of `set_defaults` or per-property inheritance. Duplicated/pasted templates
+retain their standalone layer. Every export profile writes numeric top-level `v_layer`, including
+zero. Coordinated children use the package root in RealityHub; their standalone values do not
+override it. Higher layers appear on top, and equal layers share a replacement target within an
+output channel. Studio preview playback and the internal scene layer order stay unchanged.
+
+Studio controls are **Template → Output & timing → Output layer** (immediate, undoable) and
+**Template Set → Output & timing → Package output layer** (staged until Apply/OK). Save the `.ogs`
+document to persist edits. OGraf import takes the manifest's `v_layer` as authoritative even when
+embedded editable source has a different value. Missing values resolve to zero; invalid manifest
+values resolve to zero with a `/v_layer` warning. Capabilities: `templateSets.outputLayers`.
+
 ## Retained components in coordinated output
 
 A retained component keeps one live instance across template changes. Bindings on each

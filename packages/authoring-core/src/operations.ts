@@ -1,5 +1,6 @@
 import {
   appendAuthoringPrompt,
+  requireOutputLayer,
   isGradientPaint,
   chartRendererFeatureErrors,
   chartAnimationErrors,
@@ -1341,6 +1342,8 @@ export function applyAuthoringOperations(
       return;
     }
     if (operation.type === 'set_project_metadata') {
+      if (operation.outputLayer !== undefined)
+        project.outputLayer = requireOutputLayer(operation.outputLayer);
       if (operation.thumbnailFrame !== undefined) project.thumbnailFrame = operation.thumbnailFrame;
       if (operation.id !== undefined) project.id = operation.id;
       if (operation.name !== undefined) project.name = operation.name;

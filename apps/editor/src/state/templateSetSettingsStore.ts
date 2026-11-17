@@ -8,6 +8,7 @@ import { useSelectionStore } from './selectionStore';
 import { runDiscreteHistoryStep } from './historyStore';
 import { useTimelineStore } from './timelineStore';
 import { type TemplateSetSettings } from './templateSetSettings';
+import { requireOutputLayer } from '@ograf-editor/scene-model';
 
 export type SettingsScope = 'studio' | 'template-set' | 'template';
 export type SettingsSection =
@@ -55,7 +56,9 @@ export const useTemplateSetSettingsStore = create<{
 export function saveTemplateSetSettings(
   settings: TemplateSetSettings,
   inheritance: Record<string, boolean>,
+  outputLayer?: number,
 ) {
+  if (outputLayer !== undefined) outputLayer = requireOutputLayer(outputLayer);
   return runDiscreteHistoryStep(() => {
     const session = useProjectSetStore.getState();
     if (!session.projectSet) throw new Error('Create or open a template set first.');
@@ -64,6 +67,7 @@ export function saveTemplateSetSettings(
       ? saveProjectSetTemplateEdits(session.projectSet, session.activeTemplateId, editor.project)
       : session.projectSet;
     const updated = updateProjectSetSettings(synced, settings, inheritance);
+    if (outputLayer !== undefined) updated.outputLayer = outputLayer;
     const resolved = session.activeTemplateId
       ? resolveProjectSetTemplate(updated, session.activeTemplateId)
       : null;

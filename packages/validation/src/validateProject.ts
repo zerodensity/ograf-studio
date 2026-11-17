@@ -2,6 +2,8 @@ import { textAnimatorPaintErrors } from '@ograf-editor/scene-model';
 import { clockDataSetting, clockSettingsWithData } from '@ograf-editor/scene-model';
 import {
   isNodosTypeName,
+  isOutputLayer,
+  OUTPUT_LAYER_ERROR,
   isGradientPaint,
   dataConnectionErrors,
   MAX_DATA_CONNECTIONS,
@@ -2574,6 +2576,8 @@ export function validateProject(project: Project): ProjectValidationResult {
     for (const id of duplicates(shaderIds)) errors.push(`Duplicate shader resource id "${id}".`);
   }
   if (!project.id.trim()) errors.push('Project id is required.');
+  if (project.outputLayer !== undefined && !isOutputLayer(project.outputLayer))
+    errors.push(OUTPUT_LAYER_ERROR);
   if (!project.name.trim()) errors.push('Project name is required.');
   if (!project.supportsRealTime && !project.supportsNonRealTime) {
     errors.push('Project must support real-time, non-real-time, or both render modes.');

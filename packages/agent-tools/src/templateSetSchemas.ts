@@ -116,6 +116,12 @@ const pasteTemplateOperation = z
 const sharedOperations = [
   z
     .object({
+      type: z.literal('set_output_layer'),
+      outputLayer: z.number().int(),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal('set_transition_logic'),
       definition: transitionLogicDefinition
         .nullable()

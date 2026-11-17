@@ -160,6 +160,8 @@ export interface ManifestAuthoringPrompts {
 
 /** The shape of a `*.ograf.json` manifest file. */
 export interface OGrafManifest {
+  /** Host output layer: a signed JavaScript safe integer. Missing values resolve to 0. */
+  v_layer?: number;
   $schema: string;
   id: string;
   name: string;

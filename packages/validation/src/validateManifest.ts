@@ -1,6 +1,7 @@
 import Ajv2020 from 'ajv/dist/2020';
 import type { ErrorObject } from 'ajv';
 import { OFFICIAL_OGRAF_SCHEMAS } from './officialSchemas';
+import { isOutputLayer, OUTPUT_LAYER_ERROR } from '@ograf-editor/scene-model';
 
 export interface ManifestValidationResult {
   valid: boolean;
@@ -24,7 +25,11 @@ function formatError(err: ErrorObject): string {
 
 /** Validates against the vendored canonical EBU schema and its complete local `$ref` closure. */
 export function validateManifest(manifest: unknown): ManifestValidationResult {
-  const valid = validateFn(manifest);
-  if (valid) return { valid: true, errors: [] };
-  return { valid: false, errors: (validateFn.errors ?? []).map(formatError) };
+  validateFn(manifest);
+  const errors = (validateFn.errors ?? []).map(formatError);
+  if (manifest && typeof manifest === 'object' && 'v_layer' in manifest) {
+    if (manifest.v_layer !== undefined && !isOutputLayer(manifest.v_layer))
+      errors.push(`/v_layer ${OUTPUT_LAYER_ERROR}`);
+  }
+  return { valid: errors.length === 0, errors };
 }

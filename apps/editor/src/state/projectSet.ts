@@ -25,6 +25,7 @@ import {
   compositionPlayoutActionErrors,
   validatePresenterDefinition,
   validateAuthoringPrompts,
+  requireOutputLayer,
 } from '@ograf-editor/scene-model';
 import type {
   Asset,
@@ -114,6 +115,8 @@ export interface ProjectSetAssetSlot {
 }
 
 export interface ProjectSetDocument {
+  /** Independent root layer for coordinated export; never inherited by templates. */
+  outputLayer?: number;
   id: string;
   name: string;
   nameOrigin?: 'default' | 'custom';
@@ -188,6 +191,7 @@ export function createProjectSet(name: string, project: Project): ProjectSetDocu
   const defaults = templateSetSettingsFromProject(project);
   return {
     id: newId('set'),
+    outputLayer: 0,
     name: name.trim() || DEFAULT_PROJECT_SET_NAME,
     nameOrigin: !name.trim() || name.trim() === DEFAULT_PROJECT_SET_NAME ? 'default' : 'custom',
     activeTemplateId: template.id,
@@ -225,6 +229,7 @@ export function migrateProjectSetDocument(set: ProjectSetDocument): ProjectSetDo
   return {
     ...set,
     name: defaultName && set.name === 'Untitled Template' ? DEFAULT_PROJECT_SET_NAME : set.name,
+    outputLayer: requireOutputLayer(set.outputLayer === undefined ? 0 : set.outputLayer),
     nameOrigin: set.nameOrigin ?? (defaultName ? 'default' : 'custom'),
     activeTemplateId,
     controls: (Array.isArray(set.controls) ? set.controls : []).map((control) => ({
@@ -1432,6 +1437,7 @@ export function buildProjectSetSceneTree(set: ProjectSetDocument): ProjectSetSce
 }
 
 interface ProjectSetArchiveManifest {
+  outputLayer?: number;
   format: typeof PROJECT_SET_FORMAT;
   schemaVersion: number;
   id: string;
@@ -1544,6 +1550,7 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 function validateSet(set: ProjectSetDocument): void {
+  if (set.outputLayer !== undefined) requireOutputLayer(set.outputLayer);
   if (set.presenter !== undefined) validatePresenterDefinition(set.presenter);
   if (set.settings !== undefined) {
     const errors = templateSetSettingsErrors(set.settings);
@@ -1562,6 +1569,8 @@ function validateSet(set: ProjectSetDocument): void {
 
   const templateById = new Map<string, ProjectSetTemplate>();
   for (const template of set.templates) {
+    if (template.project.outputLayer !== undefined)
+      requireOutputLayer(template.project.outputLayer);
     if (!safeId(template.id)) throw new Error(`Template ID is invalid: ${template.id}`);
     if (templateById.has(template.id)) throw new Error(`Duplicate template ID: ${template.id}`);
     if (!template.name.trim()) throw new Error(`Template ${template.id} needs a name.`);
@@ -1962,6 +1971,7 @@ export async function createProjectSetArchive(
   const manifest: ProjectSetArchiveManifest = {
     format: PROJECT_SET_FORMAT,
     schemaVersion: options.legacyFormat ? 4 : compactMode ? PROJECT_SET_SCHEMA_VERSION : 5,
+    outputLayer: requireOutputLayer(set.outputLayer === undefined ? 0 : set.outputLayer),
     id: set.id,
     name: set.name,
     ...(set.nameOrigin ? { nameOrigin: set.nameOrigin } : {}),
@@ -2485,6 +2495,7 @@ export async function openProjectSetArchive(
   }
 
   const set = migrateProjectSetDocument({
+    outputLayer: manifest.outputLayer,
     id: manifest.id,
     name: manifest.name,
     ...(manifest.nameOrigin ? { nameOrigin: manifest.nameOrigin } : {}),

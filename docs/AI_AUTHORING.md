@@ -4,6 +4,13 @@
 
 ## Template sets and cropping
 
+Standalone output metadata uses `set_project_metadata.outputLayer`. For a coordinated package,
+call `ograf_update_template_set` with `{type:"set_output_layer",outputLayer:100}` and the current
+opaque set revision. The package root and each standalone template have independent values;
+neither is an inherited canvas setting. Both accept signed JavaScript safe integers, default to
+zero, and export as top-level `v_layer`. Read resolved values from project metadata and the
+template-set snapshot. `templateSets.outputLayers` capabilities describe the contract.
+
 The connected editor exposes `ograf_get_template_set` and `ograf_update_template_set` for set `.ogs`
 structure, template duplication/clipboard operations, shared defaults/inheritance, and control/asset
 links. Set commands use the opaque set revision from the read tool; layer batches use the separate

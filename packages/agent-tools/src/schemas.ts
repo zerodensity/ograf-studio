@@ -817,6 +817,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('set_project_metadata'),
+    outputLayer: z.number().int().optional(),
     thumbnailFrame: z.number().int().nonnegative().nullable().optional(),
     id: z.string().min(1).optional(),
     name: z.string().optional(),

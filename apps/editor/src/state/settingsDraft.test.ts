@@ -88,6 +88,18 @@ describe('settings dialog draft merge', () => {
 });
 
 describe('settings dialog live draft rebase', () => {
+  it('adopts live package layers only while the package control is untouched', () => {
+    const baseline = settings();
+    const opened = createSettingsDialogDraft(baseline, {}, 7);
+    const adopted = rebaseSettingsDialogDraft(opened, baseline, {}, -9);
+    expect(adopted.outputLayer).toBe(-9);
+    const staged = { ...adopted, outputLayer: 20 };
+    const rebased = rebaseSettingsDialogDraft(staged, { ...baseline, width: 1280 }, {}, 30);
+    expect(rebased.outputLayer).toBe(20);
+    expect(rebased.baselineOutputLayer).toBe(30);
+    expect(rebased.settings.width).toBe(1280);
+    expect(opened.outputLayer).toBe(7);
+  });
   it('reflects live inheritance changes and allows staging the opposite value again', () => {
     const baseline = settings();
     const opened = createSettingsDialogDraft(baseline, { headline: true, ticker: true });

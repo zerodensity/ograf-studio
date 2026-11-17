@@ -7,6 +7,7 @@ import {
   createKeyframe,
   createLayerOfKind,
   createProject,
+  resolveOutputLayer,
   createTransition,
   defaultValueForFieldType,
   frameCueErrors,
@@ -642,6 +643,7 @@ function projectFromManifest(
   return createProject({
     id: manifest.id,
     name: manifest.name,
+    outputLayer: resolveOutputLayer(manifest.v_layer),
     description: manifest.description ?? '',
     version: manifest.version ?? '0.1.0',
     author: manifest.author ? clone(manifest.author) : { name: '' },
@@ -1022,6 +1024,7 @@ function projectFromDescriptor(
   return createProject({
     id: manifest.id,
     name: manifest.name,
+    outputLayer: resolveOutputLayer(manifest.v_layer),
     description: manifest.description ?? '',
     version: manifest.version ?? '0.1.0',
     author: manifest.author ? clone(manifest.author) : { name: '' },
@@ -1082,6 +1085,7 @@ async function importEntries(entries: Map<string, Uint8Array>): Promise<OgrafImp
 
   const embedded = importEmbeddedProject(entries);
   if (embedded) {
+    embedded.outputLayer = resolveOutputLayer(manifest.v_layer);
     warnings.push(
       'The package contained editable .ogs source; it was preferred over reverse conversion.',
     );

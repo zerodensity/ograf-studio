@@ -52,6 +52,29 @@ describe('coordinated news package assembly', () => {
     expect(set).toEqual(before);
   });
 
+  it('exports an independent root layer for every profile and package format', async () => {
+    const set = createTransitionLogicNewsExample(1_760_000_000_000);
+    set.outputLayer = -42;
+    for (const template of set.templates) template.project.outputLayer = 100;
+    for (const mode of ['realtime', 'non-realtime', 'dual'] as const) {
+      const artifacts = buildCoordinatedProjectSetArtifacts(set, getExportProfile(mode));
+      expect(artifacts.errors).toEqual([]);
+      expect(artifacts.manifest.v_layer).toBe(-42);
+      expect(artifacts.transitionDescriptor).not.toHaveProperty('outputLayer');
+    }
+    const packaged = await createCertifiedCoordinatedPackage(set);
+    const zip = await JSZip.loadAsync(await packaged.blob.arrayBuffer());
+    expect(
+      JSON.parse(await zip.file(packaged.artifacts.manifestFileName)!.async('string')).v_layer,
+    ).toBe(-42);
+    const html = await createCertifiedCoordinatedHtml(set);
+    expect(await html.blob.text()).toContain('"v_layer":-42');
+    delete set.outputLayer;
+    expect(buildCoordinatedProjectSetArtifacts(set).manifest.v_layer).toBe(0);
+    set.outputLayer = 0.5;
+    expect(() => buildCoordinatedProjectSetArtifacts(set)).toThrow(/safe integer/);
+  });
+
   it('does not embed authoring-only rundown rows in coordinated artifacts', () => {
     const set = createTransitionLogicNewsExample(1_760_000_000_000);
     const before = buildCoordinatedProjectSetArtifacts(set);

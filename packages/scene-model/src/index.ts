@@ -1,4 +1,5 @@
 export * from './types';
+export * from './outputLayer';
 export * from './crop';
 export * from './layerCrop';
 export * from './layerExportKey';

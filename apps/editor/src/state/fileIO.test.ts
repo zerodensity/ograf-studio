@@ -13,6 +13,10 @@ import {
   openStudioDocumentFromFile,
   openStudioDocumentFromUrl,
   parseProjectSource,
+  saveAutosave,
+  loadAutosave,
+  saveProjectSetAutosave,
+  loadProjectSetAutosave,
   saveProjectSetToFile,
   type ProjectFetcher,
 } from './fileIO';
@@ -25,6 +29,24 @@ afterEach(() => {
 });
 
 describe('unified local Studio document opening', () => {
+  it('retains independent output layers in standalone and set recovery saves', async () => {
+    const records = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => records.get(key) ?? null,
+      setItem: (key: string, value: string) => records.set(key, value),
+      removeItem: (key: string) => records.delete(key),
+    });
+    const project = createProject({ outputLayer: -12 });
+    saveAutosave(project);
+    expect(loadAutosave()?.outputLayer).toBe(-12);
+    const set = createProjectSet('Recovery', project);
+    set.outputLayer = 34;
+    const activeTemplateId = set.templates[0]!.id;
+    expect(await saveProjectSetAutosave({ projectSet: set, activeTemplateId })).toBe(true);
+    const recovered = await loadProjectSetAutosave();
+    expect(recovered?.projectSet.outputLayer).toBe(34);
+    expect(recovered?.projectSet.templates[0]!.project.outputLayer).toBe(-12);
+  });
   it('opens a single template and a complete multi-template set through the same picker', async () => {
     const first = createProject({ name: 'News' });
     const second = createProject({ name: 'Sports' });

@@ -4,6 +4,18 @@
 
 ## Creating templates and sets
 
+Set **Output layer** in **Template → Output & timing** for standalone graphic exports. Set
+**Package output layer** in **Template Set → Output & timing** for coordinated exports, then
+choose **Apply** or **OK**. The package value is independent of template settings and applies to
+all coordinated children; standalone exports retain each template's own layer.
+
+Both settings default to `0` and accept whole numbers from `-9007199254740991` through
+`9007199254740991`. Exports write the value as top-level `v_layer` in the `.ograf.json` manifest.
+In RealityHub, higher values appear on top and equal values share a replacement target within
+one output channel. These settings do not change Studio preview playback or the layers inside
+a template. Import OGraf reads the manifest's value even when editable source is embedded;
+missing values use `0`, and invalid values use `0` with a warning.
+
 **File → New…** opens the setup window for canvas size, frame rate and a blank template or
 recipe. To add a second template, open the Templates pane and choose **New template…** or
 **Add existing template…**. Studio creates a template set while retaining the first template's

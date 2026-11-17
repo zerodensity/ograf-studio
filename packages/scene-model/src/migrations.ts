@@ -38,6 +38,7 @@ import { normalizeChartAnimation } from './chartAnimation';
 import { parseChartData } from './chartData';
 import { validatePresenterDefinition } from './presenter';
 import { validateAuthoringPrompts } from './authoringPrompts';
+import { requireOutputLayer } from './outputLayer';
 import {
   initializeComponentInheritance,
   reconcileComponentInstances,
@@ -636,6 +637,7 @@ export function migrateProject(project: Project | LegacyProject): Project {
   return {
     ...cloned,
     documentVersion: PROJECT_DOCUMENT_VERSION,
+    outputLayer: requireOutputLayer(cloned.outputLayer === undefined ? 0 : cloned.outputLayer),
     supportsRealTime: cloned.supportsRealTime ?? true,
     supportsNonRealTime: cloned.supportsNonRealTime ?? true,
     shaders: (cloned.shaders ?? []).map((resource) =>
