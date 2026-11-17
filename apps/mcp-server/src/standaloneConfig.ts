@@ -13,7 +13,7 @@ export interface StandaloneServerOptions {
   playout?: { host: string; port: number };
 }
 
-export const OGRAF_STUDIO_STANDALONE_VERSION = '0.33.0';
+export const OGRAF_STUDIO_STANDALONE_VERSION = '0.34.0';
 export const OGRAF_STUDIO_REPOSITORY_URL = 'https://github.com/zerodensity/ograf-studio';
 const ZERO_DENSITY_OD_ASCII = [
   '   ##########      ##########',
