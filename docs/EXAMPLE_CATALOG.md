@@ -9,19 +9,27 @@ The project explorer (the window that starts a new project) lists three kinds of
 Built-in and online examples use the same folder layout and the same generated `catalog.json`.
 Studio reads one catalog file per source, so listing and searching need no further requests.
 
-## Manage an existing catalog
+## Publish the shared order and details
 
-1. Open **File → New… → Manage local catalog…** in a browser with local folder access and select
-   your checkout of [the examples repository](https://github.com/zerodensity/ograf-studio-examples).
-   Choose the root folder that contains `catalog.json` and the example folders.
-2. Drag an example to reorder it, or use its **Move up** and **Move down** buttons. Select a row
-   to edit its title, description, category, level, tags, author, link, visibility, or license and
-   credits. Unlisted examples remain accessible to maintainers in this view.
-3. Choose **Save changes**. Studio updates the local `example.json` files, `featured.json` when
-   the order changes, and the catalog. Review the changes and publish them through a GitHub pull
-   request. Metadata edits reuse the existing preview files.
+The default **Featured** order is set by maintainers of
+[the examples repository](https://github.com/zerodensity/ograf-studio-examples).
 
-Use the catalog generator when adding, removing, or replacing project or preview files.
+1. Edit `featured.json` and put example IDs in the order they should appear. Entries outside that
+   list follow in order of latest update. Add an example's ID first to promote it.
+2. Edit `<example-id>/example.json` for changes to the description, attribution, license, credits,
+   or listing status.
+3. From the Studio source checkout, run the catalog generator with the examples checkout path.
+
+   ```bash
+   npx tsx scripts/buildExampleCatalog.ts <examples-folder>
+   ```
+
+4. Commit the metadata and regenerated `catalog.json` in the examples repository and publish the
+   changes to `main`. Studio picks up the shared order and details on its next catalog refresh.
+   Metadata edits reuse the existing preview files.
+
+Readers can also sort by **Latest updated** or **Name**. An example carries a **New** mark for
+30 days after its `released` date.
 
 ## Add an example
 
@@ -38,6 +46,10 @@ Use the catalog generator when adding, removing, or replacing project or preview
      "level": "Advanced",
      "tags": ["Live data", "Steps", "Shader"],
      "author": "Zero Density",
+     "license": {
+       "name": "AGPL-3.0-only",
+       "url": "https://www.gnu.org/licenses/agpl-3.0.html"
+     },
      "page": "https://ografstudio.org/examples/weather"
    }
    ```
@@ -89,18 +101,9 @@ build the runtime once first: `npm run build --workspace @ograf-editor/ograf-run
 An unlisted example is not secret: anyone who browses a public repository can see its files.
 
 Use **License & Credits** in an example's details to see this information before downloading
-the project. Use an SPDX identifier or the full license name if known. Leave the field blank
-when the example has no declared license. The example license and third-party credits describe
-the example artwork and its included assets individually.
-
-## Order and promotion
-
-- `featured.json` in the examples folder is a list of example IDs. The explorer's default order,
-  **Featured**, shows these first in the order given, then the rest by latest update.
-- The explorer can also sort by **Latest updated** and by **Name**.
-- An example carries a **New** mark for 30 days after its `released` date.
-
-To promote a new template, put its ID first in `featured.json` and rebuild the catalog.
+the project. Zero Density's example work uses AGPL-3.0-only. List separately licensed assets and data
+under credits and preserve their original terms and notices. For other catalogs, use an SPDX
+identifier or the full license name when the project has a declared license.
 
 ## Preview
 

@@ -136,13 +136,14 @@ function matchesFilter(item: ExplorerItem, filter: ExplorerFilter): boolean {
   );
 }
 
-export function sortExamples<T extends CatalogExample>(
-  examples: readonly T[],
+function sortExamples(
+  examples: readonly ExampleItem[],
   featured: readonly string[],
   sort: ExplorerSort,
-): T[] {
-  const byName = (a: T, b: T) => a.title.localeCompare(b.title);
-  const byUpdated = (a: T, b: T) => b.updated.localeCompare(a.updated) || byName(a, b);
+): ExampleItem[] {
+  const byName = (a: ExampleItem, b: ExampleItem) => a.title.localeCompare(b.title);
+  const byUpdated = (a: ExampleItem, b: ExampleItem) =>
+    b.updated.localeCompare(a.updated) || byName(a, b);
   if (sort === 'name') return examples.toSorted(byName);
   if (sort === 'updated') return examples.toSorted(byUpdated);
   const rank = new Map(featured.map((id, index) => [id, index]));
