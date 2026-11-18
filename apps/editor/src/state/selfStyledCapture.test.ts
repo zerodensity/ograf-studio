@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { embedStyleUrls, keyframePropertyName } from './selfStyledCapture';
+import { canCaptureSelfStyled, embedStyleUrls, keyframePropertyName } from './selfStyledCapture';
+
+describe('canCaptureSelfStyled', () => {
+  it.each([
+    ['url("#layer-mask")', true],
+    ['url("data:image/svg+xml,clip"), url("#layer-mask")', false],
+  ])('checks support for the mounted layer mask %s', (maskImage, supported) => {
+    const layer = { dataset: { ografLayerMaskId: 'layer-mask' }, style: { maskImage } };
+    const root = {
+      querySelector: () => null,
+      querySelectorAll: (selector: string) => (selector === 'use' ? [] : [layer]),
+      getAnimations: () => [],
+    } as unknown as HTMLElement;
+
+    expect(canCaptureSelfStyled(root)).toBe(supported);
+  });
+});
 
 describe('embedStyleUrls', () => {
   it('embeds what a declaration block loads from elsewhere, once for each address', async () => {
