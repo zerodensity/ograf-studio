@@ -23,6 +23,7 @@
 }
 
 .menubar-project {
+  --menubar-project-name-width: 240px;
   justify-content: center;
   min-width: 0;
 }
@@ -48,7 +49,8 @@
 }
 
 .menubar-project-name {
-  max-width: 240px;
+  box-sizing: border-box;
+  max-width: var(--menubar-project-name-width);
   overflow: hidden;
   padding: 2px 4px;
   color: var(--text-dim);
@@ -69,7 +71,9 @@
 }
 
 .menubar-project-name-input {
-  width: min(220px, 100%);
+  /* Give the max-content grid track a definite width while editing. */
+  box-sizing: border-box;
+  width: var(--menubar-project-name-width);
   min-width: 0;
   height: 24px;
   padding: 2px 4px;
