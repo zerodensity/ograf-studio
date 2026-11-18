@@ -752,6 +752,7 @@ function addLayer(
       !isShaderPaint(elementPatch.strokePaint)
     )
       throw new Error('Text strokePaint must be a shader paint or omitted.');
+    normalizeElementTextDirectionPatch(layer, elementPatch);
     normalizeElementClockPatch(layer, elementPatch, true);
     if (layer.element.type === 'text' && elementPatch.textAnimation !== undefined) {
       if (
@@ -795,6 +796,18 @@ function addLayer(
   composition.layers.splice(index, 0, layer);
   syncShaderParameterFields(composition, layer);
   return layer.id;
+}
+
+function normalizeElementTextDirectionPatch(layer: Layer, patch: Record<string, unknown>): void {
+  if (layer.element.type !== 'text') return;
+  const direction = patch.direction === undefined ? patch.textDirection : patch.direction;
+  if (direction === undefined) return;
+  if (direction !== 'auto' && direction !== 'ltr' && direction !== 'rtl')
+    throw new Error('Text direction must be auto, ltr or rtl.');
+  patch.direction = direction;
+  delete patch.textDirection;
+  // Older clients could leave the unused alias on a saved text element.
+  Reflect.deleteProperty(layer.element, 'textDirection');
 }
 
 function normalizeElementClockPatch(
@@ -2902,6 +2915,7 @@ export function applyAuthoringOperations(
           assertPropertyApplicable(layer, 'strokeWidth', strokeWidth);
         }
         const elementPatch = { ...operation.patch };
+        normalizeElementTextDirectionPatch(layer, elementPatch);
         if (layer.element.type === 'chart' && elementPatch.animation != null) {
           const errors = chartAnimationErrors(elementPatch.animation);
           if (errors.length) throw new Error(errors.join('\n'));

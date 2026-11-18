@@ -321,10 +321,162 @@ describe('Arabic-script text entrance shaping', () => {
     const element = createTextElement({ content, language: 'ur' });
     element.textAnimation = { ...element.textAnimation, type: 'rise', split };
     mountTextAnimationContent(host, element);
-    expect(node.querySelector('[data-ograf-text-shaping-group]')).toBeNull();
     expect(
       node.querySelectorAll('[data-ograf-text-segment]').map((unit) => textContents(unit)),
     ).toEqual(expected);
+    expect(!!node.querySelector('[data-ograf-text-shaping-group]')).toBe(split === 'word');
+  });
+
+  it.each(['fade', 'rise', 'pop', ...newEffects] as const)(
+    'keeps the mixed Urdu paragraph in native layout for word-split %s',
+    (type) => {
+      const content = 'خبر ۲۰۲۶ — Studio 0.34 کا منظر';
+      const node = new TextNode();
+      const host = node as unknown as HTMLElement;
+      const element = createTextElement({ content, language: 'ur', direction: 'rtl' });
+      element.textAnimation = { ...element.textAnimation, type, split: 'word', durationFrames: 90 };
+      mountTextAnimationContent(host, element);
+      const words = node.querySelectorAll('[data-ograf-text-segment]');
+      expect(words.map((word) => textContents(word))).toEqual([
+        'خبر',
+        '۲۰۲۶',
+        '—',
+        'Studio',
+        '0.34',
+        'کا',
+        'منظر',
+      ]);
+      const flow = node.querySelector('[data-ograf-text-shaping-group]')!;
+      expect(flow.children.every((anchor) => anchor.style.position === 'relative')).toBe(true);
+      expect(words.every(({ style }) => style.position === 'absolute')).toBe(true);
+      expect(flow.children.map((anchor) => textContents(anchor.children[1]!))).toEqual(
+        words.map((word) => textContents(word)),
+      );
+      expect(
+        flow.children.every((anchor) => anchor.children[1]!.style.visibility === 'hidden'),
+      ).toBe(true);
+      renderTextAnimationAtFrame(host, element, 55);
+      const pose = words.map(({ style }) => ({ ...style }));
+      expect(pose.some(({ opacity }) => Number(opacity) > 0 && Number(opacity) < 1)).toBe(true);
+      if (type !== 'fade')
+        expect(pose.some(({ transform, filter }) => !!(transform || filter))).toBe(true);
+
+      renderTextAnimationAtFrame(host, element, 90);
+      const settled = node.querySelectorAll('[data-ograf-text-segment]');
+      expect(settled.map((word) => textContents(word))).toEqual([content]);
+      renderTextAnimationAtFrame(host, element, 55);
+      expect(node.querySelectorAll('[data-ograf-text-segment]')).toEqual(words);
+      expect(words.map(({ style }) => ({ ...style }))).toEqual(pose);
+    },
+  );
+});
+
+describe('bidirectional rolling text', () => {
+  it.each(['roll-up', 'roll-down'] as const)(
+    '%s keeps both Urdu sentences joined in motion and restores the authored run at rest',
+    (type) => {
+      const content = 'کل شہر میں دھوپ ہوگی\nشام کی خبر';
+      const previous = createTextElement({ content: 'کل شہر میں بارش ہوگی', direction: 'rtl' });
+      const element = createTextElement({ content, language: 'ur', direction: 'rtl' });
+      const node = new TextNode();
+      const host = node as unknown as HTMLElement;
+      element.textAnimation = { ...element.textAnimation, type, durationFrames: 90 };
+      mountTextAnimationContent(host, element, previous);
+      const sample = (frame: number) => {
+        renderTextAnimationAtFrame(host, element, frame);
+        return node.querySelectorAll('[data-ograf-text-roll-slot]');
+      };
+      const midpoint = sample(45);
+      expect(midpoint).toHaveLength(1);
+      const slot = midpoint[0]!;
+      expect(slot.style.display).toBe('block');
+      const outgoing = slot.querySelector('[data-ograf-text-roll-old]')!;
+      const incoming = slot.querySelector('[data-ograf-text-roll-new]')!;
+      expect(textContents(outgoing)).toBe(previous.content);
+      expect(textContents(incoming)).toBe(content);
+      const incomingTransform = incoming.style.transform;
+      expect(incomingTransform).toBe(
+        type === 'roll-up' ? 'translateY(12.5%)' : 'translateY(-12.5%)',
+      );
+      expect(sample(90).map((item) => textContents(item))).toEqual([content]);
+      expect(node.querySelector('[data-ograf-text-roll-new]')).toBeNull();
+      expect(sample(45)).toEqual(midpoint);
+      expect(incoming.style.transform).toBe(incomingTransform);
+    },
+  );
+
+  it.each(['125', '۱۲۵'])('rolls %s as left-to-right digit columns inside RTL text', (content) => {
+    const element = createTextElement({ content, language: 'ur', direction: 'rtl' });
+    const node = new TextNode();
+    const host = node as unknown as HTMLElement;
+    element.textAnimation = { ...element.textAnimation, type: 'roll-up', durationFrames: 90 };
+    mountTextAnimationContent(host, element);
+    renderTextAnimationAtFrame(host, element, 45);
+
+    const value = node.querySelector('[data-ograf-text-roll-value]')!;
+    const anchor = value.children[0]!.children[1]!;
+    const [columns, reference] = anchor.children;
+    expect(columns!.style.direction).toBe('ltr');
+    expect(columns!.style.unicodeBidi).toBe('isolate');
+    expect(reference!.style.visibility).toBe('hidden');
+    expect(textContents(reference!)).toBe(content);
+    expect(
+      columns!.querySelectorAll('[data-ograf-text-roll-new]').map((item) => textContents(item)),
+    ).toEqual([...content]);
+    renderTextAnimationAtFrame(host, element, 90);
+    expect(textContents(value)).toBe(content);
+    expect(node.querySelector('[data-ograf-text-roll-new]')).toBeNull();
+    renderTextAnimationAtFrame(host, element, 45);
+    expect(value.children[0]!.children[1]).toBe(anchor);
+  });
+
+  it('keeps the unchanged Urdu label joined while native count digits roll', () => {
+    const content = 'درجہ ۱۲۵ روپے';
+    const element = createTextElement({ content, language: 'ur', direction: 'rtl' });
+    const node = new TextNode();
+    const host = node as unknown as HTMLElement;
+    element.textAnimation = {
+      ...element.textAnimation,
+      type: 'count-up',
+      countRoll: 'up',
+      durationFrames: 90,
+    };
+    mountTextAnimationContent(host, element);
+    renderTextAnimationAtFrame(host, element, 45);
+    const value = node.querySelector('[data-ograf-text-roll-value]')!;
+    const [prefix, anchor, suffix] = value.children[0]!.children;
+    expect(textContents(prefix!)).toBe('درجہ ');
+    expect(textContents(suffix!)).toBe(' روپے');
+    const digits = anchor!
+      .querySelectorAll('[data-ograf-text-roll-new]')
+      .map((item) => textContents(item))
+      .join('');
+    expect(digits).toMatch(/^[۰-۹]+$/u);
+    expect(digits).not.toBe('۱۲۵');
+    renderTextAnimationAtFrame(host, element, 90);
+    expect(textContents(value)).toBe(content);
+  });
+
+  it('keeps a signed decimal bidi anchor in the phrase while its digits roll', () => {
+    const content = 'خبر Studio −۱۲۵٫۵ آج';
+    const element = createTextElement({ content, language: 'ur', direction: 'rtl' });
+    const previous = createTextElement({ content: 'خبر Studio −۱۲۴٫۵ آج', direction: 'rtl' });
+    const node = new TextNode();
+    const host = node as unknown as HTMLElement;
+    element.textAnimation = { ...element.textAnimation, type: 'roll-down', durationFrames: 90 };
+    mountTextAnimationContent(host, element, previous);
+    renderTextAnimationAtFrame(host, element, 45);
+
+    const value = node.querySelector('[data-ograf-text-roll-value]')!;
+    const [prefix, anchor, suffix] = value.children[0]!.children;
+    expect(textContents(prefix!)).toBe('خبر Studio −');
+    expect(textContents(anchor!.children[1]!)).toBe('۱۲۵٫۵');
+    expect(textContents(suffix!)).toBe(' آج');
+    expect(
+      anchor!.querySelectorAll('[data-ograf-text-roll-new]').map((item) => textContents(item)),
+    ).toEqual([...'۱۲۵٫۵']);
+    renderTextAnimationAtFrame(host, element, 90);
+    expect(textContents(value)).toBe(content);
   });
 });
 

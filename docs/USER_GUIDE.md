@@ -1716,11 +1716,14 @@ bar or block cursor. Fade in changes each segment's opacity; Rise in moves it up
 Pop in grows it with a small overshoot; Word reveal slides each word upward through its own mask.
 Flip turns each segment around its horizontal axis; Blur in sharpens it while fading in; Rotate in
 turns it from a quarter rotation; Stretch in expands it horizontally. These reveals can split by
-Unicode-safe Characters or Words. Word reveal always splits by words.
+Unicode-safe Characters or Words. Word reveal always splits by words. Word animation keeps the
+paragraph's reading order for mixed right-to-left and left-to-right text.
 
 **Count up** and **Count down** animate a single number and finish at the value written in the text.
 Set **From** to choose the starting value, or leave it empty for an automatic start. Currency or
 other surrounding text, decimal precision, thousands separators and leading zeros are retained.
+Use a single decimal digit set in a value. The count keeps the source digits, including Arabic,
+Persian, Devanagari and full-width forms.
 Text containing multiple numbers, such as `12:34`, stays unchanged; use a single-number clock format
 when applying these effects to a clock/timer. Counting uses the same Duration and Replay controls.
 Choose **Digit motion → Roll up / Roll down** to combine counting with rolling digits.
@@ -1728,6 +1731,7 @@ Choose **Digit motion → Roll up / Roll down** to combine counting with rolling
 **Roll up** and **Roll down** move the previous and new characters through a clipped vertical window.
 Enable **Replay on update** (or **Replay on time change** for clocks) to roll changed digits while
 unchanged characters stay still. These effects work with complete clock formats such as `hh:mm:ss`.
+In right-to-left text, rolling keeps joined words shaped and digits in their reading order.
 
 Set a fixed frame duration for any preset. For Typewriter, **Typing speed** converts the current
 sample text into a fixed duration. Timeline scrubbing and non-real-time OGraf seeking sample these

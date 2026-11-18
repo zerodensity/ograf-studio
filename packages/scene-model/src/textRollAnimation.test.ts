@@ -125,6 +125,7 @@ describe('rolling text animation model', () => {
     ['−001.20', '', '−001.35', '−001.34', 0],
     ['0008', '', '0007', '0008', 0],
     ['.50', '', '.37', '.38', 0.5],
+    ['+۱٬۲۳۴٫۵۰٪', 'fa', '+۱٬۰۸۰٫۱۸٪', '+۱٬۰۸۰٫۱۹٪', 0.75],
   ])('preserves the parser formatting for %s', (source, language, from, to, progress) => {
     expect(sampleTextCountRoll(source, countAnimation(), 10, language)).toEqual({
       from,

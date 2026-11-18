@@ -115,6 +115,82 @@ describe('OGraf MCP authoring host', () => {
     });
   });
 
+  it('stores ordinary text direction through MCP and preserves ticker travel direction', async () => {
+    const sessionId = 'mcp-text-direction';
+    const project = createProject({
+      authoringPrompts: [{ id: 'test-original-prompt', text: testPrompt }],
+    });
+    const legacy = createLayerOfKind('text');
+    legacy.name = 'Old headline';
+    Object.assign(legacy.element, { textDirection: 'rtl' });
+    project.compositions[0]!.layers.push(legacy);
+    const session = host.workspace.create(sessionId, project);
+    const apply = (expectedRevision: number, operations: Array<Record<string, unknown>>) =>
+      client.callTool({
+        name: 'ograf_apply_operations',
+        arguments: { sessionId, expectedRevision, operations },
+      });
+    const element = (name: string) =>
+      session.snapshot().project.compositions[0]!.layers.find((layer) => layer.name === name)!
+        .element;
+
+    const created = await apply(0, [
+      {
+        type: 'add_layer',
+        kind: 'text',
+        name: 'Canonical headline',
+        element: { content: 'پاکستان ABC 123', language: 'ur', direction: 'rtl' },
+      },
+      {
+        type: 'add_layer',
+        kind: 'text',
+        name: 'Alias headline',
+        element: { textDirection: 'rtl' },
+      },
+      {
+        type: 'add_layer',
+        kind: 'ticker',
+        name: 'Market crawl',
+        element: { direction: 'right', textDirection: 'rtl' },
+      },
+    ]);
+    expect(created.isError, JSON.stringify(created.content)).not.toBe(true);
+    expect(element('Canonical headline')).toMatchObject({ direction: 'rtl', language: 'ur' });
+    expect(element('Alias headline')).toMatchObject({ direction: 'rtl' });
+    expect(element('Alias headline')).not.toHaveProperty('textDirection');
+    expect(element('Market crawl')).toMatchObject({ direction: 'right', textDirection: 'rtl' });
+
+    const updated = await apply(1, [
+      { type: 'update_element', layerName: 'Canonical headline', patch: { textDirection: 'ltr' } },
+      {
+        type: 'update_element',
+        layerName: 'Alias headline',
+        patch: { direction: 'auto', textDirection: 'rtl' },
+      },
+      { type: 'update_element', layerName: 'Old headline', patch: { direction: 'rtl' } },
+      { type: 'update_element', layerName: 'Market crawl', patch: { direction: 'left' } },
+    ]);
+    expect(updated.isError, JSON.stringify(updated.content)).not.toBe(true);
+    expect(element('Canonical headline')).toMatchObject({ direction: 'ltr' });
+    expect(element('Alias headline')).toMatchObject({ direction: 'auto' });
+    expect(element('Old headline')).toMatchObject({ direction: 'rtl' });
+    expect(element('Old headline')).not.toHaveProperty('textDirection');
+    expect(element('Market crawl')).toMatchObject({ direction: 'left', textDirection: 'rtl' });
+
+    const before = session.snapshot();
+    for (const [layerName, direction, message] of [
+      ['Canonical headline', 'left', 'Text direction must be auto, ltr or rtl.'],
+      ['Market crawl', 'rtl', 'Ticker direction must be left or right.'],
+    ]) {
+      const rejected = await apply(2, [
+        { type: 'update_element', layerName, patch: { direction } },
+      ]);
+      expect(rejected.isError).toBe(true);
+      expect(JSON.stringify(rejected.content)).toContain(message);
+      expect(session.snapshot()).toEqual(before);
+    }
+  });
+
   it('authors seeded text animators and experimental motion blur through existing operations', async () => {
     const sessionId = 'mcp-text-animators';
     const session = createPromptedFixture(sessionId);
