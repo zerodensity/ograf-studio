@@ -6,6 +6,7 @@ import {
   withProjectFonts,
 } from './projectFonts';
 import { captureMaskedCanvas } from './maskedCapture';
+import { canCaptureSelfStyled, selfStyledCapture } from './selfStyledCapture';
 import { awaitExportOperation } from './exportAbort';
 import {
   assertStudioRendererPluginsAllowed,
@@ -416,6 +417,10 @@ async function captureFontCss(
     .join('\n');
 }
 
+/** Content the plain capture cannot draw: it takes the masked capture, which fetches no fragment. */
+const MASKED_CONTENT =
+  '[data-ograf-layer-mask-id], [data-ograf-pattern], [data-ograf-effect-filter]';
+
 /** A capture layer that is hidden or fully see-through paints nothing in this frame. */
 function captureLayerPaints(node: HTMLElement): boolean {
   if (node.dataset?.agentCaptureLayer !== 'true') return true;
@@ -430,12 +435,10 @@ async function rasterizeCanvas(
   style: Partial<CSSStyleDeclaration> | undefined,
   fontEmbedCSS: string,
   signal?: AbortSignal,
-  /** Leave out layers that paint nothing. Copying a layer's styles is most of a capture's time. */
+  /** Leave out layers that paint nothing. Copying a layer's styles is most of this capture's time. */
   skipUnseenLayers = false,
 ): Promise<HTMLCanvasElement> {
-  const masked = root.querySelector(
-    '[data-ograf-layer-mask-id], [data-ograf-pattern], [data-ograf-effect-filter]',
-  );
+  const masked = root.querySelector(MASKED_CONTENT);
   const render = masked ? captureMaskedCanvas : toCanvas;
   signal?.throwIfAborted();
   const canvas = await awaitExportOperation(
@@ -1010,7 +1013,9 @@ export interface MountedCompositionFrames {
 
 /**
  * Mounts a composition for an export that renders its whole timeline. Building the tree, loading
- * its images and embedding its fonts happen once; each frame only re-samples and rasterizes.
+ * its images and embedding its fonts happen once; each frame only re-samples and rasterizes. A
+ * frame is drawn from the tree's own markup where that is enough, several times faster than
+ * through html-to-image, which the rest still takes: masks, patterns, effect filters, video.
  */
 export async function mountCompositionFrames(
   composition: Composition,
@@ -1054,6 +1059,18 @@ export async function mountCompositionFrames(
       root = await mount();
       fontEmbedCSS = await captureFontCss(root, composition.assets, signal);
     }
+    const drawSelfStyled = selfStyledCapture(root, {
+      width: output.width,
+      height: output.height,
+      canvasWidth: output.width,
+      canvasHeight: output.height,
+      style: { zIndex: 'auto' },
+      fontEmbedCSS,
+      filter: captureLayerPaints,
+    });
+    // html-to-image draws text a little smaller than the page does, so a movie that has needed it
+    // for one frame stays with it.
+    let selfStyled = true;
     return {
       width: output.width,
       height: output.height,
@@ -1061,7 +1078,8 @@ export async function mountCompositionFrames(
         signal?.throwIfAborted();
         captureFrameRenders.get(root)?.(frame, hold);
         await awaitExportOperation(waitForElementContentReady(root), signal);
-        return draw();
+        selfStyled &&= !root.querySelector(MASKED_CONTENT) && canCaptureSelfStyled(root);
+        return selfStyled ? drawSelfStyled(signal) : draw();
       },
       dispose() {
         unmount();

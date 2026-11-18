@@ -495,10 +495,11 @@ it has none. A full-frame layer stays in the movie either way.
 Sound on the timeline is included: audio layers, and sound cues that start at a frame or on arrival
 at a Step. Video and live media, and sounds started by an operator or a custom action, are left
 out. Studio makes the movie in the browser, with VP9 picture and Opus sound. It is not a certified
-OGraf package, and it needs a current Chrome or Edge. Rendering takes time, about a fifth of a
-second for each frame of a busy template, so the dialog counts the frames and **Cancel** stops it.
-Keep the Studio tab in front while it renders. A template set is not exported as one movie: open a
-template and export that.
+OGraf package, and it needs a current Chrome or Edge. Rendering takes time, so the dialog counts
+the frames and **Cancel** stops it. A busy Full HD template renders about 25 frames a second; one
+that uses masks, patterns, effect filters or video is drawn another way and takes several times
+longer. Keep the Studio tab in front while it renders. A template set is not exported as one movie:
+open a template and export that.
 
 In **File → Export…**, choose **Standalone HTML** to export one browser-ready `.html` file.
 The default choices are **Template set** and **Both files**. Change them in **File → Preferences →
