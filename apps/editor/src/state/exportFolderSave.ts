@@ -3,7 +3,8 @@ import type { ExportFile } from './offlinePreviewPackage';
 
 const INVALID_NAME_CHARACTERS = /[<>:"/\\|?*]/g;
 const RESERVED_WINDOWS_NAME = /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
-const EXPORT_EXTENSIONS = ['.ograf-set.zip', '.ograf.zip', '.html'] as const;
+const EXPORT_EXTENSIONS = ['.ograf-set.zip', '.ograf.zip', '.html', '.webm'] as const;
+const FORMAT_EXTENSION = { zip: '.ograf.zip', html: '.html', webm: '.webm' } as const;
 
 function exportNameParts(file: Pick<ExportFile, 'format' | 'fileName'>): {
   base: string;
@@ -11,7 +12,7 @@ function exportNameParts(file: Pick<ExportFile, 'format' | 'fileName'>): {
 } {
   const extension =
     EXPORT_EXTENSIONS.find((value) => file.fileName.toLowerCase().endsWith(value)) ??
-    (file.format === 'html' ? '.html' : '.ograf.zip');
+    FORMAT_EXTENSION[file.format];
   const stem = file.fileName.toLowerCase().endsWith(extension)
     ? file.fileName.slice(0, -extension.length)
     : file.fileName;

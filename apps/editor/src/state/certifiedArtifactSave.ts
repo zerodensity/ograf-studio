@@ -142,12 +142,14 @@ export async function chooseCertifiedArtifactWriter(
           options.fileTypes ??
           (options.format === 'html'
             ? HTML_FILE_TYPES
-            : [
-                {
-                  description: 'OGraf package',
-                  accept: { 'application/zip': ['.ograf.zip'] },
-                },
-              ]),
+            : options.format === 'webm'
+              ? [{ description: 'WebM video', accept: { 'video/webm': ['.webm'] } }]
+              : [
+                  {
+                    description: 'OGraf package',
+                    accept: { 'application/zip': ['.ograf.zip'] },
+                  },
+                ]),
       });
     } catch (error) {
       throw exportFailure(error, 'picker');

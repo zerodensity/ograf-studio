@@ -49,12 +49,28 @@ type ExportActivity = 'choosing' | 'preparing' | 'cancelling' | 'saving';
 type ExportCompletion =
   { delivery: 'saved'; names: string[] } | { delivery: 'download'; files: ExportFile[] };
 
+/** WebM is a movie of one template's timeline, not an OGraf package. */
+type DialogFormat = ExportFileFormat | 'webm';
+const DEFAULT_WEBM_HOLD_SECONDS = 3;
+
 const preparationMessages: Record<string, string> = {
   compilation: 'Building the graphic…',
   thumbnail: 'Rendering the export thumbnail…',
   certification: 'Checking OGraf compatibility…',
   packaging: 'Assembling the export files…',
 };
+
+/** What a WebM cannot show or play: moving or live media, and sounds started by hand. */
+function compositionHasMediaOutsideWebm(composition: Composition): boolean {
+  return (
+    composition.layers.some(({ element }) => hasElementMediaPaint(element)) ||
+    composition.mediaCues.some(
+      (cue) =>
+        (cue.trigger.type !== 'timeline' && cue.trigger.type !== 'lifecycle') ||
+        cue.sources.some((source) => source.kind !== 'clip' || source.mediaType !== 'audio'),
+    )
+  );
+}
 
 function compositionUsesMedia(composition: Composition): boolean {
   return (
@@ -96,7 +112,9 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
     normalizeStudioExportDefaults(useWorkspaceStore.getState().editorPreferences.exportDefaults),
   );
   const [scope, setScope] = useState(defaults.scope);
-  const [requestedFormat, setFormat] = useState<ExportFileFormat>(defaults.format);
+  const [requestedFormat, setFormat] = useState<DialogFormat>(defaults.format);
+  const [webmTransparent, setWebmTransparent] = useState(true);
+  const [webmHoldSeconds, setWebmHoldSeconds] = useState(DEFAULT_WEBM_HOLD_SECONDS);
   const [setProfile, setSetProfile] = useState<ExportProfileMode | 'authored'>('authored');
   const [templateProfile, setTemplateProfile] = useState<{
     project: string;
@@ -110,6 +128,8 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
   const [nleExport, setNleExport] = useState(false);
   const [activity, setActivity] = useState<ExportActivity | null>(null);
   const [progress, setProgress] = useState('');
+  /** How far a WebM's frames have got, from 0 to 1; null while the amount of work is unknown. */
+  const [progressFraction, setProgressFraction] = useState<number | null>(null);
   const [error, setError] = useState<{ message: string; canUseRealTime: boolean } | null>(null);
   const [completion, setCompletion] = useState<ExportCompletion | null>(null);
   const operation = useRef<AbortController | null>(null);
@@ -123,7 +143,10 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
   const hasCurrentTemplate = !projectSet || activeMember?.project.id === project.id;
   const set = scope === 'set' || !hasCurrentTemplate ? projectSet : null;
   const independent = Boolean(set && !set.transitionLogic);
-  const format = independent ? 'zip' : requestedFormat;
+  const format: DialogFormat =
+    independent || (set && requestedFormat === 'webm') ? 'zip' : requestedFormat;
+  const webm = format === 'webm';
+  const packageFormat: ExportFileFormat = format === 'webm' ? 'zip' : format;
   const usesMedia = set
     ? set.templates.some((member) =>
         (member === activeMember && hasCurrentTemplate
@@ -153,28 +176,35 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
     thumbnail?.projectId === project.id && thumbnail.compositionId === composition.id
       ? thumbnail.frame
       : (project.thumbnailFrame ?? null);
-  const expectedFiles = [
-    ...(format === 'html'
-      ? []
-      : [
-          getUnnumberedExportFileName({
-            format: 'zip',
-            fileName: set
-              ? getProjectSetExportZipName(set, profile)
-              : `${project.name || 'untitled'}${suffix}.ograf.zip`,
-          }),
-        ]),
-    ...(format === 'zip'
-      ? []
-      : [
-          getUnnumberedExportFileName({
-            format: 'html',
-            fileName: getOfflinePreviewFileName({
-              manifest: { name: `${set?.name ?? project.name}${suffix}` },
-            }),
-          }),
-        ]),
-  ];
+  const expectedFiles = webm
+    ? [
+        getUnnumberedExportFileName({
+          format: 'webm',
+          fileName: `${project.name || 'untitled'}.webm`,
+        }),
+      ]
+    : [
+        ...(format === 'html'
+          ? []
+          : [
+              getUnnumberedExportFileName({
+                format: 'zip',
+                fileName: set
+                  ? getProjectSetExportZipName(set, profile)
+                  : `${project.name || 'untitled'}${suffix}.ograf.zip`,
+              }),
+            ]),
+        ...(format === 'zip'
+          ? []
+          : [
+              getUnnumberedExportFileName({
+                format: 'html',
+                fileName: getOfflinePreviewFileName({
+                  manifest: { name: `${set?.name ?? project.name}${suffix}` },
+                }),
+              }),
+            ]),
+      ];
   const referencedTemplates = set?.transitionLogic
     ? new Set(set.transitionLogic.states.map(({ templateId }) => templateId))
     : null;
@@ -227,6 +257,7 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
     const { signal } = controller;
     operation.current = controller;
     setError(null);
+    setProgressFraction(null);
     try {
       let folder: FileSystemDirectoryHandle | undefined;
       if (!downloadOnly && owner.showDirectoryPicker) {
@@ -240,7 +271,7 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
       }
       signal.throwIfAborted();
       setActivity('preparing');
-      setProgress('Preparing and certifying the export…');
+      setProgress(webm ? 'Preparing the frames…' : 'Preparing and certifying the export…');
       await allowExportDialogPaint(owner, signal);
       signal.throwIfAborted();
       let files;
@@ -260,7 +291,7 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
           snapshotProjectSetForExport(set, project),
           profile,
           {
-            format,
+            format: packageFormat,
             signal,
             onProgress: (stage) => {
               if (!signal.aborted)
@@ -268,12 +299,32 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
             },
           },
         );
+      } else if (webm) {
+        const { prepareWebmExportFile } = await import('../state/videoExport');
+        files = [
+          await prepareWebmExportFile(project, composition, {
+            transparent: webmTransparent,
+            holdSeconds: webmHoldSeconds,
+            signal,
+            onProgress: (step) => {
+              if (signal.aborted) return;
+              setProgressFraction(step.stage === 'picture' ? step.frame / step.frames : null);
+              setProgress(
+                step.stage === 'picture'
+                  ? `Rendering frame ${step.frame} of ${step.frames}…`
+                  : step.stage === 'sound'
+                    ? 'Mixing the sound…'
+                    : 'Writing the WebM file…',
+              );
+            },
+          }),
+        ];
       } else {
         files = await prepareProjectExportFiles(
           { ...project, mainCompositionId: composition.id, thumbnailFrame: frame },
           composition,
           profile,
-          { format, signal },
+          { format: packageFormat, signal },
         );
       }
       signal.throwIfAborted();
@@ -290,6 +341,7 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
       const current = useProjectStore.getState();
       if (
         !set &&
+        !webm &&
         current.project.id === project.id &&
         current.activeCompositionId === composition.id &&
         current.project.thumbnailFrame === project.thumbnailFrame &&
@@ -355,15 +407,15 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
         <div className="workspace-dialog-content studio-export-content">
           <fieldset hidden={completion !== null} disabled={activity !== null}>
             <div className="studio-export-preview">
-              <p>Thumbnail</p>
+              <p>{webm ? 'Preview' : 'Thumbnail'}</p>
               {!activity && !completion && previewComposition && (!set || previewMember) && (
                 <ExportThumbnail
                   project={previewProject}
                   composition={previewComposition}
                   frame={set ? (previewProject.thumbnailFrame ?? null) : frame}
-                  nleExport={nleExport}
+                  nleExport={webm ? webmTransparent : nleExport}
                   onFrame={
-                    set
+                    set || webm
                       ? undefined
                       : (next) =>
                           setThumbnail({
@@ -406,7 +458,7 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
                   ref={formatRef}
                   value={format}
                   onChange={(event) => {
-                    setFormat(event.target.value as ExportFileFormat);
+                    setFormat(event.target.value as DialogFormat);
                     setError(null);
                   }}
                 >
@@ -417,9 +469,49 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
                   <option value="both" disabled={independent}>
                     Both files
                   </option>
+                  <option value="webm" disabled={Boolean(set)}>
+                    WebM video
+                  </option>
                 </select>
               </label>
-              <label>
+              {webm && (
+                <>
+                  <label className="studio-export-option">
+                    <input
+                      type="checkbox"
+                      checked={webmTransparent}
+                      onChange={(event) => setWebmTransparent(event.currentTarget.checked)}
+                    />
+                    Transparent background
+                  </label>
+                  <label>
+                    Hold on each step (seconds)
+                    <input
+                      type="number"
+                      min={0}
+                      max={600}
+                      step={0.5}
+                      value={webmHoldSeconds}
+                      onChange={(event) => {
+                        const next = event.currentTarget.valueAsNumber;
+                        if (Number.isFinite(next) && next >= 0 && next <= 600)
+                          setWebmHoldSeconds(next);
+                      }}
+                    />
+                  </label>
+                  <p>
+                    The movie plays the timeline from start to end and waits on each step. Sound on
+                    the timeline is included.
+                  </p>
+                  {compositionHasMediaOutsideWebm(composition) && (
+                    <p>
+                      Video and live media, and sounds started by an operator or a custom action,
+                      are left out of a WebM.
+                    </p>
+                  )}
+                </>
+              )}
+              <label hidden={webm}>
                 Playout mode
                 <select
                   value={mode}
@@ -444,7 +536,7 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
                   ))}
                 </select>
               </label>
-              <label className="studio-export-option">
+              <label className="studio-export-option" hidden={webm}>
                 <input
                   type="checkbox"
                   checked={nleExport}
@@ -455,7 +547,7 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
                 />
                 NLE Export (for DaVinci Resolve etc.)
               </label>
-              {nleExport && (
+              {nleExport && !webm && (
                 <p>
                   Uses non-real-time playback and clears the composition background in the export.
                 </p>
@@ -473,14 +565,14 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
                   </ul>
                 </div>
               )}
-              {usesMedia && (
+              {usesMedia && !webm && (
                 <p>
                   {nleExport
                     ? 'Remove media and audio layers or media cues before exporting for an NLE.'
                     : 'Media and audio require real-time playout.'}
                 </p>
               )}
-              {!nleExport && hasExternalFeed && project.supportsRealTime && !usesMedia && (
+              {!webm && !nleExport && hasExternalFeed && project.supportsRealTime && !usesMedia && (
                 <p>
                   Real-time playout is recommended for live data. Dual mode also certifies offline
                   rendering.
@@ -520,7 +612,11 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
                         );
                       }}
                     >
-                      {file.format === 'zip' ? 'Download ZIP' : 'Download HTML'}
+                      {file.format === 'zip'
+                        ? 'Download ZIP'
+                        : file.format === 'webm'
+                          ? 'Download WebM'
+                          : 'Download HTML'}
                     </button>
                   </li>
                 ))}
@@ -529,7 +625,12 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
           )}
           {activity && activity !== 'choosing' && (
             <div className="studio-export-progress">
-              <progress aria-label="Export preparation" />
+              <progress
+                aria-label="Export preparation"
+                {...(activity === 'preparing' && progressFraction !== null
+                  ? { value: progressFraction, max: 1 }
+                  : {})}
+              />
               <p role="status">
                 {activity === 'cancelling'
                   ? 'Cancelling export…'
