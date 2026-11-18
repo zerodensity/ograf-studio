@@ -535,754 +535,770 @@ export function Menubar({
           }}
         />
       ) : null}
-      <span className="menubar-brand" aria-label="OGraf Studio">
-        <OgrafLogo />
-        Studio
-      </span>
-      {editingName ? (
-        <input
-          ref={nameInputRef}
-          className="menubar-project-name-input"
-          aria-label="Template name"
-          value={nameDraft}
-          onChange={(event) => setNameDraft(event.currentTarget.value)}
-          onBlur={commitProjectName}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === 'Enter' || event.key === 'Escape') {
-              event.preventDefault();
-              cancelNameEditRef.current = event.key === 'Escape';
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      ) : (
-        <button
-          type="button"
-          className="menubar-project-name"
-          disabled={!!projectSet && !activeTemplateId}
-          aria-label={`Rename template: ${projectName}`}
-          title="Rename template"
-          onClick={() => {
-            setNameDraft(projectName);
-            setEditingName(true);
-          }}
-        >
-          {projectName}
-        </button>
-      )}
-      <nav className="menubar-actions">
-        <div className="menubar-window-control" ref={fileMenuRef}>
-          <button
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={fileMenuOpen}
-            onClick={() => {
-              setFileMenuOpen((open) => !open);
-              setEditMenuOpen(false);
-              setWindowMenuOpen(false);
-              setHelpMenuOpen(false);
-            }}
-          >
-            File
-          </button>
-          {fileMenuOpen ? (
-            <div
-              className="menubar-window-menu menubar-file-menu"
-              role="menu"
-              aria-label="File"
-              onPointerOver={(event) => {
-                if (!(event.target as Element).closest?.('.menubar-recent-control'))
-                  setRecentMenuOpen(false);
+      <div className="menubar-controls">
+        <span className="menubar-brand" aria-label="OGraf Studio">
+          <OgrafLogo />
+          Studio
+        </span>
+        <nav className="menubar-actions">
+          <div className="menubar-window-control" ref={fileMenuRef}>
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={fileMenuOpen}
+              onClick={() => {
+                setFileMenuOpen((open) => !open);
+                setEditMenuOpen(false);
+                setWindowMenuOpen(false);
+                setHelpMenuOpen(false);
               }}
             >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  closeMenus();
-                  handleNew();
-                }}
-              >
-                <span aria-hidden="true" />
-                New…
-              </button>
-              <div className="menubar-menu-separator" role="separator" />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  closeMenus();
-                  void handleOpen();
-                }}
-              >
-                <span aria-hidden="true" />
-                Open…
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  closeMenus();
-                  setRemoteDialogOpen(true);
-                }}
-              >
-                <span aria-hidden="true" />
-                Open from URL…
-              </button>
+              File
+            </button>
+            {fileMenuOpen ? (
               <div
-                className="menubar-recent-control"
-                onPointerEnter={() => setRecentMenuOpen(true)}
-              >
-                <button
-                  ref={recentTriggerRef}
-                  type="button"
-                  role="menuitem"
-                  aria-haspopup="menu"
-                  aria-expanded={recentMenuOpen}
-                  aria-controls="menubar-recent-menu"
-                  onClick={() => {
-                    recentFocusRequested.current = true;
-                    setRecentMenuOpen(true);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'ArrowRight') return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    recentFocusRequested.current = true;
-                    setRecentMenuOpen(true);
-                  }}
-                >
-                  <span aria-hidden="true" />
-                  Open Recent<b aria-hidden="true">›</b>
-                </button>
-                {recentMenuOpen && (
-                  <div
-                    id="menubar-recent-menu"
-                    ref={recentMenuRef}
-                    className="menubar-recent-menu"
-                    style={recentMenuPosition}
-                    role="menu"
-                    aria-label="Open Recent"
-                    onKeyDown={(event) => {
-                      if (event.key === 'ArrowLeft' || event.key === 'Escape') {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setRecentMenuOpen(false);
-                        recentTriggerRef.current?.focus();
-                      } else if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        const items = [
-                          ...(recentMenuRef.current?.querySelectorAll<HTMLButtonElement>(
-                            'button:not(:disabled)',
-                          ) ?? []),
-                        ];
-                        const current = items.indexOf(
-                          ownerWindow.document.activeElement as HTMLButtonElement,
-                        );
-                        if (!items.length) return;
-                        const index =
-                          event.key === 'Home'
-                            ? 0
-                            : event.key === 'End'
-                              ? items.length - 1
-                              : (current + (event.key === 'ArrowDown' ? 1 : items.length - 1)) %
-                                items.length;
-                        items[index]?.focus();
-                      }
-                    }}
-                  >
-                    {recentLoading ? (
-                      <p role="status">Loading recent documents…</p>
-                    ) : recentDocuments.length ? (
-                      recentDocuments.map((item, index) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          role="menuitem"
-                          title={`${item.name} · ${item.url ? 'URL' : 'Local file'} · ${new Date(item.openedAt).toLocaleString()}`}
-                          onClick={() => void handleOpenRecent(item)}
-                        >
-                          <span aria-hidden="true">{index + 1}</span>
-                          <span className="menubar-recent-name">{item.name}</span>
-                          <small>{item.url ? 'URL' : ''}</small>
-                        </button>
-                      ))
-                    ) : (
-                      <p role="status">
-                        {recentUnavailable
-                          ? 'Recent document storage is unavailable in this browser.'
-                          : 'No recent documents.'}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  closeMenus();
-                  void handleImportOgraf();
+                className="menubar-window-menu menubar-file-menu"
+                role="menu"
+                aria-label="File"
+                onPointerOver={(event) => {
+                  if (!(event.target as Element).closest?.('.menubar-recent-control'))
+                    setRecentMenuOpen(false);
                 }}
-                title="Best-effort conversion from an OGraf .zip package or *.ograf.json manifest."
               >
-                <span aria-hidden="true" />
-                Import OGraf
-              </button>
-              {projectSet ? (
                 <button
                   type="button"
                   role="menuitem"
                   onClick={() => {
                     closeMenus();
-                    void handleAddTemplate();
+                    handleNew();
                   }}
                 >
                   <span aria-hidden="true" />
-                  Add .ogs Template…
+                  New…
                 </button>
-              ) : null}
-              <div className="menubar-menu-separator" role="separator" />
-              <button
-                type="button"
-                role="menuitem"
-                disabled={savingDocument}
-                onClick={() => {
-                  closeMenus();
-                  void handleSave('save');
-                }}
-                title="Save the current document. Choose a destination on the first save."
-              >
-                <span aria-hidden="true" />
-                Save
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={savingDocument}
-                onClick={() => {
-                  closeMenus();
-                  void handleSave('save-as');
-                }}
-                title="Choose a new filename and location for the current document."
-              >
-                <span aria-hidden="true" />
-                Save As…
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={savingDocument || (!!projectSet && !activeTemplateId)}
-                onClick={() => {
-                  closeMenus();
-                  setSaveDialogOpen(true);
-                }}
-                title="Save the active template as a separate .ogs file, with optional thumbnail."
-              >
-                <span aria-hidden="true" />
-                Save Template Copy…
-              </button>
-              <div className="menubar-menu-separator" role="separator" />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={(event) => {
-                  const focusTarget =
-                    fileMenuRef.current?.querySelector<HTMLButtonElement>(
-                      'button[aria-haspopup="menu"]',
-                    ) ?? event.currentTarget;
-                  closeMenus();
-                  requestStudioExport(focusTarget);
-                }}
-                title="Open the export options for the current template or template set."
-              >
-                <span aria-hidden="true" />
-                Export…
-              </button>
-              <div className="menubar-menu-separator" role="separator" />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  closeMenus();
-                  useTemplateSetSettingsStore.getState().show('studio');
-                }}
-              >
-                <span aria-hidden="true" />
-                Preferences
-              </button>
-            </div>
-          ) : null}
-        </div>
-        <div className="menubar-edit-control" ref={editMenuRef}>
-          <button
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={editMenuOpen}
-            onClick={() => {
-              setEditMenuOpen((open) => !open);
-              setFileMenuOpen(false);
-              setWindowMenuOpen(false);
-              setHelpMenuOpen(false);
-            }}
-          >
-            Edit
-          </button>
-          {editMenuOpen ? (
-            <div className="menubar-edit-menu" role="menu" aria-label="Edit and history">
-              <button
-                type="button"
-                role="menuitem"
-                disabled={!history.canUndo}
-                onClick={() => applyUndo()}
-                title={history.canUndo ? `Undo ${history.past.at(-1)?.label}` : undefined}
-              >
-                <span>{history.canUndo ? `Undo ${history.past.at(-1)?.label}` : 'Undo'}</span>
-                <kbd>Ctrl+Z</kbd>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={!history.canRedo}
-                onClick={() => applyRedo()}
-                title={history.canRedo ? `Redo ${history.future[0]?.label}` : undefined}
-              >
-                <span>{history.canRedo ? `Redo ${history.future[0]?.label}` : 'Redo'}</span>
-                <kbd>Ctrl+Y</kbd>
-              </button>
-              <div className="menubar-menu-separator" role="separator" />
-              <button
-                type="button"
-                role="menuitem"
-                disabled={selectedLayerIds.length === 0}
-                onClick={() => runLayerCommand(() => `Cut ${plural(cutLayers())}`)}
-              >
-                <span>Cut</span>
-                <kbd>{MOD}+X</kbd>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={selectedLayerIds.length === 0}
-                onClick={() => runLayerCommand(() => `Copied ${plural(copyLayers())}`)}
-              >
-                <span>Copy</span>
-                <kbd>{MOD}+C</kbd>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={clipboardCount === 0}
-                onClick={() => runLayerCommand(() => `Pasted ${plural(pasteLayers().length)}`)}
-              >
-                <span>Paste</span>
-                <kbd>{MOD}+V</kbd>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={selectedLayerIds.length === 0}
-                onClick={handleDuplicate}
-              >
-                <span>Duplicate</span>
-                <kbd>{MOD}+Shift+D</kbd>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={selectedLayerIds.length === 0}
-                onClick={() => runLayerCommand(() => `Deleted ${plural(deleteLayers())}`)}
-              >
-                <span>Delete</span>
-                <kbd>Del</kbd>
-              </button>
-              <div className="menubar-menu-separator" role="separator" />
-              {canUngroupLayers() ? (
+                <div className="menubar-menu-separator" role="separator" />
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() =>
-                    runLayerCommand(() => (ungroupLayers() ? 'Ungrouped' : 'Nothing to ungroup'))
-                  }
-                >
-                  <span>Ungroup</span>
-                  <kbd>{MOD}+Shift+G</kbd>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={!canGroupLayers()}
-                  onClick={() =>
-                    runLayerCommand(() =>
-                      groupLayers() ? `Grouped ${plural(selectedLayerIds.length)}` : 'Not grouped',
-                    )
-                  }
-                >
-                  <span>Group</span>
-                  <kbd>{MOD}+G</kbd>
-                </button>
-              )}
-              <div className="menubar-menu-separator" role="separator" />
-              <button type="button" role="menuitem" onClick={selectAllLayers}>
-                <span>Select all layers</span>
-                <kbd>Ctrl+A</kbd>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={selectedLayerIds.length === 0}
-                onClick={handleDeselect}
-              >
-                <span>Deselect all</span>
-                <kbd>Ctrl+D</kbd>
-              </button>
-              <div className="menubar-history-heading" role="presentation">
-                History
-                <span>{history.past.length + history.future.length} actions</span>
-              </div>
-              <div className="menubar-history-list" role="group" aria-label="Recent history">
-                {[...history.past].reverse().map((item, index) => (
-                  <button
-                    key={`undo-${item.id}`}
-                    type="button"
-                    className="menubar-history-item"
-                    role="menuitem"
-                    title={`Undo ${index + 1} ${index === 0 ? 'action' : 'actions'} — ${item.label}`}
-                    onClick={() => applyUndo(index + 1)}
-                  >
-                    <span aria-hidden="true">↶</span>
-                    <span className="menubar-history-label">{item.label}</span>
-                    <time>{historyTime(item.timestamp)}</time>
-                  </button>
-                ))}
-                <div className="menubar-history-current" aria-current="step">
-                  <span aria-hidden="true">●</span>
-                  <span className="menubar-history-label">Current state</span>
-                </div>
-                {history.future.map((item, index) => (
-                  <button
-                    key={`redo-${item.id}`}
-                    type="button"
-                    className="menubar-history-item is-future"
-                    role="menuitem"
-                    title={`Redo ${index + 1} ${index === 0 ? 'action' : 'actions'} — ${item.label}`}
-                    onClick={() => applyRedo(index + 1)}
-                  >
-                    <span aria-hidden="true">↷</span>
-                    <span className="menubar-history-label">{item.label}</span>
-                    <time>{historyTime(item.timestamp)}</time>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-        <div className="menubar-window-control" ref={windowMenuRef}>
-          <button
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={windowMenuOpen}
-            onClick={() => {
-              setWindowMenuOpen((open) => !open);
-              setFileMenuOpen(false);
-              setEditMenuOpen(false);
-              setHelpMenuOpen(false);
-            }}
-          >
-            Window
-          </button>
-          {windowMenuOpen ? (
-            <div className="menubar-window-menu" role="menu" aria-label="Window panes">
-              {DOCK_PANE_IDS.map((pane) => {
-                const open = !closedDockPanes.includes(pane);
-                return (
-                  <button
-                    key={pane}
-                    type="button"
-                    role="menuitem"
-                    title={`Float ${DOCK_PANE_LABELS[pane]} at the center of Studio`}
-                    onClick={() => {
-                      onCenterDockPane?.(pane);
-                      setWindowMenuOpen(false);
-                    }}
-                    onPointerEnter={() => setWorkspacesOpen(false)}
-                  >
-                    <span aria-hidden="true">{open ? '✓' : ''}</span>
-                    {DOCK_PANE_LABELS[pane]}
-                    {detached.windows[pane] ? ' ↗' : ''}
-                  </button>
-                );
-              })}
-              <div className="menubar-menu-separator" role="separator" />
-              <div
-                className="menubar-workspace-control"
-                onPointerEnter={() => setWorkspacesOpen(true)}
-              >
-                <button
-                  ref={workspaceTriggerRef}
-                  type="button"
-                  role="menuitem"
-                  aria-haspopup="menu"
-                  aria-expanded={workspacesOpen}
                   onClick={() => {
-                    setWorkspacesOpen(true);
-                    ownerWindow.requestAnimationFrame(() =>
-                      workspaceMenuRef.current?.querySelector<HTMLButtonElement>('button')?.focus(),
-                    );
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'ArrowRight') return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setWorkspacesOpen(true);
-                    ownerWindow.requestAnimationFrame(() =>
-                      workspaceMenuRef.current?.querySelector<HTMLButtonElement>('button')?.focus(),
-                    );
+                    closeMenus();
+                    void handleOpen();
                   }}
                 >
                   <span aria-hidden="true" />
-                  Workspaces
-                  <b aria-hidden="true">›</b>
+                  Open…
                 </button>
-                {workspacesOpen ? (
-                  <div
-                    ref={workspaceMenuRef}
-                    className="menubar-workspace-menu"
-                    style={workspaceMenuPosition}
-                    role="menu"
-                    aria-label="Workspaces"
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeMenus();
+                    setRemoteDialogOpen(true);
+                  }}
+                >
+                  <span aria-hidden="true" />
+                  Open from URL…
+                </button>
+                <div
+                  className="menubar-recent-control"
+                  onPointerEnter={() => setRecentMenuOpen(true)}
+                >
+                  <button
+                    ref={recentTriggerRef}
+                    type="button"
+                    role="menuitem"
+                    aria-haspopup="menu"
+                    aria-expanded={recentMenuOpen}
+                    aria-controls="menubar-recent-menu"
+                    onClick={() => {
+                      recentFocusRequested.current = true;
+                      setRecentMenuOpen(true);
+                    }}
                     onKeyDown={(event) => {
-                      if (event.key === 'ArrowLeft' || event.key === 'Escape') {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setWorkspacesOpen(false);
-                        workspaceTriggerRef.current?.focus();
-                      }
-                      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        const items = [
-                          ...(workspaceMenuRef.current?.querySelectorAll<HTMLButtonElement>(
-                            'button:not(:disabled)',
-                          ) ?? []),
-                        ];
-                        const index = items.indexOf(
-                          ownerWindow.document.activeElement as HTMLButtonElement,
-                        );
-                        items[
-                          (index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) %
-                            items.length
-                        ]?.focus();
-                      }
+                      if (event.key !== 'ArrowRight') return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      recentFocusRequested.current = true;
+                      setRecentMenuOpen(true);
                     }}
                   >
-                    <div className="menubar-workspace-status">
-                      {activeWorkspace?.name ?? 'Custom workspace'}
-                      {workspaceModified ? ' · modified' : ''}
-                    </div>
-                    <div role="group" aria-label="Workspace presets">
-                      {workspacePresets.map((preset) => (
-                        <button
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={preset.id === activeWorkspaceId}
-                          key={preset.id}
-                          onClick={() =>
-                            runWorkspaceAction(() => {
-                              useWorkspaceStore.getState().applyPreset(preset.id);
-                              detached.restore();
-                            }, `Applied workspace “${preset.name}”`)
-                          }
-                        >
-                          <span aria-hidden="true">
-                            {preset.id === activeWorkspaceId ? '✓' : ''}
-                          </span>
-                          <span className="menubar-workspace-name">{preset.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="menubar-menu-separator" role="separator" />
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        closeMenus();
-                        openWorkspaceDialog('save', ownerWindow);
+                    <span aria-hidden="true" />
+                    Open Recent<b aria-hidden="true">›</b>
+                  </button>
+                  {recentMenuOpen && (
+                    <div
+                      id="menubar-recent-menu"
+                      ref={recentMenuRef}
+                      className="menubar-recent-menu"
+                      style={recentMenuPosition}
+                      role="menu"
+                      aria-label="Open Recent"
+                      onKeyDown={(event) => {
+                        if (event.key === 'ArrowLeft' || event.key === 'Escape') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setRecentMenuOpen(false);
+                          recentTriggerRef.current?.focus();
+                        } else if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const items = [
+                            ...(recentMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+                              'button:not(:disabled)',
+                            ) ?? []),
+                          ];
+                          const current = items.indexOf(
+                            ownerWindow.document.activeElement as HTMLButtonElement,
+                          );
+                          if (!items.length) return;
+                          const index =
+                            event.key === 'Home'
+                              ? 0
+                              : event.key === 'End'
+                                ? items.length - 1
+                                : (current + (event.key === 'ArrowDown' ? 1 : items.length - 1)) %
+                                  items.length;
+                          items[index]?.focus();
+                        }
                       }}
                     >
-                      <span aria-hidden="true" />
-                      Save Workspace As…
-                    </button>
+                      {recentLoading ? (
+                        <p role="status">Loading recent documents…</p>
+                      ) : recentDocuments.length ? (
+                        recentDocuments.map((item, index) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            role="menuitem"
+                            title={`${item.name} · ${item.url ? 'URL' : 'Local file'} · ${new Date(item.openedAt).toLocaleString()}`}
+                            onClick={() => void handleOpenRecent(item)}
+                          >
+                            <span aria-hidden="true">{index + 1}</span>
+                            <span className="menubar-recent-name">{item.name}</span>
+                            <small>{item.url ? 'URL' : ''}</small>
+                          </button>
+                        ))
+                      ) : (
+                        <p role="status">
+                          {recentUnavailable
+                            ? 'Recent document storage is unavailable in this browser.'
+                            : 'No recent documents.'}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeMenus();
+                    void handleImportOgraf();
+                  }}
+                  title="Best-effort conversion from an OGraf .zip package or *.ograf.json manifest."
+                >
+                  <span aria-hidden="true" />
+                  Import OGraf
+                </button>
+                {projectSet ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      closeMenus();
+                      void handleAddTemplate();
+                    }}
+                  >
+                    <span aria-hidden="true" />
+                    Add .ogs Template…
+                  </button>
+                ) : null}
+                <div className="menubar-menu-separator" role="separator" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={savingDocument}
+                  onClick={() => {
+                    closeMenus();
+                    void handleSave('save');
+                  }}
+                  title="Save the current document. Choose a destination on the first save."
+                >
+                  <span aria-hidden="true" />
+                  Save
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={savingDocument}
+                  onClick={() => {
+                    closeMenus();
+                    void handleSave('save-as');
+                  }}
+                  title="Choose a new filename and location for the current document."
+                >
+                  <span aria-hidden="true" />
+                  Save As…
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={savingDocument || (!!projectSet && !activeTemplateId)}
+                  onClick={() => {
+                    closeMenus();
+                    setSaveDialogOpen(true);
+                  }}
+                  title="Save the active template as a separate .ogs file, with optional thumbnail."
+                >
+                  <span aria-hidden="true" />
+                  Save Template Copy…
+                </button>
+                <div className="menubar-menu-separator" role="separator" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={(event) => {
+                    const focusTarget =
+                      fileMenuRef.current?.querySelector<HTMLButtonElement>(
+                        'button[aria-haspopup="menu"]',
+                      ) ?? event.currentTarget;
+                    closeMenus();
+                    requestStudioExport(focusTarget);
+                  }}
+                  title="Open the export options for the current template or template set."
+                >
+                  <span aria-hidden="true" />
+                  Export…
+                </button>
+                <div className="menubar-menu-separator" role="separator" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeMenus();
+                    useTemplateSetSettingsStore.getState().show('studio');
+                  }}
+                >
+                  <span aria-hidden="true" />
+                  Preferences
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <div className="menubar-edit-control" ref={editMenuRef}>
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={editMenuOpen}
+              onClick={() => {
+                setEditMenuOpen((open) => !open);
+                setFileMenuOpen(false);
+                setWindowMenuOpen(false);
+                setHelpMenuOpen(false);
+              }}
+            >
+              Edit
+            </button>
+            {editMenuOpen ? (
+              <div className="menubar-edit-menu" role="menu" aria-label="Edit and history">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!history.canUndo}
+                  onClick={() => applyUndo()}
+                  title={history.canUndo ? `Undo ${history.past.at(-1)?.label}` : undefined}
+                >
+                  <span>{history.canUndo ? `Undo ${history.past.at(-1)?.label}` : 'Undo'}</span>
+                  <kbd>Ctrl+Z</kbd>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!history.canRedo}
+                  onClick={() => applyRedo()}
+                  title={history.canRedo ? `Redo ${history.future[0]?.label}` : undefined}
+                >
+                  <span>{history.canRedo ? `Redo ${history.future[0]?.label}` : 'Redo'}</span>
+                  <kbd>Ctrl+Y</kbd>
+                </button>
+                <div className="menubar-menu-separator" role="separator" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={selectedLayerIds.length === 0}
+                  onClick={() => runLayerCommand(() => `Cut ${plural(cutLayers())}`)}
+                >
+                  <span>Cut</span>
+                  <kbd>{MOD}+X</kbd>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={selectedLayerIds.length === 0}
+                  onClick={() => runLayerCommand(() => `Copied ${plural(copyLayers())}`)}
+                >
+                  <span>Copy</span>
+                  <kbd>{MOD}+C</kbd>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={clipboardCount === 0}
+                  onClick={() => runLayerCommand(() => `Pasted ${plural(pasteLayers().length)}`)}
+                >
+                  <span>Paste</span>
+                  <kbd>{MOD}+V</kbd>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={selectedLayerIds.length === 0}
+                  onClick={handleDuplicate}
+                >
+                  <span>Duplicate</span>
+                  <kbd>{MOD}+Shift+D</kbd>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={selectedLayerIds.length === 0}
+                  onClick={() => runLayerCommand(() => `Deleted ${plural(deleteLayers())}`)}
+                >
+                  <span>Delete</span>
+                  <kbd>Del</kbd>
+                </button>
+                <div className="menubar-menu-separator" role="separator" />
+                {canUngroupLayers() ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() =>
+                      runLayerCommand(() => (ungroupLayers() ? 'Ungrouped' : 'Nothing to ungroup'))
+                    }
+                  >
+                    <span>Ungroup</span>
+                    <kbd>{MOD}+Shift+G</kbd>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={!canGroupLayers()}
+                    onClick={() =>
+                      runLayerCommand(() =>
+                        groupLayers()
+                          ? `Grouped ${plural(selectedLayerIds.length)}`
+                          : 'Not grouped',
+                      )
+                    }
+                  >
+                    <span>Group</span>
+                    <kbd>{MOD}+G</kbd>
+                  </button>
+                )}
+                <div className="menubar-menu-separator" role="separator" />
+                <button type="button" role="menuitem" onClick={selectAllLayers}>
+                  <span>Select all layers</span>
+                  <kbd>Ctrl+A</kbd>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={selectedLayerIds.length === 0}
+                  onClick={handleDeselect}
+                >
+                  <span>Deselect all</span>
+                  <kbd>Ctrl+D</kbd>
+                </button>
+                <div className="menubar-history-heading" role="presentation">
+                  History
+                  <span>{history.past.length + history.future.length} actions</span>
+                </div>
+                <div className="menubar-history-list" role="group" aria-label="Recent history">
+                  {[...history.past].reverse().map((item, index) => (
                     <button
+                      key={`undo-${item.id}`}
                       type="button"
+                      className="menubar-history-item"
                       role="menuitem"
-                      disabled={!activeWorkspace || activeWorkspace.builtin}
-                      onClick={() =>
-                        runWorkspaceAction(() => {
-                          detached.capture();
-                          useWorkspaceStore.getState().updateCurrentPreset();
-                        }, 'Workspace updated')
-                      }
+                      title={`Undo ${index + 1} ${index === 0 ? 'action' : 'actions'} — ${item.label}`}
+                      onClick={() => applyUndo(index + 1)}
                     >
-                      <span aria-hidden="true" />
-                      Update Current Workspace
+                      <span aria-hidden="true">↶</span>
+                      <span className="menubar-history-label">{item.label}</span>
+                      <time>{historyTime(item.timestamp)}</time>
                     </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() =>
-                        runWorkspaceAction(() => {
-                          useWorkspaceStore.getState().resetCurrent();
-                          detached.restore();
-                        }, 'Workspace reset to its saved arrangement')
-                      }
-                    >
-                      <span aria-hidden="true" />
-                      Reset Current Workspace
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        closeMenus();
-                        openWorkspaceDialog('manage', ownerWindow);
-                      }}
-                    >
-                      <span aria-hidden="true" />
-                      Manage Workspaces…
-                    </button>
-                    {workspaceStorageError ? (
-                      <div role="status" className="menubar-workspace-error">
-                        {workspaceStorageError}
-                      </div>
-                    ) : null}
+                  ))}
+                  <div className="menubar-history-current" aria-current="step">
+                    <span aria-hidden="true">●</span>
+                    <span className="menubar-history-label">Current state</span>
                   </div>
+                  {history.future.map((item, index) => (
+                    <button
+                      key={`redo-${item.id}`}
+                      type="button"
+                      className="menubar-history-item is-future"
+                      role="menuitem"
+                      title={`Redo ${index + 1} ${index === 0 ? 'action' : 'actions'} — ${item.label}`}
+                      onClick={() => applyRedo(index + 1)}
+                    >
+                      <span aria-hidden="true">↷</span>
+                      <span className="menubar-history-label">{item.label}</span>
+                      <time>{historyTime(item.timestamp)}</time>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div className="menubar-window-control" ref={windowMenuRef}>
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={windowMenuOpen}
+              onClick={() => {
+                setWindowMenuOpen((open) => !open);
+                setFileMenuOpen(false);
+                setEditMenuOpen(false);
+                setHelpMenuOpen(false);
+              }}
+            >
+              Window
+            </button>
+            {windowMenuOpen ? (
+              <div className="menubar-window-menu" role="menu" aria-label="Window panes">
+                {DOCK_PANE_IDS.map((pane) => {
+                  const open = !closedDockPanes.includes(pane);
+                  return (
+                    <button
+                      key={pane}
+                      type="button"
+                      role="menuitem"
+                      title={`Float ${DOCK_PANE_LABELS[pane]} at the center of Studio`}
+                      onClick={() => {
+                        onCenterDockPane?.(pane);
+                        setWindowMenuOpen(false);
+                      }}
+                      onPointerEnter={() => setWorkspacesOpen(false)}
+                    >
+                      <span aria-hidden="true">{open ? '✓' : ''}</span>
+                      {DOCK_PANE_LABELS[pane]}
+                      {detached.windows[pane] ? ' ↗' : ''}
+                    </button>
+                  );
+                })}
+                <div className="menubar-menu-separator" role="separator" />
+                <div
+                  className="menubar-workspace-control"
+                  onPointerEnter={() => setWorkspacesOpen(true)}
+                >
+                  <button
+                    ref={workspaceTriggerRef}
+                    type="button"
+                    role="menuitem"
+                    aria-haspopup="menu"
+                    aria-expanded={workspacesOpen}
+                    onClick={() => {
+                      setWorkspacesOpen(true);
+                      ownerWindow.requestAnimationFrame(() =>
+                        workspaceMenuRef.current
+                          ?.querySelector<HTMLButtonElement>('button')
+                          ?.focus(),
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'ArrowRight') return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setWorkspacesOpen(true);
+                      ownerWindow.requestAnimationFrame(() =>
+                        workspaceMenuRef.current
+                          ?.querySelector<HTMLButtonElement>('button')
+                          ?.focus(),
+                      );
+                    }}
+                  >
+                    <span aria-hidden="true" />
+                    Workspaces
+                    <b aria-hidden="true">›</b>
+                  </button>
+                  {workspacesOpen ? (
+                    <div
+                      ref={workspaceMenuRef}
+                      className="menubar-workspace-menu"
+                      style={workspaceMenuPosition}
+                      role="menu"
+                      aria-label="Workspaces"
+                      onKeyDown={(event) => {
+                        if (event.key === 'ArrowLeft' || event.key === 'Escape') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setWorkspacesOpen(false);
+                          workspaceTriggerRef.current?.focus();
+                        }
+                        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const items = [
+                            ...(workspaceMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+                              'button:not(:disabled)',
+                            ) ?? []),
+                          ];
+                          const index = items.indexOf(
+                            ownerWindow.document.activeElement as HTMLButtonElement,
+                          );
+                          items[
+                            (index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) %
+                              items.length
+                          ]?.focus();
+                        }
+                      }}
+                    >
+                      <div className="menubar-workspace-status">
+                        {activeWorkspace?.name ?? 'Custom workspace'}
+                        {workspaceModified ? ' · modified' : ''}
+                      </div>
+                      <div role="group" aria-label="Workspace presets">
+                        {workspacePresets.map((preset) => (
+                          <button
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={preset.id === activeWorkspaceId}
+                            key={preset.id}
+                            onClick={() =>
+                              runWorkspaceAction(() => {
+                                useWorkspaceStore.getState().applyPreset(preset.id);
+                                detached.restore();
+                              }, `Applied workspace “${preset.name}”`)
+                            }
+                          >
+                            <span aria-hidden="true">
+                              {preset.id === activeWorkspaceId ? '✓' : ''}
+                            </span>
+                            <span className="menubar-workspace-name">{preset.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="menubar-menu-separator" role="separator" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          closeMenus();
+                          openWorkspaceDialog('save', ownerWindow);
+                        }}
+                      >
+                        <span aria-hidden="true" />
+                        Save Workspace As…
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!activeWorkspace || activeWorkspace.builtin}
+                        onClick={() =>
+                          runWorkspaceAction(() => {
+                            detached.capture();
+                            useWorkspaceStore.getState().updateCurrentPreset();
+                          }, 'Workspace updated')
+                        }
+                      >
+                        <span aria-hidden="true" />
+                        Update Current Workspace
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() =>
+                          runWorkspaceAction(() => {
+                            useWorkspaceStore.getState().resetCurrent();
+                            detached.restore();
+                          }, 'Workspace reset to its saved arrangement')
+                        }
+                      >
+                        <span aria-hidden="true" />
+                        Reset Current Workspace
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          closeMenus();
+                          openWorkspaceDialog('manage', ownerWindow);
+                        }}
+                      >
+                        <span aria-hidden="true" />
+                        Manage Workspaces…
+                      </button>
+                      {workspaceStorageError ? (
+                        <div role="status" className="menubar-workspace-error">
+                          {workspaceStorageError}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                {detached.pending.length ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() =>
+                      runWorkspaceAction(() => detached.restore(), 'Restoring detached windows')
+                    }
+                  >
+                    <span aria-hidden="true">↗</span>Restore Detached Windows
+                  </button>
                 ) : null}
               </div>
-              {detached.pending.length ? (
+            ) : null}
+          </div>
+          <div className="menubar-window-control" ref={helpMenuRef}>
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={helpMenuOpen}
+              onClick={() => {
+                setHelpMenuOpen((open) => !open);
+                setFileMenuOpen(false);
+                setEditMenuOpen(false);
+                setWindowMenuOpen(false);
+              }}
+            >
+              Help
+            </button>
+            {helpMenuOpen ? (
+              <div className="menubar-window-menu" role="menu" aria-label="Help">
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() =>
-                    runWorkspaceAction(() => detached.restore(), 'Restoring detached windows')
-                  }
+                  onClick={() => {
+                    setShortcutsOpen(true);
+                    closeMenus();
+                  }}
                 >
-                  <span aria-hidden="true">↗</span>Restore Detached Windows
+                  <span aria-hidden="true" />
+                  Keyboard shortcuts
                 </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-        <div className="menubar-window-control" ref={helpMenuRef}>
-          <button
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={helpMenuOpen}
-            onClick={() => {
-              setHelpMenuOpen((open) => !open);
-              setFileMenuOpen(false);
-              setEditMenuOpen(false);
-              setWindowMenuOpen(false);
-            }}
-          >
-            Help
-          </button>
-          {helpMenuOpen ? (
-            <div className="menubar-window-menu" role="menu" aria-label="Help">
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setShortcutsOpen(true);
-                  closeMenus();
-                }}
-              >
-                <span aria-hidden="true" />
-                Keyboard shortcuts
-              </button>
-              <a
-                href={USER_GUIDE_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                role="menuitem"
-                className="menubar-menu-link"
-                onClick={closeMenus}
-              >
-                <span aria-hidden="true" />
-                User guide ↗
-              </a>
-              <div className="menubar-build-info" role="presentation">
                 <a
-                  href="https://github.com/zerodensity/ograf-studio"
+                  href={USER_GUIDE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   role="menuitem"
+                  className="menubar-menu-link"
+                  onClick={closeMenus}
                 >
-                  OGraf Studio v{STUDIO_VERSION}
+                  <span aria-hidden="true" />
+                  User guide ↗
                 </a>
-                <time dateTime={STUDIO_BUILD_DATE}>Build {STUDIO_BUILD_DATE}</time>
+                <div className="menubar-build-info" role="presentation">
+                  <a
+                    href="https://github.com/zerodensity/ograf-studio"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    role="menuitem"
+                  >
+                    OGraf Studio v{STUDIO_VERSION}
+                  </a>
+                  <time dateTime={STUDIO_BUILD_DATE}>Build {STUDIO_BUILD_DATE}</time>
+                </div>
               </div>
-            </div>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          className="menubar-preview-button"
-          title="Open fullscreen preview (or fill this window if fullscreen is unavailable). Press Escape to exit."
-          onClick={(event) => void showPreview(event.currentTarget)}
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="menubar-preview-button"
+            title="Open fullscreen preview (or fill this window if fullscreen is unavailable). Press Escape to exit."
+            onClick={(event) => void showPreview(event.currentTarget)}
+          >
+            Preview
+          </button>
+        </nav>
+        <label className="menubar-layout-control">
+          <span>Layout</span>
+          <select
+            aria-label="Workspace layout"
+            value={activeWorkspaceId}
+            title={
+              workspaceModified
+                ? 'Current layout has unsaved arrangement changes'
+                : 'Switch panel layout'
+            }
+            onFocus={closeMenus}
+            onChange={(event) => {
+              const preset = workspacePresets.find((item) => item.id === event.target.value);
+              if (!preset) return;
+              runWorkspaceAction(() => {
+                useWorkspaceStore.getState().applyPreset(preset.id);
+                detached.restore();
+              }, `Applied workspace “${preset.name}”`);
+            }}
+          >
+            {[
+              { label: 'Built-in layouts', builtin: true },
+              { label: 'Saved layouts', builtin: false },
+            ].map(({ label, builtin }) => {
+              const presets = workspacePresets.filter((preset) => !!preset.builtin === builtin);
+              return presets.length ? (
+                <optgroup key={label} label={label}>
+                  {presets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name}
+                      {preset.id === activeWorkspaceId && workspaceModified ? ' (modified)' : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null;
+            })}
+          </select>
+        </label>
+      </div>
+      <div className="menubar-project">
+        {editingName ? (
+          <input
+            ref={nameInputRef}
+            className="menubar-project-name-input"
+            aria-label="Template name"
+            value={nameDraft}
+            onChange={(event) => setNameDraft(event.currentTarget.value)}
+            onBlur={commitProjectName}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === 'Enter' || event.key === 'Escape') {
+                event.preventDefault();
+                cancelNameEditRef.current = event.key === 'Escape';
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            className="menubar-project-name"
+            disabled={!!projectSet && !activeTemplateId}
+            aria-label={`Rename template: ${projectName}`}
+            title="Rename template"
+            onClick={() => {
+              setNameDraft(projectName);
+              setEditingName(true);
+            }}
+          >
+            {projectName}
+          </button>
+        )}
+      </div>
+      <div className="menubar-status-group">
+        <span
+          className={`menubar-agent-status${agentConnected ? ' is-connected' : ''}`}
+          title={agentActivity}
         >
-          Preview
-        </button>
-      </nav>
-      <label className="menubar-layout-control">
-        <span>Layout</span>
-        <select
-          aria-label="Workspace layout"
-          value={activeWorkspaceId}
-          title={
-            workspaceModified
-              ? 'Current layout has unsaved arrangement changes'
-              : 'Switch panel layout'
-          }
-          onFocus={closeMenus}
-          onChange={(event) => {
-            const preset = workspacePresets.find((item) => item.id === event.target.value);
-            if (!preset) return;
-            runWorkspaceAction(() => {
-              useWorkspaceStore.getState().applyPreset(preset.id);
-              detached.restore();
-            }, `Applied workspace “${preset.name}”`);
-          }}
-        >
-          {[
-            { label: 'Built-in layouts', builtin: true },
-            { label: 'Saved layouts', builtin: false },
-          ].map(({ label, builtin }) => {
-            const presets = workspacePresets.filter((preset) => !!preset.builtin === builtin);
-            return presets.length ? (
-              <optgroup key={label} label={label}>
-                {presets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name}
-                    {preset.id === activeWorkspaceId && workspaceModified ? ' (modified)' : ''}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null;
-          })}
-        </select>
-      </label>
-      <span
-        className={`menubar-agent-status${agentConnected ? ' is-connected' : ''}`}
-        title={agentActivity}
-      >
-        <span className="menubar-agent-dot" />
-        {agentActivity}
-      </span>
-      {status && <span className="menubar-status">{status}</span>}
+          <span className="menubar-agent-dot" />
+          {agentActivity}
+        </span>
+        {status && (
+          <span className="menubar-status" title={status}>
+            {status}
+          </span>
+        )}
+      </div>
       {shortcutsOpen ? <KeyboardShortcutsDialog onClose={() => setShortcutsOpen(false)} /> : null}
       {remoteDialogOpen && (
         <section
