@@ -167,10 +167,13 @@ function syncRollingGlyphs(content: HTMLElement, state: Mounted, element: TextEl
       glyph = { element: wrapper, sourceIndex: 0, word: 0, line: 0 };
       state.rollGlyphs.set(slot, glyph);
     }
-    const display = slot.style.display === 'contents' ? 'contents' : 'inline-block';
+    const display = slot.style.display || 'inline-block';
     if (glyph.element.style.display !== display) glyph.element.style.display = display;
-    if (slot.style.display === 'none' || slot.style.display === 'contents') continue;
-    glyph.sourceIndex = units[index]?.index ?? source.length;
+    if (display === 'none' || display === 'contents') continue;
+    glyph.sourceIndex =
+      slot.dataset.ografTextRollSourceIndex !== undefined
+        ? Number(slot.dataset.ografTextRollSourceIndex)
+        : (units[index]?.index ?? source.length);
     const wordIndex = words.findIndex(
       (word) =>
         glyph!.sourceIndex >= word.index && glyph!.sourceIndex < word.index + word.text.length,

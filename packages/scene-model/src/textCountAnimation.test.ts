@@ -70,6 +70,11 @@ describe('counting text animation model', () => {
     ['.50', '', 0.5],
     ['−,50', 'de-DE', -0.5],
     ['0012.50', '', 12.5],
+    ['−۱٬۲۳۴٫۵۰٪', 'fa', -1234.5],
+    ['٫٥٠', 'ar', 0.5],
+    ['१२५', 'hi', 125],
+    ['１２５', 'zh', 125],
+    ['𝟙𝟚𝟝', '', 125],
   ])('parses %s using %s conventions', (source, language, value) => {
     expect(parseTextAnimationNumber(source, language)?.value).toBe(value);
   });
@@ -104,6 +109,10 @@ describe('counting text animation model', () => {
     '12,',
     '12-',
     '0.123456789012345678901',
+    '١2٥',
+    '１２５ of 126',
+    '١٢٫٣٫٤',
+    '١٢٬٣',
   ])('keeps unsupported or malformed label %s unchanged', (source) => {
     expect(parseTextAnimationNumber(source)).toBeNull();
     expect(sampleTextCountAnimation(source, countAnimation(), 10)).toBeNull();
@@ -145,6 +154,10 @@ describe('counting text animation model', () => {
     ['001,234', '', '000,000', '001,080'],
     ['.50', '', '-.50', '.38'],
     ['12,5%', '', '0,0%', '10,9%'],
+    ['+۱٬۲۳۴٫۵۰٪', 'fa', '+۰٫۰۰٪', '+۱٬۰۸۰٫۱۹٪'],
+    ['१२५', 'hi', '०', '१०९'],
+    ['１２５', 'zh', '０', '１０９'],
+    ['𝟙𝟚𝟝', '', '𝟘', '𝟙𝟘𝟡'],
   ])('preserves formatted label %s during the entrance', (source, language, start, middle) => {
     expect(sampleTextCountAnimation(source, countAnimation(), 0, language)).toBe(start);
     expect(sampleTextCountAnimation(source, countAnimation(), 10, language)).toBe(middle);
@@ -158,6 +171,16 @@ describe('counting text animation model', () => {
     expect(sampleTextCountAnimation('100', countAnimation('count-down', 50), 0)).toBe('100');
     expect(sampleTextCountAnimation('-100', countAnimation('count-up', -150), 0)).toBe('-150');
     expect(sampleTextCountAnimation('-100', countAnimation('count-down', -50), 0)).toBe('-50');
+  });
+
+  it('returns UTF-16 offsets around an astral digit run for styled text', () => {
+    expect(parseTextAnimationNumber('Gain +𝟙𝟚𝟝%')).toEqual({
+      value: 125,
+      prefix: 'Gain ',
+      suffix: '%',
+      numberStart: 5,
+      numberEnd: 12,
+    });
   });
 
   it('is monotonic for each direction and never invents a negative zero', () => {
