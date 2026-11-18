@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import {
+  LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
   MAX_TEMPLATE_SET_MCP_ARCHIVE_BYTES,
   type TemplateSetArchiveMode,
   type TemplateSetArchiveResult,
@@ -12,14 +13,17 @@ export async function decodeTemplateSetArchive(
   expectedRevision: string,
   archiveMode: TemplateSetArchiveMode,
 ): Promise<{ data: Buffer; metadata: Omit<TemplateSetArchiveResult, 'archiveBase64'> }> {
-  const schemaVersion = archiveMode === 'compact' ? 6 : 5;
+  const schemaVersion = value.schemaVersion;
   if (value.revision !== expectedRevision)
     throw new Error(
       'Template-set revision changed while saving. Re-read the set and retry intentionally.',
     );
   if (
     value.archiveMode !== archiveMode ||
-    value.schemaVersion !== schemaVersion ||
+    (schemaVersion !== 5 &&
+      schemaVersion !== 6 &&
+      schemaVersion !== LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION) ||
+    (schemaVersion === 5) !== (archiveMode === 'compatible') ||
     typeof value.name !== 'string' ||
     !value.name.trim() ||
     !Number.isSafeInteger(value.templateCount) ||
@@ -63,6 +67,15 @@ export async function decodeTemplateSetArchive(
     manifest.templates.length !== value.templateCount
   )
     throw new Error('Template-set archive manifest does not match the requested snapshot.');
+  const keepsLocalBranding = manifest.templates.some(
+    (template) =>
+      template &&
+      typeof template === 'object' &&
+      'inheritBrandKit' in template &&
+      template.inheritBrandKit === false,
+  );
+  if (keepsLocalBranding !== (schemaVersion === LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION))
+    throw new Error('Template-set archive schema does not match its local Brand Kit settings.');
   return {
     data,
     metadata: {

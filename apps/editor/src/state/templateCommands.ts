@@ -24,6 +24,15 @@ import { syncProjectSetPreviewControls } from './projectSetSession';
 import { resetHistory } from './historyStore';
 import { createUiProject, setNewCompositionTiming } from './newTemplateTiming';
 import type { TemplateSetSettingKey } from './templateSetSettings';
+import {
+  assignTemplateProjectIdentity,
+  commitTemplateTransfer,
+  prepareTemplateTransfer,
+  uniqueTemplateName,
+  type TemplateTransferReport,
+} from './templateTransfer';
+
+export type { TemplateTransferReport } from './templateTransfer';
 
 interface TemplateSnapshot {
   setId: string;
@@ -64,17 +73,6 @@ function snapshot(set: ProjectSetDocument, templateId: string): TemplateSnapshot
         .map((binding) => ({ slotId: slot.id, binding })),
     ),
   });
-}
-
-function uniqueName(set: ProjectSetDocument, name: string) {
-  const names = new Set(
-    set.templates.map((item) => item.name.trim().normalize('NFC').toLowerCase()),
-  );
-  const base = name.trim().normalize('NFC') || 'Untitled Template';
-  let next = base,
-    suffix = 2;
-  while (names.has(next.toLowerCase())) next = `${base} ${suffix++}`;
-  return next;
 }
 
 function apply(set: ProjectSetDocument, activeTemplateId: string | null, freshUiTemplate = false) {
@@ -118,36 +116,24 @@ function insertSnapshot(
 ) {
   if (set.templates.length >= 256)
     throw new Error('A template set can contain at most 256 templates.');
-  const sameSet = source.setId === set.id;
   const keepInheritance =
-    sameSet &&
     source.controls.every((item) =>
       set.controls.some((control) => control.field.id === item.controlId),
-    ) &&
-    source.assets.every((item) => set.assetSlots.some((slot) => slot.id === item.slotId));
+    ) && source.assets.every((item) => set.assetSlots.some((slot) => slot.id === item.slotId));
   const project = structuredClone(keepInheritance ? source.template.project : source.resolved);
   if (originalPrompt !== undefined)
     appendAuthoringPrompt(project, { id: createId('prompt'), text: originalPrompt });
-  const compositionIds = new Map(
-    project.compositions.map((composition) => [composition.id, createId('composition')]),
+  const compositionIds = assignTemplateProjectIdentity(project);
+  project.name = uniqueTemplateName(
+    set,
+    duplicate ? `${source.template.name} Copy` : source.template.name,
   );
-  const sourceProjectId = project.id;
-  project.id = createId('project');
-  if (project.presenter)
-    project.presenter.entries = project.presenter.entries.map((entry) => ({
-      ...entry,
-      templateId: entry.templateId === sourceProjectId ? project.id : entry.templateId,
-    }));
-  project.mainCompositionId = compositionIds.get(project.mainCompositionId)!;
-  project.compositions.forEach((composition) => {
-    composition.id = compositionIds.get(composition.id)!;
-  });
-  project.name = uniqueName(set, duplicate ? `${source.template.name} Copy` : source.template.name);
   let updated = addProjectSetTemplate(
     set,
     project,
     project.name,
-    sameSet ? source.template.inheritSettings !== false : true,
+    source.template.inheritSettings !== false,
+    { inheritBrandKit: source.template.inheritBrandKit },
   );
   const added = updated.templates.at(-1)!;
   if (keepInheritance) {
@@ -157,14 +143,6 @@ function insertSnapshot(
     added.backgroundOverrides = [...(source.template.backgroundOverrides ?? [])];
     added.backgroundOverridden = source.template.backgroundOverridden;
     added.project = structuredClone(project);
-  } else if (!sameSet) {
-    // Cross-set paste retains the resolved look rather than silently adopting another house theme.
-    added.inheritSettings = false;
-    added.project = structuredClone(project);
-    added.brandKitOverrides = set.brandKit?.tokens.map((token) => token.id);
-    added.typographyOverrides = set.brandKit?.typography?.map((style) => style.id);
-    added.backgroundOverrides = set.brandKit?.backgrounds?.map((style) => style.id);
-    added.backgroundOverridden = true;
   }
   if (keepInheritance)
     updated = {
@@ -218,22 +196,56 @@ export function pasteTemplate(
   side: 'before' | 'after' = 'after',
   originalPrompt?: string,
 ) {
+  return pasteTemplateWithReport(targetId, side, originalPrompt).name;
+}
+
+export function pasteTemplateWithReport(
+  targetId?: string | null,
+  side: 'before' | 'after' = 'after',
+  originalPrompt?: string,
+): { name: string; transfer?: TemplateTransferReport } {
   const copied = useTemplateClipboardStore.getState().copied;
   if (!copied) throw new Error('Copy a template first.');
-  return insertSnapshot(currentSet(), copied, targetId, side, false, originalPrompt);
+  const set = currentSet();
+  if (copied.setId === set.id)
+    return { name: insertSnapshot(set, copied, targetId, side, false, originalPrompt) };
+  return commitTemplateTransfer(
+    prepareTemplateTransfer(set, { ...copied.resolved, name: copied.template.name }, 'clipboard', {
+      targetId,
+      side,
+      originalPrompt,
+    }),
+  );
 }
 
 export function insertTemplateProject(
   project: Project,
   targetId?: string | null,
   side: 'before' | 'after' = 'after',
-  settingsOverrides: TemplateSetSettingKey[] = [],
-  freshUiTemplate = false,
+) {
+  return insertTemplateProjectWithReport(project, targetId, side).name;
+}
+
+export function insertTemplateProjectWithReport(
+  project: Project,
+  targetId?: string | null,
+  side: 'before' | 'after' = 'after',
+) {
+  return commitTemplateTransfer(
+    prepareTemplateTransfer(currentSet(), project, 'resolved-file', { targetId, side }),
+  );
+}
+
+function insertNewTemplateProject(
+  project: Project,
+  targetId: string | null | undefined,
+  side: 'before' | 'after',
+  settingsOverrides: TemplateSetSettingKey[],
 ) {
   const set = currentSet();
   if (set.templates.length >= 256)
     throw new Error('A template set can contain at most 256 templates.');
-  const name = uniqueName(set, project.name);
+  const name = uniqueTemplateName(set, project.name);
   const updated = addProjectSetTemplate(set, { ...project, name }, name);
   const added = updated.templates.at(-1)!;
   if (set.settings && settingsOverrides.length) {
@@ -248,7 +260,7 @@ export function insertTemplateProject(
     }
     added.settingsOverrides = [...settingsOverrides];
   }
-  apply(position(updated, added.id, targetId, side), added.id, freshUiTemplate);
+  apply(position(updated, added.id, targetId, side), added.id, true);
   return name;
 }
 
@@ -285,7 +297,7 @@ export function newTemplate(
         (key) => composition[key] !== set.settings![key],
       )
     : [];
-  return insertTemplateProject(project, targetId, side, overrides, true);
+  return insertNewTemplateProject(project, targetId, side, overrides);
 }
 
 export function removeTemplate(templateId: string) {
@@ -312,7 +324,7 @@ export function undoRemoveTemplate() {
   if (set.templates.length >= 256) throw new Error('The template set is full.');
   if (set.templates.some((item) => item.id === removed.template.id))
     throw new Error('The template was already restored.');
-  const name = uniqueName(set, removed.template.name);
+  const name = uniqueTemplateName(set, removed.template.name);
   const template = {
     ...structuredClone(removed.template),
     name,

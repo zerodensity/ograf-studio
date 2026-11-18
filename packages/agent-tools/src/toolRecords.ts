@@ -93,6 +93,7 @@ import {
 import JSZip from 'jszip';
 import { writeTemplateFiles } from './projectFiles';
 import { decodeTemplateSetArchive } from './templateSetFiles';
+import { LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION } from './templateSetStorage';
 import {
   projectThumbnailFrame,
   thumbnailRenderProject,
@@ -2132,11 +2133,19 @@ export function createOGrafToolRecords(
           storage: {
             defaultArchiveMode: 'compact',
             archiveSchemaVersion: 6,
+            localBrandingArchiveSchemaVersion: LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
             compatibleArchiveSchemaVersion: 5,
             contract:
-              'Compact set archives store identical font/resource bytes and set component sources once, with validated member references. Opening hydrates ordinary editable projects with original IDs, bindings, animation and overrides. Compatible mode retains the v5 archive layout for older set readers. Readers retain v1–v5 and legacy .ogp support; JSON-only readers cannot open any set ZIP. Single-template saves/exports always embed resolved dependencies and never contain compact archive references.',
+              'Compact archives share identical font/resource bytes and set component sources, then hydrate editable projects with original IDs, bindings, animation and overrides. A set with local Brand Kit inheritance uses schema 7 so older readers cannot reapply shared branding. Other compact sets use schema 6 and can be saved in compatible schema 5. Readers accept schemas 1–7 and legacy .ogp. A standalone project embeds its resolved dependencies.',
             mcpSave:
               'ograf_save_template_set saves a revision-checked snapshot copy of the connected editor set to a workspace-confined .ogs path. archiveMode compact (default) or compatible; confirm:true and explicit overwrite permission. Compressed MCP transfer limit 64 MiB; larger sets use Studio Save Template Set. Saving preserves open editor names, revisions and unsaved edits.',
+          },
+          transfers: {
+            crossSetPastePolicy: 'keep-appearance',
+            inheritance:
+              'Read inheritBrandKit and inheritSettings independently on each member. A kept transfer uses local branding and canvas settings.',
+            result:
+              'A cross-set paste_template result includes transfer with the created identities, settings differences and warnings. The transfer is validated before publishing and can be undone in Studio.',
           },
           sharedResources: {
             ui: 'Resources offers Template and Template Set views in a set. Template Set shows shared components, asset slots, per-template usage and inheritance/local override indicators; the existing Scene Outliner shared controls and asset slots editor remains available. Replacing a shared asset is reviewed in Studio before applying, including other slots using the same source.',
@@ -2165,7 +2174,7 @@ export function createOGrafToolRecords(
             authoring:
               'ograf_update_template_set operation set_transition_logic accepts a complete definition object or null. Uses the opaque set revision, validates graph/template/component references, and applies one undoable edit. JSON payload is bounded to 1 MiB, 32768 values and 32 levels. Unapplied UI drafts must be Applied or Reverted first. Removing the graph or replacing its ID requires confirm:true; editing the same ID does not. Loaded playout is unchanged until explicitly reloaded.',
             source:
-              'Optional transitionLogic in the template-set snapshot. Definition v6 adds slot.updateMode; v5 adds independent incoming/outgoing content animations; v4 adds Take admission and named-state data presets. Definitions v1–v5 remain readable. New selectors require v5 so older runtimes reject unsupported motion. Source archive schema 6 and compatible schema 5 preserve the graph; archive compatibility does not down-convert graph features.',
+              'Optional transitionLogic in the template-set snapshot. Definition v6 adds slot.updateMode; v5 adds independent incoming/outgoing content animations; v4 adds Take admission and named-state data presets. Definitions v1–v5 remain readable. New selectors require v5 so older runtimes reject unsupported motion. Compact and compatible set archives preserve the graph. Archive compatibility does not down-convert graph features.',
             contentAnimations: {
               minimumDefinitionVersion: 5,
               fields: ['recipe.incomingAnimation', 'recipe.outgoingAnimation'],
@@ -2277,7 +2286,7 @@ export function createOGrafToolRecords(
           defaults:
             'Main canvas size/rate/background, render modes, data transitions, guides display, snapping and bounds. Each property can inherit or be explicitly overridden; set_setting_override pins/resets a property independently. Editing inherited controls creates a local override. set_inheritance retains whole-template opt-out. Media/audio retain real-time-only support.',
           brandKit:
-            'Optional set-owned master Brand Kit: typed palette/font/number/text tokens with stable IDs and per-template token overrides. set_brand_kit adopts a kit, upsert_brand_token/remove_brand_token manage tokens, set_brand_token_override pins/resets a token. Compatible semantic keys map on explicit adoption, never display names. Object token bindings retain overridden flags for local edits/reset. Shared font files and resolved values are embedded in standalone children; generated CSS is a safe custom-property view, not an external stylesheet runtime dependency.',
+            'The optional set-owned master Brand Kit applies to members with inheritBrandKit enabled. set_brand_kit replaces the master for those members, upsert_brand_token/remove_brand_token manage typed tokens with stable IDs, and set_brand_token_override pins or resets a token. Adoption matches compatible semantic keys. Object token bindings retain their override flags. Standalone children embed shared font files and resolved values. Generated CSS safely exposes custom properties for inspection.',
           typography: {
             shape:
               'TypographyPreset {id,name,properties:{fontFamily,fontSize,fontWeight,lineHeight,letterSpacing,textAlign,textTransform}}',

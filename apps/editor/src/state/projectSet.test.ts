@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import JSZip from 'jszip';
 import {
   createAsset,
+  createDefaultTypographyPresets,
   createFieldDefinition,
   createImageLayer,
+  createMediaPaint,
   createProject,
   createTextLayer,
+  syncDesignToken,
 } from '@ograf-editor/scene-model';
 import {
   addProjectSetControl,
@@ -17,6 +21,7 @@ import {
   migrateProjectSetDocument,
   moveProjectSetTemplate,
   openProjectSetArchive,
+  projectSetArchiveSchemaVersion,
   reorderProjectSetTemplate,
   renameProjectSetTemplate,
   resolveProjectSetTemplate,
@@ -27,6 +32,174 @@ import {
   type ProjectSetDocument,
   type ProjectSetSceneNode,
 } from './projectSet';
+
+describe('local Brand Kit inheritance', () => {
+  it('keeps local looks and resources on conflicting insertion, later master edits and archive reopen', async () => {
+    const project = createProject({ name: 'Source' });
+    const composition = project.compositions[0]!;
+    composition.width = 1280;
+    composition.backgroundPaint = '#223344';
+    const localFont = createAsset({
+      id: 'local-font',
+      name: 'Source Sans.woff2',
+      kind: 'font',
+      fontFamily: 'Source Sans',
+      mimeType: 'font/woff2',
+      dataUri: 'data:font/woff2;base64,AAEC',
+    });
+    composition.assets.push(localFont);
+    composition.designSystem = {
+      name: 'Source Brand Kit',
+      tokens: [
+        {
+          id: 'source-color',
+          key: 'brand.primary',
+          name: 'Primary',
+          type: 'color',
+          value: '#00aacc',
+          description: '',
+        },
+      ],
+      typography: createDefaultTypographyPresets('Source Sans'),
+    };
+    const text = createTextLayer();
+    if (text.element.type !== 'text') throw new Error('Expected text.');
+    text.element.fontFamily = 'Source Sans';
+    text.typographyBinding = { presetId: 'typography-headline' };
+    text.designTokenBindings = [{ tokenId: 'source-color', targetProperty: 'color' }];
+    composition.layers.push(text);
+    syncDesignToken(composition, 'source-color');
+
+    const set = createProjectSet('Destination', createProject());
+    set.brandKit = {
+      name: 'Destination Brand Kit',
+      tokens: [
+        {
+          id: 'destination-size',
+          key: 'brand.primary',
+          name: 'Primary',
+          type: 'number',
+          value: 12,
+          description: '',
+        },
+        {
+          id: 'destination-font',
+          key: 'brand.font',
+          name: 'Body font',
+          type: 'font-family',
+          value: 'Source Sans',
+          description: '',
+        },
+      ],
+      typography: createDefaultTypographyPresets('Arial'),
+      backgrounds: [
+        {
+          id: 'master-clip',
+          name: 'Master clip',
+          paint: createMediaPaint({ source: { kind: 'clip', src: 'asset:master-clip' } }),
+        },
+      ],
+      defaultBackgroundStyleId: 'master-clip',
+    };
+    set.assets = [
+      { ...localFont, id: 'master-font', dataUri: 'data:font/woff2;base64,AwQF' },
+      createAsset({
+        id: 'master-clip',
+        name: 'Master clip',
+        kind: 'media',
+        mimeType: 'video/mp4',
+        dataUri: 'data:video/mp4;base64,AwQF',
+      }),
+    ];
+    expect(() => addProjectSetTemplate(set, project)).toThrow(/incompatible local type/i);
+    expect(projectSetArchiveSchemaVersion(set)).toBe(6);
+    expect(projectSetArchiveSchemaVersion(set, 'compatible')).toBe(5);
+
+    const added = addProjectSetTemplate(set, project, project.name, false, {
+      inheritBrandKit: false,
+    });
+    const kept = added.templates.at(-1)!;
+    expect(kept).toMatchObject({ inheritBrandKit: false, inheritSettings: false });
+    const expectedBranding = {
+      width: 1280,
+      backgroundPaint: '#223344',
+      assets: [localFont],
+      designSystem: { name: 'Source Brand Kit' },
+      layers: [
+        {
+          element: { color: '#00aacc', fontFamily: 'Source Sans' },
+          designTokenBindings: [{ tokenId: 'source-color', targetProperty: 'color' }],
+          typographyBinding: { presetId: 'typography-headline' },
+        },
+      ],
+    };
+    expect(resolveProjectSetTemplate(added, kept.id).compositions[0]).toMatchObject(
+      expectedBranding,
+    );
+
+    const changed = structuredClone(added);
+    changed.brandKit!.tokens[0] = {
+      ...changed.brandKit!.tokens[0]!,
+      type: 'color',
+      value: '#ff0000',
+    };
+    changed.brandKit!.defaultBackgroundStyleId = null;
+    expect(resolveProjectSetTemplate(changed, kept.id).compositions[0]).toMatchObject(
+      expectedBranding,
+    );
+    const edited = resolveProjectSetTemplate(changed, kept.id);
+    edited.compositions[0]!.designSystem.tokens[0]!.value = '#11bb88';
+    syncDesignToken(edited.compositions[0]!, 'source-color');
+    const saved = saveProjectSetTemplateEdits(changed, kept.id, edited);
+    expect(saved.templates.at(-1)).toMatchObject({
+      inheritBrandKit: false,
+      brandKitOverrides: [],
+      typographyOverrides: [],
+    });
+    expect(projectSetArchiveSchemaVersion(saved)).toBe(7);
+    await expect(createProjectSetArchive(saved, { archiveMode: 'compatible' })).rejects.toThrow(
+      /Local Brand Kits.*standalone template/,
+    );
+    await expect(createProjectSetArchive(saved, { legacyFormat: true })).rejects.toThrow(
+      /Local Brand Kits.*standalone template/,
+    );
+
+    const archive = await createProjectSetArchive(saved);
+    const data = await archive.arrayBuffer();
+    const zip = await JSZip.loadAsync(data);
+    const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
+    expect(manifest.schemaVersion).toBe(7);
+    expect(manifest.templates.at(-1).inheritBrandKit).toBe(false);
+    const reopened = await openProjectSetArchive(data);
+    expect(reopened.templates.at(-1)!.inheritBrandKit).toBe(false);
+    const restored = resolveProjectSetTemplate(reopened, kept.id).compositions[0]!;
+    expect(restored.layers[0]!.element).toMatchObject({
+      color: '#11bb88',
+      fontFamily: 'Source Sans',
+    });
+    expect(restored.assets).toEqual([localFont]);
+    expect(restored.backgroundPaint).toBe('#223344');
+
+    zip.file('manifest.json', JSON.stringify({ ...manifest, schemaVersion: 6 }));
+    await expect(
+      openProjectSetArchive(await zip.generateAsync({ type: 'uint8array' })),
+    ).rejects.toThrow(/archive schema does not match its local Brand Kit settings/i);
+  });
+
+  it('can inherit set dimensions while keeping its own Brand Kit', () => {
+    const set = createProjectSet('Destination', createProject());
+    set.brandKit = { name: 'Destination kit', tokens: [] };
+    const project = createProject({ name: 'Source' });
+    project.compositions[0]!.width = 1280;
+    project.compositions[0]!.designSystem.name = 'Source kit';
+    const added = addProjectSetTemplate(set, project, project.name, true, {
+      inheritBrandKit: false,
+    });
+    const kept = resolveProjectSetTemplate(added, added.templates.at(-1)!.id).compositions[0]!;
+    expect(kept.width).toBe(set.settings!.width);
+    expect(kept.designSystem.name).toBe('Source kit');
+  });
+});
 
 describe('empty template-set archive compatibility', () => {
   it.each(['compact', 'compatible'] as const)(

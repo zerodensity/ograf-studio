@@ -21,6 +21,7 @@ import {
 } from '@ograf-editor/scene-model';
 import { immer } from 'zustand/middleware/immer';
 import { useProjectSetStore } from './projectSetStore';
+import { templateBrandKit } from './projectSet';
 import { onAirFrame } from './onAirFrame';
 import {
   compactFreshRecipeTiming,
@@ -5283,6 +5284,12 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       updateDesignToken: (tokenId, patch) => {
+        const session = useProjectSetStore.getState();
+        const projectSet = session.projectSet;
+        const member = projectSet?.templates.find((item) => item.id === session.activeTemplateId);
+        const shared = templateBrandKit(projectSet, member)?.tokens.some(
+          (token) => token.id === tokenId,
+        );
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const token = composition.designSystem.tokens.find(
@@ -5296,11 +5303,7 @@ export const useProjectStore = create<ProjectStore>()(
           next.value = normalizeDesignTokenValue(next.type, next.value);
           Object.assign(token, next);
           syncDesignToken(composition, token.id);
-          if (
-            useProjectSetStore
-              .getState()
-              .projectSet?.brandKit?.tokens.some((item) => item.id === tokenId)
-          ) {
+          if (shared) {
             for (const other of state.project.compositions) {
               if (other.id === composition.id) continue;
               const linked = other.designSystem.tokens.find((item) => item.id === tokenId);
@@ -5311,14 +5314,12 @@ export const useProjectStore = create<ProjectStore>()(
             }
           }
         });
-        const session = useProjectSetStore.getState();
-        if (
-          patch.value !== undefined &&
-          session.projectSet?.brandKit?.tokens.some((item) => item.id === tokenId)
-        ) {
+        if (patch.value !== undefined && projectSet && shared) {
+          const latestSet = useProjectSetStore.getState().projectSet;
+          if (!latestSet || latestSet.id !== projectSet.id) return;
           session.setProjectSet({
-            ...session.projectSet,
-            templates: session.projectSet.templates.map((template) =>
+            ...latestSet,
+            templates: latestSet.templates.map((template) =>
               template.id === session.activeTemplateId
                 ? {
                     ...template,
@@ -5334,11 +5335,9 @@ export const useProjectStore = create<ProjectStore>()(
 
       removeDesignToken: (tokenId) =>
         set((state) => {
-          if (
-            useProjectSetStore
-              .getState()
-              .projectSet?.brandKit?.tokens.some((token) => token.id === tokenId)
-          )
+          const { projectSet, activeTemplateId } = useProjectSetStore.getState();
+          const member = projectSet?.templates.find((item) => item.id === activeTemplateId);
+          if (templateBrandKit(projectSet, member)?.tokens.some((token) => token.id === tokenId))
             return;
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           if (

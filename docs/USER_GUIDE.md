@@ -229,15 +229,23 @@ for a standalone playout export.
 Saving shows template/resource/compression progress and runs archive generation in a worker, so
 the editor and its bridge can keep responding. Edits made during saving remain in the open document.
 
+Adding an existing template or pasting from a different set keeps the source appearance, timing,
+and resolved dependencies. The transferred template has local branding and canvas settings. Use
+**This template** in Brand Kit to edit its local definitions. Later edits to the destination Brand
+Kit leave its appearance intact. Studio validates the transfer before adding the member, and **Undo**
+restores the destination in one step. Transitions require matching output size and frame rate for
+the templates they coordinate, including any canvas crops.
+
 A new set starts as **Untitled Template Set**. Double-click its root in Scene Outliner, or select it
 and press **F2**, to rename the set. Saving the set `.ogs` under a different filename updates the set
 name and the archive's root. Saving a child `.ogs` updates that template's name; the container keeps
 its own name. Scene Outliner labels roots as **Template Set** or **Template** to show the document type.
 
-Studio saves sets using compact archive schema 6. Earlier versions that read schema 5 require a
-compatible archive, which can be created through MCP; that copy retains the older archive layout
-and can be larger. Newer features are not down-converted. Current Studio still
-opens older schema 1–5 sets and legacy `.ogp` sets. Older Studio versions that expect JSON `.ogs`
+Studio saves ordinary sets using compact archive schema 6. Sets with a member explicitly set to
+local branding use schema 7. For those sets, use the current archive or save a standalone
+template copy to carry its resolved appearance. Other sets can use MCP compatible storage to save
+schema 5 for earlier set readers. Current Studio opens schemas 1–7 and legacy `.ogp` sets. Older Studio
+versions that expect JSON `.ogs`
 cannot read any multi-template `.ogs` archive. **Add .ogs Template…** accepts a single template only;
 open a multi-template document as a set to retain all members.
 

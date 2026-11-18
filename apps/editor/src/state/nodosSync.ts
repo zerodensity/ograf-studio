@@ -139,6 +139,7 @@ function inputs(): Map<string, TemplateInput> {
           dependencies: [
             ...shared,
             source?.inheritSettings,
+            source?.inheritBrandKit,
             source?.settingsOverrides,
             source?.brandKitOverrides,
             source?.typographyOverrides,
