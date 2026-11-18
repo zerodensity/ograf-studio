@@ -160,6 +160,7 @@ export function applyTypographyPresetBinding(
   layer: Layer,
   preset: TypographyPreset,
   bind = true,
+  options: { syncFieldDefaults?: boolean } = {},
 ): DesignerBindingPreviewReset[] {
   const errors = typographyPresetErrors(preset);
   if (errors.length) throw new Error(errors.join(' '));
@@ -199,22 +200,31 @@ export function applyTypographyPresetBinding(
     (layer.element as unknown as Record<TypographyProperty, unknown>)[property] =
       preset.properties[property];
   }
-  return syncDesignerBindingDefaults(composition, layer, before, inherited);
+  return options.syncFieldDefaults === false
+    ? []
+    : syncDesignerBindingDefaults(composition, layer, before, inherited);
 }
 
 /** Reapply authored styles to ordinary layers and component prototypes, leaving runtime logic intact. */
-export function syncTypographyPresets(composition: Composition): DesignerBindingPreviewReset[] {
+export function syncTypographyPresets(
+  composition: Composition,
+  options: { presetIds?: ReadonlySet<string>; syncFieldDefaults?: boolean } = {},
+): DesignerBindingPreviewReset[] {
   const presets = composition.designSystem.typography ?? [];
   const errors = typographyPresetsErrors(presets);
   if (errors.length) throw new Error(errors.join(' '));
   const resets: DesignerBindingPreviewReset[] = [];
   const apply = (scope: Composition) => {
     for (const layer of scope.layers) {
-      if (!layer.typographyBinding) continue;
+      if (
+        !layer.typographyBinding ||
+        (options.presetIds && !options.presetIds.has(layer.typographyBinding.presetId))
+      )
+        continue;
       const problems = typographyBindingErrors(layer, presets);
       if (problems.length) throw new Error(problems.join(' '));
       const preset = presets.find((item) => item.id === layer.typographyBinding!.presetId)!;
-      resets.push(...applyTypographyPresetBinding(scope, layer, preset, false));
+      resets.push(...applyTypographyPresetBinding(scope, layer, preset, false, options));
     }
   };
   apply(composition);

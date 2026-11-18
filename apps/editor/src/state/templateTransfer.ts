@@ -3,15 +3,18 @@ import {
   createId,
   getCompositionOutputRect,
   migrateProject,
+  type Asset,
   type Project,
 } from '@ograf-editor/scene-model';
 import { validateProject } from '@ograf-editor/validation';
+import type { TemplateTransferOptions } from '@ograf-editor/agent-tools/template-transfer-review';
 import { runAtomicHistoryStep } from './historyStore';
 import { useLayerClipboardStore } from './layerClipboardStore';
 import {
   addProjectSetTemplate,
   reorderProjectSetTemplate,
   resolveProjectSetTemplate,
+  type ProjectSetBrandKitLinks,
   type ProjectSetDocument,
 } from './projectSet';
 import { syncProjectSetPreviewControls } from './projectSetSession';
@@ -25,20 +28,32 @@ import {
   type TemplateSetSettings,
 } from './templateSetSettings';
 import { preparePreservedTransferProject } from './templateTransferDependencies';
+import {
+  applyTemplateTransferBranding,
+  type TemplateTransferMappingRow,
+  type TemplateTransferSourceBrandKit,
+} from './templateTransferBranding';
 import { useTestDataStore } from './testDataStore';
 import { useTimelineStore } from './timelineStore';
 
-type TransferSource = 'clipboard' | 'resolved-file';
+export type TemplateTransferSourceKind = 'clipboard' | 'resolved-file' | 'template-set-file';
 type SettingValue = string | number | boolean;
 
 export interface TemplateTransferReport {
-  policy: 'keep-appearance';
-  sourceKind: TransferSource;
+  policy: TemplateTransferOptions['policy'];
+  sourceKind: TemplateTransferSourceKind;
   templateId: string;
   projectId: string;
   compositionId: string;
-  inheritSettings: false;
+  inheritSettings: boolean;
   inheritBrandKit: false;
+  brandKitLinks?: ProjectSetBrandKitLinks;
+  mappings: TemplateTransferMappingRow[];
+  dependencies?: {
+    assets: { id: string; name: string; kind: Asset['kind']; compositionId: string }[];
+    components: { id: string; name: string; compositionId: string }[];
+  };
+  brandingSummary?: { linked: number; preserved: number; overrides: number; unresolved: number };
   settingsDifferences: {
     key: TemplateSetSettingKey;
     source: SettingValue;
@@ -47,9 +62,10 @@ export interface TemplateTransferReport {
   warnings: string[];
 }
 
-interface PreparedTemplateTransfer {
+export interface PreparedTemplateTransfer {
   set: ProjectSetDocument;
   resolved: Project;
+  beforeProject?: Project;
   result: { name: string; transfer: TemplateTransferReport };
   assertCurrentDestination: () => void;
 }
@@ -111,6 +127,48 @@ function outputFormat(project: Project) {
   return `${width} × ${height} at ${composition.frameRate} fps`;
 }
 
+function transferDependencies(
+  project: Project,
+): NonNullable<TemplateTransferReport['dependencies']> {
+  return {
+    assets: project.compositions.flatMap((composition) => {
+      const assets = new Map(composition.assets.map((asset) => [asset.id, asset]));
+      for (const component of composition.components)
+        for (const asset of component.resources ?? []) assets.set(asset.id, asset);
+      return [...assets.values()].map(({ id, name, kind }) => ({
+        id,
+        name,
+        kind,
+        compositionId: composition.id,
+      }));
+    }),
+    components: project.compositions.flatMap((composition) =>
+      composition.components.map(({ id, name }) => ({ id, name, compositionId: composition.id })),
+    ),
+  };
+}
+
+function transferBrandingSummary(
+  rows: TemplateTransferMappingRow[],
+  options: TemplateTransferOptions,
+): NonNullable<TemplateTransferReport['brandingSummary']> {
+  const reset = new Set(
+    (options.mappings ?? [])
+      .filter(({ resetOverrides }) => resetOverrides)
+      .map(({ kind, sourceId }) => `${kind}:${sourceId}`),
+  );
+  const totals = { linked: 0, preserved: 0, overrides: 0, unresolved: 0 };
+  for (const row of rows) {
+    const kept = row.action === 'keep-local';
+    const overrides = kept || !reset.has(`${row.kind}:${row.sourceId}`) ? row.overridesCount : 0;
+    totals.overrides += overrides;
+    totals.preserved += kept ? row.affectedCount : overrides;
+    totals.linked += kept ? 0 : row.affectedCount - overrides;
+    if (row.conflicts.length) totals.unresolved += 1;
+  }
+  return totals;
+}
+
 export function validatedTemplateInsertion(set: ProjectSetDocument, templateId: string): Project {
   const resolved = migrateProject(resolveProjectSetTemplate(set, templateId));
   const validation = validateProject(resolved);
@@ -123,28 +181,48 @@ export function validatedTemplateInsertion(set: ProjectSetDocument, templateId: 
 export function prepareTemplateTransfer(
   destination: ProjectSetDocument,
   source: Project,
-  sourceKind: TransferSource,
-  options: { targetId?: string | null; side?: 'before' | 'after'; originalPrompt?: string } = {},
+  sourceKind: TemplateTransferSourceKind,
+  options: {
+    targetId?: string | null;
+    side?: 'before' | 'after';
+    originalPrompt?: string;
+    sourceBrandKit?: TemplateTransferSourceBrandKit;
+    review?: TemplateTransferOptions;
+  } = {},
 ): PreparedTemplateTransfer {
   const assertCurrentDestination = captureTemplateTransferDestination();
   if (destination.templates.length >= 256)
     throw new Error('A template set can contain at most 256 templates.');
-  const hydratedSource = sourceKind === 'resolved-file' ? migrateProject(source) : source;
-  const project = preparePreservedTransferProject(hydratedSource, destination);
+  const hydratedSource = sourceKind === 'clipboard' ? source : migrateProject(source);
+  const kept = preparePreservedTransferProject(hydratedSource, destination);
+  const beforeProject = options.review ? structuredClone(kept) : undefined;
+  const branding: ReturnType<typeof applyTemplateTransferBranding> = options.review
+    ? applyTemplateTransferBranding(kept, destination, options.sourceBrandKit, options.review)
+    : { project: kept, destination, mappings: [], warnings: [] };
+  const { project, brandKitLinks } = branding;
+  const inheritSettings = options.review?.inheritSettings === true && !!destination.settings;
   if (sourceKind === 'clipboard') assignTemplateProjectIdentity(project);
   if (options.originalPrompt !== undefined)
     appendAuthoringPrompt(project, { id: createId('prompt'), text: options.originalPrompt });
   const name = uniqueTemplateName(destination, project.name);
   project.name = name;
-  const added = addProjectSetTemplate(destination, project, name, false, {
+  const added = addProjectSetTemplate(branding.destination, project, name, inheritSettings, {
     inheritBrandKit: false,
+    ...(brandKitLinks ? { brandKitLinks } : {}),
   });
-  const { id: templateId } = added.templates.at(-1)!;
+  const member = added.templates.at(-1)!;
+  const { id: templateId } = member;
+  if (branding.brandKitOverrides) member.brandKitOverrides = branding.brandKitOverrides;
+  if (branding.typographyOverrides) member.typographyOverrides = branding.typographyOverrides;
+  if (branding.backgroundOverrides) member.backgroundOverrides = branding.backgroundOverrides;
+  if (branding.backgroundOverridden !== undefined)
+    member.backgroundOverridden = branding.backgroundOverridden;
   const set = options.targetId
     ? reorderProjectSetTemplate(added, templateId, options.targetId, options.side ?? 'after')
     : added;
   const resolved = validatedTemplateInsertion(set, templateId);
-  const sourceSettings = templateSetSettingsFromProject(resolved);
+  if (brandKitLinks) member.project = structuredClone(resolved);
+  const sourceSettings = templateSetSettingsFromProject(hydratedSource);
   const differences: TemplateTransferReport['settingsDifferences'] = [];
   if (destination.settings) {
     for (const key of TEMPLATE_SET_SETTING_KEYS) {
@@ -153,8 +231,8 @@ export function prepareTemplateTransfer(
       if (!Object.is(source, target)) differences.push({ key, source, destination: target });
     }
   }
-  const warnings: string[] = [];
-  if (sourceKind === 'resolved-file')
+  const warnings = [...branding.warnings];
+  if (sourceKind === 'resolved-file' && !options.sourceBrandKit)
     warnings.push(
       'This transfer uses the file’s resolved branding. Source kit links are unavailable.',
     );
@@ -167,23 +245,32 @@ export function prepareTemplateTransfer(
     const targetOutput = outputFormat(resolveProjectSetTemplate(destination, first.id));
     if (sourceOutput !== targetOutput)
       warnings.push(
-        `Kept the template output at ${sourceOutput}. Coordinated export requires the same output size and frame rate across templates (${targetOutput}).`,
+        `Template output is ${sourceOutput}. Coordinated export requires the same output size and frame rate across templates (${targetOutput}).`,
       );
   }
   return {
     set,
     resolved,
+    beforeProject,
     assertCurrentDestination,
     result: {
       name,
       transfer: {
-        policy: 'keep-appearance',
+        policy: options.review?.policy ?? 'keep-appearance',
         sourceKind,
         templateId,
         projectId: resolved.id,
         compositionId: resolved.mainCompositionId,
-        inheritSettings: false,
+        inheritSettings,
         inheritBrandKit: false,
+        ...(brandKitLinks ? { brandKitLinks } : {}),
+        mappings: branding.mappings,
+        ...(beforeProject && options.review
+          ? {
+              dependencies: transferDependencies(beforeProject),
+              brandingSummary: transferBrandingSummary(branding.mappings, options.review),
+            }
+          : {}),
         settingsDifferences: differences,
         warnings,
       },
@@ -273,7 +360,16 @@ export function templateTransferStatus(
     const label = labels[key];
     return label ? [`${label} ${source} (set default ${destination})`] : [];
   });
-  const details = settings.length ? ` Kept ${settings.join(', ')}.` : '';
+  const details = settings.length
+    ? ` ${transfer.inheritSettings ? 'Compared' : 'Kept'} ${settings.join(', ')}.`
+    : '';
   const warnings = transfer.warnings.length ? ` ${transfer.warnings.join(' ')}` : '';
-  return `${verb} “${name}” with source branding and settings.${details}${warnings}`;
+  const branding =
+    transfer.policy === 'adopt-destination'
+      ? 'reviewed destination branding'
+      : transfer.policy === 'bring-source-branding'
+        ? 'imported source branding'
+        : 'source branding';
+  const settingsOrigin = transfer.inheritSettings ? 'destination settings' : 'source settings';
+  return `${verb} “${name}” with ${branding} and ${settingsOrigin}.${details}${warnings}`;
 }

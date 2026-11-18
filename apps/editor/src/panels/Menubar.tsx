@@ -12,17 +12,13 @@ import {
 import { flushSync } from 'react-dom';
 import { useProjectStore } from '../state/projectStore';
 import { useProjectSetStore } from '../state/projectSetStore';
-import { insertTemplateProjectWithReport } from '../state/templateCommands';
+import { requestFileTemplateTransferReview } from '../state/templateTransferReviewDialogStore';
 import {
   captureTemplateTransferDestination,
   templateTransferStatus,
 } from '../state/templateTransfer';
 import { useSelectionStore } from '../state/selectionStore';
-import {
-  openProjectFromFile,
-  openStudioDocumentFromFile,
-  openStudioDocumentFromUrl,
-} from '../state/fileIO';
+import { openStudioDocumentFromFile, openStudioDocumentFromUrl } from '../state/fileIO';
 import type { StudioDocument } from '../state/studioDocument';
 import { applyOpenedStudioDocument } from '../state/openStudioDocument';
 import { saveStudioDocument } from '../state/saveStudioDocument';
@@ -483,12 +479,14 @@ export function Menubar({
     if (!projectSet) return;
     const assertCurrentDestination = captureTemplateTransferDestination();
     try {
-      const opened = await openProjectFromFile();
+      const opened = await openStudioDocumentFromFile(ownerWindow);
       if (!opened) return;
       assertCurrentDestination();
-      setStatus(
-        templateTransferStatus('Added', insertTemplateProjectWithReport(opened, activeTemplateId)),
-      );
+      const result = await requestFileTemplateTransferReview(ownerWindow, opened, {
+        targetTemplateId: activeTemplateId ?? undefined,
+        assertCurrentDestination,
+      });
+      setStatus(result ? templateTransferStatus('Added', result) : 'Transfer cancelled.');
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Failed to add template');
     }

@@ -3,6 +3,9 @@ import {
   appendAuthoringPrompt,
   createProject,
   createId,
+  isMediaPaint,
+  isShaderPaint,
+  mediaPaintAssetReferences,
   type Project,
 } from '@ograf-editor/scene-model';
 import {
@@ -11,6 +14,7 @@ import {
   removeProjectSetTemplate,
   resolveProjectSetTemplate,
   saveProjectSetTemplateEdits,
+  templateBrandKit,
   type ProjectSetDocument,
   type ProjectSetTemplate,
   type ProjectSetControlBinding,
@@ -31,6 +35,7 @@ import {
   uniqueTemplateName,
   type TemplateTransferReport,
 } from './templateTransfer';
+import type { TemplateTransferSourceBrandKit } from './templateTransferBranding';
 
 export type { TemplateTransferReport } from './templateTransfer';
 
@@ -38,6 +43,7 @@ interface TemplateSnapshot {
   setId: string;
   template: ProjectSetTemplate;
   resolved: Project;
+  sourceBrandKit?: TemplateTransferSourceBrandKit;
   controls: Array<{ controlId: string; binding: ProjectSetControlBinding }>;
   assets: Array<{ slotId: string; binding: ProjectSetAssetBinding }>;
 }
@@ -47,12 +53,56 @@ export const useTemplateClipboardStore = create<{
   removed: (TemplateSnapshot & { index: number }) | null;
 }>()(() => ({ copied: null, removed: null }));
 
-function currentSet() {
+export function snapshotOpenTemplateSet(): ProjectSetDocument | null {
   const { projectSet, activeTemplateId } = useProjectSetStore.getState();
-  if (!projectSet) throw new Error('Open a template set first.');
-  return activeTemplateId
+  return projectSet && activeTemplateId
     ? saveProjectSetTemplateEdits(projectSet, activeTemplateId, useProjectStore.getState().project)
     : projectSet;
+}
+
+function currentSet() {
+  const set = snapshotOpenTemplateSet();
+  if (!set) throw new Error('Open a template set first.');
+  return set;
+}
+
+export function captureTemplateSourceBrandKit(
+  set: ProjectSetDocument,
+  template: ProjectSetTemplate,
+): TemplateTransferSourceBrandKit | undefined {
+  const kit = templateBrandKit(set, template);
+  if (!kit) return undefined;
+  const families = new Set(
+    [
+      ...kit.tokens.filter(({ type }) => type === 'font-family').map(({ value }) => String(value)),
+      ...(kit.typography ?? []).map(({ properties }) => properties.fontFamily),
+    ].flatMap((stack) =>
+      stack.split(',').map((family) => family.trim().replace(/^['"]|['"]$/g, '')),
+    ),
+  );
+  const references = new Set(
+    (kit.backgrounds ?? []).flatMap(({ paint }) =>
+      isMediaPaint(paint)
+        ? mediaPaintAssetReferences(paint)
+        : isShaderPaint(paint) && paint.inputImage
+          ? [paint.inputImage.source]
+          : [],
+    ),
+  );
+  return {
+    kit,
+    assets: set.assets.filter(
+      (asset) =>
+        references.has(`asset:${asset.id}`) ||
+        (asset.kind === 'font' && !!asset.fontFamily && families.has(asset.fontFamily)),
+    ),
+    overrides: {
+      tokenIds: template.brandKitOverrides,
+      typographyIds: template.typographyOverrides,
+      backgroundIds: template.backgroundOverrides,
+      background: template.backgroundOverridden,
+    },
+  };
 }
 
 function snapshot(set: ProjectSetDocument, templateId: string): TemplateSnapshot {
@@ -62,6 +112,7 @@ function snapshot(set: ProjectSetDocument, templateId: string): TemplateSnapshot
     setId: set.id,
     template,
     resolved: resolveProjectSetTemplate(set, templateId),
+    sourceBrandKit: captureTemplateSourceBrandKit(set, template),
     controls: set.controls.flatMap((control) =>
       control.bindings
         .filter((binding) => binding.templateId === templateId)
@@ -133,7 +184,10 @@ function insertSnapshot(
     project,
     project.name,
     source.template.inheritSettings !== false,
-    { inheritBrandKit: source.template.inheritBrandKit },
+    {
+      inheritBrandKit: source.template.inheritBrandKit,
+      brandKitLinks: source.template.brandKitLinks,
+    },
   );
   const added = updated.templates.at(-1)!;
   if (keepInheritance) {

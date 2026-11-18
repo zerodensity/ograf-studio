@@ -229,25 +229,37 @@ for a standalone playout export.
 Saving shows template/resource/compression progress and runs archive generation in a worker, so
 the editor and its bridge can keep responding. Edits made during saving remain in the open document.
 
-Adding an existing template or pasting from a different set keeps the source appearance, timing,
-and resolved dependencies. The transferred template has local branding and canvas settings. Use
-**This template** in Brand Kit to edit its local definitions. Later edits to the destination Brand
-Kit leave its appearance intact. Studio validates the transfer before adding the member, and **Undo**
-restores the destination in one step. Transitions require matching output size and frame rate for
-the templates they coordinate, including any canvas crops.
+Adding an existing template or pasting from a different set opens a transfer review. When opening
+a complete set archive, select the source template in the review.
+
+- **Keep appearance** keeps the source branding and resolved dependencies local. Use **This template**
+  in Brand Kit to edit local definitions. Later destination kit changes leave the local styling intact.
+- **Adopt destination Brand Kit** suggests compatible semantic token matches. Review the mapping
+  rows to choose the destination definitions and decide which source roles to keep local. You can
+  approve specific typography and background matches and choose when to reset local overrides.
+- **Bring source branding** imports definitions from an available shared source kit. Review their
+  destination names, keys, and conflicts. A standalone file with resolved styling can keep its
+  appearance or adopt destination definitions. Exact shared-kit recovery needs source set information.
+
+Choose whether to use destination canvas settings independently of the branding policy. Review
+the settings differences, before-and-after frames, font and text fit notices, and the proposed
+bindings before applying. **Undo** restores the prior set in one step. Transitions require matching
+output size and frame rate for the templates they coordinate, including any canvas crops.
 
 A new set starts as **Untitled Template Set**. Double-click its root in Scene Outliner, or select it
 and press **F2**, to rename the set. Saving the set `.ogs` under a different filename updates the set
 name and the archive's root. Saving a child `.ogs` updates that template's name; the container keeps
 its own name. Scene Outliner labels roots as **Template Set** or **Template** to show the document type.
 
-Studio saves ordinary sets using compact archive schema 6. Sets with a member explicitly set to
-local branding use schema 7. For those sets, use the current archive or save a standalone
+Studio saves ordinary sets using compact archive schema 6. Sets with a member using local or
+selectively linked branding use schema 7. For those sets, use the current archive or save a standalone
 template copy to carry its resolved appearance. Other sets can use MCP compatible storage to save
 schema 5 for earlier set readers. Current Studio opens schemas 1–7 and legacy `.ogp` sets. Older Studio
-versions that expect JSON `.ogs`
-cannot read any multi-template `.ogs` archive. **Add .ogs Template…** accepts a single template only;
-open a multi-template document as a set to retain all members.
+versions that expect JSON `.ogs` require a standalone template copy. Use **Add .ogs Template…** to
+choose a member from an archive, or **File → Open…** to open the complete set.
+
+Use a Studio build with transfer review support to edit approved destination Brand Kit links.
+Keep-only schema 7 readers display the saved appearance with the branding treated as local.
 
 The **Templates** pane switches the canvas between set members. Drag a thumbnail above or below another
 to reorder templates; the insertion line shows the drop position. The active template and its edits

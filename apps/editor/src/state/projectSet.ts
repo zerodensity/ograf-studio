@@ -21,6 +21,7 @@ import {
 } from './componentSetLibrary';
 import {
   isMediaPaint,
+  isShaderPaint,
   mediaPaintAssetReferences,
   transitionLogicErrors,
   compositionPlayoutActionErrors,
@@ -76,6 +77,7 @@ export interface ProjectSetTemplate {
   inheritSettings?: boolean;
   /** A transferred member can keep its resolved Brand Kit independently of the set. */
   inheritBrandKit?: boolean;
+  brandKitLinks?: ProjectSetBrandKitLinks;
   settingsOverrides?: TemplateSetSettingKey[];
   brandKitOverrides?: string[];
   typographyOverrides?: string[];
@@ -83,11 +85,26 @@ export interface ProjectSetTemplate {
   backgroundOverridden?: boolean;
 }
 
+export interface ProjectSetBrandKitLinks {
+  tokenIds: string[];
+  typographyIds: string[];
+  backgroundIds: string[];
+}
+
 export function templateBrandKit(
   set: ProjectSetDocument | null | undefined,
-  template: Pick<ProjectSetTemplate, 'inheritBrandKit'> | null | undefined,
+  template: Pick<ProjectSetTemplate, 'inheritBrandKit' | 'brandKitLinks'> | null | undefined,
 ): DesignSystem | undefined {
-  return template && template.inheritBrandKit !== false ? set?.brandKit : undefined;
+  const kit = set?.brandKit;
+  if (!template || !kit) return undefined;
+  const links = template.brandKitLinks;
+  if (!links) return template.inheritBrandKit !== false ? kit : undefined;
+  return {
+    name: kit.name,
+    tokens: kit.tokens.filter(({ id }) => links.tokenIds.includes(id)),
+    typography: kit.typography?.filter(({ id }) => links.typographyIds.includes(id)),
+    backgrounds: kit.backgrounds?.filter(({ id }) => links.backgroundIds.includes(id)),
+  };
 }
 
 export function projectSetArchiveSchemaVersion(
@@ -294,9 +311,10 @@ export function addProjectSetTemplate(
   project: Project,
   name = project.name,
   inheritSettings = true,
-  options: { inheritBrandKit?: boolean } = {},
+  options: Pick<ProjectSetTemplate, 'inheritBrandKit' | 'brandKitLinks'> = {},
 ): ProjectSetDocument {
-  const kit = templateBrandKit(set, options);
+  // Selected links are applied when the prepared transfer has supplied its explicit overrides.
+  const kit = options.brandKitLinks ? undefined : templateBrandKit(set, options);
   return {
     ...set,
     templates: [
@@ -308,6 +326,7 @@ export function addProjectSetTemplate(
         ...(options.inheritBrandKit !== undefined
           ? { inheritBrandKit: options.inheritBrandKit }
           : {}),
+        ...(options.brandKitLinks ? { brandKitLinks: structuredClone(options.brandKitLinks) } : {}),
         project: kit
           ? resolveTemplateSetBrandKit(
               set.settings && inheritSettings
@@ -512,6 +531,7 @@ export function saveProjectSetTemplateEdits(
       typography: typographyOverrides,
       backgrounds: backgroundOverrides,
       background: backgroundOverridden,
+      selective: source.brandKitLinks !== undefined,
     });
 
   for (const control of set.controls) {
@@ -1488,6 +1508,7 @@ interface ProjectSetArchiveManifest {
     sha256: string;
     inheritSettings?: boolean;
     inheritBrandKit?: boolean;
+    brandKitLinks?: ProjectSetBrandKitLinks;
     settingsOverrides?: TemplateSetSettingKey[];
     brandKitOverrides?: string[];
     typographyOverrides?: string[];
@@ -1608,21 +1629,40 @@ function validateSet(set: ProjectSetDocument): void {
       throw new Error(`Template ${template.name} has invalid settings inheritance.`);
     if (template.inheritBrandKit !== undefined && typeof template.inheritBrandKit !== 'boolean')
       throw new Error(`Template ${template.name} has invalid Brand Kit inheritance.`);
+    const links = template.brandKitLinks;
+    if (
+      links !== undefined &&
+      (template.inheritBrandKit !== false ||
+        !links ||
+        typeof links !== 'object' ||
+        Object.keys(links).length !== 3 ||
+        !(
+          [
+            [links.tokenIds, set.brandKit?.tokens ?? []],
+            [links.typographyIds, set.brandKit?.typography ?? []],
+            [links.backgroundIds, set.brandKit?.backgrounds ?? []],
+          ] as const
+        ).every(
+          ([ids, definitions]) =>
+            Array.isArray(ids) &&
+            ids.length <= definitions.length &&
+            new Set(ids).size === ids.length &&
+            ids.every((id) => definitions.some((definition) => definition.id === id)),
+        ))
+    )
+      throw new Error(`Template ${template.name} has invalid Brand Kit links.`);
+    const memberKit = links ? templateBrandKit(set, template) : set.brandKit;
     for (const [keys, allowed, label] of [
       [template.settingsOverrides, TEMPLATE_SET_SETTING_KEYS, 'settings'],
-      [
-        template.brandKitOverrides,
-        set.brandKit?.tokens.map((token) => token.id) ?? [],
-        'Brand Kit',
-      ],
+      [template.brandKitOverrides, memberKit?.tokens.map((token) => token.id) ?? [], 'Brand Kit'],
       [
         template.typographyOverrides,
-        set.brandKit?.typography?.map((style) => style.id) ?? [],
+        memberKit?.typography?.map((style) => style.id) ?? [],
         'typography',
       ],
       [
         template.backgroundOverrides,
-        set.brandKit?.backgrounds?.map((style) => style.id) ?? [],
+        memberKit?.backgrounds?.map((style) => style.id) ?? [],
         'background style',
       ],
     ] as const) {
@@ -1838,6 +1878,7 @@ export function resolveProjectSetTemplate(set: ProjectSetDocument, templateId: s
       typography: template.typographyOverrides,
       backgrounds: template.backgroundOverrides,
       background: template.backgroundOverridden,
+      selective: template.brandKitLinks !== undefined,
     });
   // Font files referenced by the master palette/type tokens travel with inheriting children.
   for (const composition of project.compositions) {
@@ -1866,13 +1907,16 @@ export function resolveProjectSetTemplate(set: ProjectSetDocument, templateId: s
   }
 
   const backgroundAssetIds = new Set(
-    (kit?.backgrounds ?? []).flatMap((style) =>
-      isMediaPaint(style.paint)
-        ? mediaPaintAssetReferences(style.paint)
-            .filter((ref) => ref.startsWith('asset:'))
-            .map((ref) => ref.slice(6))
-        : [],
-    ),
+    (kit?.backgrounds ?? [])
+      .flatMap(({ paint }) =>
+        isMediaPaint(paint)
+          ? mediaPaintAssetReferences(paint)
+          : isShaderPaint(paint) && paint.inputImage
+            ? [paint.inputImage.source]
+            : [],
+      )
+      .filter((ref) => ref.startsWith('asset:'))
+      .map((ref) => ref.slice(6)),
   );
   for (const composition of project.compositions)
     for (const asset of set.assets.filter((item) => backgroundAssetIds.has(item.id))) {
@@ -2091,6 +2135,7 @@ export async function createProjectSetArchive(
       ...(template.inheritBrandKit !== undefined
         ? { inheritBrandKit: template.inheritBrandKit }
         : {}),
+      ...(template.brandKitLinks ? { brandKitLinks: template.brandKitLinks } : {}),
       ...(template.settingsOverrides ? { settingsOverrides: template.settingsOverrides } : {}),
       ...(template.brandKitOverrides ? { brandKitOverrides: template.brandKitOverrides } : {}),
       ...(template.typographyOverrides
@@ -2493,6 +2538,7 @@ export async function openProjectSetArchive(
       project,
       ...(item.inheritSettings !== undefined ? { inheritSettings: item.inheritSettings } : {}),
       ...(item.inheritBrandKit !== undefined ? { inheritBrandKit: item.inheritBrandKit } : {}),
+      ...(item.brandKitLinks !== undefined ? { brandKitLinks: item.brandKitLinks } : {}),
       ...(item.settingsOverrides !== undefined
         ? { settingsOverrides: item.settingsOverrides }
         : {}),

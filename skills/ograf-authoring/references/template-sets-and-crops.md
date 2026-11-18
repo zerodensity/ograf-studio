@@ -621,6 +621,30 @@ settings differences, and warnings. Check the result before reporting the transf
 The transfer can be undone as one operation in Studio. Names are made unique; IDs remain stable
 through rename and reorder.
 
+For a reviewed transfer, read the destination revision with `ograf_get_template_set`, then call
+`ograf_review_template_transfer` using the user's selected policy. Use
+`source:{kind:"clipboard"}` for a copied template or
+`source:{kind:"workspace-file",path,templateId?}` for an editable file in the MCP workspace.
+If the review lists `sourceTemplates`, select one and review the file again with its `templateId`.
+Preserve source canvas settings by default. Set `inheritSettings:true` only when the user wants
+destination canvas settings. The review reports the source, destination, available policies,
+settings differences, and mapping rows. Page the mapping and dependency inventories with `offset`
+and `limit`. The report includes metadata for inspection and excludes project and font bytes.
+
+Policy values are `keep-appearance`, `adopt-destination`, and `bring-source-branding`.
+Mapping choices use `kind`, `sourceId`, and `action:"link"|"keep-local"|"import"`, with
+`destinationId` or `destinationKey` where applicable. Apply `resetOverrides:true` only to a
+specifically approved mapping. Exact source kit import requires shared-kit provenance. A resolved
+standalone template still supports keeping its appearance or mapping eligible local definitions to
+the destination. Never infer a shared-kit identity from similar names or color values.
+
+Use `ograf_preview_template_transfer` with the review's `planId`, `expectedRevision`, and
+`sourceRevision` to compare representative frames. Then call `ograf_commit_template_transfer`
+with the same identifiers and `confirm:true` when the user approves the reviewed choices. Preview
+and commit for a workspace source also take its `workspaceFile:{path,templateId?}` so the host can
+check that the bytes are still current. Re-review after a stale revision error. Apply the reviewed
+plan once. Saving a source or certifying playout remains a separate operation.
+
 Defaults cover the main canvas size, frame rate, background, render modes, data fades/interruption,
 rulers, safe-area display, snapping, grid/snap distance, and canvas bounds. Existing, new, and inserted
 members inherit by default. Every supported setting stays editable: an edit creates a per-property
@@ -638,7 +662,9 @@ and Properties edits mark affected token bindings as overridden. Runtime data/an
 is unchanged. Token creation alone does not bind every object.
 
 Read member `inheritBrandKit` independently of `inheritSettings`. A member with
-`inheritBrandKit:false` owns local branding, so use **This template** to edit its local definitions.
+`inheritBrandKit:false` uses local branding and any definitions explicitly listed in
+`brandKitLinks`. Inspect those approved token, typography, and background IDs before changing a
+master definition. Use **This template** to edit local definitions.
 
 The UI offers Brand Kit scopes **Template Set** and **This template**, origin badges and Reset.
 Shared font assets are embedded in resolved child projects. Generated CSS is a safe custom-property
@@ -673,8 +699,8 @@ other newer features are not down-converted. Set file dialogs remain UI actions,
 
 ## Portable set storage
 
-Ordinary compact `.ogs` sets use archive schema **6**. Sets with a member explicitly set to local
-branding use **7**. A set stores identical font/resource bytes and its set
+Ordinary compact `.ogs` sets use archive schema **6**. Sets with a member using local or selectively
+linked branding use **7**. A set stores identical font/resource bytes and its set
 component sources once, with per-template references. Studio validates references and hydrates normal
 editable projects on open; layer/component/asset IDs, instance overrides, bindings and animation remain
 unchanged. This is storage deduplication, not implicit component linking or editorial data sharing.

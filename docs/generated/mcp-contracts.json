@@ -3973,6 +3973,146 @@
       "execution": { "taskSupport": "forbidden" }
     },
     {
+      "name": "ograf_review_template_transfer",
+      "title": "Review template branding transfer",
+      "description": "Review branding and settings, or list members of a workspace set. Select source.templateId when requested. Returns bounded rows and a frozen plan ID. Files up to 64 MiB.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": { "$ref": "#/$defs/0" },
+          "source": {
+            "oneOf": [
+              { "properties": { "kind": { "const": "clipboard" } }, "additionalProperties": false },
+              {
+                "properties": {
+                  "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                  "templateId": { "$ref": "#/$defs/0" },
+                  "kind": { "const": "workspace-file" }
+                },
+                "required": ["path"],
+                "additionalProperties": false
+              }
+            ],
+            "type": "object",
+            "required": ["kind"]
+          },
+          "options": {
+            "default": { "policy": "keep-appearance" },
+            "type": "object",
+            "properties": {
+              "policy": {
+                "enum": ["keep-appearance", "adopt-destination", "bring-source-branding"]
+              },
+              "inheritSettings": { "type": "boolean" },
+              "mappings": {
+                "maxItems": 1536,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": { "enum": ["token", "typography", "background"] },
+                    "sourceId": { "$ref": "#/$defs/0" },
+                    "action": { "enum": ["link", "keep-local", "import"] },
+                    "destinationId": { "$ref": "#/$defs/0" },
+                    "destinationKey": { "$ref": "#/$defs/0" },
+                    "resetOverrides": { "type": "boolean" }
+                  },
+                  "required": ["kind", "sourceId", "action"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["policy"],
+            "additionalProperties": false
+          },
+          "targetTemplateId": { "anyOf": [{ "$ref": "#/$defs/0" }, { "type": "null" }] },
+          "side": { "enum": ["before", "after"] },
+          "originalPrompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Verbatim user request for this template, from the MCP client conversation."
+          },
+          "offset": { "default": 0, "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "limit": { "default": 25, "type": "integer", "minimum": 1, "maximum": 50 }
+        },
+        "required": ["expectedRevision", "source"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$defs": { "0": { "type": "string", "minLength": 1, "maxLength": 256 } }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": { "taskSupport": "forbidden" }
+    },
+    {
+      "name": "ograf_preview_template_transfer",
+      "title": "Preview a reviewed template transfer",
+      "description": "Render before and after images for the exact reviewed plan. Returns expiring image URLs. Recheck a file with the same workspaceFile path and member.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": { "$ref": "#/$defs/0" },
+          "planId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "sourceRevision": { "$ref": "#/$defs/0" },
+          "workspaceFile": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "templateId": { "$ref": "#/$defs/0" }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["expectedRevision", "planId", "sourceRevision"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$defs": { "0": { "type": "string", "minLength": 1, "maxLength": 256 } }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": { "taskSupport": "forbidden" }
+    },
+    {
+      "name": "ograf_commit_template_transfer",
+      "title": "Apply a reviewed template transfer",
+      "description": "Apply one undoable transfer from a reviewed plan and exact revisions. Requires confirm:true. Supply the same workspaceFile path and member for file sources.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": { "$ref": "#/$defs/0" },
+          "planId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "sourceRevision": { "$ref": "#/$defs/0" },
+          "workspaceFile": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "templateId": { "$ref": "#/$defs/0" }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+          },
+          "confirm": { "type": "boolean", "const": true }
+        },
+        "required": ["expectedRevision", "planId", "sourceRevision", "confirm"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$defs": { "0": { "type": "string", "minLength": 1, "maxLength": 256 } }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": { "taskSupport": "forbidden" }
+    },
+    {
       "name": "ograf_get_playout",
       "title": "Inspect Studio live playout",
       "description": "Read playout revision, states, lane readiness/current/pending/errors and tickerUpdates. target:preview reads the visible combined Preview & Export session; omitted/live reads the separate live/MCP session.",

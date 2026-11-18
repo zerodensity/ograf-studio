@@ -66,7 +66,9 @@ export function BrandKitPanel() {
   const tokenUsageCount = (tokenId: string) =>
     isMaster
       ? (projectSet?.templates ?? [])
-          .filter((template) => templateBrandKit(projectSet, template))
+          .filter((template) =>
+            templateBrandKit(projectSet, template)?.tokens.some((token) => token.id === tokenId),
+          )
           .reduce(
             (total, template) =>
               total +
@@ -127,11 +129,13 @@ export function BrandKitPanel() {
         <p className="inspector-hint brand-kit-scope-hint">
           {isMaster
             ? 'Master values update inheriting templates. Local overrides are kept.'
-            : activeMaster
-              ? 'Inherited values stay editable. Editing creates a template override; reset restores the master.'
-              : activeTemplate?.inheritBrandKit === false
-                ? 'This template keeps its own Brand Kit.'
-                : 'Link object properties to tokens to share colors, fonts and other styles.'}
+            : activeTemplate?.brandKitLinks
+              ? 'This template follows the selected definitions from the Template Set Brand Kit.'
+              : activeMaster
+                ? 'Inherited values stay editable. Editing creates a template override; reset restores the master.'
+                : activeTemplate?.inheritBrandKit === false
+                  ? 'This template keeps its own Brand Kit.'
+                  : 'Link object properties to tokens to share colors, fonts and other styles.'}
         </p>
         {error && (
           <p className="inspector-error" role="alert">

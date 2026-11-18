@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import { createProject } from '@ograf-editor/scene-model';
 import { createOGrafToolRecords } from '@ograf-editor/agent-tools';
+import { TEMPLATE_TRANSFER_CAPABILITY } from '@ograf-editor/agent-tools/template-transfer-review';
 import { EditorBridge, EditorReadinessError } from './editorBridge';
 import { AuthoringWorkspace } from './workspace';
 
@@ -26,7 +27,7 @@ const pixel =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XcJR8QAAAABJRU5ErkJggg==';
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function connected() {
+async function connected(transferReview = false) {
   const workspace = new AuthoringWorkspace();
   const server = createServer((_request, response) => response.writeHead(404).end());
   const bridge = new EditorBridge(server, workspace);
@@ -50,11 +51,26 @@ async function connected() {
     } else if (message.type === 'template-set.request') {
       const command = message as Message & { request: { action: string } };
       if (command.request.action === 'command') holdHeartbeats = true;
+      const capture = {
+        mimeType: 'image/png',
+        data: pixel,
+        width: 1,
+        height: 1,
+        originalWidth: 1,
+        originalHeight: 1,
+        resolvedFonts: [],
+      };
       send({
         type: 'template-set.result',
         requestId: message.requestId,
         result: { activeTemplateId: 'new-template' },
         ...(command.request.action === 'command' ? { project: createProject() } : {}),
+        ...(command.request.action === 'transfer-preview'
+          ? { captures: { before: { ...capture, frame: 7 }, after: { ...capture, frame: 12 } } }
+          : {}),
+        ...(command.request.action === 'transfer-commit'
+          ? { project: createProject({ name: 'Transferred template' }) }
+          : {}),
       });
     } else if (message.type === 'capture.request') {
       send({
@@ -81,7 +97,11 @@ async function connected() {
   send({
     type: 'editor.hello',
     project: workspace.get().snapshot().project,
-    capabilities: ['template-sets-v1', 'playout-v1'],
+    capabilities: [
+      'template-sets-v1',
+      'playout-v1',
+      ...(transferReview ? [TEMPLATE_TRANSFER_CAPABILITY] : []),
+    ],
   });
   for (let i = 0; i < 100 && !bridge.health.responsive; i++) await wait(5);
   expect(bridge.health.responsive).toBe(true);
@@ -120,6 +140,57 @@ async function connected() {
 }
 
 describe('browser operation readiness admission', () => {
+  const transferPlan = {
+    planId: 'review-1',
+    expectedRevision: 'set:1',
+    sourceRevision: 'clipboard:1',
+  };
+
+  it('publishes expiring transfer images without syncing the project until commit', async () => {
+    const f = await connected(true);
+    const revision = f.workspace.get().revision;
+    const preview = await f.bridge.requestTemplateSet({
+      action: 'transfer-preview',
+      ...transferPlan,
+    });
+    expect(preview).toMatchObject({
+      projectRevision: revision,
+      previewImages: {
+        before: {
+          frame: 7,
+          width: 1,
+          height: 1,
+          url: expect.stringMatching('/captures/'),
+          expiresAt: expect.any(String),
+        },
+        after: {
+          frame: 12,
+          width: 1,
+          height: 1,
+          url: expect.stringMatching('/captures/'),
+          expiresAt: expect.any(String),
+        },
+      },
+    });
+    for (const image of Object.values(preview.previewImages as Record<string, { url: string }>)) {
+      const token = new URL(image.url).pathname.split('/').at(-1)!;
+      expect(f.bridge.getCaptureAsset(token)?.data).toEqual(Buffer.from(pixel, 'base64'));
+      expect(image).not.toHaveProperty('data');
+      expect(image).not.toHaveProperty('resolvedFonts');
+    }
+    await f.bridge.requestTemplateSet({ action: 'transfer-commit', ...transferPlan });
+    expect(f.workspace.get().snapshot().project.name).toBe('Transferred template');
+    expect(f.workspace.get().revision).toBeGreaterThan(revision);
+  });
+
+  it('rejects reviewed transfer requests from an older tab before sending work', async () => {
+    const f = await connected();
+    await expect(
+      f.bridge.requestTemplateSet({ action: 'transfer-preview', ...transferPlan }),
+    ).rejects.toThrow('Reload Studio');
+    expect(f.received.filter((message) => message.type === 'template-set.request')).toHaveLength(0);
+  });
+
   it('waits for activation to settle before immediate capture, certification and set read', async () => {
     const f = await connected();
     await f.activate();
