@@ -6,6 +6,7 @@ import {
   withProjectFonts,
 } from './projectFonts';
 import { captureMaskedCanvas } from './maskedCapture';
+import { canCaptureSelfStyled, selfStyledCapture } from './selfStyledCapture';
 import { awaitExportOperation } from './exportAbort';
 import {
   assertStudioRendererPluginsAllowed,
@@ -286,7 +287,18 @@ async function waitForRenderableDom(root: HTMLElement, signal?: AbortSignal): Pr
   );
 }
 
-const captureFrameRenders = new WeakMap<HTMLElement, () => void>();
+/** Time an export has spent waiting on Steps. Loops and on-air clocks keep running through it. */
+export interface CaptureHold {
+  /** Frames held so far, on every Step. */
+  frames: number;
+  /** Frames held so far on Steps at or after the given composition frame. */
+  since(frame: number): number;
+}
+
+const captureFrameRenders = new WeakMap<
+  HTMLElement,
+  (frame?: number, hold?: CaptureHold) => void
+>();
 
 /** Layout/font settling may enqueue another shader frame; the PNG must use that completed draw. */
 export async function settleCaptureContent(root: HTMLElement, signal?: AbortSignal): Promise<void> {
@@ -306,13 +318,14 @@ export function resolveCaptureFrameLayout(
   frame: number,
   data: Record<string, unknown>,
   elements?: Map<string, HTMLElement>,
+  hold?: CaptureHold,
 ): Map<string, ReturnType<typeof sampleCompiledLayerVisualState>> {
   const states = new Map(
     descriptor.layers.map((layer) => {
       const state = sampleCompiledLayerVisualState(
         layer,
         frame,
-        compiledLoopElapsedFrames(descriptor, layer, frame),
+        compiledLoopElapsedFrames(descriptor, layer, frame, hold ? (from) => hold.since(from) : 0),
         data,
       );
       state.isVisible =
@@ -320,7 +333,7 @@ export function resolveCaptureFrameLayout(
       return [layer.id, state] as const;
     }),
   );
-  const context = { timestampMs: (frame / descriptor.frameRate) * 1000 };
+  const context = { timestampMs: ((frame + (hold?.frames ?? 0)) / descriptor.frameRate) * 1000 };
   applyCompiledAutoLayout(descriptor, states, data, elements, context);
   applyCompiledMotionPaths(descriptor, states);
   applyCompiledModifiers(descriptor, states, data, elements, context);
@@ -393,28 +406,40 @@ function renderedTextMetrics(content: HTMLElement): {
   };
 }
 
-export async function rasterize(
+/** The fonts a capture embeds. They do not change between frames of one mounted composition. */
+async function captureFontCss(
+  root: HTMLElement,
+  fontAssets: readonly Asset[],
+  signal?: AbortSignal,
+): Promise<string> {
+  return [await awaitExportOperation(getFontEmbedCSS(root), signal), projectFontFaceCss(fontAssets)]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/** Content the plain capture cannot draw: it takes the masked capture, which fetches no fragment. */
+const MASKED_CONTENT =
+  '[data-ograf-layer-mask-id], [data-ograf-pattern], [data-ograf-effect-filter]';
+
+/** A capture layer that is hidden or fully see-through paints nothing in this frame. */
+function captureLayerPaints(node: HTMLElement): boolean {
+  if (node.dataset?.agentCaptureLayer !== 'true') return true;
+  return node.style.display !== 'none' && node.style.opacity !== '0';
+}
+
+async function rasterizeCanvas(
   root: HTMLElement,
   originalWidth: number,
   originalHeight: number,
-  maxDimension: number,
-  style?: Partial<CSSStyleDeclaration>,
-  fontAssets: readonly Asset[] = [],
+  output: { width: number; height: number },
+  style: Partial<CSSStyleDeclaration> | undefined,
+  fontEmbedCSS: string,
   signal?: AbortSignal,
-) {
-  signal?.throwIfAborted();
-  const output = captureDimensions(originalWidth, originalHeight, maxDimension);
-  const render = root.querySelector(
-    '[data-ograf-layer-mask-id], [data-ograf-pattern], [data-ograf-effect-filter]',
-  )
-    ? captureMaskedCanvas
-    : toCanvas;
-  const fontEmbedCSS = [
-    await awaitExportOperation(getFontEmbedCSS(root), signal),
-    projectFontFaceCss(fontAssets),
-  ]
-    .filter(Boolean)
-    .join('\n');
+  /** Leave out layers that paint nothing. Copying a layer's styles is most of this capture's time. */
+  skipUnseenLayers = false,
+): Promise<HTMLCanvasElement> {
+  const masked = root.querySelector(MASKED_CONTENT);
+  const render = masked ? captureMaskedCanvas : toCanvas;
   signal?.throwIfAborted();
   const canvas = await awaitExportOperation(
     render(root, {
@@ -427,10 +452,35 @@ export async function rasterize(
       skipAutoScale: true,
       fontEmbedCSS,
       ...(style ? { style } : {}),
+      // A masked layer may draw from a source layer that is itself hidden, so those keep every layer.
+      ...(skipUnseenLayers && !masked ? { filter: captureLayerPaints } : {}),
     }),
     signal,
   );
   signal?.throwIfAborted();
+  return canvas;
+}
+
+export async function rasterize(
+  root: HTMLElement,
+  originalWidth: number,
+  originalHeight: number,
+  maxDimension: number,
+  style?: Partial<CSSStyleDeclaration>,
+  fontAssets: readonly Asset[] = [],
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  const output = captureDimensions(originalWidth, originalHeight, maxDimension);
+  const canvas = await rasterizeCanvas(
+    root,
+    originalWidth,
+    originalHeight,
+    output,
+    style,
+    await captureFontCss(root, fontAssets, signal),
+    signal,
+  );
   const encoded = canvas.toDataURL('image/png');
   const separator = encoded.indexOf(',');
   if (separator < 0) throw new Error('Browser PNG encoder returned invalid data.');
@@ -525,14 +575,15 @@ function buildCompositionDom(
       rendered.set(layer.id, layerRoot);
       resolvedElements.set(layer.id, element);
     }
-    const renderFrame = () => {
-      const states = resolveCaptureFrameLayout(descriptor, frame, data, rendered);
+    // The mounted tree can be sampled again at another frame: an export renders a whole timeline.
+    const renderFrame = (at = frame, hold?: CaptureHold) => {
+      const states = resolveCaptureFrameLayout(descriptor, at, data, rendered, hold);
+      const timestampMs = ((at + (hold?.frames ?? 0)) / descriptor.frameRate) * 1000;
       for (const layer of descriptor.layers) {
         const host = rendered.get(layer.id),
           state = states.get(layer.id);
         const element = resolvedElements.get(layer.id);
-        if (host && state && element)
-          renderCaptureElementFrame(host, element, state, (frame / descriptor.frameRate) * 1000);
+        if (host && state && element) renderCaptureElementFrame(host, element, state, timestampMs);
       }
       applyCompiledClipPaths(descriptor, rendered, states);
       applyCompiledMasks(descriptor, rendered, states, data);
@@ -932,6 +983,116 @@ export async function measureAgentText(
   );
 }
 
+/** What a capture needs before it mounts a composition: allowed plugins and the project's fonts. */
+async function acquireCaptureFonts(composition: Composition, signal?: AbortSignal) {
+  const plugins = compileDescriptor(composition).rendererPlugins ?? [];
+  if (plugins.length) {
+    await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
+    signal?.throwIfAborted();
+    assertStudioRendererPluginsAllowed(plugins);
+  }
+  const lease = acquireProjectFonts(document, composition.assets);
+  try {
+    await awaitExportOperation(lease.ready, signal);
+    signal?.throwIfAborted();
+  } catch (error) {
+    lease.dispose();
+    throw error;
+  }
+  return lease;
+}
+
+/** A composition mounted once and sampled frame by frame. */
+export interface MountedCompositionFrames {
+  width: number;
+  height: number;
+  /** The picture at a composition frame. The canvas belongs to the caller. */
+  canvasAt(frame: number, hold?: CaptureHold): Promise<HTMLCanvasElement>;
+  dispose(): void;
+}
+
+/**
+ * Mounts a composition for an export that renders its whole timeline. Building the tree, loading
+ * its images and embedding its fonts happen once; each frame only re-samples and rasterizes. A
+ * frame is drawn from the tree's own markup where that is enough, several times faster than
+ * through html-to-image, which the rest still takes: masks, patterns, effect filters, video.
+ */
+export async function mountCompositionFrames(
+  composition: Composition,
+  matte: string,
+  signal?: AbortSignal,
+): Promise<MountedCompositionFrames> {
+  signal?.throwIfAborted();
+  const lease = await acquireCaptureFonts(composition, signal);
+  const output = getCompositionOutputRect(composition);
+  let wrapper: HTMLDivElement | undefined;
+  const unmount = () => {
+    for (const layer of wrapper?.querySelectorAll<HTMLElement>('[data-agent-capture-layer]') ?? [])
+      disposeElementContent(layer);
+    wrapper?.remove();
+    wrapper = undefined;
+  };
+  const mount = async () => {
+    wrapper = buildCompositionDom(composition, 0, matte);
+    document.body.appendChild(wrapper);
+    await settleCaptureContent(wrapper, signal);
+    return wrapper;
+  };
+  try {
+    let root = await mount();
+    let fontEmbedCSS = await captureFontCss(root, composition.assets, signal);
+    const draw = () =>
+      rasterizeCanvas(
+        root,
+        output.width,
+        output.height,
+        output,
+        { zIndex: 'auto' },
+        fontEmbedCSS,
+        signal,
+        true,
+      );
+    // The first snapshot of an expanded collection can be partly flattened: see captureComposition.
+    if (composition.runtimeCollections.length > 0 && matte === 'transparent') {
+      await draw();
+      unmount();
+      root = await mount();
+      fontEmbedCSS = await captureFontCss(root, composition.assets, signal);
+    }
+    const drawSelfStyled = selfStyledCapture(root, {
+      width: output.width,
+      height: output.height,
+      canvasWidth: output.width,
+      canvasHeight: output.height,
+      style: { zIndex: 'auto' },
+      fontEmbedCSS,
+      filter: captureLayerPaints,
+    });
+    // html-to-image draws text a little smaller than the page does, so a movie that has needed it
+    // for one frame stays with it.
+    let selfStyled = true;
+    return {
+      width: output.width,
+      height: output.height,
+      async canvasAt(frame, hold) {
+        signal?.throwIfAborted();
+        captureFrameRenders.get(root)?.(frame, hold);
+        await awaitExportOperation(waitForElementContentReady(root), signal);
+        selfStyled &&= !root.querySelector(MASKED_CONTENT) && canCaptureSelfStyled(root);
+        return selfStyled ? drawSelfStyled(signal) : draw();
+      },
+      dispose() {
+        unmount();
+        lease.dispose();
+      },
+    };
+  } catch (error) {
+    unmount();
+    lease.dispose();
+    throw error;
+  }
+}
+
 /** Rasterizes the real browser renderer without changing editor state or the authoring revision. */
 export async function captureAgentPng(
   request: AgentCaptureRequest,
@@ -940,16 +1101,8 @@ export async function captureAgentPng(
   try {
     signal?.throwIfAborted();
     const composition = compositionFor(request.project, request.compositionId);
-    const plugins = compileDescriptor(composition).rendererPlugins ?? [];
-    if (plugins.length) {
-      await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
-      signal?.throwIfAborted();
-      assertStudioRendererPluginsAllowed(plugins);
-    }
-    const lease = acquireProjectFonts(document, composition.assets);
+    const lease = await acquireCaptureFonts(composition, signal);
     try {
-      await awaitExportOperation(lease.ready, signal);
-      signal?.throwIfAborted();
       return await (request.target === 'viewport'
         ? captureViewport(request, signal)
         : captureComposition(request, signal));

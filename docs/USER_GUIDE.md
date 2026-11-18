@@ -202,6 +202,7 @@ text finishes, transparent overlays, and the effect-only **Signal Glitch**. Buil
 | Remote `.ogs` / `.ogp` URL | Public/CORS-enabled editable document            | **File → Open from URL…**                                                                              |
 | `.ograf.zip`               | Certified playout package                        | **File → Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
 | `.ograf-set.zip`           | Bundle of certified template outputs             | In **File → Export…**, choose **Template set** for a set without Transition Logic                      |
+| `.webm`                    | Movie of one template, transparent by default    | In **File → Export…**, choose **WebM video**; plays in a browser or an editing app                     |
 | Loose OGraf package files  | Manifest, `main.js`, and resources               | Select them together with **File → Import OGraf**                                                      |
 | SVG and raster images      | Reusable image assets                            | **Add Image** above the canvas, or drop files onto the canvas                                          |
 | Lottie `.json`             | Looping vector animation layer                   | **+ Lottie JSON** above the canvas                                                                     |
@@ -482,6 +483,23 @@ over a transparent composition background. This changes the export only. Authore
 remain, including any full-frame layers. Real-time-only media, audio, Media Cues or Functions
 can block certification. Choose **OGraf ZIP** or **Both files** when you need the OGraf package
 for your editing app.
+
+Choose **WebM video** to export the current template as a movie instead of an OGraf package. The
+movie plays the timeline from Start to End at the composition's size and frame rate, and waits on
+every Step for **Hold on each step**, as a graphic waits on air. Loops keep running through the
+wait. **Transparent background** is on by default: the composition background is left out and
+whatever the layers do not cover stays see-through, so the movie can be laid over other pictures in
+an editing app or on a web page. Turn it off to keep the composition background, over black where
+it has none. A full-frame layer stays in the movie either way.
+
+Sound on the timeline is included: audio layers, and sound cues that start at a frame or on arrival
+at a Step. Video and live media, and sounds started by an operator or a custom action, are left
+out. Studio makes the movie in the browser, with VP9 picture and Opus sound. It is not a certified
+OGraf package, and it needs a current Chrome or Edge. Rendering takes time, so the dialog counts
+the frames and **Cancel** stops it. A busy Full HD template renders about 25 frames a second; one
+that uses masks, patterns, effect filters or video is drawn another way and takes several times
+longer. Keep the Studio tab in front while it renders. A template set is not exported as one movie:
+open a template and export that.
 
 In **File → Export…**, choose **Standalone HTML** to export one browser-ready `.html` file.
 The default choices are **Template set** and **Both files**. Change them in **File → Preferences →
@@ -2139,7 +2157,8 @@ the same route as the keyboard and describe their next action.
 Save the editable template or complete set from **File**. Preview & Export contains the selected
 template's export settings and compatibility checks. The File menu also exports complete sets:
 
-- A single template produces a certified `.ograf.zip`.
+- A single template produces a certified `.ograf.zip`, or a `.webm` movie when you choose
+  **WebM video**.
 - A set with Transition Logic produces one coordinated `.ograf.zip`.
 - A set without Transition Logic produces an `.ograf-set.zip` containing a certified package for
   each template.

@@ -17,7 +17,8 @@
   border: 0;
 }
 
-.studio-export-content fieldset[hidden] {
+.studio-export-content fieldset[hidden],
+.studio-export-content label[hidden] {
   display: none;
 }
 

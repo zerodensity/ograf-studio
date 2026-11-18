@@ -90,4 +90,15 @@ describe('saveExportFilesInFolder', () => {
     expect(await stored.get('News.ograf.zip')?.text()).toBe('certified ZIP');
     expect(stored.has('News.html')).toBe(false);
   });
+
+  it('saves a WebM movie under its own extension, beside an earlier one', async () => {
+    const { folder, stored } = folderFixture();
+    stored.set('News.webm', new Blob(['earlier movie']));
+    const names = await saveExportFilesInFolder(folder, [
+      { fileName: 'News.webm', format: 'webm', blob: new Blob(['movie']) },
+    ]);
+    expect(names).toEqual(['News (2).webm']);
+    expect(await stored.get('News (2).webm')?.text()).toBe('movie');
+    expect(await stored.get('News.webm')?.text()).toBe('earlier movie');
+  });
 });
