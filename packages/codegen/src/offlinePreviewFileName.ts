@@ -1,7 +1,9 @@
 import type { ExportArtifacts } from './buildExportArtifacts';
 
 /** A portable root-level HTML name derived from the template or coordinated set name. */
-export function getOfflinePreviewFileName(artifacts: Pick<ExportArtifacts, 'manifest'>): string {
+export function getOfflinePreviewFileName(artifacts: {
+  manifest: Pick<ExportArtifacts['manifest'], 'name'>;
+}): string {
   let name = (artifacts.manifest.name || '').normalize('NFC');
   name = name
     .replace(/[<>:"/\\|?*\p{Cc}]/gu, '-')

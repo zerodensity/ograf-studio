@@ -45,7 +45,9 @@ import { addProjectSetTemplate, createProjectSet } from './projectSet';
 import {
   exportProjectSetAsZip,
   getCertifiedCoordinatedSaveSnapshot,
+  prepareProjectSetExportFiles,
   retryCertifiedCoordinatedSave,
+  snapshotProjectSetForExport,
   subscribeCertifiedCoordinatedSave,
 } from './projectSetExport';
 import { createDefaultTransitionLogic } from './transitionLogicEditing';
@@ -313,6 +315,38 @@ describe('template-set batch export', () => {
       needsSave: false,
       pendingFileCount: 0,
     });
+  });
+
+  it('prepares both files from the captured set without writing or staging them', async () => {
+    const set = coordinatedFixture();
+    const snapshot = snapshotProjectSetForExport(set);
+    set.name = 'New title';
+    const stagedBefore = getCertifiedCoordinatedSaveSnapshot();
+    const profile = getExportProfile('non-realtime');
+
+    const files = await prepareProjectSetExportFiles(snapshot, profile, { format: 'both' });
+
+    expect(mocks.createCoordinatedPackage).toHaveBeenCalledExactlyOnceWith(snapshot, profile);
+    expect(mocks.createCoordinatedHtml).not.toHaveBeenCalled();
+    expect(files).toMatchObject([
+      { format: 'zip', fileName: 'Evening-News-non-realtime.ograf.zip' },
+      { format: 'html', fileName: 'Evening News-non-realtime.html' },
+    ]);
+    expect(await files[0]!.blob.text()).toBe('coordinated package');
+    expect(await files[1]!.blob.text()).toContain('<!doctype html>');
+    expect(getCertifiedCoordinatedSaveSnapshot()).toBe(stagedBefore);
+    expect(mocks.chooseWriter).not.toHaveBeenCalled();
+    expect(mocks.saveBlob).not.toHaveBeenCalled();
+  });
+
+  it('refuses to prepare an independent set ZIP that contains an empty template ZIP', async () => {
+    const set = createProjectSet('Evening News', createProject({ name: 'Correspondent' }));
+    mocks.createPackage.mockResolvedValueOnce({ blob: new Blob() });
+
+    await expect(
+      prepareProjectSetExportFiles(snapshotProjectSetForExport(set), undefined, { format: 'zip' }),
+    ).rejects.toThrow('Template "Correspondent" produced an empty ZIP.');
+    expect(mocks.saveBlob).not.toHaveBeenCalled();
   });
 
   it.each(['enable', 'modify', 'remove'] as const)(

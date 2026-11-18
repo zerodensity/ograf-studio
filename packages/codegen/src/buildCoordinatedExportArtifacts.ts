@@ -46,7 +46,11 @@ import {
   coordinatedTemplateActions,
 } from './coordinatedActions';
 import { buildPackageDiscoveryCatalog } from './discovery';
-import { projectForExportProfile, type ExportProfile } from './exportProfiles';
+import {
+  compositionForExportProfile,
+  projectForExportProfile,
+  type ExportProfile,
+} from './exportProfiles';
 import { STUDIO_RUNTIME_NOTICE } from './runtimeLicenses';
 import {
   tickerFeedResourceRuntimeSource,
@@ -1015,7 +1019,21 @@ export function buildCoordinatedExportArtifactsWithRuntime(
     graphErrors.push('Component asset IDs must be unique in a coordinated package.');
   if (graphErrors.length) throw new Error(graphErrors.join('\n'));
   const referenced = new Set(definition.states.map((state) => state.templateId));
-  const templates = input.templates.filter((template) => referenced.has(template.id));
+  const templates = input.templates
+    .filter((template) => referenced.has(template.id))
+    .map((template) =>
+      profile?.transparentCompositionBackground
+        ? {
+            ...template,
+            project: {
+              ...template.project,
+              compositions: template.project.compositions.map((composition) =>
+                compositionForExportProfile(composition, profile),
+              ),
+            },
+          }
+        : template,
+    );
   if (!templates.length)
     throw new Error('Coordinated export requires at least one template state.');
   const sourceCompositions = new Map(

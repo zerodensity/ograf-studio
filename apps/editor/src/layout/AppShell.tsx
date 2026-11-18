@@ -12,6 +12,7 @@ import { ShaderResourceEditorHost } from '../panels/ShaderResources';
 import { ComponentEditorDialogHost } from '../panels/ComponentEditorDialog';
 import { WorkspaceDialogHost } from '../components/WorkspaceDialogs';
 import { CertifiedPackageSaveDialogHost } from '../components/CertifiedPackageSaveDialog';
+import { ExportDialogHost } from '../components/ExportDialog';
 import { PluginLoadWarningDialogHost } from '../components/PluginLoadWarningDialog';
 import { useProjectFonts } from '../state/useProjectFonts';
 import { usePaneRequestStore } from '../state/paneRequestStore';
@@ -128,6 +129,7 @@ export function AppShell() {
         <ComponentEditorDialogHost />
         <WorkspaceDialogHost />
         <CertifiedPackageSaveDialogHost />
+        <ExportDialogHost />
         <StartupScreen />
         {paneNotice && (
           <div className="app-first-use-notice" role="status">

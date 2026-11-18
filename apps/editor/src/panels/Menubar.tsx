@@ -41,6 +41,7 @@ import {
   type DockPaneId,
 } from '../layout/dockModel';
 import { selectableLayerIds } from '../state/selectAllLayers';
+import { requestStudioExport } from '../state/studioExportDialogStore';
 import './Menubar.css';
 import { useDetachedWindows } from '../layout/detachedWindowContext';
 import { duplicateSelectedLayers } from '../state/editorShortcuts';
@@ -782,9 +783,13 @@ export function Menubar({
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => {
+                onClick={(event) => {
+                  const focusTarget =
+                    fileMenuRef.current?.querySelector<HTMLButtonElement>(
+                      'button[aria-haspopup="menu"]',
+                    ) ?? event.currentTarget;
                   closeMenus();
-                  revealPane('export', 'preview.export');
+                  requestStudioExport(focusTarget);
                 }}
                 title="Open the export options for the current template or template set."
               >
