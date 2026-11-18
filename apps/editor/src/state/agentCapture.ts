@@ -418,8 +418,9 @@ async function captureFontCss(
 }
 
 /** Content the plain capture cannot draw: it takes the masked capture, which fetches no fragment. */
-const MASKED_CONTENT =
-  '[data-ograf-layer-mask-id], [data-ograf-pattern], [data-ograf-effect-filter]';
+const LAYER_MASK_CONTENT = '[data-ograf-layer-mask-id]';
+const PATTERN_OR_EFFECT_CONTENT = '[data-ograf-pattern], [data-ograf-effect-filter]';
+const MASKED_CONTENT = `${LAYER_MASK_CONTENT}, ${PATTERN_OR_EFFECT_CONTENT}`;
 
 /** A capture layer that is hidden or fully see-through paints nothing in this frame. */
 function captureLayerPaints(node: HTMLElement): boolean {
@@ -1015,7 +1016,7 @@ export interface MountedCompositionFrames {
  * Mounts a composition for an export that renders its whole timeline. Building the tree, loading
  * its images and embedding its fonts happen once; each frame only re-samples and rasterizes. A
  * frame is drawn from the tree's own markup where that is enough, several times faster than
- * through html-to-image, which the rest still takes: masks, patterns, effect filters, video.
+ * through html-to-image, which still handles patterns, effect filters and video.
  */
 export async function mountCompositionFrames(
   composition: Composition,
@@ -1066,7 +1067,8 @@ export async function mountCompositionFrames(
       canvasHeight: output.height,
       style: { zIndex: 'auto' },
       fontEmbedCSS,
-      filter: captureLayerPaints,
+      // Keep mask dependencies when copying the capture tree.
+      ...(root.querySelector(LAYER_MASK_CONTENT) ? {} : { filter: captureLayerPaints }),
     });
     // html-to-image draws text a little smaller than the page does, so a movie that has needed it
     // for one frame stays with it.
@@ -1078,7 +1080,7 @@ export async function mountCompositionFrames(
         signal?.throwIfAborted();
         captureFrameRenders.get(root)?.(frame, hold);
         await awaitExportOperation(waitForElementContentReady(root), signal);
-        selfStyled &&= !root.querySelector(MASKED_CONTENT) && canCaptureSelfStyled(root);
+        selfStyled &&= !root.querySelector(PATTERN_OR_EFFECT_CONTENT) && canCaptureSelfStyled(root);
         return selfStyled ? drawSelfStyled(signal) : draw();
       },
       dispose() {

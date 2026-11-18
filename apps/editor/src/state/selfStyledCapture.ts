@@ -1,4 +1,5 @@
 import { awaitExportOperation } from './exportAbort';
+import { bakeLayerCaptureMasks } from './maskedCapture';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 /** Content whose picture is not in its markup and inline styles, or that a copy cannot load. */
@@ -29,6 +30,10 @@ export interface SelfStyledCaptureOptions {
  */
 export function canCaptureSelfStyled(root: HTMLElement): boolean {
   if (root.querySelector(UNSUPPORTED_CONTENT)) return false;
+  for (const target of root.querySelectorAll<HTMLElement>('[data-ograf-layer-mask-id]')) {
+    // A backdrop crop can combine its own image with the layer mask.
+    if (target.style.maskImage !== `url("#${target.dataset.ografLayerMaskId}")`) return false;
+  }
   for (const element of root.querySelectorAll('*')) if (element.shadowRoot) return false;
   for (const use of root.querySelectorAll('use')) {
     const reference = use.getAttribute('href') ?? use.getAttribute('xlink:href') ?? '';
@@ -107,6 +112,7 @@ export function selfStyledCapture(
   root: HTMLElement,
   options: SelfStyledCaptureOptions,
 ): (signal?: AbortSignal) => Promise<HTMLCanvasElement> {
+  const masked = Boolean(root.querySelector('[data-ograf-layer-mask-id]'));
   // A copy cannot load anything, so what the tree loads from elsewhere is read once and embedded.
   const embedded = new Map<string, Promise<string>>();
   const embed = (reference: string): Promise<string> => {
@@ -147,9 +153,41 @@ export function selfStyledCapture(
         continue;
       }
       const names = animated.get(original);
-      if (names) {
+      const copyTextMetrics =
+        masked &&
+        (original.style?.fontSize ||
+          Array.from(original.childNodes).some(
+            (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+          ));
+      const copyLayerGeometry =
+        masked &&
+        (original.hasAttribute('data-agent-capture-layer') || original instanceof SVGSVGElement);
+      if (names || copyTextMetrics || copyLayerGeometry) {
         const current = getComputedStyle(original);
-        for (const name of names) copy.style.setProperty(name, current.getPropertyValue(name));
+        for (const name of names ?? [])
+          copy.style.setProperty(name, current.getPropertyValue(name));
+        if (copyLayerGeometry) {
+          // Keep the compatibility capture's resolved subpixel placement of masked SVG artwork.
+          for (const name of [
+            'left',
+            'top',
+            'width',
+            'height',
+            'transform',
+            'transform-origin',
+            'opacity',
+          ])
+            copy.style.setProperty(name, current.getPropertyValue(name));
+        }
+        if (copyTextMetrics) {
+          // Masked captures used html-to-image's pixel font-size adjustment. Keep that text layout.
+          const fontSize = current.fontSize;
+          copy.style.fontSize =
+            !current.cssText && fontSize.endsWith('px')
+              ? `${Math.floor(Number.parseFloat(fontSize)) - 0.1}px`
+              : fontSize;
+          copy.style.lineHeight = current.lineHeight;
+        }
       }
       if (original instanceof HTMLCanvasElement) {
         const drawn = original.toDataURL();
@@ -195,6 +233,7 @@ export function selfStyledCapture(
       }
     }
     await awaitExportOperation(Promise.all(embedding), signal);
+    if (masked) bakeLayerCaptureMasks(copyRoot);
 
     Object.assign(copyRoot.style, options.style);
     if (options.fontEmbedCSS) {
