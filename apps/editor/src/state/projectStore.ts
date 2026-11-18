@@ -252,12 +252,12 @@ import {
   type TextElement,
   type TickerElement,
   normalizeTicker,
+  resizeConstrainedLayer,
   tickerErrors,
 } from '@ograf-editor/scene-model';
 import {
   alignedPatches,
   distributedPatches,
-  resizeConstrainedTransform,
   type AlignmentMode,
   type DistributionMode,
 } from '../canvas/layoutGeometry';
@@ -1099,30 +1099,6 @@ function timelineKeyDeltaBounds(
   return { min, max };
 }
 
-function writeLayerTransformAtFrame(
-  composition: Composition,
-  layer: Layer,
-  frame: number,
-  patch: Partial<LayerTransform>,
-): void {
-  const roundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
-  let keyframe = findLayerKeyframeAtFrame(layer, roundedFrame);
-  const easing = keyframe?.easing ?? 'linear';
-  if (!keyframe) {
-    keyframe = createLayerKeyframe(roundedFrame, getLayerTransformAtFrame(layer, roundedFrame));
-    layer.keyframes.push(keyframe);
-    layer.keyframes = sortLayerKeyframes(layer.keyframes);
-  }
-  const normalizedPatch = normalizeAuthoredTransformPatch(patch);
-  for (const [property, value] of Object.entries(normalizedPatch) as [
-    keyof LayerTransform,
-    number,
-  ][]) {
-    upsertPropertyKeyframe(layer, property, roundedFrame, value, easing);
-  }
-  keyframe.transform = getLayerTransformAtFrame(layer, roundedFrame);
-}
-
 /** Auto enables a new property; an existing track always follows playhead edits. */
 function shouldKeyPropertyEdit(layer: Layer, property: AnimatableLayerProperty): boolean {
   return (
@@ -1357,50 +1333,7 @@ export function resizeConstrainedLayers(
   newSize: { width: number; height: number },
 ): void {
   if (oldSize.width === newSize.width && oldSize.height === newSize.height) return;
-  for (const layer of composition.layers) {
-    const tracks = getResolvedLayerAnimationTracks(layer);
-    const frames = new Set(layer.keyframes.map((keyframe) => keyframe.frame));
-    for (const property of ['x', 'y', 'width', 'height'] as const) {
-      for (const keyframe of tracks[property] ?? []) frames.add(keyframe.frame);
-    }
-    // Resolve every source pose before writing any destination key. Otherwise a newly written
-    // early key can change interpolation at a later frame and make responsive resizing depend on
-    // iteration order.
-    const resizedFrames = [...frames]
-      .sort((a, b) => a - b)
-      .map((frame) => ({
-        frame,
-        resized: resizeConstrainedTransform(
-          getLayerTransformAtFrame(layer, frame),
-          layer.constraints,
-          oldSize,
-          newSize,
-        ),
-      }));
-    const staticProperties = new Set(
-      (['x', 'y', 'width', 'height'] as const).filter(
-        (property) =>
-          layer.animationTrackMode === 'independent' &&
-          !isLayerPropertyAnimated(layer, property) &&
-          resizedFrames.every(
-            ({ resized }) => resized[property] === resizedFrames[0]?.resized[property],
-          ),
-      ),
-    );
-    for (const { frame, resized } of resizedFrames) {
-      const patch = {
-        x: resized.x,
-        y: resized.y,
-        width: resized.width,
-        height: resized.height,
-      };
-      for (const property of staticProperties) {
-        offsetLayerTransform(layer, frame, { [property]: resized[property] });
-        delete (patch as Partial<typeof patch>)[property];
-      }
-      if (Object.keys(patch).length) writeLayerTransformAtFrame(composition, layer, frame, patch);
-    }
-  }
+  for (const layer of composition.layers) resizeConstrainedLayer(layer, oldSize, newSize);
 }
 
 function descendantLayers(composition: Composition, parentId: string): Layer[] {
