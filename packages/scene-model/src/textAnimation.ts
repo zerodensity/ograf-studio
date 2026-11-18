@@ -236,6 +236,7 @@ export interface TextAnimationNumber {
 }
 
 interface ParsedTextAnimationNumber extends TextAnimationNumber {
+  digitZero: number;
   decimal: string;
   precision: number;
   group: string;
@@ -248,6 +249,15 @@ interface ParsedTextAnimationNumber extends TextAnimationNumber {
 }
 
 const textAnimationNumberCache = new Map<string, ParsedTextAnimationNumber | null>();
+const ASCII_ZERO = '0'.charCodeAt(0);
+
+function decimalDigitZero(digit: string): number {
+  const codePoint = digit.codePointAt(0)!;
+  let first = codePoint;
+  while (/\p{Decimal_Number}/u.test(String.fromCodePoint(first - 1))) first -= 1;
+  // Unicode decimal alphabets are groups of ten ordered digits. Some groups are adjacent.
+  return codePoint - ((codePoint - first) % 10);
+}
 
 function textNumberLocale(language: string): { decimal: string; secondaryGroupSize: number } {
   let formatter: Intl.NumberFormat;
@@ -260,7 +270,7 @@ function textNumberLocale(language: string): { decimal: string; secondaryGroupSi
   const integers = parts.filter((part) => part.type === 'integer');
   return {
     decimal: parts.find((part) => part.type === 'decimal')?.value ?? '.',
-    secondaryGroupSize: integers.length > 2 ? integers[integers.length - 2]!.value.length : 3,
+    secondaryGroupSize: integers.length > 2 ? [...integers[integers.length - 2]!.value].length : 3,
   };
 }
 
@@ -281,28 +291,47 @@ function parseTextAnimationNumberUncached(
   source: string,
   language: string,
 ): ParsedTextAnimationNumber | null {
-  const firstDigit = source.search(/\d/u);
-  if (firstDigit < 0) return null;
-  let numberStart = firstDigit;
+  const digits = [...source.matchAll(/\p{Decimal_Number}/gu)];
+  const firstDigit = digits[0];
+  if (!firstDigit) return null;
+  const lastDigit = digits[digits.length - 1]!;
+  const digitZero = decimalDigitZero(firstDigit[0]);
+  if (
+    digits.some(([digit]) => {
+      const offset = digit.codePointAt(0)! - digitZero;
+      return offset < 0 || offset > 9;
+    })
+  )
+    return null;
+  let numberStart = firstDigit.index;
   // A leading decimal is part of the number rather than its surrounding label.
-  if (numberStart > 0 && /[.,]/u.test(source[numberStart - 1]!)) numberStart -= 1;
+  if (numberStart > 0 && /[.,٫]/u.test(source[numberStart - 1]!)) numberStart -= 1;
   if (numberStart > 0 && /[+\-−]/u.test(source[numberStart - 1]!)) numberStart -= 1;
-  let numberEnd = source.length;
-  while (numberEnd > firstDigit && !/\d/u.test(source[numberEnd - 1]!)) numberEnd -= 1;
+  const numberEnd = lastDigit.index + lastDigit[0].length;
   const prefix = source.slice(0, numberStart);
   const suffix = source.slice(numberEnd);
   // Reject malformed signs/separators instead of animating a valid-looking substring.
-  if (/[+\-−.,'’]$/u.test(prefix) || /^[+\-−.,'’]/u.test(suffix)) return null;
+  if (/[+\-−.,٫٬'’]$/u.test(prefix) || /^[+\-−.,٫٬'’]/u.test(suffix)) return null;
   const token = source.slice(numberStart, numberEnd);
   const sign = /^[+\-−]/u.test(token) ? token[0]! : '';
-  const body = sign ? token.slice(1) : token;
+  const rawBody = sign ? token.slice(1) : token;
+  const body =
+    digitZero === ASCII_ZERO
+      ? rawBody
+      : rawBody.replace(/\p{Decimal_Number}/gu, (digit) =>
+          String(digit.codePointAt(0)! - digitZero),
+        );
   // This also excludes clocks, fractions, scientific notation, and separate numbers.
-  if (!/^[\d.,'’ \u00a0\u202f]+$/u.test(body)) return null;
+  if (!/^[\d.,٫٬'’ \u00a0\u202f]+$/u.test(body)) return null;
   const locale = textNumberLocale(language);
   const dots = [...body.matchAll(/\./gu)].length;
   const commas = [...body.matchAll(/,/gu)].length;
   let decimal = '';
-  if (dots && commas) {
+  const arabicDecimal = body.indexOf('٫');
+  if (arabicDecimal >= 0) {
+    if (arabicDecimal !== body.lastIndexOf('٫')) return null;
+    decimal = '٫';
+  } else if (dots && commas) {
     decimal = body.lastIndexOf('.') > body.lastIndexOf(',') ? '.' : ',';
     if ((decimal === '.' ? dots : commas) !== 1) return null;
   } else if (dots + commas === 1) {
@@ -336,6 +365,7 @@ function parseTextAnimationNumberUncached(
     suffix,
     numberStart,
     numberEnd,
+    digitZero,
     decimal,
     precision: fraction.length,
     group,
@@ -394,7 +424,12 @@ function formatTextAnimationNumber(value: number, parsed: ParsedTextAnimationNum
   }
   const roundedZero = !/[1-9]/u.test(fixed);
   const sign = value < 0 && !roundedZero ? parsed.minus : parsed.explicitPlus ? '+' : '';
-  return `${parsed.prefix}${sign}${integerDigits}${parsed.decimal ? `${parsed.decimal}${fraction}` : ''}${parsed.suffix}`;
+  const body = `${integerDigits}${parsed.decimal ? `${parsed.decimal}${fraction}` : ''}`;
+  const digits =
+    parsed.digitZero === ASCII_ZERO
+      ? body
+      : body.replace(/\d/gu, (digit) => String.fromCodePoint(parsed.digitZero + Number(digit)));
+  return `${parsed.prefix}${sign}${digits}${parsed.suffix}`;
 }
 
 function textCountValue(

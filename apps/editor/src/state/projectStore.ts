@@ -21,6 +21,7 @@ import {
 } from '@ograf-editor/scene-model';
 import { immer } from 'zustand/middleware/immer';
 import { useProjectSetStore } from './projectSetStore';
+import { templateBrandKit } from './projectSet';
 import { onAirFrame } from './onAirFrame';
 import {
   compactFreshRecipeTiming,
@@ -251,12 +252,12 @@ import {
   type TextElement,
   type TickerElement,
   normalizeTicker,
+  resizeConstrainedLayer,
   tickerErrors,
 } from '@ograf-editor/scene-model';
 import {
   alignedPatches,
   distributedPatches,
-  resizeConstrainedTransform,
   type AlignmentMode,
   type DistributionMode,
 } from '../canvas/layoutGeometry';
@@ -1098,30 +1099,6 @@ function timelineKeyDeltaBounds(
   return { min, max };
 }
 
-function writeLayerTransformAtFrame(
-  composition: Composition,
-  layer: Layer,
-  frame: number,
-  patch: Partial<LayerTransform>,
-): void {
-  const roundedFrame = Math.max(0, Math.min(getTotalFrames(composition), Math.round(frame)));
-  let keyframe = findLayerKeyframeAtFrame(layer, roundedFrame);
-  const easing = keyframe?.easing ?? 'linear';
-  if (!keyframe) {
-    keyframe = createLayerKeyframe(roundedFrame, getLayerTransformAtFrame(layer, roundedFrame));
-    layer.keyframes.push(keyframe);
-    layer.keyframes = sortLayerKeyframes(layer.keyframes);
-  }
-  const normalizedPatch = normalizeAuthoredTransformPatch(patch);
-  for (const [property, value] of Object.entries(normalizedPatch) as [
-    keyof LayerTransform,
-    number,
-  ][]) {
-    upsertPropertyKeyframe(layer, property, roundedFrame, value, easing);
-  }
-  keyframe.transform = getLayerTransformAtFrame(layer, roundedFrame);
-}
-
 /** Auto enables a new property; an existing track always follows playhead edits. */
 function shouldKeyPropertyEdit(layer: Layer, property: AnimatableLayerProperty): boolean {
   return (
@@ -1356,50 +1333,7 @@ export function resizeConstrainedLayers(
   newSize: { width: number; height: number },
 ): void {
   if (oldSize.width === newSize.width && oldSize.height === newSize.height) return;
-  for (const layer of composition.layers) {
-    const tracks = getResolvedLayerAnimationTracks(layer);
-    const frames = new Set(layer.keyframes.map((keyframe) => keyframe.frame));
-    for (const property of ['x', 'y', 'width', 'height'] as const) {
-      for (const keyframe of tracks[property] ?? []) frames.add(keyframe.frame);
-    }
-    // Resolve every source pose before writing any destination key. Otherwise a newly written
-    // early key can change interpolation at a later frame and make responsive resizing depend on
-    // iteration order.
-    const resizedFrames = [...frames]
-      .sort((a, b) => a - b)
-      .map((frame) => ({
-        frame,
-        resized: resizeConstrainedTransform(
-          getLayerTransformAtFrame(layer, frame),
-          layer.constraints,
-          oldSize,
-          newSize,
-        ),
-      }));
-    const staticProperties = new Set(
-      (['x', 'y', 'width', 'height'] as const).filter(
-        (property) =>
-          layer.animationTrackMode === 'independent' &&
-          !isLayerPropertyAnimated(layer, property) &&
-          resizedFrames.every(
-            ({ resized }) => resized[property] === resizedFrames[0]?.resized[property],
-          ),
-      ),
-    );
-    for (const { frame, resized } of resizedFrames) {
-      const patch = {
-        x: resized.x,
-        y: resized.y,
-        width: resized.width,
-        height: resized.height,
-      };
-      for (const property of staticProperties) {
-        offsetLayerTransform(layer, frame, { [property]: resized[property] });
-        delete (patch as Partial<typeof patch>)[property];
-      }
-      if (Object.keys(patch).length) writeLayerTransformAtFrame(composition, layer, frame, patch);
-    }
-  }
+  for (const layer of composition.layers) resizeConstrainedLayer(layer, oldSize, newSize);
 }
 
 function descendantLayers(composition: Composition, parentId: string): Layer[] {
@@ -5283,6 +5217,12 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       updateDesignToken: (tokenId, patch) => {
+        const session = useProjectSetStore.getState();
+        const projectSet = session.projectSet;
+        const member = projectSet?.templates.find((item) => item.id === session.activeTemplateId);
+        const shared = templateBrandKit(projectSet, member)?.tokens.some(
+          (token) => token.id === tokenId,
+        );
         set((state) => {
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           const token = composition.designSystem.tokens.find(
@@ -5296,11 +5236,7 @@ export const useProjectStore = create<ProjectStore>()(
           next.value = normalizeDesignTokenValue(next.type, next.value);
           Object.assign(token, next);
           syncDesignToken(composition, token.id);
-          if (
-            useProjectSetStore
-              .getState()
-              .projectSet?.brandKit?.tokens.some((item) => item.id === tokenId)
-          ) {
+          if (shared) {
             for (const other of state.project.compositions) {
               if (other.id === composition.id) continue;
               const linked = other.designSystem.tokens.find((item) => item.id === tokenId);
@@ -5311,14 +5247,12 @@ export const useProjectStore = create<ProjectStore>()(
             }
           }
         });
-        const session = useProjectSetStore.getState();
-        if (
-          patch.value !== undefined &&
-          session.projectSet?.brandKit?.tokens.some((item) => item.id === tokenId)
-        ) {
+        if (patch.value !== undefined && projectSet && shared) {
+          const latestSet = useProjectSetStore.getState().projectSet;
+          if (!latestSet || latestSet.id !== projectSet.id) return;
           session.setProjectSet({
-            ...session.projectSet,
-            templates: session.projectSet.templates.map((template) =>
+            ...latestSet,
+            templates: latestSet.templates.map((template) =>
               template.id === session.activeTemplateId
                 ? {
                     ...template,
@@ -5334,11 +5268,9 @@ export const useProjectStore = create<ProjectStore>()(
 
       removeDesignToken: (tokenId) =>
         set((state) => {
-          if (
-            useProjectSetStore
-              .getState()
-              .projectSet?.brandKit?.tokens.some((token) => token.id === tokenId)
-          )
+          const { projectSet, activeTemplateId } = useProjectSetStore.getState();
+          const member = projectSet?.templates.find((item) => item.id === activeTemplateId);
+          if (templateBrandKit(projectSet, member)?.tokens.some((token) => token.id === tokenId))
             return;
           const composition = getActiveComposition(state.project, state.activeCompositionId);
           if (

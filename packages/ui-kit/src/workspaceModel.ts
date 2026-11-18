@@ -339,8 +339,11 @@ export function createBuiltinWorkspacePresets(): WorkspacePreset[] {
     bottom: [group('data-timeline', ['timeline', 'plugins', 'transitions'])],
   });
   const secondScreen = { left: 1920, top: 0, width: 1920, height: 1080 };
+  const defaultLayout = createDefaultDockLayout();
+  defaultLayout.outerZones = { left: [], right: defaultLayout.zones.right, top: [], bottom: [] };
+  defaultLayout.zones.right = [];
   return [
-    make('default', 'Default', createDefaultDockLayout()),
+    make('default', 'Default', defaultLayout),
     make(
       'essentials',
       'Essentials',

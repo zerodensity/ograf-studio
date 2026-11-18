@@ -61,12 +61,16 @@ export interface CompiledLayerVisualState {
   motionBlur?: MotionBlurSample;
 }
 
-/** Resolves a layer loop's active composition-frame window from compiled lifecycle metadata. */
+/**
+ * Resolves a layer loop's active composition-frame window from compiled lifecycle metadata.
+ * `heldFrames` is the time spent waiting on Steps since the loop started; a caller that holds on
+ * several Steps passes a function of the frame at which the loop was activated.
+ */
 export function compiledLoopElapsedFrames(
   descriptor: CompiledGraphicDescriptor,
   layer: CompiledLayer,
   baseFrame: number,
-  heldFrames = 0,
+  heldFrames: number | ((activationFrame: number) => number) = 0,
 ): number | undefined {
   const activation =
     layer.element.type === 'pattern' || layer.lighting
@@ -87,7 +91,8 @@ export function compiledLoopElapsedFrames(
       ? orderedLifecycle.find((keyframe) => keyframe.frame > activationKeyframe.frame)
       : orderedLifecycle.find((keyframe) => keyframe.role === 'end');
   if (nextBoundary && baseFrame >= nextBoundary.frame) return undefined;
-  return Math.max(0, baseFrame - activationKeyframe.frame + Math.max(0, heldFrames));
+  const held = typeof heldFrames === 'function' ? heldFrames(activationKeyframe.frame) : heldFrames;
+  return Math.max(0, baseFrame - activationKeyframe.frame + Math.max(0, held));
 }
 
 function incomingProgress(

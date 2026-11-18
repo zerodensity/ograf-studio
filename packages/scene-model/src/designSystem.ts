@@ -51,7 +51,11 @@ function assertTokenValue(type: DesignTokenType, value: DesignTokenValue): void 
   }
 }
 
-function assertCompatible(layer: Layer, binding: DesignTokenBinding, token: DesignToken): void {
+function assertCompatible(
+  layer: Pick<Layer, 'element' | 'effects'>,
+  binding: DesignTokenBinding,
+  token: DesignToken,
+): void {
   const property = binding.targetProperty;
   if (shaderPaintConflictsWithBinding(layer.element, property))
     throw new Error(
@@ -181,7 +185,7 @@ function gradientColorIndex(property: string): number | null {
 }
 
 export function applyDesignTokenBinding(
-  layer: Layer,
+  layer: Pick<Layer, 'element' | 'effects' | 'animationTracks'>,
   binding: DesignTokenBinding,
   token: DesignToken,
 ): void {

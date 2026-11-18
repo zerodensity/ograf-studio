@@ -9,12 +9,14 @@ import {
   type DesignToken,
   type DesignTokenType,
   type DesignTokenTargetProperty,
+  type Project,
 } from '@ograf-editor/scene-model';
 import { useProjectSetStore } from './projectSetStore';
 import { useProjectStore } from './projectStore';
 import {
   resolveProjectSetTemplate,
   saveProjectSetTemplateEdits,
+  templateBrandKit,
   validateProjectSetDocument,
   type ProjectSetDocument,
 } from './projectSet';
@@ -25,7 +27,7 @@ import { templateSetSettingsFromProject } from './templateSetSettings';
 import { useTestDataStore } from './testDataStore';
 import { validateProject } from '@ograf-editor/validation';
 
-function shareFonts(set: ProjectSetDocument): ProjectSetDocument {
+function shareFonts(set: ProjectSetDocument, donor?: Project): ProjectSetDocument {
   const families = new Set(
     [
       ...(set.brandKit?.tokens
@@ -37,8 +39,12 @@ function shareFonts(set: ProjectSetDocument): ProjectSetDocument {
     ),
   );
   const assets = [...set.assets];
-  for (const template of set.templates)
-    for (const composition of template.project.compositions) {
+  // A selectively linked member can still carry independent fonts that belong to its source.
+  const inheriting = set.templates.filter((template) => template.inheritBrandKit !== false);
+  const projects = inheriting.map((template) => template.project);
+  if (donor) projects.push(donor);
+  for (const project of projects)
+    for (const composition of project.compositions) {
       for (const font of composition.assets.filter(
         (asset) => asset.kind === 'font' && families.has(asset.fontFamily ?? ''),
       )) {
@@ -59,14 +65,13 @@ function shareFonts(set: ProjectSetDocument): ProjectSetDocument {
     const share = (reference: string) => {
       if (!reference.startsWith('asset:')) return reference;
       if (assets.some((asset) => asset.id === reference.slice(6))) return reference;
-      const ordered = [
-        ...set.templates.filter(
-          (template) => template.id === useProjectSetStore.getState().activeTemplateId,
-        ),
-        ...set.templates,
-      ];
+      const active = inheriting.find(
+        (template) => template.id === useProjectSetStore.getState().activeTemplateId,
+      )?.project;
+      const first = donor ?? active;
+      const ordered = first ? [first, ...projects] : projects;
       const source = ordered
-        .flatMap((template) => template.project.compositions)
+        .flatMap((project) => project.compositions)
         .flatMap((composition) => composition.assets)
         .find((asset) => asset.id === reference.slice(6));
       if (!source) throw new Error('Shared background references a missing asset.');
@@ -90,6 +95,7 @@ function shareFonts(set: ProjectSetDocument): ProjectSetDocument {
 export function editBrandKitSet(
   change: (set: ProjectSetDocument) => ProjectSetDocument,
   label: string,
+  donor?: Project,
 ) {
   const session = useProjectSetStore.getState();
   if (!session.projectSet) throw new Error('Create or open a Template Set first.');
@@ -97,7 +103,7 @@ export function editBrandKitSet(
   const synced = session.activeTemplateId
     ? saveProjectSetTemplateEdits(session.projectSet, session.activeTemplateId, editor.project)
     : session.projectSet;
-  let updated = shareFonts(change(structuredClone(synced)));
+  let updated = shareFonts(change(structuredClone(synced)), donor);
   validateProjectSetDocument(updated);
   updated = {
     ...updated,
@@ -114,7 +120,7 @@ export function editBrandKitSet(
   const typeChanged =
     JSON.stringify(synced.brandKit?.typography) !== JSON.stringify(updated.brandKit?.typography);
   const resets =
-    typeChanged && active
+    typeChanged && active && !active.brandKitLinks && templateBrandKit(updated, active)
       ? active.project.compositions.flatMap((composition) => syncTypographyPresets(composition))
       : [];
   runDiscreteHistoryStep(() => {
@@ -127,7 +133,12 @@ export function editBrandKitSet(
 const editSet = editBrandKitSet;
 
 export function initializeSharedBrandKit() {
-  const kit = sharedBrandKitFromProject(useProjectStore.getState().project);
+  const project = useProjectStore.getState().project;
+  const session = useProjectSetStore.getState();
+  const template = session.projectSet?.templates.find(
+    (item) => item.id === session.activeTemplateId,
+  );
+  const kit = sharedBrandKitFromProject(project);
   editSet(
     (set) => ({
       ...set,
@@ -135,6 +146,7 @@ export function initializeSharedBrandKit() {
       templates: set.templates.map((template) => ({ ...template, brandKitOverrides: [] })),
     }),
     'Create master Brand Kit',
+    template?.inheritBrandKit === false ? project : undefined,
   );
 }
 
@@ -206,7 +218,9 @@ export function addSharedBrandToken(type: DesignTokenType = 'color') {
 export function removeSharedBrandToken(id: string) {
   editSet((set) => {
     if (!set.brandKit) throw new Error('Create the master Brand Kit first.');
-    for (const template of set.templates)
+    for (const template of set.templates.filter((item) =>
+      templateBrandKit(set, item)?.tokens.some((token) => token.id === id),
+    ))
       for (const composition of template.project.compositions) {
         if (
           [
@@ -232,6 +246,14 @@ export function removeSharedBrandToken(id: string) {
       templates: set.templates.map((template) => ({
         ...template,
         brandKitOverrides: template.brandKitOverrides?.filter((tokenId) => tokenId !== id),
+        ...(template.brandKitLinks
+          ? {
+              brandKitLinks: {
+                ...template.brandKitLinks,
+                tokenIds: template.brandKitLinks.tokenIds.filter((tokenId) => tokenId !== id),
+              },
+            }
+          : {}),
       })),
     };
   }, 'Remove shared design token');
@@ -240,14 +262,15 @@ export function removeSharedBrandToken(id: string) {
 export function getBrandTokenOrigin(tokenId: string) {
   const { projectSet: set, activeTemplateId } = useProjectSetStore.getState();
   const template = set?.templates.find((item) => item.id === activeTemplateId);
-  const shared = !!template && !!set?.brandKit?.tokens.some((token) => token.id === tokenId);
+  const kit = templateBrandKit(set, template);
+  const shared = kit?.tokens.some((token) => token.id === tokenId);
   return {
     origin: !shared
       ? ('local' as const)
-      : template.brandKitOverrides?.includes(tokenId)
+      : template?.brandKitOverrides?.includes(tokenId)
         ? ('overridden' as const)
         : ('inherited' as const),
-    sourceName: shared ? set?.brandKit?.name : undefined,
+    sourceName: shared ? kit?.name : undefined,
   };
 }
 

@@ -26,6 +26,7 @@ import {
 import {
   resolveProjectSetTemplate,
   saveProjectSetTemplateEdits,
+  templateBrandKit,
   type ProjectSetDocument,
 } from './projectSet';
 
@@ -40,7 +41,7 @@ function styleOrigin(id: string, kind: 'typography' | 'backgrounds') {
   const template = session.projectSet?.templates.find(
     (item) => item.id === session.activeTemplateId,
   );
-  const kit = session.projectSet?.brandKit;
+  const kit = templateBrandKit(session.projectSet, template);
   const shared = kit?.[kind]?.some((style) => style.id === id);
   const overrides =
     kind === 'typography' ? template?.typographyOverrides : template?.backgroundOverrides;
@@ -205,9 +206,14 @@ function removeStyle(scope: BrandKitStyleScope, id: string, kind: 'typography' |
   if (scope === 'set')
     editBrandKitSet((set) => {
       if (!set.brandKit) throw new Error('Create the master Brand Kit first.');
+      const sharedMembers = new Set(
+        set.templates.filter((template) =>
+          templateBrandKit(set, template)?.[kind]?.some((style) => style.id === id),
+        ),
+      );
       if (
         (kind === 'backgrounds' && set.brandKit.defaultBackgroundStyleId === id) ||
-        set.templates.some((template) => styleUsed(template.project, id, kind))
+        Array.from(sharedMembers).some((template) => styleUsed(template.project, id, kind))
       )
         throw new Error('This style is still used. Detach its uses before removing it.');
       if (kind === 'typography')
@@ -222,6 +228,11 @@ function removeStyle(scope: BrandKitStyleScope, id: string, kind: 'typography' |
           template.backgroundOverrides = template.backgroundOverrides?.filter(
             (value) => value !== id,
           );
+        if (!sharedMembers.has(template)) continue;
+        if (template.brandKitLinks) {
+          const key = kind === 'typography' ? 'typographyIds' : 'backgroundIds';
+          template.brandKitLinks[key] = template.brandKitLinks[key].filter((value) => value !== id);
+        }
         for (const composition of template.project.compositions) {
           if (kind === 'typography')
             composition.designSystem.typography = composition.designSystem.typography?.filter(
@@ -439,12 +450,14 @@ export function resetCompositionBackground() {
   const session = useProjectSetStore.getState(),
     editor = useProjectStore.getState();
   const current = active(editor.project);
+  const member = session.projectSet?.templates.find((item) => item.id === session.activeTemplateId);
+  const kit = templateBrandKit(session.projectSet, member);
   if (
-    session.projectSet?.brandKit &&
+    session.projectSet &&
+    kit &&
     session.activeTemplateId &&
     editor.activeCompositionId === editor.project.mainCompositionId &&
-    (session.projectSet.brandKit.defaultBackgroundStyleId !== undefined ||
-      !current.backgroundStyleId)
+    (kit.defaultBackgroundStyleId !== undefined || !current.backgroundStyleId)
   ) {
     const set = saveProjectSetTemplateEdits(
       session.projectSet,
@@ -467,7 +480,7 @@ export function resetCompositionBackground() {
       (composition) => composition.id === source.project.mainCompositionId,
     )!;
     delete main.backgroundPaintOverridden;
-    if (updated.brandKit?.defaultBackgroundStyleId === undefined) {
+    if (kit.defaultBackgroundStyleId === undefined) {
       delete main.backgroundStyleId;
       delete main.backgroundPaint;
     }
@@ -491,9 +504,10 @@ export function getBackgroundOrigin() {
   const template = session.projectSet?.templates.find(
     (item) => item.id === session.activeTemplateId,
   );
+  const kit = templateBrandKit(session.projectSet, template);
   const sharedDefault =
     composition.id === editor.project.mainCompositionId &&
-    session.projectSet?.brandKit?.defaultBackgroundStyleId !== undefined;
+    kit?.defaultBackgroundStyleId !== undefined;
   return {
     origin:
       composition.backgroundPaintOverridden || (sharedDefault && template?.backgroundOverridden)
@@ -502,7 +516,7 @@ export function getBackgroundOrigin() {
           ? ('inherited' as const)
           : ('local' as const),
     sourceName: sharedDefault
-      ? session.projectSet?.brandKit?.name
+      ? kit?.name
       : composition.designSystem.backgrounds?.find(
           (style) => style.id === composition.backgroundStyleId,
         )?.name,

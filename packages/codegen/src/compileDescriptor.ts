@@ -28,6 +28,7 @@ import {
   validateRendererPluginSnapshot,
   resolveElementAssetReferences,
   resolveAssetValue,
+  assetReference,
   resolvePatternElement,
   type Composition,
   type VisualRuleAction,
@@ -66,6 +67,9 @@ export function compileDescriptor(
   const keyframeFrames = computeKeyframeFrames(composition);
   const frameByKeyframeId = new Map(keyframeFrames.map((k) => [k.keyframeId, k.frame]));
   const fieldKeyById = new Map(composition.dataFields.map((f) => [f.id, f.key]));
+  const assetUrls = new Map(
+    composition.assets.map((asset) => [assetReference(asset.id), asset.dataUri]),
+  );
   const dataExposure = compileDataExposure(composition.dataFields);
   const modifierGroups = new Set(
     composition.layers.flatMap((layer) =>
@@ -282,6 +286,12 @@ export function compileDescriptor(
           return compiled ? [compiled] : [];
         });
         const actions = structuredClone(rule.actions).flatMap((action): VisualRuleAction[] => {
+          if (
+            action.type === 'property' &&
+            action.targetProperty === 'src' &&
+            typeof action.value === 'string'
+          )
+            action.value = assetUrls.get(action.value) ?? action.value;
           if (
             scopeLayerIds &&
             isVisualRuleStateAction(action) &&

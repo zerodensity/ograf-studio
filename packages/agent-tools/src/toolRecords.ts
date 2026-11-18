@@ -93,6 +93,18 @@ import {
 import JSZip from 'jszip';
 import { writeTemplateFiles } from './projectFiles';
 import { decodeTemplateSetArchive } from './templateSetFiles';
+import { LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION } from './templateSetStorage';
+import {
+  templateTransferOptionsSchema,
+  templateTransferSourceSchema,
+  templateTransferWorkspaceFileSchema,
+  type TemplateTransferRequest,
+  type TemplateTransferWorkspaceFile,
+} from './templateTransferReview';
+import {
+  assertTemplateTransferFileRevision,
+  readTemplateTransferFile,
+} from './templateTransferFiles';
 import {
   projectThumbnailFrame,
   thumbnailRenderProject,
@@ -2132,11 +2144,28 @@ export function createOGrafToolRecords(
           storage: {
             defaultArchiveMode: 'compact',
             archiveSchemaVersion: 6,
+            localBrandingArchiveSchemaVersion: LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
             compatibleArchiveSchemaVersion: 5,
             contract:
-              'Compact set archives store identical font/resource bytes and set component sources once, with validated member references. Opening hydrates ordinary editable projects with original IDs, bindings, animation and overrides. Compatible mode retains the v5 archive layout for older set readers. Readers retain v1–v5 and legacy .ogp support; JSON-only readers cannot open any set ZIP. Single-template saves/exports always embed resolved dependencies and never contain compact archive references.',
+              'Compact archives share identical font/resource bytes and set component sources, then hydrate editable projects with original IDs, bindings, animation and overrides. A set with local Brand Kit inheritance uses schema 7 so older readers cannot reapply shared branding. Other compact sets use schema 6 and can be saved in compatible schema 5. Readers accept schemas 1–7 and legacy .ogp. A standalone project embeds its resolved dependencies.',
             mcpSave:
               'ograf_save_template_set saves a revision-checked snapshot copy of the connected editor set to a workspace-confined .ogs path. archiveMode compact (default) or compatible; confirm:true and explicit overwrite permission. Compressed MCP transfer limit 64 MiB; larger sets use Studio Save Template Set. Saving preserves open editor names, revisions and unsaved edits.',
+          },
+          transfers: {
+            crossSetPastePolicy: 'keep-appearance',
+            inheritance:
+              'Read inheritBrandKit and inheritSettings independently on each member. A kept transfer uses local branding and canvas settings.',
+            result:
+              'A cross-set paste_template result includes transfer with the created identities, settings differences and warnings. The transfer is validated before publishing and can be undone in Studio.',
+            ...(!inApp && {
+              available: bridge.health.templateTransfersReady === true,
+              review: 'ograf_review_template_transfer',
+              preview: 'ograf_preview_template_transfer',
+              commit: 'ograf_commit_template_transfer',
+              policies: ['keep-appearance', 'adopt-destination', 'bring-source-branding'],
+              workflow:
+                'Review the clipboard or a workspace file with the destination set revision. For select-source-template, choose an ID from sourceTemplates and review again with source.templateId. Preview the frozen plan, then use the same planId, expectedRevision and sourceRevision to commit with confirm:true. Workspace file previews and commits recheck the selected file and member by hash. Re-review if the project changes.',
+            }),
           },
           sharedResources: {
             ui: 'Resources offers Template and Template Set views in a set. Template Set shows shared components, asset slots, per-template usage and inheritance/local override indicators; the existing Scene Outliner shared controls and asset slots editor remains available. Replacing a shared asset is reviewed in Studio before applying, including other slots using the same source.',
@@ -2165,7 +2194,7 @@ export function createOGrafToolRecords(
             authoring:
               'ograf_update_template_set operation set_transition_logic accepts a complete definition object or null. Uses the opaque set revision, validates graph/template/component references, and applies one undoable edit. JSON payload is bounded to 1 MiB, 32768 values and 32 levels. Unapplied UI drafts must be Applied or Reverted first. Removing the graph or replacing its ID requires confirm:true; editing the same ID does not. Loaded playout is unchanged until explicitly reloaded.',
             source:
-              'Optional transitionLogic in the template-set snapshot. Definition v6 adds slot.updateMode; v5 adds independent incoming/outgoing content animations; v4 adds Take admission and named-state data presets. Definitions v1–v5 remain readable. New selectors require v5 so older runtimes reject unsupported motion. Source archive schema 6 and compatible schema 5 preserve the graph; archive compatibility does not down-convert graph features.',
+              'Optional transitionLogic in the template-set snapshot. Definition v6 adds slot.updateMode; v5 adds independent incoming/outgoing content animations; v4 adds Take admission and named-state data presets. Definitions v1–v5 remain readable. New selectors require v5 so older runtimes reject unsupported motion. Compact and compatible set archives preserve the graph. Archive compatibility does not down-convert graph features.',
             contentAnimations: {
               minimumDefinitionVersion: 5,
               fields: ['recipe.incomingAnimation', 'recipe.outgoingAnimation'],
@@ -2277,7 +2306,7 @@ export function createOGrafToolRecords(
           defaults:
             'Main canvas size/rate/background, render modes, data transitions, guides display, snapping and bounds. Each property can inherit or be explicitly overridden; set_setting_override pins/resets a property independently. Editing inherited controls creates a local override. set_inheritance retains whole-template opt-out. Media/audio retain real-time-only support.',
           brandKit:
-            'Optional set-owned master Brand Kit: typed palette/font/number/text tokens with stable IDs and per-template token overrides. set_brand_kit adopts a kit, upsert_brand_token/remove_brand_token manage tokens, set_brand_token_override pins/resets a token. Compatible semantic keys map on explicit adoption, never display names. Object token bindings retain overridden flags for local edits/reset. Shared font files and resolved values are embedded in standalone children; generated CSS is a safe custom-property view, not an external stylesheet runtime dependency.',
+            'The optional set-owned master Brand Kit applies to members with inheritBrandKit enabled. set_brand_kit replaces the master for those members, upsert_brand_token/remove_brand_token manage typed tokens with stable IDs, and set_brand_token_override pins or resets a token. Adoption matches compatible semantic keys. Object token bindings retain their override flags. Standalone children embed shared font files and resolved values. Generated CSS safely exposes custom properties for inspection.',
           typography: {
             shape:
               'TypographyPreset {id,name,properties:{fontFamily,fontSize,fontWeight,lineHeight,letterSpacing,textAlign,textTransform}}',
@@ -2297,7 +2326,7 @@ export function createOGrafToolRecords(
           copies:
             'Independent template/project/composition identities. Same-set copies preserve parent control and shared-asset bindings. Cross-set paste materializes resolved local values.',
           files:
-            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact schema 6 .ogs; compatible mode writes schema 5. Export Legacy Template Set (.ogp) flattens component links in a copy. Newer features are not down-converted. MCP project open/save remain standalone JSON; ograf_save_template_set writes a whole-set snapshot copy without file dialogs.',
+            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact .ogs with schema 7 when local branding needs it, otherwise schema 6. Eligible sets can use schema 5 compatibility. Export Legacy Template Set (.ogp) flattens component links in eligible copies. MCP project open/save use standalone JSON; ograf_save_template_set writes whole-set snapshots.',
         },
         cropping: {
           layer:
@@ -2572,6 +2601,13 @@ export function createOGrafToolRecords(
             fontFamily: { type: 'string', default: 'system-ui, sans-serif' },
             fontSize: { type: 'number', default: 48, exclusiveMinimum: 0 },
             fontWeight: { type: 'number', default: 600 },
+            direction: {
+              type: 'enum',
+              values: ['auto', 'ltr', 'rtl'],
+              default: 'auto',
+              description:
+                'Unicode text layout direction for text and clock layers. Set direction in add_layer.element or update_element.patch. textDirection is an accepted input alias; direction takes precedence if both are supplied.',
+            },
             textAlign: {
               type: 'enum',
               values: ['left', 'center', 'right'],
@@ -5710,6 +5746,98 @@ export function createOGrafToolRecords(
       );
     },
   );
+  if (!inApp) {
+    const revision = z.string().min(1).max(256);
+    const planReference = {
+      expectedRevision: revision,
+      planId: z.string().min(1).max(128),
+      sourceRevision: revision,
+      workspaceFile: templateTransferWorkspaceFileSchema.optional(),
+    };
+    const requestTransfer = async (request: TemplateTransferRequest, timeoutMs?: number) => {
+      if (!bridge.requestTemplateSet)
+        throw new Error('Template transfer review requires a connected Studio editor.');
+      return textResult(await bridge.requestTemplateSet(request, timeoutMs));
+    };
+    const useReviewedPlan = async (
+      action: 'transfer-preview' | 'transfer-commit',
+      {
+        workspaceFile,
+        ...reference
+      }: {
+        expectedRevision: string;
+        planId: string;
+        sourceRevision: string;
+        workspaceFile?: TemplateTransferWorkspaceFile;
+      },
+    ) => {
+      await assertTemplateTransferFileRevision(workspace, reference.sourceRevision, workspaceFile);
+      return requestTransfer(
+        { action, ...reference },
+        action === 'transfer-preview' ? 60_000 : undefined,
+      );
+    };
+    server.registerTool(
+      'ograf_review_template_transfer',
+      {
+        title: 'Review template branding transfer',
+        description:
+          'Review branding and settings, or list members of a workspace set. Select source.templateId when requested. Returns bounded rows and a frozen plan ID. Files up to 64 MiB.',
+        inputSchema: {
+          expectedRevision: revision,
+          source: templateTransferSourceSchema,
+          options: templateTransferOptionsSchema.default({ policy: 'keep-appearance' }),
+          targetTemplateId: z.string().min(1).max(256).nullable().optional(),
+          side: z.enum(['before', 'after']).optional(),
+          originalPrompt: originalPromptSchema.optional(),
+          offset: z.number().int().nonnegative().default(0),
+          limit: z.number().int().min(1).max(50).default(25),
+        },
+        annotations: { ...readOnly, idempotentHint: false },
+      },
+      async ({ source, ...options }) => {
+        if (source.kind === 'clipboard')
+          return requestTransfer({ action: 'transfer-review', source, ...options }, 60_000);
+        const file = await readTemplateTransferFile(workspace, source);
+        return requestTransfer(
+          {
+            action: 'transfer-review',
+            source: {
+              kind: 'workspace-file',
+              filename: file.filename,
+              bytesBase64: file.data.toString('base64'),
+              sourceRevision: file.sourceRevision,
+              templateId: source.templateId,
+            },
+            ...options,
+          },
+          60_000,
+        );
+      },
+    );
+    server.registerTool(
+      'ograf_preview_template_transfer',
+      {
+        title: 'Preview a reviewed template transfer',
+        description:
+          'Render before and after images for the exact reviewed plan. Returns expiring image URLs. Recheck a file with the same workspaceFile path and member.',
+        inputSchema: planReference,
+        annotations: readOnly,
+      },
+      async (input) => useReviewedPlan('transfer-preview', input),
+    );
+    server.registerTool(
+      'ograf_commit_template_transfer',
+      {
+        title: 'Apply a reviewed template transfer',
+        description:
+          'Apply one undoable transfer from a reviewed plan and exact revisions. Requires confirm:true. Supply the same workspaceFile path and member for file sources.',
+        inputSchema: { ...planReference, confirm: z.literal(true) },
+        annotations: mutation,
+      },
+      async ({ confirm: _confirm, ...input }) => useReviewedPlan('transfer-commit', input),
+    );
+  }
   server.registerTool(
     'ograf_get_playout',
     {
@@ -5782,6 +5910,8 @@ export function createOGrafToolRecords(
     'ograf_inspect_scene',
     'ograf_get_project',
     'ograf_get_template_set',
+    'ograf_review_template_transfer',
+    'ograf_preview_template_transfer',
     'ograf_get_changes',
     'ograf_get_playout',
     'ograf_get_timeline',

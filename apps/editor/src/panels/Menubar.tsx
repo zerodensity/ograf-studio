@@ -12,13 +12,13 @@ import {
 import { flushSync } from 'react-dom';
 import { useProjectStore } from '../state/projectStore';
 import { useProjectSetStore } from '../state/projectSetStore';
-import { insertTemplateProject } from '../state/templateCommands';
-import { useSelectionStore } from '../state/selectionStore';
+import { requestFileTemplateTransferReview } from '../state/templateTransferReviewDialogStore';
 import {
-  openProjectFromFile,
-  openStudioDocumentFromFile,
-  openStudioDocumentFromUrl,
-} from '../state/fileIO';
+  captureTemplateTransferDestination,
+  templateTransferStatus,
+} from '../state/templateTransfer';
+import { useSelectionStore } from '../state/selectionStore';
+import { openStudioDocumentFromFile, openStudioDocumentFromUrl } from '../state/fileIO';
 import type { StudioDocument } from '../state/studioDocument';
 import { applyOpenedStudioDocument } from '../state/openStudioDocument';
 import { saveStudioDocument } from '../state/saveStudioDocument';
@@ -41,6 +41,7 @@ import {
   type DockPaneId,
 } from '../layout/dockModel';
 import { selectableLayerIds } from '../state/selectAllLayers';
+import { requestStudioExport } from '../state/studioExportDialogStore';
 import './Menubar.css';
 import { useDetachedWindows } from '../layout/detachedWindowContext';
 import { duplicateSelectedLayers } from '../state/editorShortcuts';
@@ -476,11 +477,16 @@ export function Menubar({
 
   const handleAddTemplate = async () => {
     if (!projectSet) return;
+    const assertCurrentDestination = captureTemplateTransferDestination();
     try {
-      const opened = await openProjectFromFile();
+      const opened = await openStudioDocumentFromFile(ownerWindow);
       if (!opened) return;
-      insertTemplateProject(opened, activeTemplateId);
-      setStatus(`Added "${opened.name}" to the template set`);
+      assertCurrentDestination();
+      const result = await requestFileTemplateTransferReview(ownerWindow, opened, {
+        targetTemplateId: activeTemplateId ?? undefined,
+        assertCurrentDestination,
+      });
+      setStatus(result ? templateTransferStatus('Added', result) : 'Transfer cancelled.');
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Failed to add template');
     }
@@ -751,9 +757,13 @@ export function Menubar({
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => {
+                  onClick={(event) => {
+                    const focusTarget =
+                      fileMenuRef.current?.querySelector<HTMLButtonElement>(
+                        'button[aria-haspopup="menu"]',
+                      ) ?? event.currentTarget;
                     closeMenus();
-                    revealPane('export', 'preview.export');
+                    requestStudioExport(focusTarget);
                   }}
                   title="Open the export options for the current template or template set."
                 >

@@ -3,7 +3,7 @@ import { getActiveComposition, useProjectStore } from './projectStore';
 import { describeProjectChange } from './historyLabels';
 import { useSelectionStore } from './selectionStore';
 import { useProjectSetStore } from './projectSetStore';
-import type { ProjectSetDocument } from './projectSet';
+import { templateBrandKit, type ProjectSetDocument } from './projectSet';
 import { changedTemplateSetSettingKeys } from './templateSetSettings';
 import { changedSharedBrandTokenIds } from './templateSetTheme';
 import { synchronizeSetComponentLibrary } from './componentSetLibrary';
@@ -351,9 +351,8 @@ export function applyRemoteProjectUpdate(project: Project, update: RemoteHistory
       stagedSet.settings && template.inheritSettings !== false
         ? changedTemplateSetSettingKeys(current, project)
         : [];
-    const tokens = stagedSet.brandKit
-      ? changedSharedBrandTokenIds(current, project, stagedSet.brandKit)
-      : [];
+    const kit = templateBrandKit(stagedSet, template);
+    const tokens = kit ? changedSharedBrandTokenIds(current, project, kit) : [];
     if (settings.length || tokens.length)
       stagedSet = {
         ...stagedSet,

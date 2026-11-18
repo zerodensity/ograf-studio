@@ -202,6 +202,7 @@ text finishes, transparent overlays, and the effect-only **Signal Glitch**. Buil
 | Remote `.ogs` / `.ogp` URL | Public/CORS-enabled editable document            | **File → Open from URL…**                                                                              |
 | `.ograf.zip`               | Certified playout package                        | **File → Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
 | `.ograf-set.zip`           | Bundle of certified template outputs             | In **File → Export…**, choose **Template set** for a set without Transition Logic                      |
+| `.webm`                    | Movie of one template, transparent by default    | In **File → Export…**, choose **WebM video**; plays in a browser or an editing app                     |
 | Loose OGraf package files  | Manifest, `main.js`, and resources               | Select them together with **File → Import OGraf**                                                      |
 | SVG and raster images      | Reusable image assets                            | **Add Image** above the canvas, or drop files onto the canvas                                          |
 | Lottie `.json`             | Looping vector animation layer                   | **+ Lottie JSON** above the canvas                                                                     |
@@ -229,17 +230,37 @@ for a standalone playout export.
 Saving shows template/resource/compression progress and runs archive generation in a worker, so
 the editor and its bridge can keep responding. Edits made during saving remain in the open document.
 
+Adding an existing template or pasting from a different set opens a transfer review. When opening
+a complete set archive, select the source template in the review.
+
+- **Keep appearance** keeps the source branding and resolved dependencies local. Use **This template**
+  in Brand Kit to edit local definitions. Later destination kit changes leave the local styling intact.
+- **Adopt destination Brand Kit** suggests compatible semantic token matches. Review the mapping
+  rows to choose the destination definitions and decide which source roles to keep local. You can
+  approve specific typography and background matches and choose when to reset local overrides.
+- **Bring source branding** imports definitions from an available shared source kit. Review their
+  destination names, keys, and conflicts. A standalone file with resolved styling can keep its
+  appearance or adopt destination definitions. Exact shared-kit recovery needs source set information.
+
+Choose whether to use destination canvas settings independently of the branding policy. Review
+the settings differences, before-and-after frames, font and text fit notices, and the proposed
+bindings before applying. **Undo** restores the prior set in one step. Transitions require matching
+output size and frame rate for the templates they coordinate, including any canvas crops.
+
 A new set starts as **Untitled Template Set**. Double-click its root in Scene Outliner, or select it
 and press **F2**, to rename the set. Saving the set `.ogs` under a different filename updates the set
 name and the archive's root. Saving a child `.ogs` updates that template's name; the container keeps
 its own name. Scene Outliner labels roots as **Template Set** or **Template** to show the document type.
 
-Studio saves sets using compact archive schema 6. Earlier versions that read schema 5 require a
-compatible archive, which can be created through MCP; that copy retains the older archive layout
-and can be larger. Newer features are not down-converted. Current Studio still
-opens older schema 1–5 sets and legacy `.ogp` sets. Older Studio versions that expect JSON `.ogs`
-cannot read any multi-template `.ogs` archive. **Add .ogs Template…** accepts a single template only;
-open a multi-template document as a set to retain all members.
+Studio saves ordinary sets using compact archive schema 6. Sets with a member using local or
+selectively linked branding use schema 7. For those sets, use the current archive or save a standalone
+template copy to carry its resolved appearance. Other sets can use MCP compatible storage to save
+schema 5 for earlier set readers. Current Studio opens schemas 1–7 and legacy `.ogp` sets. Older Studio
+versions that expect JSON `.ogs` require a standalone template copy. Use **Add .ogs Template…** to
+choose a member from an archive, or **File → Open…** to open the complete set.
+
+Use a Studio build with transfer review support to edit approved destination Brand Kit links.
+Keep-only schema 7 readers display the saved appearance with the branding treated as local.
 
 The **Templates** pane switches the canvas between set members. Drag a thumbnail above or below another
 to reorder templates; the insertion line shows the drop position. The active template and its edits
@@ -436,26 +457,49 @@ layers remain visible.
 
 Extract the ZIP before opening the `.ogs` source.
 
-**File → Export…** opens Preview & Export, expands its Export section, and brings the export options
-into view even if the pane was hidden or the section was collapsed.
+**File → Export…** opens one dialog for choosing the scope, files and playout mode. The Export
+button in Preview & Export opens the same dialog.
 
-**Export .ograf.zip** opens a thumbnail preview and frame selector before exporting. Enter a frame,
-use previous/next-frame buttons, or select **First OGraf step**. A successful export remembers the
-choice for the template; cancelling leaves it unchanged. The ZIP includes `<id>_thumb.png` and
-references it in the OGraf manifest's `thumbnails` list.
+For a single template, the thumbnail appears on the left. Change its frame if needed. A
+successful export remembers the choice for the template. The ZIP includes `<id>_thumb.png`
+and references it in the manifest's `thumbnails` list. **Export scope** appears when a template set
+is open. When exporting a coordinated set, the dialog previews a member on the left and
+captures the coordinated thumbnail during export.
 
-When you export a template set from **File → Export…**, Studio opens a progress window before
-preparing the output. Choose **Cancel** or press **Esc** during preparation to stop the export.
-Once the files pass certification, the window offers **Save…** or **Download**. Save verifies the
-written bytes. Download requests browser delivery. A failed build or certification creates no
-destination file. **Save Certified Export…** in the **Preview & Export** pane's **Export** section
-reuses the prepared bytes without compiling again.
+Choose **Save files…** and pick a destination folder. ZIP and HTML use that one folder when you
+choose **Both files**. The dialog shows progress, with **Cancel** available during preparation and
+certification. Studio creates files after certification and verifies the saved bytes. If a filename
+already exists, Studio adds a numbered suffix to the export. **Download instead** requests
+browser delivery from the same dialog.
 
 For **Current template**, Studio starts with the template's authored render modes. A dual-mode
 template with an enabled external data connection starts on **Real-time playout**. Choose **Dual**
-or **Non-real-time render** when you need frame-by-frame output with scheduled input. If only the
-repeat-frame canvas check fails, the export window offers an explicit switch to real-time so you
-can certify and export that version for live playout.
+or **Non-real-time render** when you need frame-by-frame output with scheduled input. For a
+regular export, if only the repeat-frame canvas check fails, the export window offers a switch
+to real-time so you can certify and export that version for live playout.
+
+Select **NLE Export (for DaVinci Resolve etc.)** to certify non-real-time playback and render
+over a transparent composition background. This changes the export only. Authored layers
+remain, including any full-frame layers. Real-time-only media, audio, Media Cues or Functions
+can block certification. Choose **OGraf ZIP** or **Both files** when you need the OGraf package
+for your editing app.
+
+Choose **WebM video** to export the current template as a movie instead of an OGraf package. The
+movie plays the timeline from Start to End at the composition's size and frame rate, and waits on
+every Step for **Hold on each step**, as a graphic waits on air. Loops keep running through the
+wait. **Transparent background** is on by default: the composition background is left out and
+whatever the layers do not cover stays see-through, so the movie can be laid over other pictures in
+an editing app or on a web page. Turn it off to keep the composition background, over black where
+it has none. A full-frame layer stays in the movie either way.
+
+Sound on the timeline is included: audio layers, and sound cues that start at a frame or on arrival
+at a Step. Video and live media, and sounds started by an operator or a custom action, are left
+out. Studio makes the movie in the browser, with VP9 picture and Opus sound. It is not a certified
+OGraf package, and it needs a current Chrome or Edge. Rendering takes time, so the dialog counts
+the frames and **Cancel** stops it. A busy Full HD template renders about 25 frames a second; one
+that uses masks, patterns, effect filters or video is drawn another way and takes several times
+longer. Keep the Studio tab in front while it renders. A template set is not exported as one movie:
+open a template and export that.
 
 In **File → Export…**, choose **Standalone HTML** to export one browser-ready `.html` file.
 The default choices are **Template set** and **Both files**. Change them in **File → Preferences →
@@ -630,11 +674,9 @@ This wraps one template. Whole-set coordinated OGraf export and Studio's multi-t
 preview remain separate features. It does not replace `.ogs` saving or add a coordinated Nodos
 controller.
 
-For DaVinci Resolve, choose the **Non-real-time** or **Dual** export profile: Resolve loads OGraf
-graphics in non-real-time mode and cannot render a real-time-only package. Enable **Transparent
-output** when the graphic should overlay video; an opaque composition background covers the full
-frame. New compositions start transparent, shown as a checkerboard in the editor. Studio shows these
-as non-blocking playout warnings because both configurations remain legal OGraf for other workflows.
+DaVinci Resolve loads OGraf graphics in non-real-time mode. In **File → Export…**, enable
+**NLE Export (for DaVinci Resolve etc.)** to select this mode and clear the composition background
+in the exported graphic. In Studio, the checkerboard shows the transparent parts of a composition.
 
 ### Remote project URLs
 
@@ -1712,11 +1754,14 @@ bar or block cursor. Fade in changes each segment's opacity; Rise in moves it up
 Pop in grows it with a small overshoot; Word reveal slides each word upward through its own mask.
 Flip turns each segment around its horizontal axis; Blur in sharpens it while fading in; Rotate in
 turns it from a quarter rotation; Stretch in expands it horizontally. These reveals can split by
-Unicode-safe Characters or Words. Word reveal always splits by words.
+Unicode-safe Characters or Words. Word reveal always splits by words. Word animation keeps the
+paragraph's reading order for mixed right-to-left and left-to-right text.
 
 **Count up** and **Count down** animate a single number and finish at the value written in the text.
 Set **From** to choose the starting value, or leave it empty for an automatic start. Currency or
 other surrounding text, decimal precision, thousands separators and leading zeros are retained.
+Use a single decimal digit set in a value. The count keeps the source digits, including Arabic,
+Persian, Devanagari and full-width forms.
 Text containing multiple numbers, such as `12:34`, stays unchanged; use a single-number clock format
 when applying these effects to a clock/timer. Counting uses the same Duration and Replay controls.
 Choose **Digit motion → Roll up / Roll down** to combine counting with rolling digits.
@@ -1724,6 +1769,7 @@ Choose **Digit motion → Roll up / Roll down** to combine counting with rolling
 **Roll up** and **Roll down** move the previous and new characters through a clipped vertical window.
 Enable **Replay on update** (or **Replay on time change** for clocks) to roll changed digits while
 unchanged characters stay still. These effects work with complete clock formats such as `hh:mm:ss`.
+In right-to-left text, rolling keeps joined words shaped and digits in their reading order.
 
 Set a fixed frame duration for any preset. For Typewriter, **Typing speed** converts the current
 sample text into a fixed duration. Timeline scrubbing and non-real-time OGraf seeking sample these
@@ -1935,7 +1981,7 @@ unrelated preview values remain available. Playout can still override the values
 ## Menus and shortcuts
 
 **File** groups creation, opening/import, saving, and export in that order, with separators between
-groups. Template and template-set actions appear together. **File → Export…** opens Preview & Export.
+groups. Template and template-set actions appear together. **File → Export…** opens the Export dialog.
 
 **Edit** has Undo, Redo, Cut, Copy, Paste, Duplicate, Delete, Group or Ungroup, Select all, and
 Deselect all, with the same shortcuts on the canvas (**Ctrl+X/C/V**, **Ctrl+G**,
@@ -2045,11 +2091,11 @@ local differences in older linked instances become overrides when opened.
 
 ## Preview and export
 
-**Preview & Export** has one viewport with playback, data fields, diagnostics and export settings.
+**Preview & Export** has one viewport with playback, data fields, diagnostics and an Export button.
 It normally follows the template selected in **Templates**. The **▶ Preview** button of a playout
 layer's **Take in**, **Update** or **Take out** shows the coordinated graphics in that same
 viewport, including fullscreen. Selecting another template returns to its ordinary preview.
-**File → Export…** opens the pane directly.
+**File → Export…** and the pane's Export button open the same dialog.
 
 ### Browse and play templates
 
@@ -2111,7 +2157,8 @@ the same route as the keyboard and describe their next action.
 Save the editable template or complete set from **File**. Preview & Export contains the selected
 template's export settings and compatibility checks. The File menu also exports complete sets:
 
-- A single template produces a certified `.ograf.zip`.
+- A single template produces a certified `.ograf.zip`, or a `.webm` movie when you choose
+  **WebM video**.
 - A set with Transition Logic produces one coordinated `.ograf.zip`.
 - A set without Transition Logic produces an `.ograf-set.zip` containing a certified package for
   each template.

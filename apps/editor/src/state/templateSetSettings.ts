@@ -1,6 +1,5 @@
 import {
-  getResolvedLayerAnimationTracks,
-  resizeConstrainedTransform,
+  resizeConstrainedLayer,
   normalizeCanvasCrop,
   hasElementMediaPaint,
   isMediaPaint,
@@ -178,26 +177,7 @@ export function applyTemplateSetSettings(project: Project, settings: TemplateSet
   const oldSize = { width: composition.width, height: composition.height };
   const newSize = { width: settings.width, height: settings.height };
   if (oldSize.width !== newSize.width || oldSize.height !== newSize.height) {
-    for (const layer of composition.layers) {
-      const originalTracks = getResolvedLayerAnimationTracks(layer);
-      const fallback = layer.keyframes[0]?.transform;
-      if (!fallback) continue;
-      layer.animationTracks = structuredClone(originalTracks);
-      for (const property of ['x', 'y', 'width', 'height'] as const)
-        layer.animationTracks[property] = (originalTracks[property] ?? []).map((key) => ({
-          ...key,
-          value: resizeConstrainedTransform(
-            { ...fallback, [property]: key.value },
-            layer.constraints,
-            oldSize,
-            newSize,
-          )[property],
-        }));
-      layer.keyframes = layer.keyframes.map((key) => ({
-        ...key,
-        transform: resizeConstrainedTransform(key.transform, layer.constraints, oldSize, newSize),
-      }));
-    }
+    for (const layer of composition.layers) resizeConstrainedLayer(layer, oldSize, newSize);
   }
   Object.assign(composition, {
     width: settings.width,

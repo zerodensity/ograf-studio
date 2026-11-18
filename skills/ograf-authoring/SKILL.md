@@ -379,8 +379,11 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   tangent when enabled.
 - Timeline exposes a value graph for every selected numeric property track; graph drags remain
   ordinary key frame/value edits and preserve the existing incoming easing/Bézier contract.
-- Text supports ordered `runs` with color/weight/style/font overrides plus explicit `direction` and
-  BCP 47 `language`. Keep run text equal to `content`; a binding preserves styles for unchanged text
+- Text supports ordered `runs` with color/weight/style/font overrides plus BCP 47 `language`. Set
+  text or clock `direction` to `auto`, `ltr`, or `rtl` when adding or updating the layer. MCP also
+  accepts `textDirection` for text and clocks and stores the canonical `direction`. On tickers,
+  `direction` controls travel and `textDirection` controls text. Keep run text equal to
+  `content`; a binding preserves styles for unchanged text
   and clears runs for new operator text.
 - Use `add_layer kind:"clock"` for live clocks/timers. Read [clocks and timers](./references/clocks-and-timers.md)
   for formats, external data, timer commands and update text FX.
@@ -398,7 +401,8 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   mixed text order. Playback and cursor blinking remain frame-sampled
   under backward `goToTime()` seeks.
 - Counting presets finish at the single formatted number in Content. Use `countFrom:number|null`
-  for an explicit or automatic start. They retain numeric formatting and surrounding text;
+  for an explicit or automatic start. They retain the original Unicode decimal digit set,
+  numeric formatting and surrounding text;
   multi-number text and timecodes remain unchanged. `split` does not apply to counting.
 - `roll-up`/`roll-down` animate changed characters from the previous data/time value when replay is
   enabled, including full clock formats. Counters can additionally use `countRoll:up|down` for rolling

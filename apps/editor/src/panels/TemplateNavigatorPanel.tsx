@@ -15,12 +15,11 @@ import {
   resolveProjectSetTemplate,
   saveProjectSetTemplateEdits,
 } from '../state/projectSet';
-import { addSecondTemplateToNewSet } from '../state/templateSetConversion';
 import { revealPaneOnFirstUse } from '../state/firstUsePanes';
 import { activateProjectSetTemplate } from '../state/projectSetSession';
 import { useProjectSetStore } from '../state/projectSetStore';
 import { useProjectStore } from '../state/projectStore';
-import { openProjectFromFile } from '../state/fileIO';
+import { openStudioDocumentFromFile } from '../state/fileIO';
 import { createTemplateThumbnail } from '../state/templateThumbnail';
 import { schedulePreviewBackgroundWork } from '../state/previewBackgroundWork';
 import { ContextMenu } from '../components/ContextMenu';
@@ -29,11 +28,21 @@ import {
   duplicateTemplate,
   pasteTemplate,
   removeTemplate,
-  insertTemplateProject,
   undoRemoveTemplate,
   useTemplateClipboardStore,
 } from '../state/templateCommands';
+import {
+  captureTemplateTransferDestination,
+  templateTransferStatus,
+  type TemplateTransferReport,
+} from '../state/templateTransfer';
+import { beginClipboardTransferReview } from '../state/templateTransferReview';
+import {
+  requestFileTemplateTransferReview,
+  requestTemplateTransferReview,
+} from '../state/templateTransferReviewDialogStore';
 import { requestStartupCreation } from '../state/startupCreation';
+import { useEditorWindow } from '../layout/EditorWindow';
 import './TemplateNavigatorPanel.css';
 import { useTemplateSetSettingsStore } from '../state/templateSetSettingsStore';
 
@@ -327,6 +336,7 @@ function TemplateCard({
 }
 
 export function TemplateNavigatorPanel() {
+  const { window: ownerWindow } = useEditorWindow();
   const projectSet = useProjectSetStore((state) => state.projectSet);
   const activeTemplateId = useProjectSetStore((state) => state.activeTemplateId);
   const setProjectSet = useProjectSetStore((state) => state.setProjectSet);
@@ -464,16 +474,22 @@ export function TemplateNavigatorPanel() {
     side: 'before' | 'after' = 'after',
   ) => {
     if (!projectSet || busy) return;
+    const assertCurrentDestination = captureTemplateTransferDestination();
     setBusy(true);
     setStatus('Choose an .ogs template…');
     try {
-      const opened = await openProjectFromFile();
+      const opened = await openStudioDocumentFromFile(ownerWindow);
       if (!opened) {
         setStatus('');
         return;
       }
-      const name = insertTemplateProject(opened, targetId, side);
-      setStatus(`Inserted “${name}”`);
+      assertCurrentDestination();
+      const result = await requestFileTemplateTransferReview(ownerWindow, opened, {
+        targetTemplateId: targetId ?? undefined,
+        side,
+        assertCurrentDestination,
+      });
+      setStatus(result ? templateTransferStatus('Inserted', result) : 'Transfer cancelled.');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not add template');
     } finally {
@@ -483,18 +499,25 @@ export function TemplateNavigatorPanel() {
 
   const addSecondTemplate = async () => {
     if (busy) return;
-    const originalId = useProjectStore.getState().project.id;
+    const assertCurrentDestination = captureTemplateTransferDestination();
     setBusy(true);
     setStatus('Choose an .ogs template…');
     try {
-      const opened = await openProjectFromFile();
+      const opened = await openStudioDocumentFromFile(ownerWindow);
       if (!opened) {
         setStatus('');
         return;
       }
-      const name = addSecondTemplateToNewSet(opened, originalId);
+      assertCurrentDestination();
+      const added = await requestFileTemplateTransferReview(ownerWindow, opened, {
+        assertCurrentDestination,
+      });
+      if (!added) {
+        setStatus('Transfer cancelled.');
+        return;
+      }
       window.setTimeout(() => revealPaneOnFirstUse('transitions'), 100);
-      setStatus(`Created a template set and added “${name}”.`);
+      setStatus(templateTransferStatus('Created a template set and added', added));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not add template');
     } finally {
@@ -537,14 +560,37 @@ export function TemplateNavigatorPanel() {
     }
   };
 
-  const runCommand = (command: () => string, verb: string) => {
+  const runCommand = (
+    command: () => string | { name: string; transfer?: TemplateTransferReport },
+    verb: string,
+  ) => {
     try {
-      setStatus(`${verb} “${command()}”`);
+      const result = command();
+      setStatus(
+        typeof result === 'string' ? `${verb} “${result}”` : templateTransferStatus(verb, result),
+      );
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : 'Could not update template set.');
     }
   };
   const remove = (templateId: string) => runCommand(() => removeTemplate(templateId), 'Removed');
+  const paste = async (templateId?: string | null) => {
+    if (busy) return;
+    try {
+      const session = beginClipboardTransferReview({ targetTemplateId: templateId ?? undefined });
+      if (!session) {
+        runCommand(() => pasteTemplate(templateId), 'Pasted');
+        return;
+      }
+      setBusy(true);
+      const result = await requestTemplateTransferReview(ownerWindow, session);
+      setStatus(result ? templateTransferStatus('Pasted', result) : 'Transfer cancelled.');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not paste the template');
+    } finally {
+      setBusy(false);
+    }
+  };
   const requestRename = (templateId: string) =>
     setRenameRequest((previous) => ({ templateId, revision: (previous?.revision ?? 0) + 1 }));
   const openMenu = (event: MouseEvent<HTMLElement>, templateId: string | null) => {
@@ -560,8 +606,7 @@ export function TemplateNavigatorPanel() {
     let action: (() => void) | null = null;
     if (modifier && key === 'c')
       action = () => runCommand(() => copyTemplate(templateId), 'Copied');
-    else if (modifier && key === 'v')
-      action = () => runCommand(() => pasteTemplate(templateId), 'Pasted');
+    else if (modifier && key === 'v') action = () => void paste(templateId);
     else if (modifier && key === 'd')
       action = () => runCommand(() => duplicateTemplate(templateId), 'Duplicated');
     else if (modifier && key === 'x')
@@ -649,11 +694,7 @@ export function TemplateNavigatorPanel() {
             <button type="button" onClick={() => void addTemplate()}>
               Insert Template…
             </button>
-            <button
-              type="button"
-              disabled={!clipboard}
-              onClick={() => runCommand(() => pasteTemplate(), 'Pasted')}
-            >
+            <button type="button" disabled={!clipboard} onClick={() => void paste()}>
               Paste Template
             </button>
           </div>
@@ -766,7 +807,7 @@ export function TemplateNavigatorPanel() {
               id: 'paste',
               label: 'Paste',
               disabled: busy || !clipboard,
-              onSelect: () => runCommand(() => pasteTemplate(menu.templateId), 'Pasted'),
+              onSelect: () => void paste(menu.templateId),
             },
             {
               id: 'template-settings',

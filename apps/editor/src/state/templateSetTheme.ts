@@ -1,5 +1,6 @@
 import {
   normalizeDesignTokenValue,
+  applyDesignTokenBinding,
   syncDesignToken,
   typographyPresetsErrors,
   syncTypographyPresets,
@@ -202,6 +203,7 @@ export function resolveTemplateSetBrandKit(
     typography?: readonly string[];
     backgrounds?: readonly string[];
     background?: boolean;
+    selective?: boolean;
   } = {},
 ): Project {
   const kit = checkedKit(sharedKit);
@@ -209,6 +211,7 @@ export function resolveTemplateSetBrandKit(
   if (!Array.isArray(overrideTokenIds) || overrideTokenIds.some((id) => !sharedIds.has(id)))
     throw new Error('Brand Kit overrides must reference shared token IDs.');
   const overrides = new Set(overrideTokenIds);
+  const selective = styleOverrides.selective === true;
   const next = structuredClone(project);
   for (const composition of next.compositions) {
     const original = composition.designSystem.tokens;
@@ -216,19 +219,22 @@ export function resolveTemplateSetBrandKit(
     const effective = new Map<string, DesignToken>();
     for (const shared of kit.tokens) {
       const byId = original.find((token) => token.id === shared.id);
-      const byKey = original.filter((token) => token.key === shared.key);
+      if (selective && !byId) continue;
+      const byKey = selective ? [] : original.filter((token) => token.key === shared.key);
       if (byKey.length > 1 || (byId && byKey[0] && byKey[0] !== byId))
         throw new Error(
           `Brand Kit token identity collision in ${composition.name}: ${shared.key}.`,
         );
       const local = byId ?? byKey[0];
-      if (local && local.type !== shared.type && (!byId || overrides.has(shared.id)))
+      if (local && local.type !== shared.type && (selective || !byId || overrides.has(shared.id)))
         throw new Error(
           `Brand Kit token ${shared.key} has an incompatible local type in ${composition.name}.`,
         );
       if (local) remap.set(local.id, shared.id);
       effective.set(shared.id, {
         ...shared,
+        // An explicit transfer can keep a different local key to preserve other authored roles.
+        ...(selective && byId ? { key: byId.key } : {}),
         value:
           overrides.has(shared.id) && local
             ? normalizeDesignTokenValue(shared.type, local.value)
@@ -249,23 +255,26 @@ export function resolveTemplateSetBrandKit(
       return { ...effective.get(id)! };
     });
     for (const shared of kit.tokens)
-      if (!placed.has(shared.id))
+      if (effective.has(shared.id) && !placed.has(shared.id))
         composition.designSystem.tokens.push({ ...effective.get(shared.id)! });
-    composition.designSystem.name = kit.name;
+    if (!selective) composition.designSystem.name = kit.name;
     const mergeStyles = <T extends { id: string }>(
       local: T[],
       shared: T[],
       overridden: readonly string[],
-    ) => [
-      ...local.filter((item) => !shared.some((style) => style.id === item.id)),
-      ...shared.map((style) =>
-        structuredClone(
-          overridden.includes(style.id)
-            ? (local.find((item) => item.id === style.id) ?? style)
-            : style,
+    ) => {
+      if (selective) shared = shared.filter(({ id }) => local.some((item) => item.id === id));
+      return [
+        ...local.filter((item) => !shared.some((style) => style.id === item.id)),
+        ...shared.map((style) =>
+          structuredClone(
+            overridden.includes(style.id)
+              ? (local.find((item) => item.id === style.id) ?? style)
+              : style,
+          ),
         ),
-      ),
-    ];
+      ];
+    };
     if (kit.typography !== undefined || composition.designSystem.typography !== undefined)
       composition.designSystem.typography = mergeStyles(
         composition.designSystem.typography ?? [],
@@ -300,12 +309,28 @@ export function resolveTemplateSetBrandKit(
     const paletteTargets = new Set(
       (composition.designSystem.stylePackColors ?? []).map((link) => link.targetTokenId),
     );
-    const ordered = [...kit.tokens].sort(
+    const ordered = [...effective.values()].sort(
       (a, b) => Number(paletteTargets.has(a.id)) - Number(paletteTargets.has(b.id)),
     );
     for (const shared of ordered) {
       const token = composition.designSystem.tokens.find((item) => item.id === shared.id)!;
       token.value = effective.get(shared.id)!.value;
+      if (selective) {
+        // Transfer approvals affect the selected authored properties. Operator field defaults,
+        // their maps, and local palette dependencies keep their existing ownership.
+        const layers = [
+          ...composition.layers,
+          ...composition.components.flatMap((component) => component.layers),
+        ];
+        for (const layer of layers) {
+          const baseline = layer.componentLink?.baseline;
+          for (const settings of baseline ? [layer, baseline] : [layer])
+            for (const binding of settings.designTokenBindings)
+              if (binding.tokenId === token.id && !binding.overridden)
+                applyDesignTokenBinding(settings, binding, token);
+        }
+        continue;
+      }
       syncDesignToken(composition, token.id);
       for (const component of composition.components)
         syncDesignToken(
@@ -319,8 +344,30 @@ export function resolveTemplateSetBrandKit(
           token.id,
         );
     }
-    syncTypographyPresets(composition);
-    syncCompositionBackgroundStyle(composition);
+    syncTypographyPresets(
+      composition,
+      selective
+        ? { presetIds: new Set(kit.typography?.map(({ id }) => id)), syncFieldDefaults: false }
+        : undefined,
+    );
+    if (!selective || kit.backgrounds?.some(({ id }) => id === composition.backgroundStyleId))
+      syncCompositionBackgroundStyle(composition);
+    if (selective)
+      for (const component of composition.components) {
+        const context = component.context?.designSystem;
+        if (!context) continue;
+        context.tokens = context.tokens.map((token) =>
+          effective.has(token.id) ? { ...effective.get(token.id)!, key: token.key } : token,
+        );
+        if (context.typography && composition.designSystem.typography)
+          context.typography = mergeStyles(
+            context.typography,
+            composition.designSystem.typography.filter(({ id }) =>
+              kit.typography?.some((preset) => preset.id === id),
+            ),
+            [],
+          );
+      }
   }
   enforceBackgroundMediaProfile(next);
   return next;

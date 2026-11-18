@@ -331,6 +331,10 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(tint * gain, 1.0); 
     compiled.loop!.activation = { type: 'step', stepKeyframeId: 'step-2' };
     expect(compiledLoopElapsedFrames(descriptor, compiled, 19)).toBeUndefined();
     expect(compiledLoopElapsedFrames(descriptor, compiled, 24, 2)).toBe(6);
+    // A caller that waits on several Steps says how long it has waited since the loop began.
+    expect(
+      compiledLoopElapsedFrames(descriptor, compiled, 24, (from) => (from === 20 ? 2 : 9)),
+    ).toBe(6);
     expect(compiledLoopElapsedFrames(descriptor, compiled, 30)).toBeUndefined();
   });
 

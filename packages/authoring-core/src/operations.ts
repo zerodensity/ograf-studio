@@ -165,7 +165,7 @@ import {
   linkExistingComponentLayers,
   findAssetConsumers,
   refreshComponentDependencies,
-  resizeConstrainedTransform,
+  resizeConstrainedLayer,
   sortLayerKeyframes,
   sortLayerPropertyKeyframes,
   type AnimatableLayerProperty,
@@ -675,29 +675,7 @@ function bakeResponsiveResize(
 ): void {
   const oldSize = { width: composition.width, height: composition.height };
   if (oldSize.width === newSize.width && oldSize.height === newSize.height) return;
-  for (const layer of composition.layers) {
-    const tracks = getResolvedLayerAnimationTracks(layer);
-    const frames = new Set(layer.keyframes.map((keyframe) => keyframe.frame));
-    for (const property of ['x', 'y', 'width', 'height'] as const) {
-      for (const keyframe of tracks[property] ?? []) frames.add(keyframe.frame);
-    }
-    const resized = [...frames].map((frame) => ({
-      frame,
-      pose: resizeConstrainedTransform(
-        getLayerTransformAtFrame(layer, frame),
-        layer.constraints,
-        oldSize,
-        newSize,
-      ),
-    }));
-    for (const { frame, pose } of resized) {
-      const easing = findLayerKeyframeAtFrame(layer, frame)?.easing ?? 'ease-in-out';
-      for (const property of ['x', 'y', 'width', 'height'] as const) {
-        upsertPropertyKey(layer, property, frame, pose[property], easing);
-      }
-      syncAggregateKey(layer, frame, easing);
-    }
-  }
+  for (const layer of composition.layers) resizeConstrainedLayer(layer, oldSize, newSize);
 }
 
 function addLayer(
@@ -752,6 +730,7 @@ function addLayer(
       !isShaderPaint(elementPatch.strokePaint)
     )
       throw new Error('Text strokePaint must be a shader paint or omitted.');
+    normalizeElementTextDirectionPatch(layer, elementPatch);
     normalizeElementClockPatch(layer, elementPatch, true);
     if (layer.element.type === 'text' && elementPatch.textAnimation !== undefined) {
       if (
@@ -795,6 +774,18 @@ function addLayer(
   composition.layers.splice(index, 0, layer);
   syncShaderParameterFields(composition, layer);
   return layer.id;
+}
+
+function normalizeElementTextDirectionPatch(layer: Layer, patch: Record<string, unknown>): void {
+  if (layer.element.type !== 'text') return;
+  const direction = patch.direction === undefined ? patch.textDirection : patch.direction;
+  if (direction === undefined) return;
+  if (direction !== 'auto' && direction !== 'ltr' && direction !== 'rtl')
+    throw new Error('Text direction must be auto, ltr or rtl.');
+  patch.direction = direction;
+  delete patch.textDirection;
+  // Older clients could leave the unused alias on a saved text element.
+  Reflect.deleteProperty(layer.element, 'textDirection');
 }
 
 function normalizeElementClockPatch(
@@ -2902,6 +2893,7 @@ export function applyAuthoringOperations(
           assertPropertyApplicable(layer, 'strokeWidth', strokeWidth);
         }
         const elementPatch = { ...operation.patch };
+        normalizeElementTextDirectionPatch(layer, elementPatch);
         if (layer.element.type === 'chart' && elementPatch.animation != null) {
           const errors = chartAnimationErrors(elementPatch.animation);
           if (errors.length) throw new Error(errors.join('\n'));

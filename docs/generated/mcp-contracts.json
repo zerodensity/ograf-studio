@@ -589,7 +589,7 @@
                         "shader"
                       ]
                     },
-                    "patch": { "$ref": "#/$defs/25" },
+                    "patch": { "$ref": "#/$defs/26" },
                     "index": { "$ref": "#/$defs/u" }
                   },
                   "required": ["effectType"]
@@ -602,7 +602,7 @@
                     "layerName": { "type": "string" },
                     "groupId": { "$ref": "#/$defs/4" },
                     "effectId": { "type": "string" },
-                    "patch": { "$ref": "#/$defs/25" },
+                    "patch": { "$ref": "#/$defs/26" },
                     "scope": { "$ref": "#/$defs/n" },
                     "frame": { "$ref": "#/$defs/u" }
                   },
@@ -775,7 +775,7 @@
                     "updateTransitionFrames": { "$ref": "#/$defs/u" },
                     "updateInterruption": { "enum": ["queue", "replace"] },
                     "backgroundColor": { "type": "string" },
-                    "crop": { "anyOf": [{ "$ref": "#/$defs/1s" }, { "type": "null" }] }
+                    "crop": { "anyOf": [{ "$ref": "#/$defs/1t" }, { "type": "null" }] }
                   }
                 },
                 {
@@ -852,7 +852,7 @@
                     "layerName": { "type": "string" },
                     "tokenId": { "$ref": "#/$defs/4" },
                     "tokenKey": { "$ref": "#/$defs/4" },
-                    "targetProperty": { "$ref": "#/$defs/1x" }
+                    "targetProperty": { "$ref": "#/$defs/1y" }
                   },
                   "required": ["targetProperty"]
                 },
@@ -862,7 +862,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "targetProperty": { "$ref": "#/$defs/1x" }
+                    "targetProperty": { "$ref": "#/$defs/1y" }
                   },
                   "required": ["targetProperty"]
                 },
@@ -1058,7 +1058,7 @@
                     "patch": {
                       "type": "object",
                       "properties": {
-                        "type": { "$ref": "#/$defs/1j" },
+                        "type": { "$ref": "#/$defs/1k" },
                         "key": { "$ref": "#/$defs/4" },
                         "label": { "type": "string" },
                         "description": { "type": "string" },
@@ -1066,8 +1066,8 @@
                         "defaultTokenId": { "$ref": "#/$defs/2" },
                         "required": { "type": "boolean" },
                         "exposeToOgraf": { "type": "boolean" },
-                        "options": { "$ref": "#/$defs/1h" },
-                        "constraints": { "$ref": "#/$defs/23" },
+                        "options": { "$ref": "#/$defs/1i" },
+                        "constraints": { "$ref": "#/$defs/24" },
                         "fileExtensions": { "$ref": "#/$defs/b" },
                         "properties": { "$ref": "#/$defs/h" },
                         "items": { "$ref": "#/$defs/m" }
@@ -1185,10 +1185,10 @@
                         "sources": {
                           "minItems": 1,
                           "type": "array",
-                          "items": { "$ref": "#/$defs/27" }
+                          "items": { "$ref": "#/$defs/28" }
                         },
                         "activeSourceId": { "$ref": "#/$defs/2" },
-                        "trigger": { "$ref": "#/$defs/29" },
+                        "trigger": { "$ref": "#/$defs/2a" },
                         "trimStartMs": { "$ref": "#/$defs/3" },
                         "trimEndMs": { "anyOf": [{ "$ref": "#/$defs/9" }, { "type": "null" }] },
                         "durationFrames": { "$ref": "#/$defs/15" },
@@ -1197,8 +1197,8 @@
                         "volume": { "$ref": "#/$defs/a" },
                         "muted": { "type": "boolean" },
                         "retrigger": { "enum": ["restart", "resume", "ignore"] },
-                        "transition": { "$ref": "#/$defs/1y" },
-                        "visual": { "$ref": "#/$defs/2a" }
+                        "transition": { "$ref": "#/$defs/1z" },
+                        "visual": { "$ref": "#/$defs/2b" }
                       },
                       "required": [
                         "name",
@@ -1233,10 +1233,10 @@
                         "sources": {
                           "minItems": 1,
                           "type": "array",
-                          "items": { "$ref": "#/$defs/27" }
+                          "items": { "$ref": "#/$defs/28" }
                         },
                         "activeSourceId": { "$ref": "#/$defs/2" },
-                        "trigger": { "$ref": "#/$defs/29" },
+                        "trigger": { "$ref": "#/$defs/2a" },
                         "trimStartMs": { "$ref": "#/$defs/3" },
                         "trimEndMs": { "anyOf": [{ "$ref": "#/$defs/9" }, { "type": "null" }] },
                         "durationFrames": { "$ref": "#/$defs/15" },
@@ -1245,8 +1245,8 @@
                         "volume": { "$ref": "#/$defs/a" },
                         "muted": { "type": "boolean" },
                         "retrigger": { "enum": ["restart", "resume", "ignore"] },
-                        "transition": { "$ref": "#/$defs/1y" },
-                        "visual": { "$ref": "#/$defs/2a" }
+                        "transition": { "$ref": "#/$defs/1z" },
+                        "visual": { "$ref": "#/$defs/2b" }
                       },
                       "additionalProperties": false
                     }
@@ -1282,9 +1282,9 @@
                       ]
                     },
                     "name": { "type": "string" },
-                    "transform": { "$ref": "#/$defs/1z" },
-                    "element": { "$ref": "#/$defs/2m" },
-                    "effects": { "$ref": "#/$defs/20" },
+                    "transform": { "$ref": "#/$defs/20" },
+                    "element": { "$ref": "#/$defs/2n" },
+                    "effects": { "$ref": "#/$defs/21" },
                     "index": { "$ref": "#/$defs/u" }
                   },
                   "required": ["kind"]
@@ -1348,7 +1348,7 @@
                     "asComponent": { "type": "boolean" },
                     "stylePack": { "$ref": "#/$defs/s" },
                     "name": { "$ref": "#/$defs/4" },
-                    "placement": { "$ref": "#/$defs/1p" },
+                    "placement": { "$ref": "#/$defs/1q" },
                     "content": {
                       "type": "object",
                       "properties": {
@@ -1369,15 +1369,15 @@
                       "type": "object",
                       "properties": {
                         "background": {
-                          "anyOf": [{ "$ref": "#/$defs/4" }, { "$ref": "#/$defs/24" }]
+                          "anyOf": [{ "$ref": "#/$defs/4" }, { "$ref": "#/$defs/25" }]
                         },
-                        "accent": { "anyOf": [{ "$ref": "#/$defs/4" }, { "$ref": "#/$defs/24" }] },
+                        "accent": { "anyOf": [{ "$ref": "#/$defs/4" }, { "$ref": "#/$defs/25" }] },
                         "primaryText": { "$ref": "#/$defs/4" },
                         "secondaryText": { "$ref": "#/$defs/4" }
                       },
                       "additionalProperties": false
                     },
-                    "motion": { "$ref": "#/$defs/2k" }
+                    "motion": { "$ref": "#/$defs/2l" }
                   }
                 },
                 {
@@ -1419,7 +1419,7 @@
                     "asComponent": { "type": "boolean" },
                     "stylePack": { "$ref": "#/$defs/s" },
                     "name": { "$ref": "#/$defs/4" },
-                    "placement": { "$ref": "#/$defs/1p" },
+                    "placement": { "$ref": "#/$defs/1q" },
                     "content": {
                       "type": "object",
                       "properties": {
@@ -1451,7 +1451,7 @@
                       },
                       "additionalProperties": false
                     },
-                    "items": { "$ref": "#/$defs/2h" },
+                    "items": { "$ref": "#/$defs/2i" },
                     "speedPixelsPerSecond": { "type": "number", "minimum": 0, "maximum": 4000 },
                     "gap": { "$ref": "#/$defs/j" },
                     "direction": { "enum": ["left", "right"] },
@@ -1467,7 +1467,7 @@
                     "hourCycle": { "enum": ["12", "24"] },
                     "durationSeconds": { "type": "number", "minimum": 0, "maximum": 3162240000 },
                     "alarms": { "type": "boolean" },
-                    "motion": { "$ref": "#/$defs/2k" }
+                    "motion": { "$ref": "#/$defs/2l" }
                   }
                 },
                 {
@@ -1504,8 +1504,8 @@
                     },
                     "namePattern": { "type": "string" },
                     "bindings": { "default": "clone", "enum": ["share", "clone", "clear"] },
-                    "fieldKeyRewrite": { "$ref": "#/$defs/1a" },
-                    "labelRewrite": { "$ref": "#/$defs/1a" }
+                    "fieldKeyRewrite": { "$ref": "#/$defs/1b" },
+                    "labelRewrite": { "$ref": "#/$defs/1b" }
                   },
                   "required": ["source", "count"]
                 },
@@ -1573,7 +1573,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "crop": { "anyOf": [{ "$ref": "#/$defs/1s" }, { "type": "null" }] },
+                    "crop": { "anyOf": [{ "$ref": "#/$defs/1t" }, { "type": "null" }] },
                     "coordinateSpace": { "default": "layer", "enum": ["layer", "composition"] },
                     "frame": { "$ref": "#/$defs/u" }
                   },
@@ -1707,7 +1707,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "reference": { "$ref": "#/$defs/1r" },
+                    "reference": { "$ref": "#/$defs/1s" },
                     "presetId": { "$ref": "#/$defs/4" },
                     "side": { "enum": ["in", "out"] },
                     "target": { "enum": ["layer", "chart-marks"] },
@@ -1724,7 +1724,7 @@
                   "properties": {
                     "type": { "const": "remove_animation_preset_plugin" },
                     "compositionId": { "type": "string" },
-                    "reference": { "$ref": "#/$defs/1r" }
+                    "reference": { "$ref": "#/$defs/1s" }
                   },
                   "required": ["reference"],
                   "additionalProperties": false
@@ -1928,7 +1928,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "patch": { "$ref": "#/$defs/2m" }
+                    "patch": { "$ref": "#/$defs/2n" }
                   },
                   "required": ["patch"]
                 },
@@ -1967,7 +1967,7 @@
                     "layerName": { "type": "string" },
                     "scope": { "$ref": "#/$defs/n" },
                     "frame": { "$ref": "#/$defs/u" },
-                    "patch": { "$ref": "#/$defs/1z" }
+                    "patch": { "$ref": "#/$defs/20" }
                   },
                   "required": ["patch"]
                 },
@@ -1979,7 +1979,7 @@
                     "layerName": { "type": "string" },
                     "scope": { "$ref": "#/$defs/n" },
                     "frame": { "$ref": "#/$defs/u" },
-                    "patch": { "$ref": "#/$defs/20" }
+                    "patch": { "$ref": "#/$defs/21" }
                   },
                   "required": ["patch"]
                 },
@@ -1989,11 +1989,11 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/21" },
+                    "property": { "$ref": "#/$defs/22" },
                     "frame": { "$ref": "#/$defs/u" },
                     "value": { "type": "number" },
-                    "easing": { "$ref": "#/$defs/22" },
-                    "curve": { "$ref": "#/$defs/1k" }
+                    "easing": { "$ref": "#/$defs/23" },
+                    "curve": { "$ref": "#/$defs/1l" }
                   },
                   "required": ["property", "frame", "value"]
                 },
@@ -2003,8 +2003,8 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/21" },
-                    "keys": { "$ref": "#/$defs/2g" },
+                    "property": { "$ref": "#/$defs/22" },
+                    "keys": { "$ref": "#/$defs/2h" },
                     "replace": { "$ref": "#/$defs/5" }
                   },
                   "required": ["property", "keys"]
@@ -2081,8 +2081,8 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/21" },
-                    "keys": { "$ref": "#/$defs/2g" },
+                    "property": { "$ref": "#/$defs/22" },
+                    "keys": { "$ref": "#/$defs/2h" },
                     "replace": { "$ref": "#/$defs/5" }
                   },
                   "required": ["property", "keys"]
@@ -2101,8 +2101,8 @@
                     "compositionId": { "type": "string" },
                     "layerIds": { "$ref": "#/$defs/r" },
                     "layerNamePattern": { "$ref": "#/$defs/4" },
-                    "property": { "$ref": "#/$defs/21" },
-                    "keys": { "$ref": "#/$defs/2g" },
+                    "property": { "$ref": "#/$defs/22" },
+                    "keys": { "$ref": "#/$defs/2h" },
                     "frameOffset": { "$ref": "#/$defs/11" },
                     "replace": { "$ref": "#/$defs/5" }
                   },
@@ -2114,7 +2114,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/21" },
+                    "property": { "$ref": "#/$defs/22" },
                     "keyframeId": { "type": "string" },
                     "frame": { "$ref": "#/$defs/u" }
                   },
@@ -2128,7 +2128,7 @@
                     "layerName": { "type": "string" },
                     "property": {
                       "anyOf": [
-                        { "$ref": "#/$defs/21" },
+                        { "$ref": "#/$defs/22" },
                         { "enum": ["scale", "clipLeft", "clipRight", "clipTop", "clipBottom"] }
                       ]
                     },
@@ -2143,7 +2143,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/21" },
+                    "property": { "$ref": "#/$defs/22" },
                     "keyframeId": { "type": "string" }
                   },
                   "required": ["property", "keyframeId"]
@@ -2154,10 +2154,10 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/21" },
+                    "property": { "$ref": "#/$defs/22" },
                     "keyframeId": { "type": "string" },
-                    "easing": { "$ref": "#/$defs/22" },
-                    "curve": { "$ref": "#/$defs/1k" }
+                    "easing": { "$ref": "#/$defs/23" },
+                    "curve": { "$ref": "#/$defs/1l" }
                   },
                   "required": ["property", "keyframeId", "easing"]
                 },
@@ -2173,7 +2173,7 @@
                   "properties": {
                     "type": { "const": "add_data_connection" },
                     "compositionId": { "type": "string" },
-                    "connection": { "$ref": "#/$defs/2i" }
+                    "connection": { "$ref": "#/$defs/2j" }
                   },
                   "required": ["connection"]
                 },
@@ -2182,7 +2182,7 @@
                     "type": { "const": "update_data_connection" },
                     "compositionId": { "type": "string" },
                     "connectionId": { "$ref": "#/$defs/4" },
-                    "patch": { "$ref": "#/$defs/2i" }
+                    "patch": { "$ref": "#/$defs/2j" }
                   },
                   "required": ["connectionId", "patch"]
                 },
@@ -2201,15 +2201,15 @@
                     "nodosType": { "$ref": "#/$defs/14" },
                     "defaultTokenId": { "$ref": "#/$defs/2" },
                     "compositionId": { "type": "string" },
-                    "fieldType": { "$ref": "#/$defs/1j" },
+                    "fieldType": { "$ref": "#/$defs/1k" },
                     "key": { "type": "string" },
                     "label": { "type": "string" },
                     "description": { "type": "string" },
                     "defaultValue": { "$ref": "#/$defs/0" },
                     "required": { "type": "boolean" },
                     "exposeToOgraf": { "type": "boolean" },
-                    "options": { "$ref": "#/$defs/1h" },
-                    "constraints": { "$ref": "#/$defs/23" },
+                    "options": { "$ref": "#/$defs/1i" },
+                    "constraints": { "$ref": "#/$defs/24" },
                     "fileExtensions": { "$ref": "#/$defs/b" },
                     "properties": { "$ref": "#/$defs/h" },
                     "items": { "$ref": "#/$defs/m" }
@@ -2225,15 +2225,15 @@
                     "compositionId": { "type": "string" },
                     "fieldId": { "type": "string" },
                     "fieldKey": { "type": "string" },
-                    "fieldType": { "$ref": "#/$defs/1j" },
+                    "fieldType": { "$ref": "#/$defs/1k" },
                     "key": { "type": "string" },
                     "label": { "type": "string" },
                     "description": { "type": "string" },
                     "defaultValue": { "$ref": "#/$defs/0" },
                     "required": { "type": "boolean" },
                     "exposeToOgraf": { "type": "boolean" },
-                    "options": { "$ref": "#/$defs/1h" },
-                    "constraints": { "$ref": "#/$defs/23" },
+                    "options": { "$ref": "#/$defs/1i" },
+                    "constraints": { "$ref": "#/$defs/24" },
                     "fileExtensions": { "$ref": "#/$defs/b" },
                     "properties": { "$ref": "#/$defs/h" },
                     "items": { "$ref": "#/$defs/m" }
@@ -2254,7 +2254,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "binding": { "anyOf": [{ "$ref": "#/$defs/2l" }, { "type": "null" }] }
+                    "binding": { "anyOf": [{ "$ref": "#/$defs/2m" }, { "type": "null" }] }
                   },
                   "required": ["binding"]
                 },
@@ -2264,7 +2264,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "bindings": { "type": "array", "items": { "$ref": "#/$defs/2l" } }
+                    "bindings": { "type": "array", "items": { "$ref": "#/$defs/2m" } }
                   },
                   "required": ["bindings"]
                 },
@@ -2325,7 +2325,7 @@
                     "layerIds": { "$ref": "#/$defs/r" },
                     "layerNames": { "$ref": "#/$defs/y" },
                     "groupId": { "$ref": "#/$defs/4" },
-                    "offsetPerItem": { "$ref": "#/$defs/19" },
+                    "offsetPerItem": { "$ref": "#/$defs/1a" },
                     "capacity": { "default": 12, "type": "integer", "minimum": 1, "maximum": 100 },
                     "overflow": { "default": "truncate", "const": "truncate" },
                     "itemKeyPath": {
@@ -2359,7 +2359,7 @@
                     "layerIds": { "$ref": "#/$defs/r" },
                     "layerNames": { "$ref": "#/$defs/y" },
                     "groupId": { "$ref": "#/$defs/4" },
-                    "offsetPerItem": { "$ref": "#/$defs/19" },
+                    "offsetPerItem": { "$ref": "#/$defs/1a" },
                     "capacity": { "type": "integer", "minimum": 1, "maximum": 100 },
                     "overflow": { "const": "truncate" },
                     "itemKeyPath": { "$ref": "#/$defs/b" },
@@ -2413,7 +2413,7 @@
                     "compositionId": { "type": "string" },
                     "transitionId": { "type": "string" },
                     "durationFrames": { "$ref": "#/$defs/u" },
-                    "easing": { "$ref": "#/$defs/22" }
+                    "easing": { "$ref": "#/$defs/23" }
                   },
                   "required": ["transitionId"]
                 }
@@ -2449,7 +2449,7 @@
         "$defs": {
           "0": {
             "anyOf": [
-              { "$ref": "#/$defs/24" },
+              { "$ref": "#/$defs/25" },
               { "type": "string" },
               { "type": "number" },
               { "type": "boolean" },
@@ -2465,13 +2465,13 @@
               "key": { "$ref": "#/$defs/4" },
               "label": { "type": "string" },
               "description": { "type": "string" },
-              "fieldType": { "$ref": "#/$defs/1j" },
+              "fieldType": { "$ref": "#/$defs/1k" },
               "nodosType": { "$ref": "#/$defs/14" },
               "defaultValue": { "$ref": "#/$defs/0" },
               "required": { "type": "boolean" },
               "exposeToOgraf": { "type": "boolean" },
-              "options": { "$ref": "#/$defs/1h" },
-              "constraints": { "$ref": "#/$defs/23" },
+              "options": { "$ref": "#/$defs/1i" },
+              "constraints": { "$ref": "#/$defs/24" },
               "fileExtensions": { "$ref": "#/$defs/b" },
               "properties": { "$ref": "#/$defs/h" },
               "items": { "$ref": "#/$defs/m" }
@@ -2499,13 +2499,21 @@
             "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
             "additionalProperties": false
           },
-          "19": {
+          "20": {
             "type": "object",
-            "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
-            "required": ["x", "y"],
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "width": { "$ref": "#/$defs/9" },
+              "height": { "$ref": "#/$defs/9" },
+              "rotation": { "type": "number" },
+              "opacity": { "$ref": "#/$defs/a" },
+              "transformOriginX": { "type": "number" },
+              "transformOriginY": { "type": "number" }
+            },
             "additionalProperties": false
           },
-          "20": {
+          "21": {
             "type": "object",
             "properties": {
               "blur": { "$ref": "#/$defs/3" },
@@ -2518,11 +2526,11 @@
             },
             "additionalProperties": false
           },
-          "21": {
+          "22": {
             "type": "string",
             "pattern": "^(x|y|width|height|rotation|opacity|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|(fill|strokePaint)\\.parameters\\.[A-Za-z_]\\w*(\\.[xyrgba])?|effects\\.[\\w-]+\\.(radius|offset[XY]|opacity|amount|angle)|modifiers\\.[\\w-]+\\.[A-Za-z]\\w*)$"
           },
-          "22": {
+          "23": {
             "enum": [
               "linear",
               "ease-in",
@@ -2560,7 +2568,7 @@
               "elastic-in-out"
             ]
           },
-          "23": {
+          "24": {
             "type": "object",
             "properties": {
               "maxLength": { "$ref": "#/$defs/u" },
@@ -2574,7 +2582,7 @@
             },
             "additionalProperties": false
           },
-          "24": {
+          "25": {
             "type": "object",
             "properties": {
               "type": { "enum": ["linear", "radial", "conic"] },
@@ -2597,7 +2605,7 @@
             "required": ["type", "angle", "stops"],
             "additionalProperties": false
           },
-          "25": {
+          "26": {
             "type": "object",
             "properties": {
               "name": { "$ref": "#/$defs/4" },
@@ -2618,7 +2626,7 @@
             },
             "additionalProperties": false
           },
-          "27": {
+          "28": {
             "oneOf": [
               {
                 "properties": {
@@ -2647,18 +2655,137 @@
             "required": ["id", "name", "kind"],
             "properties": { "id": { "$ref": "#/$defs/4" }, "name": { "$ref": "#/$defs/4" } }
           },
-          "28": {
+          "29": {
             "type": "object",
             "additionalProperties": {
               "anyOf": [
                 { "type": "string" },
                 { "type": "number" },
                 { "type": "boolean" },
-                { "$ref": "#/$defs/24" }
+                { "$ref": "#/$defs/25" }
               ]
             }
           },
-          "29": {
+          "a": { "type": "number", "minimum": 0, "maximum": 1 },
+          "b": { "type": "array", "items": { "type": "string" } },
+          "h": { "type": "array", "items": { "$ref": "#/$defs/1" } },
+          "i": { "type": "number", "minimum": 0, "maximum": 60000 },
+          "j": { "type": "number", "minimum": 0, "maximum": 16384 },
+          "k": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "l": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "m": { "anyOf": [{ "$ref": "#/$defs/1" }, { "type": "null" }] },
+          "n": { "default": "authored", "enum": ["authored", "frame"] },
+          "p": { "type": "number", "minimum": 0, "maximum": 3162240000000 },
+          "q": { "type": "number", "exclusiveMinimum": 0, "maximum": 16384 },
+          "r": { "minItems": 1, "type": "array", "items": { "type": "string" } },
+          "s": { "enum": ["news", "sports", "entertainment", "documentary"] },
+          "t": { "type": "array", "items": { "$ref": "#/$defs/4" } },
+          "u": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "v": { "type": "object", "additionalProperties": { "$ref": "#/$defs/0" } },
+          "w": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+          "y": { "minItems": 1, "type": "array", "items": { "$ref": "#/$defs/4" } },
+          "1a": {
+            "type": "object",
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+            "required": ["x", "y"],
+            "additionalProperties": false
+          },
+          "1b": {
+            "type": "object",
+            "properties": { "from": { "type": "string" }, "to": { "type": "string" } },
+            "required": ["from", "to"],
+            "additionalProperties": false
+          },
+          "1i": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": { "value": { "type": "string" }, "label": { "type": "string" } },
+              "required": ["value", "label"],
+              "additionalProperties": false
+            }
+          },
+          "1k": {
+            "enum": [
+              "text",
+              "textarea",
+              "number",
+              "integer",
+              "duration-ms",
+              "percentage",
+              "boolean",
+              "color",
+              "gradient",
+              "image-url",
+              "file-path",
+              "select",
+              "select-multiple",
+              "object",
+              "array"
+            ]
+          },
+          "1l": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "x1": { "type": "number" },
+                  "y1": { "type": "number" },
+                  "x2": { "type": "number" },
+                  "y2": { "type": "number" }
+                },
+                "required": ["x1", "y1", "x2", "y2"]
+              },
+              { "type": "null" }
+            ]
+          },
+          "1q": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "width": { "$ref": "#/$defs/9" },
+              "height": { "$ref": "#/$defs/9" }
+            },
+            "additionalProperties": false
+          },
+          "1s": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "#/$defs/4" },
+              "version": { "$ref": "#/$defs/4" },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            },
+            "required": ["id", "version", "sha256"],
+            "additionalProperties": false
+          },
+          "1t": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "width": { "$ref": "#/$defs/9" },
+              "height": { "$ref": "#/$defs/9" }
+            },
+            "required": ["x", "y", "width", "height"],
+            "additionalProperties": false
+          },
+          "1y": {
+            "type": "string",
+            "pattern": "^(effects\\.[a-zA-Z0-9_-]+\\.(color|radius|offsetX|offsetY|opacity|amount|angle)|(fill|strokePaint)\\.parameters\\.[A-Za-z_][A-Za-z_0-9]*|fill|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.color|dropShadowColor|strokeColor|strokeWidth|borderRadius(TopLeft|TopRight|BottomRight|BottomLeft)?|color|fontFamily|fontSize|fontWeight)$"
+          },
+          "1z": {
+            "type": "object",
+            "properties": {
+              "type": { "enum": ["cut", "crossfade"] },
+              "durationFrames": { "$ref": "#/$defs/u" },
+              "audio": { "enum": ["follow-picture", "cut", "crossfade"] },
+              "onFailure": { "enum": ["keep-current", "fallback", "transparent"] }
+            },
+            "required": ["type", "durationFrames", "audio", "onFailure"],
+            "additionalProperties": false
+          },
+          "2a": {
             "oneOf": [
               {
                 "properties": {
@@ -2689,134 +2816,7 @@
             "type": "object",
             "required": ["type"]
           },
-          "a": { "type": "number", "minimum": 0, "maximum": 1 },
-          "b": { "type": "array", "items": { "type": "string" } },
-          "h": { "type": "array", "items": { "$ref": "#/$defs/1" } },
-          "i": { "type": "number", "minimum": 0, "maximum": 60000 },
-          "j": { "type": "number", "minimum": 0, "maximum": 16384 },
-          "k": { "type": "string", "minLength": 1, "maxLength": 128 },
-          "l": { "type": "string", "minLength": 1, "maxLength": 256 },
-          "m": { "anyOf": [{ "$ref": "#/$defs/1" }, { "type": "null" }] },
-          "n": { "default": "authored", "enum": ["authored", "frame"] },
-          "p": { "type": "number", "minimum": 0, "maximum": 3162240000000 },
-          "q": { "type": "number", "exclusiveMinimum": 0, "maximum": 16384 },
-          "r": { "minItems": 1, "type": "array", "items": { "type": "string" } },
-          "s": { "enum": ["news", "sports", "entertainment", "documentary"] },
-          "t": { "type": "array", "items": { "$ref": "#/$defs/4" } },
-          "u": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
-          "v": { "type": "object", "additionalProperties": { "$ref": "#/$defs/0" } },
-          "w": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
-          "y": { "minItems": 1, "type": "array", "items": { "$ref": "#/$defs/4" } },
-          "1a": {
-            "type": "object",
-            "properties": { "from": { "type": "string" }, "to": { "type": "string" } },
-            "required": ["from", "to"],
-            "additionalProperties": false
-          },
-          "1h": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": { "value": { "type": "string" }, "label": { "type": "string" } },
-              "required": ["value", "label"],
-              "additionalProperties": false
-            }
-          },
-          "1j": {
-            "enum": [
-              "text",
-              "textarea",
-              "number",
-              "integer",
-              "duration-ms",
-              "percentage",
-              "boolean",
-              "color",
-              "gradient",
-              "image-url",
-              "file-path",
-              "select",
-              "select-multiple",
-              "object",
-              "array"
-            ]
-          },
-          "1k": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "x1": { "type": "number" },
-                  "y1": { "type": "number" },
-                  "x2": { "type": "number" },
-                  "y2": { "type": "number" }
-                },
-                "required": ["x1", "y1", "x2", "y2"]
-              },
-              { "type": "null" }
-            ]
-          },
-          "1p": {
-            "type": "object",
-            "properties": {
-              "x": { "type": "number" },
-              "y": { "type": "number" },
-              "width": { "$ref": "#/$defs/9" },
-              "height": { "$ref": "#/$defs/9" }
-            },
-            "additionalProperties": false
-          },
-          "1r": {
-            "type": "object",
-            "properties": {
-              "id": { "$ref": "#/$defs/4" },
-              "version": { "$ref": "#/$defs/4" },
-              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
-            },
-            "required": ["id", "version", "sha256"],
-            "additionalProperties": false
-          },
-          "1s": {
-            "type": "object",
-            "properties": {
-              "x": { "type": "number" },
-              "y": { "type": "number" },
-              "width": { "$ref": "#/$defs/9" },
-              "height": { "$ref": "#/$defs/9" }
-            },
-            "required": ["x", "y", "width", "height"],
-            "additionalProperties": false
-          },
-          "1x": {
-            "type": "string",
-            "pattern": "^(effects\\.[a-zA-Z0-9_-]+\\.(color|radius|offsetX|offsetY|opacity|amount|angle)|(fill|strokePaint)\\.parameters\\.[A-Za-z_][A-Za-z_0-9]*|fill|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.color|dropShadowColor|strokeColor|strokeWidth|borderRadius(TopLeft|TopRight|BottomRight|BottomLeft)?|color|fontFamily|fontSize|fontWeight)$"
-          },
-          "1y": {
-            "type": "object",
-            "properties": {
-              "type": { "enum": ["cut", "crossfade"] },
-              "durationFrames": { "$ref": "#/$defs/u" },
-              "audio": { "enum": ["follow-picture", "cut", "crossfade"] },
-              "onFailure": { "enum": ["keep-current", "fallback", "transparent"] }
-            },
-            "required": ["type", "durationFrames", "audio", "onFailure"],
-            "additionalProperties": false
-          },
-          "1z": {
-            "type": "object",
-            "properties": {
-              "x": { "type": "number" },
-              "y": { "type": "number" },
-              "width": { "$ref": "#/$defs/9" },
-              "height": { "$ref": "#/$defs/9" },
-              "rotation": { "type": "number" },
-              "opacity": { "$ref": "#/$defs/a" },
-              "transformOriginX": { "type": "number" },
-              "transformOriginY": { "type": "number" }
-            },
-            "additionalProperties": false
-          },
-          "2a": {
+          "2b": {
             "type": "object",
             "properties": {
               "targetLayerId": { "$ref": "#/$defs/2" },
@@ -2839,7 +2839,7 @@
             "required": ["targetLayerId", "fit", "positionX", "positionY"],
             "additionalProperties": false
           },
-          "2g": {
+          "2h": {
             "minItems": 1,
             "type": "array",
             "items": {
@@ -2847,13 +2847,13 @@
               "properties": {
                 "frame": { "$ref": "#/$defs/u" },
                 "value": { "type": "number" },
-                "easing": { "$ref": "#/$defs/22" },
-                "curve": { "$ref": "#/$defs/1k" }
+                "easing": { "$ref": "#/$defs/23" },
+                "curve": { "$ref": "#/$defs/1l" }
               },
               "required": ["frame", "value"]
             }
           },
-          "2h": {
+          "2i": {
             "maxItems": 128,
             "type": "array",
             "items": {
@@ -2898,7 +2898,7 @@
               "additionalProperties": false
             }
           },
-          "2i": {
+          "2j": {
             "type": "object",
             "properties": {
               "name": { "$ref": "#/$defs/l" },
@@ -2939,7 +2939,7 @@
             },
             "additionalProperties": false
           },
-          "2k": {
+          "2l": {
             "type": "object",
             "properties": {
               "style": { "enum": ["wipe", "stagger", "slide", "none"] },
@@ -2948,19 +2948,19 @@
               "staggerFrames": { "type": "integer", "minimum": 0, "maximum": 120 },
               "entranceDurationFrames": { "type": "integer", "minimum": 2, "maximum": 600 },
               "exitDurationFrames": { "type": "integer", "minimum": 2, "maximum": 600 },
-              "entranceEasing": { "$ref": "#/$defs/22" },
-              "exitEasing": { "$ref": "#/$defs/22" }
+              "entranceEasing": { "$ref": "#/$defs/23" },
+              "exitEasing": { "$ref": "#/$defs/23" }
             },
             "additionalProperties": false
           },
-          "2l": {
+          "2m": {
             "anyOf": [
               {
                 "properties": {
                   "fieldId": { "type": "string" },
                   "targetProperty": { "type": "string" },
                   "sourcePath": { "$ref": "#/$defs/t" },
-                  "valueMap": { "$ref": "#/$defs/28" }
+                  "valueMap": { "$ref": "#/$defs/29" }
                 },
                 "required": ["fieldId"]
               },
@@ -2969,7 +2969,7 @@
                   "fieldKey": { "type": "string" },
                   "targetProperty": { "type": "string" },
                   "sourcePath": { "$ref": "#/$defs/t" },
-                  "valueMap": { "$ref": "#/$defs/28" }
+                  "valueMap": { "$ref": "#/$defs/29" }
                 },
                 "required": ["fieldKey"]
               }
@@ -2977,13 +2977,16 @@
             "type": "object",
             "required": ["targetProperty"]
           },
-          "2m": {
+          "2n": {
             "type": "object",
             "properties": {
-              "items": { "$ref": "#/$defs/2h" },
+              "items": { "$ref": "#/$defs/2i" },
               "speedPixelsPerSecond": { "type": "number", "minimum": 0, "maximum": 2000 },
               "gap": { "$ref": "#/$defs/j" },
-              "direction": { "enum": ["left", "right"] },
+              "direction": {
+                "enum": ["auto", "ltr", "rtl", "left", "right"],
+                "description": "Text uses auto, ltr or rtl. Ticker travel uses left or right."
+              },
               "textDirection": { "enum": ["auto", "ltr", "rtl"] },
               "updatePolicy": { "enum": ["next-appearance", "immediate"] },
               "entryFade": { "$ref": "#/$defs/j" },
@@ -3967,6 +3970,146 @@
         }
       },
       "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false },
+      "execution": { "taskSupport": "forbidden" }
+    },
+    {
+      "name": "ograf_review_template_transfer",
+      "title": "Review template branding transfer",
+      "description": "Review branding and settings, or list members of a workspace set. Select source.templateId when requested. Returns bounded rows and a frozen plan ID. Files up to 64 MiB.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": { "$ref": "#/$defs/0" },
+          "source": {
+            "oneOf": [
+              { "properties": { "kind": { "const": "clipboard" } }, "additionalProperties": false },
+              {
+                "properties": {
+                  "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                  "templateId": { "$ref": "#/$defs/0" },
+                  "kind": { "const": "workspace-file" }
+                },
+                "required": ["path"],
+                "additionalProperties": false
+              }
+            ],
+            "type": "object",
+            "required": ["kind"]
+          },
+          "options": {
+            "default": { "policy": "keep-appearance" },
+            "type": "object",
+            "properties": {
+              "policy": {
+                "enum": ["keep-appearance", "adopt-destination", "bring-source-branding"]
+              },
+              "inheritSettings": { "type": "boolean" },
+              "mappings": {
+                "maxItems": 1536,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": { "enum": ["token", "typography", "background"] },
+                    "sourceId": { "$ref": "#/$defs/0" },
+                    "action": { "enum": ["link", "keep-local", "import"] },
+                    "destinationId": { "$ref": "#/$defs/0" },
+                    "destinationKey": { "$ref": "#/$defs/0" },
+                    "resetOverrides": { "type": "boolean" }
+                  },
+                  "required": ["kind", "sourceId", "action"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["policy"],
+            "additionalProperties": false
+          },
+          "targetTemplateId": { "anyOf": [{ "$ref": "#/$defs/0" }, { "type": "null" }] },
+          "side": { "enum": ["before", "after"] },
+          "originalPrompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Verbatim user request for this template, from the MCP client conversation."
+          },
+          "offset": { "default": 0, "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "limit": { "default": 25, "type": "integer", "minimum": 1, "maximum": 50 }
+        },
+        "required": ["expectedRevision", "source"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$defs": { "0": { "type": "string", "minLength": 1, "maxLength": 256 } }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": { "taskSupport": "forbidden" }
+    },
+    {
+      "name": "ograf_preview_template_transfer",
+      "title": "Preview a reviewed template transfer",
+      "description": "Render before and after images for the exact reviewed plan. Returns expiring image URLs. Recheck a file with the same workspaceFile path and member.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": { "$ref": "#/$defs/0" },
+          "planId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "sourceRevision": { "$ref": "#/$defs/0" },
+          "workspaceFile": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "templateId": { "$ref": "#/$defs/0" }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["expectedRevision", "planId", "sourceRevision"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$defs": { "0": { "type": "string", "minLength": 1, "maxLength": 256 } }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": { "taskSupport": "forbidden" }
+    },
+    {
+      "name": "ograf_commit_template_transfer",
+      "title": "Apply a reviewed template transfer",
+      "description": "Apply one undoable transfer from a reviewed plan and exact revisions. Requires confirm:true. Supply the same workspaceFile path and member for file sources.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": { "$ref": "#/$defs/0" },
+          "planId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "sourceRevision": { "$ref": "#/$defs/0" },
+          "workspaceFile": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "templateId": { "$ref": "#/$defs/0" }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+          },
+          "confirm": { "type": "boolean", "const": true }
+        },
+        "required": ["expectedRevision", "planId", "sourceRevision", "confirm"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$defs": { "0": { "type": "string", "minLength": 1, "maxLength": 256 } }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
       "execution": { "taskSupport": "forbidden" }
     },
     {

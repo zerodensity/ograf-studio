@@ -207,6 +207,10 @@ export const tickerPatchSchema = z
 const elementPatchSchema = z
   .object({
     ...tickerPatchSchema.shape,
+    direction: z
+      .enum(['auto', 'ltr', 'rtl', 'left', 'right'])
+      .describe('Text uses auto, ltr or rtl. Ticker travel uses left or right.')
+      .optional(),
     crawl: z
       .object({
         speedPixelsPerSecond: z.number().finite().min(0).max(2000).optional(),

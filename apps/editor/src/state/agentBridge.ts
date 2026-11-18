@@ -45,6 +45,12 @@ import type {
   TemplateSetArchiveRequest,
   CoordinatedExportRequest,
 } from '@ograf-editor/agent-tools/template-set-storage';
+import {
+  isTemplateTransferRequest,
+  TEMPLATE_TRANSFER_CAPABILITY,
+  type TemplateTransferRequest,
+} from '@ograf-editor/agent-tools/template-transfer-review';
+import { handleTemplateTransferRequest } from './templateTransferReview';
 import { handleLivePlayoutRequest } from './livePlayoutStore';
 import { handlePreviewPlayoutRequest } from './previewPlayoutBridge';
 
@@ -457,7 +463,8 @@ type BridgeMessage =
       request:
         | Parameters<typeof handleTemplateSetRequest>[0]
         | TemplateSetArchiveRequest
-        | CoordinatedExportRequest;
+        | CoordinatedExportRequest
+        | TemplateTransferRequest;
     }
   | { type: 'editor.ack'; revision: number }
   | { type: 'editor.error'; message: string }
@@ -621,7 +628,12 @@ export function useAgentBridge(): void {
           type: 'editor.hello',
           project: useProjectStore.getState().project,
           componentGraphContext: componentGraphContext(),
-          capabilities: ['template-sets-v1', 'playout-v1', 'component-graph-v1'],
+          capabilities: [
+            'template-sets-v1',
+            TEMPLATE_TRANSFER_CAPABILITY,
+            'playout-v1',
+            'component-graph-v1',
+          ],
         });
       });
       socket.addEventListener('message', async (event) => {
@@ -922,6 +934,26 @@ export function useAgentBridge(): void {
                   throw new Error(
                     'Template-set request expired before execution; no change was made.',
                   );
+                if (isTemplateTransferRequest(message.request)) {
+                  const { result, captures } = await handleTemplateTransferRequest(
+                    message.request,
+                    { expiresAt: message.expiresAt },
+                  );
+                  send({
+                    type: 'template-set.result',
+                    requestId: message.requestId,
+                    result,
+                    ...(captures ? { captures } : {}),
+                    ...(message.request.action === 'transfer-commit'
+                      ? {
+                          project: useProjectStore.getState().project,
+                          componentGraphContext: componentGraphContext(),
+                        }
+                      : {}),
+                  });
+                  status({ activity: 'Template transfer request completed' });
+                  return;
+                }
                 const result =
                   message.request.action === 'archive'
                     ? await archiveTemplateSetForBridge(message.request, {
