@@ -15,7 +15,7 @@ const progressMessages: Record<string, string> = {
 };
 
 /** Leave a render opportunity before cloning a large set or starting compilation. */
-function allowExportDialogPaint(ownerWindow: Window, signal: AbortSignal): Promise<void> {
+export function allowExportDialogPaint(ownerWindow: Window, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     let frame: number | undefined;
     const done = () => {

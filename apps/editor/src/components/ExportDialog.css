@@ -1,0 +1,133 @@
+.studio-export-dialog {
+  width: min(480px, calc(100vw - 40px));
+}
+
+.studio-export-dialog header p {
+  overflow-wrap: anywhere;
+}
+
+.studio-export-content fieldset {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.studio-export-content fieldset[hidden] {
+  display: none;
+}
+
+.studio-export-content label {
+  margin: 0;
+}
+
+.studio-export-content select {
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  color: var(--text-main);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: inherit;
+}
+
+.studio-export-content summary {
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.studio-export-content :is(select, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.studio-export-content p {
+  margin: 0;
+}
+
+.studio-export-completion,
+.studio-export-file-list,
+.studio-export-downloads {
+  overflow-wrap: anywhere;
+}
+
+.studio-export-file-list ul,
+.studio-export-downloads {
+  margin: 5px 0 0;
+  padding-left: 1.5em;
+}
+
+.studio-export-downloads {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.studio-export-downloads li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.studio-export-downloads button {
+  flex-shrink: 0;
+}
+
+.studio-export-content p.workspace-dialog-error,
+.studio-export-progress {
+  margin-top: 14px;
+}
+
+.studio-export-progress progress {
+  width: 100%;
+}
+
+.studio-export-thumbnail {
+  display: grid;
+  grid-template-columns: minmax(0, 100px) 1fr;
+  align-items: end;
+  gap: 10px 16px;
+}
+
+.studio-export-thumbnail .studio-export-thumbnail-auto {
+  display: flex;
+  align-items: center;
+  padding-bottom: 5px;
+}
+
+.studio-export-thumbnail-auto input {
+  width: auto;
+}
+
+.studio-export-thumbnail-image {
+  grid-column: 1 / -1;
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 150px;
+  background: repeating-conic-gradient(#555 0% 25%, #373737 0% 50%) 0 / 16px 16px;
+  border: 1px solid var(--border);
+}
+
+.studio-export-thumbnail-image img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.studio-export-thumbnail-image span {
+  z-index: 1;
+  padding: 5px 10px;
+  background: #111d;
+}
+
+.studio-export-dialog footer {
+  flex-wrap: wrap;
+}

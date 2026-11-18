@@ -149,6 +149,43 @@ export async function createCertifiedProjectHtml(
   return { artifacts, compatibility, blob: createStandaloneHtmlFile(artifacts).blob };
 }
 
+async function prepareCertifiedProjectFiles(
+  project: Project,
+  composition: Composition,
+  profile: ExportProfile | undefined,
+  { format, signal }: { format: ExportFileFormat; signal?: AbortSignal },
+) {
+  const { snapshot, artifacts, compatibility } = await buildCertifiedProjectArtifacts(
+    project,
+    composition,
+    profile,
+    signal,
+  );
+  const suffix = profile?.fileNameSuffix ?? '';
+  const files: ExportFile[] = [];
+  if (format !== 'html') {
+    files.push({
+      format: 'zip',
+      blob: await packageBlob(artifacts, signal),
+      fileName: `${snapshot.name || 'untitled'}${suffix}.ograf.zip`,
+    });
+  }
+  signal?.throwIfAborted();
+  if (format !== 'zip') files.push(createStandaloneHtmlFile(artifacts, suffix));
+  signal?.throwIfAborted();
+  return { artifacts, compatibility, files };
+}
+
+/** Prepare all requested files from one certified snapshot without opening a destination. */
+export async function prepareProjectExportFiles(
+  project: Project,
+  composition: Composition,
+  profile: ExportProfile | undefined,
+  options: { format: ExportFileFormat; signal?: AbortSignal },
+): Promise<ExportFile[]> {
+  return (await prepareCertifiedProjectFiles(project, composition, profile, options)).files;
+}
+
 /** Exports certified package files or an independent HTML player. */
 export async function exportProjectAsZip(
   project: Project,
@@ -157,21 +194,12 @@ export async function exportProjectAsZip(
   options: { downloadOnly?: boolean; ownerWindow?: Window; format?: ExportFileFormat } = {},
 ): Promise<ExportZipResult> {
   const { format = 'zip', ...saveOptions } = options;
-  const { artifacts, compatibility } = await buildCertifiedProjectArtifacts(
+  const { artifacts, compatibility, files } = await prepareCertifiedProjectFiles(
     project,
     composition,
     profile,
+    { format },
   );
-  const suffix = profile?.fileNameSuffix ?? '';
-  const files: ExportFile[] = [];
-  if (format !== 'html') {
-    files.push({
-      format: 'zip',
-      blob: await packageBlob(artifacts),
-      fileName: `${project.name || 'untitled'}${suffix}.ograf.zip`,
-    });
-  }
-  if (format !== 'zip') files.push(createStandaloneHtmlFile(artifacts, suffix));
   if (files.length > 1) {
     // Each file gets a fresh user gesture. Certification and preparation happen only once.
     stageCertifiedArtifacts(files, 1, saveOptions.ownerWindow, true);
