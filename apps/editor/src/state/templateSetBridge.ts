@@ -28,7 +28,6 @@ import {
   renameProjectSetTemplate,
   reorderProjectSetTemplate,
   resolveProjectSetTemplate,
-  saveProjectSetTemplateEdits,
   setProjectSetControlValue,
   bindProjectSetControl,
   bindProjectSetAsset,
@@ -58,6 +57,7 @@ import {
   undoRemoveTemplate,
   newTemplate,
   useTemplateClipboardStore,
+  snapshotOpenTemplateSet,
   type TemplateTransferReport,
 } from './templateCommands';
 import {
@@ -117,14 +117,11 @@ if (import.meta.hot)
     unsubscribeClipboard();
   });
 
-function currentSet(): ProjectSetDocument | null {
-  const { projectSet, activeTemplateId } = useProjectSetStore.getState();
-  return projectSet && activeTemplateId
-    ? saveProjectSetTemplateEdits(projectSet, activeTemplateId, useProjectStore.getState().project)
-    : projectSet;
+export function currentTemplateSetRevision(): string {
+  return `${epoch}:${revision}`;
 }
 function requireSet() {
-  const set = currentSet();
+  const set = snapshotOpenTemplateSet();
   if (!set) throw new Error('Create or open a template set first.');
   return set;
 }
@@ -137,7 +134,7 @@ function snapshot(
     resourceUsage?: { slotIds?: string[]; componentIds?: string[] };
   } = {},
 ): Record<string, unknown> {
-  const set = currentSet();
+  const set = snapshotOpenTemplateSet();
   const clipboard = useTemplateClipboardStore.getState();
   const offset = page.offset ?? 0;
   const limit = page.limit ?? 256;
@@ -324,6 +321,7 @@ function snapshot(
               outputLayer: resolveOutputLayer(project.outputLayer),
               inheritSettings: template.inheritSettings !== false,
               inheritBrandKit: template.inheritBrandKit !== false,
+              ...(template.brandKitLinks ? { brandKitLinks: template.brandKitLinks } : {}),
               settingsOverrides: template.settingsOverrides ?? [],
               brandKitOverrides: template.brandKitOverrides ?? [],
               typographyOverrides: template.typographyOverrides ?? [],
@@ -545,7 +543,7 @@ export function handleTemplateSetRequest(request: {
       const tokenId = String(operation.tokenId);
       const template = set.templates.find((item) => item.id === templateId);
       if (!template) throw new Error('Template not found.');
-      if (template.inheritBrandKit === false)
+      if (template.inheritBrandKit === false && !template.brandKitLinks)
         throw new Error('This template uses local branding. Edit the token in This template.');
       if (!templateBrandKit(set, template)?.tokens.some((token) => token.id === tokenId))
         throw new Error('Shared token not found.');

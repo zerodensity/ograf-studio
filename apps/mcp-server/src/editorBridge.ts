@@ -21,6 +21,11 @@ import {
   type LivePlayoutRequest,
   type TemplateSetRequest,
 } from '@ograf-editor/agent-tools';
+import {
+  isTemplateTransferRequest,
+  TEMPLATE_TRANSFER_CAPABILITY,
+  type TemplateTransferCaptures,
+} from '@ograf-editor/agent-tools/template-transfer-review';
 
 export interface CompatibilityResult {
   valid: boolean;
@@ -130,6 +135,7 @@ export interface BrowserMeasureTextResult {
 
 export interface EditorBridgeHealth {
   templateSetsReady?: boolean;
+  templateTransfersReady?: boolean;
   playoutReady?: boolean;
   connected: boolean;
   responsive: boolean;
@@ -200,6 +206,7 @@ type EditorInbound =
       type: 'template-set.result';
       requestId: string;
       result?: Record<string, unknown>;
+      captures?: TemplateTransferCaptures;
       project?: Project;
       componentGraphContext?: ComponentGraphContext | null;
       error?: string;
@@ -284,6 +291,7 @@ function isLocalRequest(request: IncomingMessage): boolean {
 
 export class EditorBridge {
   #templateSetsReady = false;
+  #templateTransfersReady = false;
   #playoutReady = false;
   #pendingPlayout = new Map<
     string,
@@ -296,6 +304,7 @@ export class EditorBridge {
   #pendingTemplateSets = new Map<
     string,
     {
+      action: TemplateSetRequest['action'];
       resolve: (result: Record<string, unknown>) => void;
       reject: (error: Error) => void;
       timeout: ReturnType<typeof setTimeout>;
@@ -416,6 +425,7 @@ export class EditorBridge {
     return {
       connected: true,
       templateSetsReady: this.#templateSetsReady,
+      templateTransfersReady: this.#templateTransfersReady,
       playoutReady: this.#playoutReady,
       responsive,
       latencyMs,
@@ -459,6 +469,7 @@ export class EditorBridge {
     }
     this.#socket = socket;
     this.#templateSetsReady = false;
+    this.#templateTransfersReady = false;
     this.#playoutReady = false;
     this.#editorReady = false;
     this.#componentGraphReady = false;
@@ -565,6 +576,8 @@ export class EditorBridge {
     }
     if (message.type === 'editor.hello') {
       this.#templateSetsReady = message.capabilities?.includes('template-sets-v1') ?? false;
+      this.#templateTransfersReady =
+        message.capabilities?.includes(TEMPLATE_TRANSFER_CAPABILITY) ?? false;
       this.#playoutReady = message.capabilities?.includes('playout-v1') ?? false;
       const session = this.workspace.get('editor');
       if (!this.#editorBaselineInitialized && session.revision === 0) {
@@ -677,6 +690,13 @@ export class EditorBridge {
         return;
       }
       try {
+        if (message.captures && pending.action !== 'transfer-preview')
+          throw new Error('Studio returned images for an unexpected transfer request.');
+        if (
+          message.project &&
+          (pending.action === 'transfer-review' || pending.action === 'transfer-preview')
+        )
+          throw new Error('Studio returned a project change during transfer review.');
         if (Object.hasOwn(message, 'componentGraphContext')) {
           this.#componentGraphContext = message.componentGraphContext ?? null;
           this.#componentGraphReady = true;
@@ -691,6 +711,14 @@ export class EditorBridge {
         }
         pending.resolve({
           ...message.result,
+          ...(message.captures
+            ? {
+                previewImages: {
+                  before: this.#publishTransferImage(message.captures.before),
+                  after: this.#publishTransferImage(message.captures.after),
+                },
+              }
+            : {}),
           projectRevision: this.workspace.get('editor').revision,
         });
       } catch (cause) {
@@ -882,6 +910,8 @@ export class EditorBridge {
       throw new Error('Template-set tools require the live editor to be connected.');
     if (!this.#templateSetsReady)
       throw new Error('Reload the editor to enable the updated template-set API.');
+    if (isTemplateTransferRequest(request) && !this.#templateTransfersReady)
+      throw new Error('Reload Studio to enable template transfer review.');
     await this.#awaitResponsive('template-set operation', timeoutMs);
     const requestId = randomUUID();
     return new Promise((resolve, reject) => {
@@ -893,7 +923,12 @@ export class EditorBridge {
           ),
         );
       }, timeoutMs);
-      this.#pendingTemplateSets.set(requestId, { resolve, reject, timeout });
+      this.#pendingTemplateSets.set(requestId, {
+        action: request.action,
+        resolve,
+        reject,
+        timeout,
+      });
       this.#send({
         type: 'template-set.request',
         requestId,
@@ -1043,6 +1078,11 @@ export class EditorBridge {
       url: `${this.#origin()}/captures/${token}`,
       expiresAt: new Date(expiresAt).toISOString(),
     };
+  }
+
+  #publishTransferImage(image: TemplateTransferCaptures['before']) {
+    const { url, expiresAt, width, height, frame } = this.#publishPng(image);
+    return { url, expiresAt, width, height, frame };
   }
 
   #origin(): string {

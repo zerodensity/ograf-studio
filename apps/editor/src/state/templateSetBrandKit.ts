@@ -39,7 +39,8 @@ function shareFonts(set: ProjectSetDocument, donor?: Project): ProjectSetDocumen
     ),
   );
   const assets = [...set.assets];
-  const inheriting = set.templates.filter((template) => templateBrandKit(set, template));
+  // A selectively linked member can still carry independent fonts that belong to its source.
+  const inheriting = set.templates.filter((template) => template.inheritBrandKit !== false);
   const projects = inheriting.map((template) => template.project);
   if (donor) projects.push(donor);
   for (const project of projects)
@@ -119,7 +120,7 @@ export function editBrandKitSet(
   const typeChanged =
     JSON.stringify(synced.brandKit?.typography) !== JSON.stringify(updated.brandKit?.typography);
   const resets =
-    typeChanged && active && templateBrandKit(updated, active)
+    typeChanged && active && !active.brandKitLinks && templateBrandKit(updated, active)
       ? active.project.compositions.flatMap((composition) => syncTypographyPresets(composition))
       : [];
   runDiscreteHistoryStep(() => {
@@ -217,7 +218,9 @@ export function addSharedBrandToken(type: DesignTokenType = 'color') {
 export function removeSharedBrandToken(id: string) {
   editSet((set) => {
     if (!set.brandKit) throw new Error('Create the master Brand Kit first.');
-    for (const template of set.templates.filter((item) => templateBrandKit(set, item)))
+    for (const template of set.templates.filter((item) =>
+      templateBrandKit(set, item)?.tokens.some((token) => token.id === id),
+    ))
       for (const composition of template.project.compositions) {
         if (
           [
@@ -243,6 +246,14 @@ export function removeSharedBrandToken(id: string) {
       templates: set.templates.map((template) => ({
         ...template,
         brandKitOverrides: template.brandKitOverrides?.filter((tokenId) => tokenId !== id),
+        ...(template.brandKitLinks
+          ? {
+              brandKitLinks: {
+                ...template.brandKitLinks,
+                tokenIds: template.brandKitLinks.tokenIds.filter((tokenId) => tokenId !== id),
+              },
+            }
+          : {}),
       })),
     };
   }, 'Remove shared design token');

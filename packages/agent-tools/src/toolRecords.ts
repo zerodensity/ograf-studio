@@ -95,6 +95,17 @@ import { writeTemplateFiles } from './projectFiles';
 import { decodeTemplateSetArchive } from './templateSetFiles';
 import { LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION } from './templateSetStorage';
 import {
+  templateTransferOptionsSchema,
+  templateTransferSourceSchema,
+  templateTransferWorkspaceFileSchema,
+  type TemplateTransferRequest,
+  type TemplateTransferWorkspaceFile,
+} from './templateTransferReview';
+import {
+  assertTemplateTransferFileRevision,
+  readTemplateTransferFile,
+} from './templateTransferFiles';
+import {
   projectThumbnailFrame,
   thumbnailRenderProject,
   templateThumbnailName,
@@ -2146,6 +2157,15 @@ export function createOGrafToolRecords(
               'Read inheritBrandKit and inheritSettings independently on each member. A kept transfer uses local branding and canvas settings.',
             result:
               'A cross-set paste_template result includes transfer with the created identities, settings differences and warnings. The transfer is validated before publishing and can be undone in Studio.',
+            ...(!inApp && {
+              available: bridge.health.templateTransfersReady === true,
+              review: 'ograf_review_template_transfer',
+              preview: 'ograf_preview_template_transfer',
+              commit: 'ograf_commit_template_transfer',
+              policies: ['keep-appearance', 'adopt-destination', 'bring-source-branding'],
+              workflow:
+                'Review the clipboard or a workspace file with the destination set revision. For select-source-template, choose an ID from sourceTemplates and review again with source.templateId. Preview the frozen plan, then use the same planId, expectedRevision and sourceRevision to commit with confirm:true. Workspace file previews and commits recheck the selected file and member by hash. Re-review if the project changes.',
+            }),
           },
           sharedResources: {
             ui: 'Resources offers Template and Template Set views in a set. Template Set shows shared components, asset slots, per-template usage and inheritance/local override indicators; the existing Scene Outliner shared controls and asset slots editor remains available. Replacing a shared asset is reviewed in Studio before applying, including other slots using the same source.',
@@ -2306,7 +2326,7 @@ export function createOGrafToolRecords(
           copies:
             'Independent template/project/composition identities. Same-set copies preserve parent control and shared-asset bindings. Cross-set paste materializes resolved local values.',
           files:
-            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact schema 6 .ogs; compatible mode writes schema 5. Export Legacy Template Set (.ogp) flattens component links in a copy. Newer features are not down-converted. MCP project open/save remain standalone JSON; ograf_save_template_set writes a whole-set snapshot copy without file dialogs.',
+            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact .ogs with schema 7 when local branding needs it, otherwise schema 6. Eligible sets can use schema 5 compatibility. Export Legacy Template Set (.ogp) flattens component links in eligible copies. MCP project open/save use standalone JSON; ograf_save_template_set writes whole-set snapshots.',
         },
         cropping: {
           layer:
@@ -5726,6 +5746,98 @@ export function createOGrafToolRecords(
       );
     },
   );
+  if (!inApp) {
+    const revision = z.string().min(1).max(256);
+    const planReference = {
+      expectedRevision: revision,
+      planId: z.string().min(1).max(128),
+      sourceRevision: revision,
+      workspaceFile: templateTransferWorkspaceFileSchema.optional(),
+    };
+    const requestTransfer = async (request: TemplateTransferRequest, timeoutMs?: number) => {
+      if (!bridge.requestTemplateSet)
+        throw new Error('Template transfer review requires a connected Studio editor.');
+      return textResult(await bridge.requestTemplateSet(request, timeoutMs));
+    };
+    const useReviewedPlan = async (
+      action: 'transfer-preview' | 'transfer-commit',
+      {
+        workspaceFile,
+        ...reference
+      }: {
+        expectedRevision: string;
+        planId: string;
+        sourceRevision: string;
+        workspaceFile?: TemplateTransferWorkspaceFile;
+      },
+    ) => {
+      await assertTemplateTransferFileRevision(workspace, reference.sourceRevision, workspaceFile);
+      return requestTransfer(
+        { action, ...reference },
+        action === 'transfer-preview' ? 60_000 : undefined,
+      );
+    };
+    server.registerTool(
+      'ograf_review_template_transfer',
+      {
+        title: 'Review template branding transfer',
+        description:
+          'Review branding and settings, or list members of a workspace set. Select source.templateId when requested. Returns bounded rows and a frozen plan ID. Files up to 64 MiB.',
+        inputSchema: {
+          expectedRevision: revision,
+          source: templateTransferSourceSchema,
+          options: templateTransferOptionsSchema.default({ policy: 'keep-appearance' }),
+          targetTemplateId: z.string().min(1).max(256).nullable().optional(),
+          side: z.enum(['before', 'after']).optional(),
+          originalPrompt: originalPromptSchema.optional(),
+          offset: z.number().int().nonnegative().default(0),
+          limit: z.number().int().min(1).max(50).default(25),
+        },
+        annotations: { ...readOnly, idempotentHint: false },
+      },
+      async ({ source, ...options }) => {
+        if (source.kind === 'clipboard')
+          return requestTransfer({ action: 'transfer-review', source, ...options }, 60_000);
+        const file = await readTemplateTransferFile(workspace, source);
+        return requestTransfer(
+          {
+            action: 'transfer-review',
+            source: {
+              kind: 'workspace-file',
+              filename: file.filename,
+              bytesBase64: file.data.toString('base64'),
+              sourceRevision: file.sourceRevision,
+              templateId: source.templateId,
+            },
+            ...options,
+          },
+          60_000,
+        );
+      },
+    );
+    server.registerTool(
+      'ograf_preview_template_transfer',
+      {
+        title: 'Preview a reviewed template transfer',
+        description:
+          'Render before and after images for the exact reviewed plan. Returns expiring image URLs. Recheck a file with the same workspaceFile path and member.',
+        inputSchema: planReference,
+        annotations: readOnly,
+      },
+      async (input) => useReviewedPlan('transfer-preview', input),
+    );
+    server.registerTool(
+      'ograf_commit_template_transfer',
+      {
+        title: 'Apply a reviewed template transfer',
+        description:
+          'Apply one undoable transfer from a reviewed plan and exact revisions. Requires confirm:true. Supply the same workspaceFile path and member for file sources.',
+        inputSchema: { ...planReference, confirm: z.literal(true) },
+        annotations: mutation,
+      },
+      async ({ confirm: _confirm, ...input }) => useReviewedPlan('transfer-commit', input),
+    );
+  }
   server.registerTool(
     'ograf_get_playout',
     {
@@ -5798,6 +5910,8 @@ export function createOGrafToolRecords(
     'ograf_inspect_scene',
     'ograf_get_project',
     'ograf_get_template_set',
+    'ograf_review_template_transfer',
+    'ograf_preview_template_transfer',
     'ograf_get_changes',
     'ograf_get_playout',
     'ograf_get_timeline',

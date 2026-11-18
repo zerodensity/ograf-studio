@@ -2,6 +2,14 @@ import type { AuthoringSession } from '@ograf-editor/authoring-core';
 import type { ExportArtifacts } from '@ograf-editor/codegen';
 import type { FieldValue, Project } from '@ograf-editor/scene-model';
 import type { LivePlayoutRequest } from './playoutSchemas';
+import type { TemplateTransferRequest } from './templateTransferReview';
+import type { BrowserCaptureResult } from './browserCaptureResult';
+
+export type {
+  BrowserCaptureResult,
+  ResolvedFontResult,
+  RuntimeCollectionCaptureResult,
+} from './browserCaptureResult';
 
 export interface CompatibilityResult {
   valid: boolean;
@@ -17,34 +25,6 @@ export interface BrowserCaptureRequest {
   maxDimension: number;
   matte: string;
   dataOverrides?: Record<string, FieldValue>;
-}
-
-export interface ResolvedFontResult {
-  layerId: string;
-  layerName: string;
-  requestedFamily: string;
-  resolvedFamily: string;
-  resolution: 'inferred';
-}
-
-export interface RuntimeCollectionCaptureResult {
-  id: string;
-  name: string;
-  receivedCount: number;
-  renderedCount: number;
-  capacity: number;
-  truncated: boolean;
-}
-
-export interface BrowserCaptureResult {
-  mimeType: 'image/png';
-  data: string;
-  width: number;
-  height: number;
-  originalWidth: number;
-  originalHeight: number;
-  resolvedFonts: ResolvedFontResult[];
-  runtimeCollections?: RuntimeCollectionCaptureResult[];
 }
 
 export interface BrowserStripRequest {
@@ -113,6 +93,7 @@ export interface BrowserMeasureTextResult {
 
 export interface EditorBridgeHealth {
   templateSetsReady?: boolean;
+  templateTransfersReady?: boolean;
   playoutReady?: boolean;
   connected: boolean;
   responsive: boolean;
@@ -170,7 +151,7 @@ export interface EditorBridgePort {
   ): void;
 }
 
-export interface TemplateSetRequest {
+interface BasicTemplateSetRequest {
   action: 'read' | 'command' | 'archive' | 'export-coordinated';
   profile?: 'realtime' | 'non-realtime' | 'dual';
   expectedRevision?: string;
@@ -184,6 +165,8 @@ export interface TemplateSetRequest {
   operation?: Record<string, unknown>;
   confirm?: boolean;
 }
+
+export type TemplateSetRequest = BasicTemplateSetRequest | TemplateTransferRequest;
 
 export interface AuthoringWorkspacePort {
   readonly root: string;

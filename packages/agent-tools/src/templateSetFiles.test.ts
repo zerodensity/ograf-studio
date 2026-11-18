@@ -14,7 +14,7 @@ import {
   MAX_TEMPLATE_SET_MCP_ARCHIVE_BYTES,
   type TemplateSetArchiveMode,
 } from './templateSetStorage';
-import type { AuthoringWorkspacePort, EditorBridgePort } from './ports';
+import type { AuthoringWorkspacePort, EditorBridgePort, TemplateSetRequest } from './ports';
 
 const folders: string[] = [];
 afterEach(async () => {
@@ -82,7 +82,7 @@ async function tools(result: Record<string, unknown>) {
       return target;
     },
   };
-  const requestTemplateSet = vi.fn(async () => result);
+  const requestTemplateSet = vi.fn(async (_request: TemplateSetRequest) => result);
   const bridge: EditorBridgePort = {
     health: {
       connected: true,
@@ -248,5 +248,111 @@ describe('template-set MCP snapshot saves', () => {
     await expect(decodeTemplateSetArchive(payload, 'set:7', 'compact')).rejects.toThrow(
       message as string,
     );
+  });
+});
+
+describe('MCP template transfer review', () => {
+  const expectedRevision = 'set:7';
+  const suppliedPlan = { planId: 'plan-a', expectedRevision, sourceRevision: 'clipboard:8' };
+
+  it('separates read-only review and rendering from explicit commit', async () => {
+    const { records, requestTemplateSet } = await tools(suppliedPlan);
+    const review = records.find((tool) => tool.name === 'ograf_review_template_transfer')!;
+    const preview = records.find((tool) => tool.name === 'ograf_preview_template_transfer')!;
+    const commit = records.find((tool) => tool.name === 'ograf_commit_template_transfer')!;
+    expect(review.config.annotations?.readOnlyHint).toBe(true);
+    expect(preview.config.annotations?.readOnlyHint).toBe(true);
+    expect(commit.config.annotations?.readOnlyHint).toBe(false);
+    expect(() => z.object(commit.config.inputSchema).parse(suppliedPlan)).toThrow();
+    const reviewSchema = z.object(review.config.inputSchema);
+    const clipboard = { expectedRevision, source: { kind: 'clipboard' } };
+    expect(reviewSchema.parse(clipboard)).toMatchObject({ offset: 0, limit: 25 });
+    expect(() => reviewSchema.parse({ ...clipboard, limit: 51 })).toThrow();
+
+    await review.handler(
+      reviewSchema.parse({
+        ...clipboard,
+        limit: 10,
+        offset: 20,
+      }),
+    );
+    expect(requestTemplateSet).toHaveBeenLastCalledWith(
+      {
+        action: 'transfer-review',
+        expectedRevision,
+        source: { kind: 'clipboard' },
+        options: { policy: 'keep-appearance' },
+        limit: 10,
+        offset: 20,
+      },
+      60_000,
+    );
+    await preview.handler(z.object(preview.config.inputSchema).parse(suppliedPlan));
+    expect(requestTemplateSet).toHaveBeenLastCalledWith(
+      { action: 'transfer-preview', ...suppliedPlan },
+      60_000,
+    );
+    await commit.handler(
+      z.object(commit.config.inputSchema).parse({ ...suppliedPlan, confirm: true }),
+    );
+    expect(requestTemplateSet).toHaveBeenLastCalledWith(
+      { action: 'transfer-commit', ...suppliedPlan },
+      undefined,
+    );
+  });
+
+  it('requires exact workspace file bytes and the selected member before preview or commit', async () => {
+    const { root, records, requestTemplateSet } = await tools(suppliedPlan);
+    const review = records.find((tool) => tool.name === 'ograf_review_template_transfer')!;
+    const preview = records.find((tool) => tool.name === 'ograf_preview_template_transfer')!;
+    const commit = records.find((tool) => tool.name === 'ograf_commit_template_transfer')!;
+    const workspaceFile = { path: 'Source.ogs', templateId: 'lower-third' };
+    const filename = join(root, workspaceFile.path);
+    await writeFile(filename, 'source-one');
+    await review.handler(
+      z.object(review.config.inputSchema).parse({
+        expectedRevision,
+        source: { kind: 'workspace-file', ...workspaceFile },
+        options: { policy: 'adopt-destination' },
+      }),
+    );
+    const request = requestTemplateSet.mock.calls[0]![0];
+    if (request.action !== 'transfer-review' || request.source.kind !== 'workspace-file')
+      throw new Error('Expected a browser-side workspace file review.');
+    expect(request.source).toMatchObject({
+      filename: workspaceFile.path,
+      templateId: workspaceFile.templateId,
+      bytesBase64: Buffer.from('source-one').toString('base64'),
+    });
+    expect(request.source.sourceRevision).toMatch(/^workspace-file:[a-f0-9]{64}$/);
+    const plan = { ...suppliedPlan, sourceRevision: request.source.sourceRevision };
+    await expect(preview.handler(plan)).rejects.toThrow('same workspaceFile path and member');
+    await expect(
+      commit.handler({
+        ...plan,
+        workspaceFile: { ...workspaceFile, templateId: 'ticker' },
+        confirm: true,
+      }),
+    ).rejects.toThrow('source changed');
+    expect(requestTemplateSet).toHaveBeenCalledTimes(1);
+    await preview.handler({ ...plan, workspaceFile });
+    expect(requestTemplateSet).toHaveBeenLastCalledWith(
+      { action: 'transfer-preview', ...plan },
+      60_000,
+    );
+
+    await writeFile(filename, 'source-two');
+    await expect(commit.handler({ ...plan, workspaceFile, confirm: true })).rejects.toThrow(
+      'source changed',
+    );
+    expect(requestTemplateSet).toHaveBeenCalledTimes(2);
+    await expect(
+      review.handler({
+        expectedRevision,
+        source: { kind: 'workspace-file', path: '../Source.ogs' },
+        options: { policy: 'keep-appearance' },
+      }),
+    ).rejects.toThrow('Outside workspace');
+    expect(requestTemplateSet).toHaveBeenCalledTimes(2);
   });
 });

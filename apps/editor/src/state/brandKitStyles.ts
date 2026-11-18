@@ -206,11 +206,14 @@ function removeStyle(scope: BrandKitStyleScope, id: string, kind: 'typography' |
   if (scope === 'set')
     editBrandKitSet((set) => {
       if (!set.brandKit) throw new Error('Create the master Brand Kit first.');
+      const sharedMembers = new Set(
+        set.templates.filter((template) =>
+          templateBrandKit(set, template)?.[kind]?.some((style) => style.id === id),
+        ),
+      );
       if (
         (kind === 'backgrounds' && set.brandKit.defaultBackgroundStyleId === id) ||
-        set.templates.some(
-          (template) => templateBrandKit(set, template) && styleUsed(template.project, id, kind),
-        )
+        Array.from(sharedMembers).some((template) => styleUsed(template.project, id, kind))
       )
         throw new Error('This style is still used. Detach its uses before removing it.');
       if (kind === 'typography')
@@ -225,7 +228,11 @@ function removeStyle(scope: BrandKitStyleScope, id: string, kind: 'typography' |
           template.backgroundOverrides = template.backgroundOverrides?.filter(
             (value) => value !== id,
           );
-        if (!templateBrandKit(set, template)) continue;
+        if (!sharedMembers.has(template)) continue;
+        if (template.brandKitLinks) {
+          const key = kind === 'typography' ? 'typographyIds' : 'backgroundIds';
+          template.brandKitLinks[key] = template.brandKitLinks[key].filter((value) => value !== id);
+        }
         for (const composition of template.project.compositions) {
           if (kind === 'typography')
             composition.designSystem.typography = composition.designSystem.typography?.filter(
