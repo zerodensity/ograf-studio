@@ -533,38 +533,6 @@ export function Menubar({
         <OgrafLogo />
         Studio
       </span>
-      {editingName ? (
-        <input
-          ref={nameInputRef}
-          className="menubar-project-name-input"
-          aria-label="Template name"
-          value={nameDraft}
-          onChange={(event) => setNameDraft(event.currentTarget.value)}
-          onBlur={commitProjectName}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === 'Enter' || event.key === 'Escape') {
-              event.preventDefault();
-              cancelNameEditRef.current = event.key === 'Escape';
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      ) : (
-        <button
-          type="button"
-          className="menubar-project-name"
-          disabled={!!projectSet && !activeTemplateId}
-          aria-label={`Rename template: ${projectName}`}
-          title="Rename template"
-          onClick={() => {
-            setNameDraft(projectName);
-            setEditingName(true);
-          }}
-        >
-          {projectName}
-        </button>
-      )}
       <nav className="menubar-actions">
         <div className="menubar-window-control" ref={fileMenuRef}>
           <button
@@ -1227,6 +1195,38 @@ export function Menubar({
           Preview
         </button>
       </nav>
+      {editingName ? (
+        <input
+          ref={nameInputRef}
+          className="menubar-project-name-input"
+          aria-label="Template name"
+          value={nameDraft}
+          onChange={(event) => setNameDraft(event.currentTarget.value)}
+          onBlur={commitProjectName}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Enter' || event.key === 'Escape') {
+              event.preventDefault();
+              cancelNameEditRef.current = event.key === 'Escape';
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          className="menubar-project-name"
+          disabled={!!projectSet && !activeTemplateId}
+          aria-label={`Rename template: ${projectName}`}
+          title="Rename template"
+          onClick={() => {
+            setNameDraft(projectName);
+            setEditingName(true);
+          }}
+        >
+          {projectName}
+        </button>
+      )}
       <label className="menubar-layout-control">
         <span>Layout</span>
         <select
