@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   BUILT_IN_EXPORT_PROFILES,
+  NLE_EXPORT_PROFILE,
+  compositionForExportProfile,
   getExportProfile,
   getOfflinePreviewFileName,
   type ExportProfileMode,
@@ -13,7 +15,7 @@ import {
   type Composition,
   type Project,
 } from '@ograf-editor/scene-model';
-import { EditorWindowContext } from '../layout/EditorWindow';
+import { EditorWindowContext, useEditorWindow } from '../layout/EditorWindow';
 import {
   defaultTemplateExportProfile,
   hasEnabledExternalFeed,
@@ -105,7 +107,7 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
     compositionId: string;
     frame: number | null;
   } | null>(null);
-  const [thumbnailOpen, setThumbnailOpen] = useState(false);
+  const [nleExport, setNleExport] = useState(false);
   const [activity, setActivity] = useState<ExportActivity | null>(null);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<{ message: string; canUseRealTime: boolean } | null>(null);
@@ -136,8 +138,16 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
       ? templateProfile.mode
       : defaultTemplateExportProfile(project, hasExternalFeed);
   const requestedMode = set ? setProfile : templateMode;
-  const mode = usesMedia && requestedMode !== 'authored' ? 'realtime' : requestedMode;
-  const profile = mode === 'authored' ? undefined : getExportProfile(mode);
+  const mode = nleExport
+    ? 'non-realtime'
+    : usesMedia && requestedMode !== 'authored'
+      ? 'realtime'
+      : requestedMode;
+  const profile = nleExport
+    ? NLE_EXPORT_PROFILE
+    : mode === 'authored'
+      ? undefined
+      : getExportProfile(mode);
   const suffix = profile?.fileNameSuffix ?? '';
   const frame =
     thumbnail?.projectId === project.id && thumbnail.compositionId === composition.id
@@ -171,6 +181,18 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
   const omitted = referencedTemplates
     ? set?.templates.filter(({ id }) => !referencedTemplates.has(id))
     : undefined;
+  const previewableTemplates = set?.templates.filter(
+    ({ id }) => !referencedTemplates || referencedTemplates.has(id),
+  );
+  const previewMember =
+    previewableTemplates?.find(({ id }) => id === activeTemplateId) ?? previewableTemplates?.[0];
+  const previewProject =
+    previewMember && (!hasCurrentTemplate || previewMember !== activeMember)
+      ? previewMember.project
+      : project;
+  const previewComposition = set
+    ? previewProject.compositions.find(({ id }) => id === previewProject.mainCompositionId)
+    : composition;
   const canPickFolder = typeof owner.showDirectoryPicker === 'function';
   const canCancel = activity !== 'choosing' && activity !== 'saving' && activity !== 'cancelling';
   const close = () => useStudioExportDialogStore.getState().close(request);
@@ -278,10 +300,12 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
       setCompletion(result);
     } catch (cause) {
       if (!signal.aborted) {
+        const message = cause instanceof Error ? cause.message : String(cause);
         setError({
-          message: cause instanceof Error ? cause.message : String(cause),
+          message: nleExport ? `NLE Export requires non-real-time playback. ${message}` : message,
           canUseRealTime:
             !set &&
+            !nleExport &&
             mode !== 'realtime' &&
             project.supportsRealTime &&
             cause instanceof OGrafExportCertificationError &&
@@ -330,110 +354,146 @@ function ExportDialog({ request }: { request: StudioExportRequest }) {
         </header>
         <div className="workspace-dialog-content studio-export-content">
           <fieldset hidden={completion !== null} disabled={activity !== null}>
-            <label>
-              Export scope
-              <select
-                value={set ? 'set' : 'template'}
-                disabled={!projectSet || !hasCurrentTemplate}
-                onChange={(event) => {
-                  setScope(event.target.value as typeof scope);
-                  setError(null);
-                }}
-              >
-                <option value="template">Current template</option>
-                <option value="set">Template set</option>
-              </select>
-            </label>
-            <label>
-              Export format
-              <select
-                ref={formatRef}
-                value={format}
-                onChange={(event) => {
-                  setFormat(event.target.value as ExportFileFormat);
-                  setError(null);
-                }}
-              >
-                <option value="zip">OGraf ZIP</option>
-                <option value="html" disabled={independent}>
-                  Standalone HTML
-                </option>
-                <option value="both" disabled={independent}>
-                  Both files
-                </option>
-              </select>
-            </label>
-            <label>
-              Playout mode
-              <select
-                value={mode}
-                onChange={(event) => {
-                  const value = event.target.value as ExportProfileMode | 'authored';
-                  if (set) setSetProfile(value);
-                  else if (value !== 'authored')
-                    setTemplateProfile({ project: project.id, mode: value });
-                  setError(null);
-                }}
-              >
-                {set && <option value="authored">As authored</option>}
-                {BUILT_IN_EXPORT_PROFILES.map((profile) => (
-                  <option
-                    key={profile.id}
-                    value={profile.id}
-                    disabled={usesMedia && profile.mode !== 'realtime'}
+            <div className="studio-export-preview">
+              <p>Thumbnail</p>
+              {!activity && !completion && previewComposition && (!set || previewMember) && (
+                <ExportThumbnail
+                  project={previewProject}
+                  composition={previewComposition}
+                  frame={set ? (previewProject.thumbnailFrame ?? null) : frame}
+                  nleExport={nleExport}
+                  onFrame={
+                    set
+                      ? undefined
+                      : (next) =>
+                          setThumbnail({
+                            projectId: project.id,
+                            compositionId: composition.id,
+                            frame: next,
+                          })
+                  }
+                />
+              )}
+              {set && (
+                <p className="studio-export-thumbnail-note">
+                  {previewMember ? `Previewing ${previewMember.name}. ` : ''}
+                  {independent
+                    ? 'Each template uses its saved thumbnail frame.'
+                    : 'Studio captures the coordinated thumbnail during export.'}
+                </p>
+              )}
+            </div>
+            <div className="studio-export-options">
+              {projectSet && (
+                <label>
+                  Export scope
+                  <select
+                    value={set ? 'set' : 'template'}
+                    disabled={!hasCurrentTemplate}
+                    onChange={(event) => {
+                      setScope(event.target.value as typeof scope);
+                      setError(null);
+                    }}
                   >
-                    {profile.name}
+                    <option value="template">Current template</option>
+                    <option value="set">Template set</option>
+                  </select>
+                </label>
+              )}
+              <label>
+                Export format
+                <select
+                  ref={formatRef}
+                  value={format}
+                  onChange={(event) => {
+                    setFormat(event.target.value as ExportFileFormat);
+                    setError(null);
+                  }}
+                >
+                  <option value="zip">OGraf ZIP</option>
+                  <option value="html" disabled={independent}>
+                    Standalone HTML
                   </option>
-                ))}
-              </select>
-            </label>
-            {independent && <p>This set exports one OGraf package per template in a single ZIP.</p>}
-            {omitted && omitted.length > 0 && (
+                  <option value="both" disabled={independent}>
+                    Both files
+                  </option>
+                </select>
+              </label>
+              <label>
+                Playout mode
+                <select
+                  value={mode}
+                  disabled={nleExport}
+                  onChange={(event) => {
+                    const value = event.target.value as ExportProfileMode | 'authored';
+                    if (set) setSetProfile(value);
+                    else if (value !== 'authored')
+                      setTemplateProfile({ project: project.id, mode: value });
+                    setError(null);
+                  }}
+                >
+                  {set && <option value="authored">As authored</option>}
+                  {BUILT_IN_EXPORT_PROFILES.map((profile) => (
+                    <option
+                      key={profile.id}
+                      value={profile.id}
+                      disabled={!nleExport && usesMedia && profile.mode !== 'realtime'}
+                    >
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="studio-export-option">
+                <input
+                  type="checkbox"
+                  checked={nleExport}
+                  onChange={(event) => {
+                    setNleExport(event.currentTarget.checked);
+                    setError(null);
+                  }}
+                />
+                NLE Export (for DaVinci Resolve etc.)
+              </label>
+              {nleExport && (
+                <p>
+                  Uses non-real-time playback and clears the composition background in the export.
+                </p>
+              )}
+              {independent && (
+                <p>This set exports one OGraf package per template in a single ZIP.</p>
+              )}
+              {omitted && omitted.length > 0 && (
+                <div className="studio-export-file-list">
+                  <p>Templates without a transition state are omitted.</p>
+                  <ul>
+                    {omitted.map(({ id, name }) => (
+                      <li key={id}>{name}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {usesMedia && (
+                <p>
+                  {nleExport
+                    ? 'Remove media and audio layers or media cues before exporting for an NLE.'
+                    : 'Media and audio require real-time playout.'}
+                </p>
+              )}
+              {!nleExport && hasExternalFeed && project.supportsRealTime && !usesMedia && (
+                <p>
+                  Real-time playout is recommended for live data. Dual mode also certifies offline
+                  rendering.
+                </p>
+              )}
               <div className="studio-export-file-list">
-                <p>Templates without a transition state are omitted.</p>
+                <p>Files to export</p>
                 <ul>
-                  {omitted.map(({ id, name }) => (
-                    <li key={id}>{name}</li>
+                  {expectedFiles.map((name) => (
+                    <li key={name}>{name}</li>
                   ))}
                 </ul>
               </div>
-            )}
-            {usesMedia && <p>Media and audio require real-time playout.</p>}
-            {hasExternalFeed && project.supportsRealTime && !usesMedia && (
-              <p>
-                Real-time playout is recommended for live data. Dual mode also certifies offline
-                rendering.
-              </p>
-            )}
-            {!set && (
-              <details
-                open={thumbnailOpen}
-                onToggle={(event) => setThumbnailOpen(event.currentTarget.open)}
-              >
-                <summary>Thumbnail</summary>
-                {thumbnailOpen && !activity && (
-                  <ExportThumbnail
-                    project={project}
-                    composition={composition}
-                    frame={frame}
-                    onFrame={(next) =>
-                      setThumbnail({
-                        projectId: project.id,
-                        compositionId: composition.id,
-                        frame: next,
-                      })
-                    }
-                  />
-                )}
-              </details>
-            )}
-            <div className="studio-export-file-list">
-              <p>Files to export</p>
-              <ul>
-                {expectedFiles.map((name) => (
-                  <li key={name}>{name}</li>
-                ))}
-              </ul>
             </div>
           </fieldset>
           {completion?.delivery === 'saved' && (
@@ -540,13 +600,16 @@ function ExportThumbnail({
   project,
   composition,
   frame,
+  nleExport,
   onFrame,
 }: {
   project: Project;
   composition: Composition;
   frame: number | null;
-  onFrame: (frame: number | null) => void;
+  nleExport: boolean;
+  onFrame?: (frame: number | null) => void;
 }) {
+  const { window: owner } = useEditorWindow();
   const [image, setImage] = useState('');
   const [failed, setFailed] = useState(false);
   const selectedFrame = projectThumbnailFrame({
@@ -560,12 +623,18 @@ function ExportThumbnail({
     let url = '';
     setImage('');
     setFailed(false);
-    void import('../state/templateThumbnail')
+    const thumbnailProject = {
+      ...project,
+      mainCompositionId: composition.id,
+      thumbnailFrame: frame,
+      compositions: [
+        compositionForExportProfile(composition, nleExport ? NLE_EXPORT_PROFILE : undefined),
+      ],
+    };
+    void allowExportDialogPaint(owner, controller.signal)
+      .then(() => import('../state/templateThumbnail'))
       .then(({ createTemplateThumbnail }) =>
-        createTemplateThumbnail(
-          { ...project, mainCompositionId: composition.id, thumbnailFrame: frame },
-          controller.signal,
-        ),
+        createTemplateThumbnail(thumbnailProject, controller.signal),
       )
       .then((blob) => {
         if (!controller.signal.aborted) {
@@ -580,31 +649,10 @@ function ExportThumbnail({
       controller.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [project, composition.id, frame]);
+  }, [project, composition, frame, nleExport, owner]);
 
   return (
     <div className="studio-export-thumbnail">
-      <label>
-        Thumbnail frame
-        <input
-          type="number"
-          min={0}
-          max={totalFrames}
-          value={selectedFrame}
-          onChange={(event) => {
-            const next = event.currentTarget.valueAsNumber;
-            if (Number.isInteger(next) && next >= 0 && next <= totalFrames) onFrame(next);
-          }}
-        />
-      </label>
-      <label className="studio-export-thumbnail-auto">
-        <input
-          type="checkbox"
-          checked={frame === null}
-          onChange={(event) => onFrame(event.target.checked ? null : selectedFrame)}
-        />
-        First OGraf step
-      </label>
       <div className="studio-export-thumbnail-image" aria-busy={!image && !failed}>
         {image ? (
           <img src={image} alt={`Thumbnail at frame ${selectedFrame}`} />
@@ -612,6 +660,31 @@ function ExportThumbnail({
           <span>{failed ? 'Thumbnail preview unavailable.' : 'Rendering thumbnail…'}</span>
         )}
       </div>
+      {onFrame && (
+        <>
+          <label>
+            Thumbnail frame
+            <input
+              type="number"
+              min={0}
+              max={totalFrames}
+              value={selectedFrame}
+              onChange={(event) => {
+                const next = event.currentTarget.valueAsNumber;
+                if (Number.isInteger(next) && next >= 0 && next <= totalFrames) onFrame(next);
+              }}
+            />
+          </label>
+          <label className="studio-export-thumbnail-auto">
+            <input
+              type="checkbox"
+              checked={frame === null}
+              onChange={(event) => onFrame(event.target.checked ? null : selectedFrame)}
+            />
+            First OGraf step
+          </label>
+        </>
+      )}
     </div>
   );
 }

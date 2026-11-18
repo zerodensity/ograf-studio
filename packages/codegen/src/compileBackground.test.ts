@@ -3,15 +3,79 @@ import {
   createAsset,
   createComposition,
   createDefaultGradient,
+  createLayerKeyframe,
   createLayerOfKind,
   createMediaPaint,
   createProject,
   createShaderPaint,
+  defaultTransformFor,
 } from '@ograf-editor/scene-model';
 import { compileDescriptor } from './compileDescriptor';
 import { buildExportArtifactsWithRuntime } from './buildExportArtifacts';
+import { getExportProfile, NLE_EXPORT_PROFILE } from './exportProfiles';
 
 describe('portable composition background paints', () => {
+  it.each(['solid', 'gradient', 'media'] as const)(
+    'clears a %s composition background for NLE export while preserving authored layers',
+    (kind) => {
+      const project = createProject({ supportsNonRealTime: false });
+      const composition = project.compositions[0]!;
+      composition.backgroundColor = '#112233';
+      if (kind === 'gradient') composition.backgroundPaint = createDefaultGradient('linear');
+      if (kind === 'media')
+        composition.backgroundPaint = createMediaPaint({ source: { kind: 'live', tag: 'webcam' } });
+      const foreground = createLayerOfKind('rectangle');
+      foreground.keyframes = [createLayerKeyframe(0, defaultTransformFor('rectangle'))];
+      composition.layers.push(foreground);
+      const source = structuredClone(project);
+      const runtime = 'class GraphicElement {}';
+      const standard = buildExportArtifactsWithRuntime(
+        project,
+        composition,
+        runtime,
+        getExportProfile('realtime'),
+      );
+      expect(standard.valid, standard.errors.join('\n')).toBe(true);
+      expect(standard.descriptor!.backgroundColor).toBe(
+        kind === 'solid' ? '#112233' : 'transparent',
+      );
+      expect(standard.descriptor!.layers).toHaveLength(kind === 'solid' ? 1 : 2);
+
+      const exported = buildExportArtifactsWithRuntime(
+        project,
+        composition,
+        runtime,
+        NLE_EXPORT_PROFILE,
+      );
+      expect(exported.valid, exported.errors.join('\n')).toBe(true);
+      expect(exported.manifest).toMatchObject({
+        supportsNonRealTime: true,
+        supportsRealTime: false,
+      });
+      expect(exported.descriptor!.backgroundColor).toBe('transparent');
+      expect(exported.descriptor!.layers.map(({ id }) => id)).toEqual([foreground.id]);
+      expect(project).toEqual(source);
+    },
+  );
+
+  it('keeps certification blockers for authored real-time-only media layers', () => {
+    const project = createProject({ supportsNonRealTime: false });
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('rectangle');
+    layer.keyframes = [createLayerKeyframe(0, defaultTransformFor('rectangle'))];
+    if (layer.element.type !== 'rectangle') throw new Error('Expected rectangle layer');
+    layer.element.fill = createMediaPaint({ source: { kind: 'live', tag: 'webcam' } });
+    composition.layers.push(layer);
+    const exported = buildExportArtifactsWithRuntime(
+      project,
+      composition,
+      'class GraphicElement {}',
+      NLE_EXPORT_PROFILE,
+    );
+    expect(exported.valid).toBe(false);
+    expect(exported.errors.join('\n')).toMatch(/uses media paint.*real-time-only/);
+  });
+
   it('retains the legacy solid background without adding an exported object', () => {
     const composition = createComposition({ backgroundColor: '#112233' });
     const descriptor = compileDescriptor(composition);

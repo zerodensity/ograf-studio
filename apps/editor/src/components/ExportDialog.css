@@ -1,5 +1,5 @@
 .studio-export-dialog {
-  width: min(480px, calc(100vw - 40px));
+  width: min(740px, calc(100vw - 40px));
 }
 
 .studio-export-dialog header p {
@@ -8,7 +8,9 @@
 
 .studio-export-content fieldset {
   display: grid;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -34,18 +36,40 @@
   font: inherit;
 }
 
-.studio-export-content summary {
-  padding: 8px 0;
-  cursor: pointer;
+.studio-export-content .studio-export-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.studio-export-content :is(select, summary):focus-visible {
+.studio-export-option input {
+  width: auto;
+}
+
+.studio-export-content select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .studio-export-content p {
   margin: 0;
+}
+
+.studio-export-preview,
+.studio-export-options {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.studio-export-preview > p:first-child {
+  color: var(--text-main);
+}
+
+.studio-export-thumbnail-note {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
 }
 
 .studio-export-completion,
@@ -109,7 +133,7 @@
   position: relative;
   display: grid;
   place-items: center;
-  height: 150px;
+  aspect-ratio: 16 / 9;
   background: repeating-conic-gradient(#555 0% 25%, #373737 0% 50%) 0 / 16px 16px;
   border: 1px solid var(--border);
 }
@@ -130,4 +154,11 @@
 
 .studio-export-dialog footer {
   flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .studio-export-content fieldset {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
 }

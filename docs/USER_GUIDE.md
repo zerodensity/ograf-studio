@@ -439,9 +439,11 @@ Extract the ZIP before opening the `.ogs` source.
 **File → Export…** opens one dialog for choosing the scope, files and playout mode. The Export
 button in Preview & Export opens the same dialog.
 
-For a template ZIP, review the thumbnail and change the frame if needed. A successful export
-remembers the choice for the template. The ZIP includes `<id>_thumb.png` and references it in the
-manifest's `thumbnails` list.
+For a single template, the thumbnail appears on the left. Change its frame if needed. A
+successful export remembers the choice for the template. The ZIP includes `<id>_thumb.png`
+and references it in the manifest's `thumbnails` list. **Export scope** appears when a template set
+is open. When exporting a coordinated set, the dialog previews a member on the left and
+captures the coordinated thumbnail during export.
 
 Choose **Save files…** and pick a destination folder. ZIP and HTML use that one folder when you
 choose **Both files**. The dialog shows progress, with **Cancel** available during preparation and
@@ -451,9 +453,15 @@ browser delivery from the same dialog.
 
 For **Current template**, Studio starts with the template's authored render modes. A dual-mode
 template with an enabled external data connection starts on **Real-time playout**. Choose **Dual**
-or **Non-real-time render** when you need frame-by-frame output with scheduled input. If only the
-repeat-frame canvas check fails, the export window offers an explicit switch to real-time so you
-can certify and export that version for live playout.
+or **Non-real-time render** when you need frame-by-frame output with scheduled input. For a
+regular export, if only the repeat-frame canvas check fails, the export window offers a switch
+to real-time so you can certify and export that version for live playout.
+
+Select **NLE Export (for DaVinci Resolve etc.)** to certify non-real-time playback and render
+over a transparent composition background. This changes the export only. Authored layers
+remain, including any full-frame layers. Real-time-only media, audio, Media Cues or Functions
+can block certification. Choose **OGraf ZIP** or **Both files** when you need the OGraf package
+for your editing app.
 
 In **File → Export…**, choose **Standalone HTML** to export one browser-ready `.html` file.
 The default choices are **Template set** and **Both files**. Change them in **File → Preferences →
@@ -628,11 +636,9 @@ This wraps one template. Whole-set coordinated OGraf export and Studio's multi-t
 preview remain separate features. It does not replace `.ogs` saving or add a coordinated Nodos
 controller.
 
-For DaVinci Resolve, choose the **Non-real-time** or **Dual** export profile: Resolve loads OGraf
-graphics in non-real-time mode and cannot render a real-time-only package. Enable **Transparent
-output** when the graphic should overlay video; an opaque composition background covers the full
-frame. New compositions start transparent, shown as a checkerboard in the editor. Studio shows these
-as non-blocking playout warnings because both configurations remain legal OGraf for other workflows.
+DaVinci Resolve loads OGraf graphics in non-real-time mode. In **File → Export…**, enable
+**NLE Export (for DaVinci Resolve etc.)** to select this mode and clear the composition background
+in the exported graphic. In Studio, the checkerboard shows the transparent parts of a composition.
 
 ### Remote project URLs
 

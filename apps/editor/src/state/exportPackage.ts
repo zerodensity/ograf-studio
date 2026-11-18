@@ -1,6 +1,10 @@
 import JSZip from 'jszip';
 import type { Composition, Project } from '@ograf-editor/scene-model';
-import { withExportThumbnail, type ExportProfile } from '@ograf-editor/codegen';
+import {
+  compositionForExportProfile,
+  withExportThumbnail,
+  type ExportProfile,
+} from '@ograf-editor/codegen';
 import { saveBlobToFile } from './fileIO';
 import {
   createStandaloneHtmlFile,
@@ -83,7 +87,7 @@ export async function buildCertifiedProjectArtifacts(
     const thumbnailProject = {
       ...snapshot,
       mainCompositionId: snapshotComposition.id,
-      compositions: [snapshotComposition],
+      compositions: [compositionForExportProfile(snapshotComposition, profile)],
     };
     const thumbnail = signal
       ? await createTemplateThumbnail(thumbnailProject, signal)
