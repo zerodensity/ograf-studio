@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "featured": [],
+  "examples": [
+    {
+      "id": "modifier-examples",
+      "title": "Modifier examples",
+      "summary": "Grid Arrange, Radial Arrange, Justify, Look At, Spline Path and Responsive Text, one template each.",
+      "category": "Layout",
+      "level": "Intermediate",
+      "tags": ["Modifiers", "Template set"],
+      "author": "Zero Density",
+      "released": "2026-11-07",
+      "updated": "2026-11-07",
+      "file": "modifier-examples/modifier-examples.ogs",
+      "bytes": 90986,
+      "sha256": "a42f4c3004c701c916aa94e3a3db332e6ff8cc632563cd5173a75ed8f5d81495",
+      "thumbnail": "modifier-examples/thumbnail.webp",
+      "preview": "modifier-examples/preview.mp4",
+      "canvas": { "width": 1600, "height": 900, "frameRate": 50 },
+      "templates": 6,
+      "fields": 2,
+      "documentVersion": 37
+    },
+    {
+      "id": "timer-alarms",
+      "title": "Timer alarms",
+      "summary": "Three countdowns that warn before the end and show a final effect at zero.",
+      "category": "Clocks & timers",
+      "level": "Intermediate",
+      "tags": ["Timer", "Alarms", "Template set"],
+      "author": "Zero Density",
+      "released": "2026-11-07",
+      "updated": "2026-11-07",
+      "file": "timer-alarms/timer-alarms.ogs",
+      "bytes": 62452,
+      "sha256": "0eecdd6983390bf283c7ef77253e0c3a04c1fb46e3af24558d01bd812c7eb109",
+      "thumbnail": "timer-alarms/thumbnail.webp",
+      "preview": "timer-alarms/preview.mp4",
+      "canvas": { "width": 1920, "height": 1080, "frameRate": 25 },
+      "templates": 3,
+      "fields": 1,
+      "documentVersion": 37
+    }
+  ]
+}
