@@ -97,6 +97,7 @@ function sourceFingerprint(source: PresenterDocumentSnapshot): string {
         name: template.name,
         project: { ...resolveProjectSetTemplate(set, template.id), presenter: undefined },
         inheritSettings: template.inheritSettings !== false,
+        inheritBrandKit: template.inheritBrandKit !== false,
         settingsOverrides: template.settingsOverrides ?? [],
         brandKitOverrides: template.brandKitOverrides ?? [],
         typographyOverrides: template.typographyOverrides ?? [],

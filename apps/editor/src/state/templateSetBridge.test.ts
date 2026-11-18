@@ -11,6 +11,7 @@ import {
 import { useProjectStore } from './projectStore';
 import { useProjectSetStore } from './projectSetStore';
 import { useSelectionStore } from './selectionStore';
+import type { TemplateTransferReport } from './templateCommands';
 import {
   addProjectSetAssetSlot,
   addProjectSetTemplate,
@@ -41,6 +42,7 @@ const sharedKit: DesignSystem = { name: 'Master branding', tokens: [sharedToken]
 interface Snapshot {
   revision: string;
   activeTemplateId: string | null;
+  transfer?: TemplateTransferReport;
   templateSet: {
     outputLayer: number;
     brandKit?: DesignSystem;
@@ -49,6 +51,7 @@ interface Snapshot {
       id: string;
       outputLayer: number;
       width: number;
+      inheritBrandKit: boolean;
       settingsOverrides: string[];
       brandKitOverrides: string[];
       settingsOrigins: Record<string, 'local' | 'inherited' | 'overridden'>;
@@ -384,6 +387,58 @@ describe('Template Set MCP bridge inheritance and themes', () => {
     ).toMatchObject({
       fill: '#ffcc00',
     });
+  });
+
+  it('reports a kept cross-set transfer and leaves it local after a matching master change', () => {
+    const { templateId, layerId } = fixture();
+    const sourceWidth = activeComposition().width;
+    command({ type: 'copy_template', templateId });
+
+    const target = createProject({ name: 'Destination template' });
+    target.compositions[0]!.width = sourceWidth - 320;
+    const set = createProjectSet('Destination set', target);
+    set.brandKit = {
+      name: 'An incompatible kit',
+      tokens: [{ ...sharedToken, type: 'number', value: 3 }],
+    };
+    const activeTemplateId = set.templates[0]!.id;
+    useProjectStore.getState().loadProject(resolveProjectSetTemplate(set, activeTemplateId));
+    useProjectSetStore.setState({ projectSet: set, activeTemplateId });
+    history.resetHistory();
+
+    const result = command({ type: 'paste_template' });
+    expect(result.transfer).toMatchObject({
+      policy: 'keep-appearance',
+      sourceKind: 'clipboard',
+      templateId: result.activeTemplateId,
+      projectId: useProjectStore.getState().project.id,
+      compositionId: activeComposition().id,
+      inheritBrandKit: false,
+      inheritSettings: false,
+      settingsDifferences: expect.arrayContaining([
+        { key: 'width', source: sourceWidth, destination: sourceWidth - 320 },
+      ]),
+    });
+    expect(
+      result.templateSet.templates.find(({ id }) => id === result.activeTemplateId),
+    ).toMatchObject({
+      inheritBrandKit: false,
+      width: sourceWidth,
+    });
+    expect(history.getHistorySnapshot().canUndo).toBe(true);
+
+    command({ type: 'set_brand_kit', brandKit: sharedKit });
+    expect(activeComposition().layers.find(({ id }) => id === layerId)?.element).toMatchObject({
+      fill: '#1166aa',
+    });
+    expect(() =>
+      command({
+        type: 'set_brand_token_override',
+        templateId: result.activeTemplateId,
+        tokenId: sharedToken.id,
+        override: true,
+      }),
+    ).toThrow('local branding');
   });
 
   it('sets a per-setting override, preserves the local value and resets to the latest master', () => {

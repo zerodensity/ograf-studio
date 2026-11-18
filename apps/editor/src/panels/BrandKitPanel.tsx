@@ -9,6 +9,7 @@ import {
 } from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useProjectSetStore } from '../state/projectSetStore';
+import { templateBrandKit } from '../state/projectSet';
 import {
   initializeSharedBrandKit,
   updateSharedBrandKit,
@@ -31,6 +32,9 @@ import './BrandKitPanel.css';
 export function BrandKitPanel() {
   const composition = useActiveComposition();
   const projectSet = useProjectSetStore((s) => s.projectSet);
+  const activeTemplateId = useProjectSetStore((s) => s.activeTemplateId);
+  const activeTemplate = projectSet?.templates.find((template) => template.id === activeTemplateId);
+  const activeMaster = templateBrandKit(projectSet, activeTemplate);
   const [scope, setScope] = useState<'template' | 'set'>('template');
   const [error, setError] = useState<string | null>(null);
   const isMaster = projectSet !== null && scope === 'set';
@@ -61,15 +65,17 @@ export function BrandKitPanel() {
     ).length;
   const tokenUsageCount = (tokenId: string) =>
     isMaster
-      ? (projectSet?.templates ?? []).reduce(
-          (total, template) =>
-            total +
-            template.project.compositions.reduce(
-              (uses, target) => uses + tokenUsageCountInComposition(target, tokenId),
-              0,
-            ),
-          0,
-        )
+      ? (projectSet?.templates ?? [])
+          .filter((template) => templateBrandKit(projectSet, template))
+          .reduce(
+            (total, template) =>
+              total +
+              template.project.compositions.reduce(
+                (uses, target) => uses + tokenUsageCountInComposition(target, tokenId),
+                0,
+              ),
+            0,
+          )
       : tokenUsageCountInComposition(composition, tokenId);
   const change = (operation: () => unknown) => {
     try {
@@ -121,9 +127,11 @@ export function BrandKitPanel() {
         <p className="inspector-hint brand-kit-scope-hint">
           {isMaster
             ? 'Master values update inheriting templates. Local overrides are kept.'
-            : projectSet?.brandKit
+            : activeMaster
               ? 'Inherited values stay editable. Editing creates a template override; reset restores the master.'
-              : 'Link object properties to tokens to share colors, fonts and other styles.'}
+              : activeTemplate?.inheritBrandKit === false
+                ? 'This template keeps its own Brand Kit.'
+                : 'Link object properties to tokens to share colors, fonts and other styles.'}
         </p>
         {error && (
           <p className="inspector-error" role="alert">
@@ -283,9 +291,9 @@ export function BrandKitPanel() {
                 <input
                   aria-label="Brand kit name"
                   value={designSystem.name}
-                  readOnly={!isMaster && !!projectSet?.brandKit}
+                  readOnly={!isMaster && !!activeMaster}
                   title={
-                    !isMaster && projectSet?.brandKit
+                    !isMaster && activeMaster
                       ? 'The kit name is owned by the Template Set. Edit it in Template Set scope.'
                       : undefined
                   }

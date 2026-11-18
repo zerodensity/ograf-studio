@@ -10,6 +10,7 @@ import { createProject } from '@ograf-editor/scene-model';
 import { decodeTemplateSetArchive } from './templateSetFiles';
 import { createOGrafToolRecords } from './toolRecords';
 import {
+  LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
   MAX_TEMPLATE_SET_MCP_ARCHIVE_BYTES,
   type TemplateSetArchiveMode,
 } from './templateSetStorage';
@@ -27,8 +28,17 @@ afterEach(async () => {
   }
 });
 
-async function archive(archiveMode: TemplateSetArchiveMode = 'compact', templateCount = 1) {
-  const schemaVersion = archiveMode === 'compact' ? 6 : 5;
+async function archive(
+  archiveMode: TemplateSetArchiveMode = 'compact',
+  templateCount = 1,
+  localBranding = false,
+) {
+  const schemaVersion =
+    archiveMode === 'compatible'
+      ? 5
+      : localBranding
+        ? LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION
+        : 6;
   const zip = new JSZip();
   zip.file(
     'manifest.json',
@@ -36,7 +46,9 @@ async function archive(archiveMode: TemplateSetArchiveMode = 'compact', template
       format: 'ograf-template-set',
       schemaVersion,
       name: 'News set',
-      templates: templateCount ? [{ id: 'news' }] : [],
+      templates: templateCount
+        ? [{ id: 'news', ...(localBranding ? { inheritBrandKit: false } : {}) }]
+        : [],
     }),
   );
   if (templateCount) zip.file('templates/news.ogs', '{}');
@@ -143,6 +155,30 @@ describe('template-set MCP snapshot saves', () => {
     expect(manifest).not.toHaveProperty('transitionLogic');
   });
 
+  it('verifies the compact archive version that preserves local member branding', async () => {
+    const payload = await archive('compact', 1, true);
+    const { root, call } = await tools(payload);
+    const result = await call({
+      expectedRevision: payload.revision,
+      path: 'Local branding.ogs',
+      confirm: true,
+    });
+    expect(result.structuredContent).toMatchObject({
+      schemaVersion: LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
+      sha256: payload.sha256,
+    });
+    expect(await readFile(join(root, 'Local branding.ogs'))).toEqual(
+      Buffer.from(payload.archiveBase64, 'base64'),
+    );
+  });
+
+  it('rejects a compatible archive that would lose local member branding', async () => {
+    const payload = await archive('compatible', 1, true);
+    await expect(decodeTemplateSetArchive(payload, payload.revision, 'compatible')).rejects.toThrow(
+      'local Brand Kit settings',
+    );
+  });
+
   it('defaults to compact, requires confirmation, and prevents silent overwrite', async () => {
     const { root, call, requestTemplateSet } = await tools(await archive());
     await expect(call({ expectedRevision: 'set:7', path: 'News.ogs' })).rejects.toThrow();
@@ -180,6 +216,7 @@ describe('template-set MCP snapshot saves', () => {
         storage: {
           defaultArchiveMode: 'compact',
           archiveSchemaVersion: 6,
+          localBrandingArchiveSchemaVersion: LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
           compatibleArchiveSchemaVersion: 5,
         },
         transitionLogic: {

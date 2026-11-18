@@ -15,7 +15,7 @@ import {
   resolveProjectSetTemplate,
   saveProjectSetTemplateEdits,
 } from '../state/projectSet';
-import { addSecondTemplateToNewSet } from '../state/templateSetConversion';
+import { addSecondTemplateToNewSetWithReport } from '../state/templateSetConversion';
 import { revealPaneOnFirstUse } from '../state/firstUsePanes';
 import { activateProjectSetTemplate } from '../state/projectSetSession';
 import { useProjectSetStore } from '../state/projectSetStore';
@@ -27,12 +27,17 @@ import { ContextMenu } from '../components/ContextMenu';
 import {
   copyTemplate,
   duplicateTemplate,
-  pasteTemplate,
+  pasteTemplateWithReport,
   removeTemplate,
-  insertTemplateProject,
+  insertTemplateProjectWithReport,
   undoRemoveTemplate,
   useTemplateClipboardStore,
 } from '../state/templateCommands';
+import {
+  captureTemplateTransferDestination,
+  templateTransferStatus,
+  type TemplateTransferReport,
+} from '../state/templateTransfer';
 import { requestStartupCreation } from '../state/startupCreation';
 import './TemplateNavigatorPanel.css';
 import { useTemplateSetSettingsStore } from '../state/templateSetSettingsStore';
@@ -464,6 +469,7 @@ export function TemplateNavigatorPanel() {
     side: 'before' | 'after' = 'after',
   ) => {
     if (!projectSet || busy) return;
+    const assertCurrentDestination = captureTemplateTransferDestination();
     setBusy(true);
     setStatus('Choose an .ogs template…');
     try {
@@ -472,8 +478,10 @@ export function TemplateNavigatorPanel() {
         setStatus('');
         return;
       }
-      const name = insertTemplateProject(opened, targetId, side);
-      setStatus(`Inserted “${name}”`);
+      assertCurrentDestination();
+      setStatus(
+        templateTransferStatus('Inserted', insertTemplateProjectWithReport(opened, targetId, side)),
+      );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not add template');
     } finally {
@@ -484,6 +492,7 @@ export function TemplateNavigatorPanel() {
   const addSecondTemplate = async () => {
     if (busy) return;
     const originalId = useProjectStore.getState().project.id;
+    const assertCurrentDestination = captureTemplateTransferDestination();
     setBusy(true);
     setStatus('Choose an .ogs template…');
     try {
@@ -492,9 +501,10 @@ export function TemplateNavigatorPanel() {
         setStatus('');
         return;
       }
-      const name = addSecondTemplateToNewSet(opened, originalId);
+      assertCurrentDestination();
+      const added = addSecondTemplateToNewSetWithReport(opened, originalId);
       window.setTimeout(() => revealPaneOnFirstUse('transitions'), 100);
-      setStatus(`Created a template set and added “${name}”.`);
+      setStatus(templateTransferStatus('Created a template set and added', added));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not add template');
     } finally {
@@ -537,9 +547,15 @@ export function TemplateNavigatorPanel() {
     }
   };
 
-  const runCommand = (command: () => string, verb: string) => {
+  const runCommand = (
+    command: () => string | { name: string; transfer?: TemplateTransferReport },
+    verb: string,
+  ) => {
     try {
-      setStatus(`${verb} “${command()}”`);
+      const result = command();
+      setStatus(
+        typeof result === 'string' ? `${verb} “${result}”` : templateTransferStatus(verb, result),
+      );
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : 'Could not update template set.');
     }
@@ -561,7 +577,7 @@ export function TemplateNavigatorPanel() {
     if (modifier && key === 'c')
       action = () => runCommand(() => copyTemplate(templateId), 'Copied');
     else if (modifier && key === 'v')
-      action = () => runCommand(() => pasteTemplate(templateId), 'Pasted');
+      action = () => runCommand(() => pasteTemplateWithReport(templateId), 'Pasted');
     else if (modifier && key === 'd')
       action = () => runCommand(() => duplicateTemplate(templateId), 'Duplicated');
     else if (modifier && key === 'x')
@@ -652,7 +668,7 @@ export function TemplateNavigatorPanel() {
             <button
               type="button"
               disabled={!clipboard}
-              onClick={() => runCommand(() => pasteTemplate(), 'Pasted')}
+              onClick={() => runCommand(() => pasteTemplateWithReport(), 'Pasted')}
             >
               Paste Template
             </button>
@@ -766,7 +782,7 @@ export function TemplateNavigatorPanel() {
               id: 'paste',
               label: 'Paste',
               disabled: busy || !clipboard,
-              onSelect: () => runCommand(() => pasteTemplate(menu.templateId), 'Pasted'),
+              onSelect: () => runCommand(() => pasteTemplateWithReport(menu.templateId), 'Pasted'),
             },
             {
               id: 'template-settings',

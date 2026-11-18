@@ -613,8 +613,13 @@ The update tool accepts one `operation` with these `type` values:
 - `set_asset_slot_source`: `slotId`, `assetId` (null clears).
 
 Removal needs `confirm:true` and user authorization. Copy/duplicate preserve same-set inherited
-links and create independent template/project/composition identities. Cross-set paste keeps resolved
-content/assets locally. Names are made unique; IDs remain stable through rename and reorder.
+links and create independent template/project/composition identities. Cross-set paste uses
+`keep-appearance`: it adds the resolved template with local branding, canvas settings and
+dependencies. Studio applies the same policy when adding an existing source from a file.
+`ograf_update_template_set` returns a `transfer` report for cross-set paste with its new identities,
+settings differences, and warnings. Check the result before reporting the transferred appearance.
+The transfer can be undone as one operation in Studio. Names are made unique; IDs remain stable
+through rename and reorder.
 
 Defaults cover the main canvas size, frame rate, background, render modes, data fades/interruption,
 rulers, safe-area display, snapping, grid/snap distance, and canvas bounds. Existing, new, and inserted
@@ -631,6 +636,9 @@ values. Object `designTokenBindings[].overridden:true` retains the reset source 
 designer's locally authored value; `bind_design_token` restores a live binding. `update_element`
 and Properties edits mark affected token bindings as overridden. Runtime data/animation precedence
 is unchanged. Token creation alone does not bind every object.
+
+Read member `inheritBrandKit` independently of `inheritSettings`. A member with
+`inheritBrandKit:false` owns local branding, so use **This template** to edit its local definitions.
 
 The UI offers Brand Kit scopes **Template Set** and **This template**, origin badges and Reset.
 Shared font assets are embedded in resolved child projects. Generated CSS is a safe custom-property
@@ -665,7 +673,8 @@ other newer features are not down-converted. Set file dialogs remain UI actions,
 
 ## Portable set storage
 
-Compact `.ogs` sets use archive schema **6**. A set stores identical font/resource bytes and its set
+Ordinary compact `.ogs` sets use archive schema **6**. Sets with a member explicitly set to local
+branding use **7**. A set stores identical font/resource bytes and its set
 component sources once, with per-template references. Studio validates references and hydrates normal
 editable projects on open; layer/component/asset IDs, instance overrides, bindings and animation remain
 unchanged. This is storage deduplication, not implicit component linking or editorial data sharing.
@@ -680,9 +689,10 @@ hydrated MCP project snapshot. To export the entire set, choose **Template set**
 Sets with Transition Logic export as one coordinated graphic. Independent sets export one OGraf
 package per template inside a `.ograf-set.zip`.
 
-For older set readers, compatible storage retains the schema **5** archive layout.
-This preserves set metadata and component links; it can be larger and does not down-convert newer
-features. Current Studio opens schemas 1–6. An older reader that does not support Transition Logic
+For older set readers, compatible storage retains the schema **5** archive layout for sets without
+local member branding. Use compact storage for schema **7**, or save an individual standalone
+template to carry its resolved appearance. Current Studio opens schemas 1–7. An older reader that
+does not support Transition Logic
 v4 cannot play guarded/preset definitions even inside a compatible schema 5 archive. JSON-only `.ogs`
 readers cannot open a set ZIP; existing legacy `.ogp` files can still be opened, but cannot preserve
 coordinated transitions.

@@ -12,7 +12,11 @@ import {
 import { flushSync } from 'react-dom';
 import { useProjectStore } from '../state/projectStore';
 import { useProjectSetStore } from '../state/projectSetStore';
-import { insertTemplateProject } from '../state/templateCommands';
+import { insertTemplateProjectWithReport } from '../state/templateCommands';
+import {
+  captureTemplateTransferDestination,
+  templateTransferStatus,
+} from '../state/templateTransfer';
 import { useSelectionStore } from '../state/selectionStore';
 import {
   openProjectFromFile,
@@ -477,11 +481,14 @@ export function Menubar({
 
   const handleAddTemplate = async () => {
     if (!projectSet) return;
+    const assertCurrentDestination = captureTemplateTransferDestination();
     try {
       const opened = await openProjectFromFile();
       if (!opened) return;
-      insertTemplateProject(opened, activeTemplateId);
-      setStatus(`Added "${opened.name}" to the template set`);
+      assertCurrentDestination();
+      setStatus(
+        templateTransferStatus('Added', insertTemplateProjectWithReport(opened, activeTemplateId)),
+      );
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Failed to add template');
     }
