@@ -5,6 +5,12 @@
   "level": "Intermediate",
   "tags": ["Timer", "Alarms", "Template set"],
   "author": "Zero Density",
+  "license": {
+    "name": "AGPL-3.0-only",
+    "url": "https://www.gnu.org/licenses/agpl-3.0.html",
+    "attribution": "Zero Density"
+  },
+  "credits": "Nunito Bold by the Nunito Project Authors is licensed under the SIL Open Font License 1.1. The font notice is included in the project.",
   "released": "2026-11-07",
   "updated": "2026-11-07"
 }

@@ -25,7 +25,6 @@ import { useStartupScreenStore, type StartupRequest } from '../state/startupScre
 import { parseStudioDocument } from '../state/studioDocument';
 import { useTimelineStore } from '../state/timelineStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
-import { ExampleCatalogManager } from './ExampleCatalogManager';
 import {
   EMPTY_EXAMPLE_CATALOG,
   EXAMPLE_LEVELS,
@@ -253,14 +252,13 @@ export function ProjectExplorer({ request }: { request: StartupRequest }) {
   const [error, setError] = useState('');
   const [preferenceTouched, setPreferenceTouched] = useState(false);
   const [recent, setRecent] = useState<RecentDocument[]>([]);
-  const [managerOpen, setManagerOpen] = useState(false);
   const dialog = useRef<HTMLElement>(null);
   const search = useRef<HTMLInputElement>(null);
-  const movable = useMovableDialog(dialog, { enabled: !managerOpen });
+  const movable = useMovableDialog(dialog);
 
   useEffect(() => {
-    if (!managerOpen) search.current?.focus();
-  }, [managerOpen]);
+    search.current?.focus();
+  }, []);
   useEffect(() => {
     if (offersExamples) void useExampleCatalogStore.getState().refresh();
   }, [offersExamples]);
@@ -616,7 +614,6 @@ export function ProjectExplorer({ request }: { request: StartupRequest }) {
               ['Canvas', `${selectedItem.canvas.width} × ${selectedItem.canvas.height}`],
               ['Frame rate', `${Number(selectedItem.canvas.frameRate.toFixed(3))} fps`],
               ['Templates', selectedItem.templates],
-              ['Fields', selectedItem.fields],
               [
                 'Size',
                 `${megabytes(selectedItem.bytes)}${
@@ -684,8 +681,6 @@ export function ProjectExplorer({ request }: { request: StartupRequest }) {
         onActivate={() => activate(item.id)}
       />
     ));
-
-  if (managerOpen) return <ExampleCatalogManager onClose={() => setManagerOpen(false)} />;
 
   return (
     <div className="project-explorer-backdrop">
@@ -778,8 +773,6 @@ export function ProjectExplorer({ request }: { request: StartupRequest }) {
               </>
             )}
             <div className="project-explorer-rail-footer">
-              {offersExamples &&
-                railButton('Manage local catalog…', false, () => setManagerOpen(true))}
               {offersExamples && online === false && (
                 <p>Offline. Showing the examples saved on this computer.</p>
               )}
