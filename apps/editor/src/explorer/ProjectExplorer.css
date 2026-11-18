@@ -1,0 +1,654 @@
+/* The project explorer owns every class here; nothing is shared with other dialogs.
+   Studio sets one text size for the whole interface, so nothing here sets a font size. */
+
+.project-explorer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 72%);
+}
+
+.project-explorer {
+  position: relative;
+  width: min(1300px, 100%);
+  height: min(790px, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 70%);
+}
+
+.project-explorer-header {
+  flex: none;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.project-explorer-header h1 {
+  margin: 0;
+  color: var(--text-heading);
+  white-space: nowrap;
+}
+
+.project-explorer-search {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--bg-control);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.project-explorer-search:focus {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+
+.project-explorer-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.project-explorer-close:hover {
+  color: var(--text-heading);
+  background: var(--bg-hover);
+}
+
+.project-explorer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* Sidebar */
+
+.project-explorer-rail {
+  flex: none;
+  width: 196px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 8px;
+  overflow-y: auto;
+  background: #2a2a2a;
+  border-right: 1px solid var(--border);
+}
+
+.project-explorer-rail h2,
+.project-explorer-scroll > h2,
+.project-explorer-detail h3 {
+  margin: 12px 8px 4px;
+  color: #7f8892;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.project-explorer-rail h2:first-child {
+  margin-top: 2px;
+}
+
+.project-explorer-rail-item {
+  flex: none;
+  height: 27px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-explorer-rail-item > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-explorer-rail-item i {
+  color: #7f8892;
+  font-style: normal;
+}
+
+.project-explorer-rail-item:hover {
+  background: var(--bg-hover);
+}
+
+.project-explorer-rail-item.is-active {
+  color: #fff;
+  background: #1f4d66;
+}
+
+.project-explorer-rail-item.is-active i {
+  color: #cfe9f7;
+}
+
+.project-explorer-rail-footer {
+  margin-top: auto;
+  padding: 12px 8px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #7f8892;
+  line-height: 1.35;
+}
+
+.project-explorer-rail-footer p {
+  margin: 0;
+}
+
+.project-explorer-rail-footer label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+}
+
+.project-explorer-brand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+
+.project-explorer-brand span {
+  width: 100%;
+  color: #7f8892;
+}
+
+/* Grid */
+
+.project-explorer-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.project-explorer-toolbar {
+  flex: none;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-explorer-chip {
+  height: 23px;
+  padding: 0 9px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.project-explorer-chip:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.project-explorer-chip.is-active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.project-explorer-count {
+  margin-left: auto;
+  color: #7f8892;
+  white-space: nowrap;
+}
+
+.project-explorer-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  color: #7f8892;
+}
+
+.project-explorer-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.project-explorer-scroll > h2 {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0 8px;
+}
+
+.project-explorer-scroll > h2 span {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.project-explorer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.project-explorer-card {
+  position: relative;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  color: inherit;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-explorer-card:hover {
+  border-color: var(--border-strong);
+}
+
+.project-explorer-card.is-selected {
+  border-color: var(--accent-focus);
+  box-shadow: 0 0 0 1px var(--accent-focus);
+}
+
+.project-explorer-card:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 1px;
+}
+
+.project-explorer-card.is-unavailable .project-explorer-picture,
+.project-explorer-card.is-unavailable .project-explorer-card-text {
+  opacity: 0.34;
+  filter: grayscale(1);
+}
+
+.project-explorer-picture {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #151515;
+}
+
+.project-explorer-picture img,
+.project-explorer-picture video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.project-explorer-picture-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  color: #6f7780;
+  text-align: center;
+}
+
+.project-explorer-picture.is-blank {
+  background: transparent;
+  border: 1px dashed #6a6a6a;
+  border-radius: 4px;
+}
+
+.project-explorer-card .project-explorer-picture.is-blank {
+  margin: 6px 6px 0;
+  aspect-ratio: auto;
+  height: calc(100% - 58px);
+  min-height: 90px;
+}
+
+.project-explorer-picture.is-blank .project-explorer-picture-empty {
+  color: var(--accent-focus);
+}
+
+.project-explorer-card-badges {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: flex;
+  gap: 4px;
+}
+
+.project-explorer-badge {
+  height: 19px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  color: #e6e6e6;
+  background: rgb(18 18 18 / 82%);
+  border-radius: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.project-explorer-badge.is-recipe {
+  color: #7fe0d6;
+}
+
+.project-explorer-badge.is-online {
+  color: #8fd0f3;
+}
+
+.project-explorer-badge.is-saved {
+  color: #b8e6a6;
+}
+
+.project-explorer-badge.is-muted {
+  color: #bbb;
+}
+
+.project-explorer-badge.is-new {
+  color: #1c1c1c;
+  background: #f2c14e;
+}
+
+.project-explorer-card-text {
+  display: block;
+  padding: 7px 9px 8px;
+}
+
+.project-explorer-card-text strong,
+.project-explorer-card-text span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-explorer-card-text strong {
+  color: var(--text-heading);
+}
+
+.project-explorer-card-text span {
+  margin-top: 2px;
+  color: #7f8892;
+}
+
+.project-explorer-empty {
+  margin: 24px 0;
+  color: #7f8892;
+  text-align: center;
+}
+
+.project-explorer-recents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-explorer-recents button {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-explorer-recents button:hover {
+  background: var(--bg-hover);
+}
+
+.project-explorer-license {
+  padding: 8px 0;
+  border-block: 1px solid var(--border-strong);
+}
+
+.project-explorer-license summary {
+  cursor: pointer;
+  color: var(--text-heading);
+  font-weight: 600;
+}
+
+.project-explorer-license a {
+  color: var(--accent-focus);
+}
+
+.project-explorer-license p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.project-explorer-recents button span {
+  margin-left: auto;
+  color: #7f8892;
+}
+
+/* Detail pane */
+
+.project-explorer-detail {
+  flex: none;
+  width: 344px;
+  display: flex;
+  flex-direction: column;
+  background: #2a2a2a;
+  border-left: 1px solid var(--border);
+}
+
+.project-explorer-detail-body {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.project-explorer-detail-body > .project-explorer-picture {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.project-explorer-detail h2 {
+  margin: 12px 0 4px;
+  color: var(--text-heading);
+}
+
+.project-explorer-detail h3 {
+  margin: 10px 0 5px;
+}
+
+.project-explorer-detail p {
+  margin: 6px 0 10px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.project-explorer-detail .project-explorer-note {
+  margin-top: 10px;
+  color: #7f8892;
+}
+
+.project-explorer-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.project-explorer-badges .project-explorer-badge {
+  background: #232323;
+  border: 1px solid var(--border-strong);
+}
+
+.project-explorer-badges .project-explorer-badge.is-new {
+  background: #f2c14e;
+  border-color: #f2c14e;
+}
+
+.project-explorer-properties {
+  margin: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.project-explorer-properties div {
+  display: grid;
+  grid-template-columns: 104px 1fr;
+  padding: 2px 0;
+}
+
+.project-explorer-properties dt {
+  color: #7f8892;
+}
+
+.project-explorer-properties dd {
+  margin: 0;
+}
+
+.project-explorer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.project-explorer-tags span {
+  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  background: #3a3a3a;
+  border-radius: 3px;
+}
+
+.project-explorer-settings {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.project-explorer-settings label {
+  display: grid;
+  grid-template-columns: 104px 1fr;
+  align-items: center;
+  color: #7f8892;
+}
+
+.project-explorer-settings :is(select, input) {
+  min-width: 0;
+  height: 26px;
+}
+
+.project-explorer-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.project-explorer-actions a {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.project-explorer-primary {
+  flex: 1;
+  height: 30px;
+  padding: 0 14px;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.project-explorer-primary:hover:not(:disabled) {
+  background: #48aee4;
+}
+
+.project-explorer-primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.project-explorer-error {
+  flex: none;
+  margin: 0;
+  padding: 8px 14px;
+  color: #f0a8a8;
+  background: rgb(220 80 80 / 14%);
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 900px) {
+  .project-explorer-detail {
+    width: 280px;
+  }
+
+  .project-explorer-rail {
+    width: 160px;
+  }
+}
+
+.project-explorer-brand a {
+  color: #82c9f4;
+}
+
+/* Keep the status, the startup preference and the version in view however long the lists get. */
+.project-explorer-rail-footer {
+  position: sticky;
+  bottom: -10px;
+  padding-bottom: 12px;
+  background: #2a2a2a;
+  border-top: 1px solid var(--border);
+}
+
+.project-explorer .project-explorer-detail h2 {
+  font-weight: 700;
+}

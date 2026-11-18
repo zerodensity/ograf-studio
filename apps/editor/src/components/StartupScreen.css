@@ -58,15 +58,10 @@
   font-size: 18px;
   line-height: 0;
 }
-.startup-screen h2 {
-  margin: 24px 0 10px;
-  font-size: 15px;
-}
 .startup-screen p {
   color: #aaa;
 }
-.startup-screen-settings,
-.startup-screen-open {
+.startup-screen-settings {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
@@ -79,30 +74,6 @@
 .startup-screen-settings input[type='number'] {
   width: 112px;
   box-sizing: border-box;
-}
-.startup-screen-recipes {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px;
-}
-.startup-screen-recipes button {
-  min-height: 50px;
-  text-align: left;
-}
-.startup-screen-open {
-  margin-top: 24px;
-}
-.startup-screen-recents {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.startup-screen-startup-preference {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 20px;
 }
 .startup-screen-branding {
   display: flex;

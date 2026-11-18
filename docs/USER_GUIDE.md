@@ -16,8 +16,16 @@ one output channel. These settings do not change Studio preview playback or the 
 a template. Import OGraf reads the manifest's value even when editable source is embedded;
 missing values use `0`, and invalid values use `0` with a warning.
 
-**File → New…** opens the setup window for canvas size, frame rate and a blank template or
-recipe. To add a second template, open the Templates pane and choose **New template…** or
+**File → New…** opens Project Explorer. Start with a blank canvas, choose a recipe, or browse
+complete example projects by category, search, and sort order. A card shows a still image and
+plays a short preview on hover when available. Select an example and expand **License & Credits**
+to see its declared terms and attribution. Studio opens examples as editable copies with their
+own canvas settings. Built-in examples and previously saved online examples can open offline.
+
+Catalog maintainers can choose **Manage local catalog…** to reorder examples and edit their
+details in their local examples checkout. See [Manage an existing catalog](EXAMPLE_CATALOG.md#manage-an-existing-catalog).
+
+To add a second template, open the Templates pane and choose **New template…** or
 **Add existing template…**. Studio creates a template set while retaining the first template's
 artwork. In a set, **New Template Before/After** opens the window with the set's output defaults,
 which can be overridden for the new template. **Cancel** keeps the current document and
