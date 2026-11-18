@@ -165,7 +165,7 @@ import {
   linkExistingComponentLayers,
   findAssetConsumers,
   refreshComponentDependencies,
-  resizeConstrainedTransform,
+  resizeConstrainedLayer,
   sortLayerKeyframes,
   sortLayerPropertyKeyframes,
   type AnimatableLayerProperty,
@@ -675,29 +675,7 @@ function bakeResponsiveResize(
 ): void {
   const oldSize = { width: composition.width, height: composition.height };
   if (oldSize.width === newSize.width && oldSize.height === newSize.height) return;
-  for (const layer of composition.layers) {
-    const tracks = getResolvedLayerAnimationTracks(layer);
-    const frames = new Set(layer.keyframes.map((keyframe) => keyframe.frame));
-    for (const property of ['x', 'y', 'width', 'height'] as const) {
-      for (const keyframe of tracks[property] ?? []) frames.add(keyframe.frame);
-    }
-    const resized = [...frames].map((frame) => ({
-      frame,
-      pose: resizeConstrainedTransform(
-        getLayerTransformAtFrame(layer, frame),
-        layer.constraints,
-        oldSize,
-        newSize,
-      ),
-    }));
-    for (const { frame, pose } of resized) {
-      const easing = findLayerKeyframeAtFrame(layer, frame)?.easing ?? 'ease-in-out';
-      for (const property of ['x', 'y', 'width', 'height'] as const) {
-        upsertPropertyKey(layer, property, frame, pose[property], easing);
-      }
-      syncAggregateKey(layer, frame, easing);
-    }
-  }
+  for (const layer of composition.layers) resizeConstrainedLayer(layer, oldSize, newSize);
 }
 
 function addLayer(
