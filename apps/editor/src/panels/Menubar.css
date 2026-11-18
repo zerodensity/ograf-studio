@@ -1,11 +1,35 @@
 .menubar {
-  display: flex;
+  display: grid;
+  /* Balance the side tracks and keep the connection dot visible in a narrow window. */
+  grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content) minmax(14px, 1fr);
   align-items: center;
   gap: 6px;
   height: 30px;
   padding: 0 6px;
   background: var(--bg-header);
   border-bottom: 1px solid var(--border);
+}
+
+.menubar-controls,
+.menubar-project,
+.menubar-status-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.menubar-controls {
+  justify-self: start;
+}
+
+.menubar-project {
+  justify-content: center;
+  min-width: 0;
+}
+
+.menubar-status-group {
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .menubar-brand {
@@ -45,8 +69,8 @@
 }
 
 .menubar-project-name-input {
-  width: 220px;
-  min-width: 100px;
+  width: min(220px, 100%);
+  min-width: 0;
   height: 24px;
   padding: 2px 4px;
   color: var(--text-heading);
@@ -266,16 +290,19 @@
 }
 
 .menubar-status {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-dim);
   font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .menubar-agent-status {
   display: flex;
   align-items: center;
   gap: 5px;
-  min-width: 0;
-  margin-left: auto;
+  min-width: 7px;
   overflow: hidden;
   color: var(--text-dim);
   font-size: 11px;
