@@ -31,7 +31,7 @@ import {
   type CoordinatedExportInput,
 } from './buildCoordinatedExportArtifacts';
 import { EXPORTED_RESOURCE_URLS_KEY, validatePackageLayout } from './buildExportArtifacts';
-import { BUILT_IN_EXPORT_PROFILES } from './exportProfiles';
+import { BUILT_IN_EXPORT_PROFILES, NLE_EXPORT_PROFILE } from './exportProfiles';
 import { buildPackageDiscoveryCatalog, discoveryModuleErrors } from './discovery';
 import {
   STUDIO_RUNTIME_LICENSE_PATH,
@@ -273,6 +273,38 @@ describe('static manifest discovery', () => {
     expect(
       discoveryModuleErrors(result.manifest, Graphic, result.offlinePreviewStateSchemas).join(' '),
     ).toContain('does not match');
+  });
+
+  it('clears effective set backgrounds for an NLE without changing shared graphics', () => {
+    const input = newsInput();
+    for (const { project } of input.templates) {
+      const composition = project.compositions.find(({ id }) => id === project.mainCompositionId)!;
+      composition.backgroundColor = '#112233';
+      composition.backgroundPaint = '#445566';
+    }
+    const source = structuredClone(input);
+    const regular = buildCoordinatedExportArtifactsWithRuntime(input, runtimeStub);
+    const exported = buildCoordinatedExportArtifactsWithRuntime(
+      input,
+      runtimeStub,
+      NLE_EXPORT_PROFILE,
+    );
+    expect(exported.valid, exported.errors.join('\n')).toBe(true);
+    expect(exported.manifest).toMatchObject({ supportsNonRealTime: true, supportsRealTime: false });
+    expect(exported.transitionDescriptor!.sharedInstances).toEqual(
+      regular.transitionDescriptor!.sharedInstances,
+    );
+    const regularTemplates = regular.transitionDescriptor!.templates;
+    expect(exported.transitionDescriptor!.templates).toHaveLength(regularTemplates.length);
+    for (const [index, template] of exported.transitionDescriptor!.templates.entries()) {
+      expect(template.descriptor.backgroundColor).toBe('transparent');
+      expect(template.descriptor.layers.map(({ id }) => id)).toEqual(
+        regularTemplates[index]!.descriptor.layers.filter(
+          ({ id }) => !id.startsWith('ograf-background-'),
+        ).map(({ id }) => id),
+      );
+    }
+    expect(input).toEqual(source);
   });
 
   it.each(BUILT_IN_EXPORT_PROFILES)(

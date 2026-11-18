@@ -12,6 +12,7 @@ import {
   buildExportArtifacts,
   exportProjectAsZip,
   OGrafExportCertificationError,
+  prepareProjectExportFiles,
 } from './exportPackage';
 import { RUNTIME_PACKAGE_LICENSES } from '@ograf-editor/codegen';
 import {
@@ -373,6 +374,16 @@ describe('export package artifacts', () => {
       /Export blocked/,
     );
   });
+
+  it.each(['zip', 'html', 'both'] as const)(
+    'blocks %s preparation when certification fails',
+    async (format) => {
+      const project = createProject({ name: '' });
+      await expect(
+        prepareProjectExportFiles(project, project.compositions[0]!, undefined, { format }),
+      ).rejects.toBeInstanceOf(OGrafExportCertificationError);
+    },
+  );
 
   it('fails certification before browser execution for an unsafe package path', async () => {
     const project = createProject();

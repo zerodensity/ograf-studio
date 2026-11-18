@@ -23,7 +23,11 @@ import { assembleManifest } from './assembleManifest';
 import { manifestAuthoringPrompts } from './manifestAuthoringPrompts';
 import { compileDescriptor } from './compileDescriptor';
 import { compileDataExposure, fieldValueForExport } from './compileDataSchema';
-import { projectForExportProfile, type ExportProfile } from './exportProfiles';
+import {
+  compositionForExportProfile,
+  projectForExportProfile,
+  type ExportProfile,
+} from './exportProfiles';
 import { buildNodosInputContract, type NodosInputContract } from './nodosInputs';
 import {
   RUNTIME_PACKAGE_LICENSES,
@@ -576,8 +580,9 @@ export function buildExportArtifactsWithRuntime(
   profile?: ExportProfile,
 ): ExportArtifacts {
   const outputProject = profile ? projectForExportProfile(project, profile) : project;
-  const sourceDescriptor = compileDescriptor(composition);
-  const packaged = packageDescriptorResources(composition, sourceDescriptor);
+  const outputComposition = compositionForExportProfile(composition, profile);
+  const sourceDescriptor = compileDescriptor(outputComposition);
+  const packaged = packageDescriptorResources(outputComposition, sourceDescriptor);
   const selectedNodosFields = packaged.composition.nodosInputFieldIds;
   if (selectedNodosFields !== undefined) {
     const selectedIds = new Set(selectedNodosFields);

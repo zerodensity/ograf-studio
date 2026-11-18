@@ -109,6 +109,19 @@ export function completeCertifiedArtifactSave(file: ExportFile, fileName: string
   publishSaveSnapshot(moreFiles);
 }
 
+export async function verifySavedExportFile(
+  handle: FileSystemFileHandle,
+  blob: Blob,
+): Promise<void> {
+  const saved = await handle.getFile();
+  const [expected, actual] = await Promise.all([
+    crypto.subtle.digest('SHA-256', await blob.arrayBuffer()),
+    crypto.subtle.digest('SHA-256', await saved.arrayBuffer()),
+  ]);
+  if (String(new Uint8Array(expected)) !== String(new Uint8Array(actual)))
+    throw new Error('Saved package checksum differs from the certified artifact.');
+}
+
 /** Invoke only for complete artifact bytes; callers must preserve fresh picker activation. */
 export async function chooseCertifiedArtifactWriter(
   fileName: string,
@@ -145,13 +158,7 @@ export async function chooseCertifiedArtifactWriter(
         writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
-        const saved = await handle.getFile();
-        const [expected, actual] = await Promise.all([
-          crypto.subtle.digest('SHA-256', await blob.arrayBuffer()),
-          crypto.subtle.digest('SHA-256', await saved.arrayBuffer()),
-        ]);
-        if (String(new Uint8Array(expected)) !== String(new Uint8Array(actual)))
-          throw new Error('Saved package checksum differs from the certified artifact.');
+        await verifySavedExportFile(handle, blob);
         return 'saved';
       } catch (error) {
         await writable?.abort().catch(() => undefined);
