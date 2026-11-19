@@ -42,7 +42,10 @@ export interface FramePicturePool {
   png(picture: ImageBitmap): Promise<ArrayBuffer>;
   /** The picture as WebM's colour and alpha frames. The pool takes the picture over. */
   planes(picture: ImageBitmap, request: FramePlanesRequest): Promise<FramePlanes>;
-  /** Stops the workers. Work not yet handed back is dropped and its promises never settle. */
+  /**
+   * Stops the workers. Work not yet handed back is dropped and its promises never settle; work
+   * handed over afterwards is refused.
+   */
   dispose(): void;
 }
 
@@ -141,6 +144,8 @@ export function createFramePicturePool(
       for (const { job } of queue.splice(0)) job.picture.close();
       working.clear();
       idle.length = 0;
+      // A frame still being rendered may arrive after this; its picture is closed, not queued.
+      failure ??= new Error('The frame workers were stopped.');
     },
   };
 }

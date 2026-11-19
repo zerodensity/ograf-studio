@@ -36,6 +36,7 @@ export function ExportDialogWindow({
   preparationMessage,
   disabled,
   prepare,
+  saveInFolder,
   onDelivered,
   getError,
   children,
@@ -49,6 +50,15 @@ export function ExportDialogWindow({
     signal: AbortSignal,
     reportProgress: (message: string, fraction?: number) => void,
   ) => Promise<ExportFile[]>;
+  /**
+   * Writes the export straight into the chosen folder and returns the names it saved, for an
+   * export of many files that should not all be held in memory first.
+   */
+  saveInFolder?: (
+    folder: FileSystemDirectoryHandle,
+    signal: AbortSignal,
+    reportProgress: (message: string, fraction?: number) => void,
+  ) => Promise<string[]>;
   onDelivered?: () => void;
   getError?: (cause: unknown) => ExportError;
   children: (state: { busy: boolean; clearError: () => void }) => ReactNode;
@@ -117,20 +127,25 @@ export function ExportDialogWindow({
       setProgress(preparationMessage);
       await allowExportDialogPaint(owner, signal);
       signal.throwIfAborted();
-      const files = await prepare(signal, (message, fraction) => {
+      const reportProgress = (message: string, fraction?: number) => {
         if (signal.aborted) return;
         setProgress(message);
         setProgressFraction(fraction ?? null);
-      });
-      signal.throwIfAborted();
-      setActivity('saving');
+      };
       let result: ExportCompletion;
-      if (folder) {
-        const names = await saveExportFilesInFolder(folder, files, signal);
-        result = { delivery: 'saved', names };
+      if (folder && saveInFolder) {
+        result = { delivery: 'saved', names: await saveInFolder(folder, signal, reportProgress) };
       } else {
-        await downloadExportFiles(owner, files);
-        result = { delivery: 'download', files };
+        const files = await prepare(signal, reportProgress);
+        signal.throwIfAborted();
+        setActivity('saving');
+        if (folder) {
+          const names = await saveExportFilesInFolder(folder, files, signal);
+          result = { delivery: 'saved', names };
+        } else {
+          await downloadExportFiles(owner, files);
+          result = { delivery: 'download', files };
+        }
       }
       signal.throwIfAborted();
       onDelivered?.();
