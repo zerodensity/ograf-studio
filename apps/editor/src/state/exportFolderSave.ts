@@ -3,8 +3,19 @@ import type { ExportFile } from './offlinePreviewPackage';
 
 const INVALID_NAME_CHARACTERS = /[<>:"/\\|?*]/g;
 const RESERVED_WINDOWS_NAME = /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
-const EXPORT_EXTENSIONS = ['.ograf-set.zip', '.ograf.zip', '.html', '.webm'] as const;
-const FORMAT_EXTENSION = { zip: '.ograf.zip', html: '.html', webm: '.webm' } as const;
+const EXPORT_EXTENSIONS = [
+  '.ograf-set.zip',
+  '.ograf.zip',
+  '.png-sequence.zip',
+  '.html',
+  '.webm',
+] as const;
+const FORMAT_EXTENSION = {
+  zip: '.ograf.zip',
+  html: '.html',
+  webm: '.webm',
+  'png-sequence': '.png-sequence.zip',
+} as const;
 
 function exportNameParts(file: Pick<ExportFile, 'format' | 'fileName'>): {
   base: string;
@@ -65,7 +76,7 @@ async function availableNames(
   throw new Error('Too many exports have this name. Choose another folder.');
 }
 
-/** Write exact certified blobs to one selected directory, without replacing earlier exports. */
+/** Write exact prepared blobs to one selected directory without replacing earlier exports. */
 export async function saveExportFilesInFolder(
   folder: FileSystemDirectoryHandle,
   files: readonly ExportFile[],
@@ -82,7 +93,7 @@ export async function saveExportFilesInFolder(
     blob: Blob;
   }[] = [];
   try {
-    // File handles and their empty placeholders are created only after all artifacts are certified.
+    // File handles and their empty placeholders are created only after all artifacts are prepared.
     for (const [index, file] of files.entries()) {
       signal?.throwIfAborted();
       const name = names[index]!;

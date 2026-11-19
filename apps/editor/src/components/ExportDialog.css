@@ -63,6 +63,12 @@
   min-width: 0;
 }
 
+.studio-export-dimensions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .studio-export-preview > p:first-child {
   color: var(--text-main);
 }

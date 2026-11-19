@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { verifySavedExportFile } from './certifiedArtifactSave';
 import { saveExportFilesInFolder } from './exportFolderSave';
 import type { ExportFile } from './offlinePreviewPackage';
 
@@ -101,4 +102,28 @@ describe('saveExportFilesInFolder', () => {
     expect(await stored.get('News (2).webm')?.text()).toBe('movie');
     expect(await stored.get('News.webm')?.text()).toBe('earlier movie');
   });
+
+  it('uses the PNG sequence suffix and preserves earlier archives', async () => {
+    const { folder, stored } = folderFixture();
+    stored.set('News.png-sequence.zip', new Blob(['earlier sequence']));
+    await expect(
+      saveExportFilesInFolder(folder, [
+        { fileName: 'News.png-sequence.zip', format: 'png-sequence', blob: new Blob(['frames']) },
+      ]),
+    ).resolves.toEqual(['News (2).png-sequence.zip']);
+    expect(await stored.get('News (2).png-sequence.zip')?.text()).toBe('frames');
+    expect(await stored.get('News.png-sequence.zip')?.text()).toBe('earlier sequence');
+  });
+});
+
+it('detects saved byte differences beyond the first verification block', async () => {
+  const leadingBlock = new Uint8Array(8 * 1024 * 1024);
+  const expected = new Blob([leadingBlock, 'A']);
+  const handle = {
+    async getFile() {
+      return new File([leadingBlock, 'B'], 'News.png-sequence.zip');
+    },
+  } as FileSystemFileHandle;
+
+  await expect(verifySavedExportFile(handle, expected)).rejects.toThrow('Saved file checksum');
 });

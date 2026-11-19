@@ -1022,10 +1022,12 @@ export async function mountCompositionFrames(
   composition: Composition,
   matte: string,
   signal?: AbortSignal,
+  rasterSize?: { width: number; height: number },
 ): Promise<MountedCompositionFrames> {
   signal?.throwIfAborted();
   const lease = await acquireCaptureFonts(composition, signal);
-  const output = getCompositionOutputRect(composition);
+  const layout = getCompositionOutputRect(composition);
+  const output = rasterSize ?? layout;
   let wrapper: HTMLDivElement | undefined;
   const unmount = () => {
     for (const layer of wrapper?.querySelectorAll<HTMLElement>('[data-agent-capture-layer]') ?? [])
@@ -1045,8 +1047,8 @@ export async function mountCompositionFrames(
     const draw = () =>
       rasterizeCanvas(
         root,
-        output.width,
-        output.height,
+        layout.width,
+        layout.height,
         output,
         { zIndex: 'auto' },
         fontEmbedCSS,
@@ -1061,8 +1063,8 @@ export async function mountCompositionFrames(
       fontEmbedCSS = await captureFontCss(root, composition.assets, signal);
     }
     const drawSelfStyled = selfStyledCapture(root, {
-      width: output.width,
-      height: output.height,
+      width: layout.width,
+      height: layout.height,
       canvasWidth: output.width,
       canvasHeight: output.height,
       style: { zIndex: 'auto' },

@@ -4,6 +4,7 @@ import type { EditorWindow } from '../layout/EditorWindow';
 export interface StudioExportRequest {
   owner: EditorWindow;
   trigger: HTMLElement;
+  kind: 'ograf' | 'video';
 }
 
 export const useStudioExportDialogStore = create<{
@@ -14,7 +15,10 @@ export const useStudioExportDialogStore = create<{
   close: (request) => set((state) => (state.request === request ? { request: null } : state)),
 }));
 
-export function requestStudioExport(trigger: HTMLElement): void {
+export function requestStudioExport(
+  trigger: HTMLElement,
+  kind: StudioExportRequest['kind'] = 'ograf',
+): void {
   const owner = trigger.ownerDocument.defaultView as EditorWindow | null;
   if (!owner || owner.closed) return;
   const { request } = useStudioExportDialogStore.getState();
@@ -22,5 +26,5 @@ export function requestStudioExport(trigger: HTMLElement): void {
     if (owner !== request.owner) request.owner.focus();
     return;
   }
-  useStudioExportDialogStore.setState({ request: { owner, trigger } });
+  useStudioExportDialogStore.setState({ request: { owner, trigger, kind } });
 }

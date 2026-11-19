@@ -55,6 +55,11 @@ describe('movieTimeline', () => {
     );
   });
 
+  it('counts Step holds against the file format frame limit', () => {
+    expect(movieTimeline(oneStep(), 0.5, 30).frames).toHaveLength(30);
+    expect(() => movieTimeline(oneStep(), 0.5, 29)).toThrow('too many frames');
+  });
+
   it('counts held time from the Step a loop started on', () => {
     const timeline = movieTimeline(twoSteps(), 0.5);
     expect(timeline.stepFrames).toEqual([12, 24]);

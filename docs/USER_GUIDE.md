@@ -201,8 +201,9 @@ text finishes, transparent overlays, and the effect-only **Signal Glitch**. Buil
 | `.ogp`                     | Legacy editable template-set archive             | **File → Open…**                                                                                       |
 | Remote `.ogs` / `.ogp` URL | Public/CORS-enabled editable document            | **File → Open from URL…**                                                                              |
 | `.ograf.zip`               | Certified playout package                        | **File → Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
-| `.ograf-set.zip`           | Bundle of certified template outputs             | In **File → Export…**, choose **Template set** for a set without Transition Logic                      |
-| `.webm`                    | Movie of one template, transparent by default    | In **File → Export…**, choose **WebM video**; plays in a browser or an editing app                     |
+| `.ograf-set.zip`           | Bundle of certified template outputs             | In **File → Export OGraf…**, choose **Template set** for a set without Transition Logic                |
+| `.webm`                    | Movie of one template, transparent by default    | In **File → Export Video…**, choose **WebM video**                                                     |
+| `.png-sequence.zip`        | Numbered PNG frames for one template             | In **File → Export Video…**, choose **PNG image sequence**, then extract the ZIP                       |
 | Loose OGraf package files  | Manifest, `main.js`, and resources               | Select them together with **File → Import OGraf**                                                      |
 | SVG and raster images      | Reusable image assets                            | **Add Image** above the canvas, or drop files onto the canvas                                          |
 | Lottie `.json`             | Looping vector animation layer                   | **+ Lottie JSON** above the canvas                                                                     |
@@ -225,7 +226,7 @@ creates one using the setup window; **Add existing template…** opens an editab
 sources, shared controls and dependencies. Compact saves store identical font/resource bytes and set
 component sources once. Opening restores complete editable templates with the same IDs, bindings,
 animation and overrides. Extracted compact member files require the set's shared data. Use **Save
-Template Copy…** for a standalone editable document or choose **Current template** in **File → Export…**
+Template Copy…** for a standalone editable document or choose **Current template** in **File → Export OGraf…**
 for a standalone playout export.
 Saving shows template/resource/compression progress and runs archive generation in a worker, so
 the editor and its bridge can keep responding. Edits made during saving remain in the open document.
@@ -296,7 +297,7 @@ source for the selected slot. Cancel leaves the set unchanged. Shared components
 source/instance and override behavior. A previously exported or on-air package remains a snapshot;
 export and deploy it again to use later changes.
 
-For a set without Transition Logic, choose **Template set** in **File → Export…**. Studio
+For a set without Transition Logic, choose **Template set** in **File → Export OGraf…**. Studio
 certifies each resolved template and saves the standalone `.ograf.zip` files inside one
 `.ograf-set.zip`. If any template fails certification, the bundle is not saved. Each
 `.ograf.zip` remains a regular OGraf playout package.
@@ -457,8 +458,8 @@ layers remain visible.
 
 Extract the ZIP before opening the `.ogs` source.
 
-**File → Export…** opens one dialog for choosing the scope, files and playout mode. The Export
-button in Preview & Export opens the same dialog.
+**File → Export OGraf…** opens the dialog for choosing package scope, files and playout mode.
+The **Export OGraf…** button in Preview & Export opens the same dialog.
 
 For a single template, the thumbnail appears on the left. Change its frame if needed. A
 successful export remembers the choice for the template. The ZIP includes `<id>_thumb.png`
@@ -484,24 +485,7 @@ remain, including any full-frame layers. Real-time-only media, audio, Media Cues
 can block certification. Choose **OGraf ZIP** or **Both files** when you need the OGraf package
 for your editing app.
 
-Choose **WebM video** to export the current template as a movie instead of an OGraf package. The
-movie plays the timeline from Start to End at the composition's size and frame rate, and waits on
-every Step for **Hold on each step**, as a graphic waits on air. Loops keep running through the
-wait. **Transparent background** is on by default: the composition background is left out and
-whatever the layers do not cover stays see-through, so the movie can be laid over other pictures in
-an editing app or on a web page. Turn it off to keep the composition background, over black where
-it has none. A full-frame layer stays in the movie either way.
-
-Sound on the timeline is included: audio layers, and sound cues that start at a frame or on arrival
-at a Step. Video and live media, and sounds started by an operator or a custom action, are left
-out. Studio makes the movie in the browser, with VP9 picture and Opus sound. It is not a certified
-OGraf package, and it needs a current Chrome or Edge. Rendering takes time, so the dialog counts
-the frames and **Cancel** stops it. A busy Full HD template renders about 25 frames a second; one
-that uses masks, patterns, effect filters or video is drawn another way and takes several times
-longer. Keep the Studio tab in front while it renders. A template set is not exported as one movie:
-open a template and export that.
-
-In **File → Export…**, choose **Standalone HTML** to export one browser-ready `.html` file.
+In **File → Export OGraf…**, choose **Standalone HTML** to export one browser-ready `.html` file.
 The default choices are **Template set** and **Both files**. Change them in **File → Preferences →
 OGraf Studio → Export**. Studio saves the HTML and ZIP separately. A single open template uses
 **Current template**. An independent set exports as a ZIP when selected as a whole. Select its
@@ -540,6 +524,33 @@ The preview runs executable graphic code, so open only packages you trust. Brows
 permissions still apply: WebGL, audio, webcam, external data and other network resources may require
 browser support, a user gesture, permission, or a network connection. An offline page does not turn
 an external live feed into offline data. Test the extracted page in the intended browser.
+
+### Export video and PNG sequences
+
+**File → Export Video…** opens a separate window for rendering the current template, including
+the selected template in a set. Choose **WebM video** for a VP9 movie with Opus audio or **PNG image
+sequence** for a ZIP of numbered frames. Extract the ZIP before importing the sequence into an
+editing app.
+
+Set the output width and height in pixels. **Lock aspect ratio** keeps the template's output
+proportions as you edit either dimension. The fields start at the template's output size, including
+its crop. The size settings apply to the export and leave the editable canvas intact. WebM pads
+odd dimensions to the next even pixel. PNG uses the requested dimensions exactly.
+
+Enter a target video bitrate in Mb/s for WebM, or leave it on **Auto**. When transparency is on,
+the bitrate covers the color and alpha streams together. Audio is encoded separately.
+
+Studio renders from Start to End at the template's frame rate. **Hold on each step** adds time at
+each Step while loops continue playing. **Transparent background** preserves alpha where authored
+layers leave the canvas uncovered. Turn it off to keep the composition background and use black
+where there is no background.
+
+WebM includes audio layers and sound cues that start at a frame or on arrival at a Step. PNG
+sequences contain image frames. Video and live media, and sounds triggered by an operator or a
+custom action, are omitted. WebM requires a current Chrome or Edge browser.
+
+Choose **Save files…** to select a folder or **Download instead** for browser delivery. The window
+reports rendering progress and lets you cancel. Keep Studio's tab in front while it renders.
 
 ### Load an exported graphic in Nodos
 
@@ -674,7 +685,7 @@ This wraps one template. Whole-set coordinated OGraf export and Studio's multi-t
 preview remain separate features. It does not replace `.ogs` saving or add a coordinated Nodos
 controller.
 
-DaVinci Resolve loads OGraf graphics in non-real-time mode. In **File → Export…**, enable
+DaVinci Resolve loads OGraf graphics in non-real-time mode. In **File → Export OGraf…**, enable
 **NLE Export (for DaVinci Resolve etc.)** to select this mode and clear the composition background
 in the exported graphic. In Studio, the checkerboard shows the transparent parts of a composition.
 
@@ -1644,7 +1655,7 @@ coordinator; keep the editable template set in `.ogs`.
 
 #### Coordinated package export
 
-In **File → Export…**, choose **Template set** and select the output format. When the set has
+In **File → Export OGraf…**, choose **Template set** and select the output format. When the set has
 Transition Logic, the OGraf ZIP is one coordinated `.ograf.zip` containing the controller,
 referenced templates, shared components and their resources. **Standalone HTML** plays the
 coordinated set in a browser. You can also use **Export package…** or **Download package** in the
@@ -1981,7 +1992,8 @@ unrelated preview values remain available. Playout can still override the values
 ## Menus and shortcuts
 
 **File** groups creation, opening/import, saving, and export in that order, with separators between
-groups. Template and template-set actions appear together. **File → Export…** opens the Export dialog.
+groups. Template and template-set actions appear together. **File → Export OGraf…** opens package
+export, and **File → Export Video…** opens rendered media export.
 
 **Edit** has Undo, Redo, Cut, Copy, Paste, Duplicate, Delete, Group or Ungroup, Select all, and
 Deselect all, with the same shortcuts on the canvas (**Ctrl+X/C/V**, **Ctrl+G**,
@@ -2095,7 +2107,7 @@ local differences in older linked instances become overrides when opened.
 It normally follows the template selected in **Templates**. The **▶ Preview** button of a playout
 layer's **Take in**, **Update** or **Take out** shows the coordinated graphics in that same
 viewport, including fullscreen. Selecting another template returns to its ordinary preview.
-**File → Export…** and the pane's Export button open the same dialog.
+**File → Export OGraf…** and the pane's **Export OGraf…** button open the same dialog.
 
 ### Browse and play templates
 
@@ -2157,8 +2169,8 @@ the same route as the keyboard and describe their next action.
 Save the editable template or complete set from **File**. Preview & Export contains the selected
 template's export settings and compatibility checks. The File menu also exports complete sets:
 
-- A single template produces a certified `.ograf.zip`, or a `.webm` movie when you choose
-  **WebM video**.
+- **Export OGraf…** can produce a certified `.ograf.zip` for a single template.
+- **Export Video…** renders the current template to WebM or to a ZIP of PNG frames.
 - A set with Transition Logic produces one coordinated `.ograf.zip`.
 - A set without Transition Logic produces an `.ograf-set.zip` containing a certified package for
   each template.
