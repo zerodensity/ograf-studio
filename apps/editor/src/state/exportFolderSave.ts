@@ -3,19 +3,23 @@ import type { ExportFile } from './offlinePreviewPackage';
 
 const INVALID_NAME_CHARACTERS = /[<>:"/\\|?*]/g;
 const RESERVED_WINDOWS_NAME = /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
-const EXPORT_EXTENSIONS = [
-  '.ograf-set.zip',
-  '.ograf.zip',
-  '.png-sequence.zip',
-  '.html',
-  '.webm',
-] as const;
+const EXPORT_EXTENSIONS = ['.ograf-set.zip', '.ograf.zip', '.html', '.webm'] as const;
+const PNG_SEQUENCE_EXTENSION = '.png-sequence';
 const FORMAT_EXTENSION = {
   zip: '.ograf.zip',
   html: '.html',
   webm: '.webm',
-  'png-sequence': '.png-sequence.zip',
 } as const;
+
+export function sanitizeExportName(stem: string): string {
+  const visible = [...stem].map((char) => (char.charCodeAt(0) < 32 ? '-' : char)).join('');
+  const base =
+    visible
+      .replace(INVALID_NAME_CHARACTERS, '-')
+      .slice(0, 150)
+      .replace(/^[. ]+|[. ]+$/g, '') || 'Untitled graphic';
+  return RESERVED_WINDOWS_NAME.test(base) ? `_${base}` : base;
+}
 
 function exportNameParts(file: Pick<ExportFile, 'format' | 'fileName'>): {
   base: string;
@@ -27,18 +31,16 @@ function exportNameParts(file: Pick<ExportFile, 'format' | 'fileName'>): {
   const stem = file.fileName.toLowerCase().endsWith(extension)
     ? file.fileName.slice(0, -extension.length)
     : file.fileName;
-  const visible = [...stem].map((char) => (char.charCodeAt(0) < 32 ? '-' : char)).join('');
-  const base =
-    visible
-      .replace(INVALID_NAME_CHARACTERS, '-')
-      .slice(0, 150)
-      .replace(/^[. ]+|[. ]+$/g, '') || 'Untitled graphic';
-  return { base: RESERVED_WINDOWS_NAME.test(base) ? `_${base}` : base, extension };
+  return { base: sanitizeExportName(stem), extension };
 }
 
 export function getUnnumberedExportFileName(file: Pick<ExportFile, 'format' | 'fileName'>): string {
   const { base, extension } = exportNameParts(file);
   return base + extension;
+}
+
+export function getPngSequenceFolderName(templateName: string): string {
+  return sanitizeExportName(templateName) + PNG_SEQUENCE_EXTENSION;
 }
 
 async function nameExists(folder: FileSystemDirectoryHandle, name: string): Promise<boolean> {
@@ -149,19 +151,17 @@ export async function saveExportFilesInFolder(
 }
 
 /**
- * A new folder inside the selected one, for an export that is many files. It is named after the
- * export's file without `.zip`, and numbered so that it takes the place of no earlier export.
+ * Reserve a new PNG sequence folder without replacing an earlier export.
  */
 export async function createExportFolder(
   parent: FileSystemDirectoryHandle,
-  file: Pick<ExportFile, 'format' | 'fileName'>,
+  templateName: string,
   signal?: AbortSignal,
 ): Promise<{ name: string; folder: FileSystemDirectoryHandle }> {
-  const { base, extension } = exportNameParts(file);
-  const ending = extension.replace(/\.zip$/, '');
+  const base = sanitizeExportName(templateName);
   for (let index = 1; index <= 1000; index += 1) {
     signal?.throwIfAborted();
-    const name = `${base}${index === 1 ? '' : ` (${index})`}${ending}`;
+    const name = `${base}${index === 1 ? '' : ` (${index})`}${PNG_SEQUENCE_EXTENSION}`;
     if (await nameExists(parent, name)) continue;
     return { name, folder: await parent.getDirectoryHandle(name, { create: true }) };
   }

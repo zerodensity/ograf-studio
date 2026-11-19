@@ -200,8 +200,7 @@ text finishes, transparent overlays, and the effect-only **Signal Glitch**. Buil
 | `.ograf.zip`               | Certified playout package                        | **File → Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
 | `.ograf-set.zip`           | Bundle of certified template outputs             | In **File → Export OGraf…**, choose **Template set** for a set without Transition Logic                |
 | `.webm`                    | Movie of one template, transparent by default    | In **File → Export Video…**, choose **WebM video**                                                     |
-| `.png-sequence.zip`        | Numbered PNG frames for one template             | In **File → Export Video…**, choose **PNG image sequence (ZIP)**, then extract the ZIP                 |
-| `.png-sequence` folder     | The same frames as separate files                | In **File → Export Video…**, choose **PNG image sequence (folder)**                                    |
+| `.png-sequence` folder     | Numbered PNG frames as separate files            | In **File → Export Video…**, choose **PNG image sequence**                                             |
 | Loose OGraf package files  | Manifest, `main.js`, and resources               | Select them together with **File → Import OGraf**                                                      |
 | SVG and raster images      | Reusable image assets                            | **Add Image** above the canvas, or drop files onto the canvas                                          |
 | Lottie `.json`             | Looping vector animation layer                   | **+ Lottie JSON** above the canvas                                                                     |
@@ -526,16 +525,13 @@ an external live feed into offline data. Test the extracted page in the intended
 ### Export video and PNG sequences
 
 **File → Export Video…** opens a separate window for rendering the current template, including
-the selected template in a set. Choose **WebM video** for a VP9 movie with Opus audio, **PNG image
-sequence (ZIP)** for one ZIP of numbered frames, or **PNG image sequence (folder)** for the same
-frames as separate files in a new folder. Extract the ZIP before importing the sequence into an
-editing app; a folder imports as it is.
+the selected template in a set. Choose **WebM video** for a VP9 movie with Opus audio or **PNG image
+sequence** for individual PNG files.
 
-The folder format appears in a browser that can save into a folder, such as Chrome or Edge, and
-works with **Save files…**. Each frame is written as soon as it is rendered, so a movie of any
-length and size fits. A browser takes longer to write separate files than to pack one ZIP, so a
-graphic that renders quickly exports faster as a ZIP. A ZIP holds up to 65,534 frames and 4 GB.
-**Download instead** always delivers the ZIP.
+PNG sequence export requires a browser that can save to a folder, such as Chrome or Edge. Choose
+**Save files…** to create a new sequence folder inside the destination. Studio writes the frames
+as they render, starting with `Template Name.0001.png`. Open that first file as an image sequence
+in your editing app.
 
 Set the output width and height in pixels. **Lock aspect ratio** keeps the template's output
 proportions as you edit either dimension. The fields start at the template's output size, including
@@ -550,6 +546,10 @@ each Step while loops continue playing. **Transparent background** preserves alp
 layers leave the canvas uncovered. Turn it off to keep the composition background and use black
 where there is no background.
 
+For WebM, **Black frame at start** and **Black frame at end** each insert one opaque black frame
+at the template's frame rate. Added frames are silent. The options also work when
+**Transparent background** is enabled.
+
 WebM includes audio layers and sound cues that start at a frame or on arrival at a Step. PNG
 sequences contain image frames. Video and live media, and sounds triggered by an operator or a
 custom action, are omitted. WebM requires a current Chrome or Edge browser.
@@ -558,8 +558,8 @@ Rendering is fastest while Studio's tab stays visible. A current Chrome or Edge 
 each frame straight from the page, and renders up to four frames in each screen refresh. If the tab
 is hidden or covered during a render, Studio finishes that export with its slower frame copies.
 
-Choose **Save files…** to select a folder or **Download instead** for browser delivery. The window
-reports rendering progress and lets you cancel. Keep Studio's tab in front while it renders.
+For WebM, choose **Save files…** to select a folder or **Download instead** for browser delivery.
+The window reports rendering progress and lets you cancel. Keep Studio's tab in front while it renders.
 
 ### Load an exported graphic in Nodos
 
@@ -2179,7 +2179,7 @@ Save the editable template or complete set from **File**. Preview & Export conta
 template's export settings and compatibility checks. The File menu also exports complete sets:
 
 - **Export OGraf…** can produce a certified `.ograf.zip` for a single template.
-- **Export Video…** renders the current template to WebM, or to PNG frames in a ZIP or a folder.
+- **Export Video…** renders the current template to WebM or to individual PNG frames in a folder.
 - A set with Transition Logic produces one coordinated `.ograf.zip`.
 - A set without Transition Logic produces an `.ograf-set.zip` containing a certified package for
   each template.

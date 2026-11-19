@@ -86,8 +86,13 @@ export interface MovieSound {
 /**
  * The sounds a movie can carry: audio layers, and sound cues that start at a frame of the timeline
  * or on arrival at a Step. Cues fired by an operator or a custom action have no place on it.
+ * Any extra black frames are silent.
  */
-export function movieSounds(composition: Composition, timeline: MovieTimeline): MovieSound[] {
+export function movieSounds(
+  composition: Composition,
+  timeline: MovieTimeline,
+  { startFrames = 0, endFrames = 0 }: { startFrames?: number; endFrames?: number } = {},
+): MovieSound[] {
   const keyframes = computeKeyframeFrames(composition);
   const sounds: MovieSound[] = [];
   for (const cue of composition.mediaCues) {
@@ -134,5 +139,20 @@ export function movieSounds(composition: Composition, timeline: MovieTimeline): 
       volume: element.volume,
     });
   }
-  return sounds.filter(({ spanSeconds }) => spanSeconds === null || spanSeconds > 0);
+  const playable = sounds.filter(({ spanSeconds }) => spanSeconds === null || spanSeconds > 0);
+  if (!startFrames && !endFrames) return playable;
+
+  const authoredDuration = timeline.frames.length / timeline.frameRate;
+  const offset = startFrames / timeline.frameRate;
+  const end = (timeline.frames.length + startFrames) / timeline.frameRate;
+  return playable
+    .filter(({ startSeconds }) => startSeconds < authoredDuration)
+    .map((sound) => {
+      const stop = sound.stopSeconds === null ? null : sound.stopSeconds + offset;
+      return {
+        ...sound,
+        startSeconds: sound.startSeconds + offset,
+        stopSeconds: endFrames ? Math.min(stop ?? end, end) : stop,
+      };
+    });
 }

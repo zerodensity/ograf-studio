@@ -3,6 +3,7 @@ import { verifySavedExportFile } from './certifiedArtifactSave';
 import {
   createExportFolder,
   discardExportFolder,
+  getPngSequenceFolderName,
   saveExportFilesInFolder,
   writeExportFolderFile,
 } from './exportFolderSave';
@@ -129,18 +130,6 @@ describe('saveExportFilesInFolder', () => {
     expect(await stored.get('News (2).webm')?.text()).toBe('movie');
     expect(await stored.get('News.webm')?.text()).toBe('earlier movie');
   });
-
-  it('uses the PNG sequence suffix and preserves earlier archives', async () => {
-    const { folder, stored } = folderFixture();
-    stored.set('News.png-sequence.zip', new Blob(['earlier sequence']));
-    await expect(
-      saveExportFilesInFolder(folder, [
-        { fileName: 'News.png-sequence.zip', format: 'png-sequence', blob: new Blob(['frames']) },
-      ]),
-    ).resolves.toEqual(['News (2).png-sequence.zip']);
-    expect(await stored.get('News (2).png-sequence.zip')?.text()).toBe('frames');
-    expect(await stored.get('News.png-sequence.zip')?.text()).toBe('earlier sequence');
-  });
 });
 
 it('detects saved byte differences beyond the first verification block', async () => {
@@ -148,7 +137,7 @@ it('detects saved byte differences beyond the first verification block', async (
   const expected = new Blob([leadingBlock, 'A']);
   const handle = {
     async getFile() {
-      return new File([leadingBlock, 'B'], 'News.png-sequence.zip');
+      return new File([leadingBlock, 'B'], 'News.ograf.zip');
     },
   } as FileSystemFileHandle;
 
@@ -156,9 +145,9 @@ it('detects saved byte differences beyond the first verification block', async (
 });
 
 describe('an export folder', () => {
-  const sequence = { fileName: 'News.png-sequence.zip', format: 'png-sequence' } as const;
+  const sequence = 'News';
 
-  it('is named after the export without .zip, beside earlier files and folders', async () => {
+  it('uses the PNG sequence suffix beside earlier files and folders', async () => {
     const { folder, stored, folders } = folderFixture();
     expect((await createExportFolder(folder, sequence)).name).toBe('News.png-sequence');
     stored.set('News (2).png-sequence', new Blob(['a file with the next name']));
@@ -166,6 +155,15 @@ describe('an export folder', () => {
     expect(third.name).toBe('News (3).png-sequence');
     expect(third.folder).toBe(folders.get('News (3).png-sequence')!.folder);
     expect([...folders.keys()]).toEqual(['News.png-sequence', 'News (3).png-sequence']);
+  });
+
+  it('uses the same portable name when showing or creating a PNG sequence folder', async () => {
+    const { folder } = folderFixture();
+    const name = '  .News/Title?.  ';
+    expect(getPngSequenceFolderName(name)).toBe('News-Title-.png-sequence');
+    expect((await createExportFolder(folder, name)).name).toBe(getPngSequenceFolderName(name));
+    expect(getPngSequenceFolderName('CON')).toBe('_CON.png-sequence');
+    expect(getPngSequenceFolderName('  ...  ')).toBe('Untitled graphic.png-sequence');
   });
 
   it('is not made once the export is cancelled', async () => {

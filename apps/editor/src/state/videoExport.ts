@@ -1,6 +1,5 @@
 import { NLE_EXPORT_PROFILE, compositionForExportProfile } from '@ograf-editor/codegen';
 import type { Composition, Project } from '@ograf-editor/scene-model';
-import JSZip from 'jszip';
 import { mountCompositionFrames } from './agentCapture';
 import {
   createFramePicturePool,
@@ -9,8 +8,12 @@ import {
   type FramePlanes,
 } from './framePicturePool';
 import { awaitExportOperation } from './exportAbort';
-import { createExportFolder, discardExportFolder, writeExportFolderFile } from './exportFolderSave';
-import { generateExportZip } from './exportZip';
+import {
+  createExportFolder,
+  discardExportFolder,
+  sanitizeExportName,
+  writeExportFolderFile,
+} from './exportFolderSave';
 import type { ExportFile } from './offlinePreviewPackage';
 import {
   movieHold,
@@ -38,6 +41,8 @@ interface VideoFrameExportOptions {
 export interface WebmExportOptions extends VideoFrameExportOptions {
   /** Total target bitrate in bits per second for color and transparency. */
   bitrate?: number;
+  blackFrameAtStart?: boolean;
+  blackFrameAtEnd?: boolean;
 }
 
 const SOUND_RATE = 48_000;
@@ -312,6 +317,15 @@ async function encodeSound(
   };
 }
 
+function videoSurface(width: number, height: number) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('The browser could not provide a drawing surface.');
+  return { canvas, context };
+}
+
 /**
  * Renders a template's timeline as a WebM movie with the browser's own encoders: VP9 picture, and
  * Opus sound when the template has sound on its timeline. The movie plays from Start to End and
@@ -332,8 +346,16 @@ export async function prepareWebmExportFile(
     throw new Error('Transparent video needs a target bitrate of at least 2 bits per second.');
   const timeline = movieTimeline(composition, holdSeconds);
   const { frameRate } = timeline;
-  const frameCount = timeline.frames.length;
-  const mounted = await mountVideoExportFrames(composition, options, frameCount, WEBM_FRAME_COPIES);
+  const startFrames = options.blackFrameAtStart ? 1 : 0;
+  const endFrames = options.blackFrameAtEnd ? 1 : 0;
+  const authoredFrames = timeline.frames.length;
+  const frameCount = startFrames + authoredFrames + endFrames;
+  const mounted = await mountVideoExportFrames(
+    composition,
+    options,
+    authoredFrames,
+    WEBM_FRAME_COPIES,
+  );
   // VP9 pictures store colour at half size, so the picture's sides are made even.
   const width = mounted.width + (mounted.width % 2);
   const height = mounted.height + (mounted.height % 2);
@@ -370,6 +392,11 @@ export async function prepareWebmExportFile(
     if (alphaEncoder) encoders.push(alphaEncoder);
 
     const keyEvery = Math.max(1, Math.round(frameRate * KEY_PICTURE_SECONDS));
+    // Encode the black pads independently, and keep the authored key cadence after any opening pad.
+    const isKeyFrame = (index: number) =>
+      index === 0 ||
+      (index - startFrames) % keyEvery === 0 ||
+      (endFrames > 0 && index === frameCount - 1);
     const timingAt = (index: number) => ({
       timestamp: Math.round((index * 1e6) / frameRate),
       duration: Math.round(1e6 / frameRate),
@@ -377,6 +404,18 @@ export async function prepareWebmExportFile(
     const encoded = async (index: number) => {
       for (const encoder of encoders) await encoder.settle(signal);
       onProgress?.({ stage: 'picture', frame: index + 1, frames: frameCount });
+    };
+    // Black frames must cover the even VP9 raster, including pixels outside the authored size.
+    const black = startFrames || endFrames ? videoSurface(width, height) : undefined;
+    if (black) {
+      black.context.fillStyle = '#000000';
+      black.context.fillRect(0, 0, width, height);
+    }
+    const pictureAt = (index: number) => {
+      if (black && (index < startFrames || index >= startFrames + authoredFrames))
+        return createImageBitmap(black.canvas);
+      const movieFrame = timeline.frames[index - startFrames]!;
+      return mounted.pictureAt(movieFrame.frame, movieHold(timeline, movieFrame));
     };
 
     if (alphaEncoder) {
@@ -387,7 +426,7 @@ export async function prepareWebmExportFile(
       const frames = inOrder<FramePlanes>(
         mounted.copies + workers.size,
         async ({ colour, alpha }, index) => {
-          const key = index % keyEvery === 0;
+          const key = isKeyFrame(index);
           // Each encoder closes the frame it is given, also when it refuses it.
           try {
             signal.throwIfAborted();
@@ -410,21 +449,17 @@ export async function prepareWebmExportFile(
           alpha.close();
         },
       );
-      for (const [index, movieFrame] of timeline.frames.entries()) {
+      for (let index = 0; index < frameCount; index += 1) {
         signal.throwIfAborted();
         await frames.add(
-          mounted
-            .pictureAt(movieFrame.frame, movieHold(timeline, movieFrame))
-            .then((picture) => workers.planes(picture, { ...timingAt(index), width, height })),
+          pictureAt(index).then((picture) =>
+            workers.planes(picture, { ...timingAt(index), width, height }),
+          ),
         );
       }
       await awaitExportOperation(frames.finish(), signal);
     } else {
-      const work = document.createElement('canvas');
-      work.width = width;
-      work.height = height;
-      const context = work.getContext('2d');
-      if (!context) throw new Error('The browser could not provide a drawing surface.');
+      const { canvas, context } = videoSurface(width, height);
       const pictures = inOrder<ImageBitmap>(
         mounted.copies + 1,
         async (picture, index) => {
@@ -436,15 +471,15 @@ export async function prepareWebmExportFile(
           } finally {
             picture.close();
           }
-          const frame = new VideoFrame(work, { ...timingAt(index), alpha: 'discard' });
-          colourEncoder.encode(frame, index % keyEvery === 0);
+          const frame = new VideoFrame(canvas, { ...timingAt(index), alpha: 'discard' });
+          colourEncoder.encode(frame, isKeyFrame(index));
           await encoded(index);
         },
         (picture) => picture.close(),
       );
-      for (const movieFrame of timeline.frames) {
+      for (let index = 0; index < frameCount; index += 1) {
         signal.throwIfAborted();
-        await pictures.add(mounted.pictureAt(movieFrame.frame, movieHold(timeline, movieFrame)));
+        await pictures.add(pictureAt(index));
       }
       await awaitExportOperation(pictures.finish(), signal);
     }
@@ -458,7 +493,7 @@ export async function prepareWebmExportFile(
 
     onProgress?.({ stage: 'sound' });
     const audio = await encodeSound(
-      movieSounds(composition, timeline),
+      movieSounds(composition, timeline, { startFrames, endFrames }),
       frameCount / frameRate,
       signal,
     );
@@ -500,28 +535,25 @@ export async function prepareWebmExportFile(
 
 /**
  * Renders the movie timeline to PNG files. Workers compress them beside the page, a few at a time,
- * so only that many uncompressed pictures exist at once. `keep` takes each file as soon as it is
- * compressed, whichever frame is ready first; `kept` hears of each one in the movie's order.
+ * so only that many uncompressed pictures exist at once. Frames are written as soon as they
+ * are compressed, while progress follows their order in the movie.
  */
-async function renderPngFrames<Kept>(
+async function renderPngFrames(
   composition: Composition,
   options: VideoFrameExportOptions,
   timeline: MovieTimeline,
-  keep: (png: ArrayBuffer, name: string) => Kept | Promise<Kept>,
-  kept: (result: Kept, name: string) => void = () => {},
+  write: (png: ArrayBuffer, index: number) => Promise<void>,
 ): Promise<void> {
   const { signal, onProgress } = options;
   const frameCount = timeline.frames.length;
-  const digits = Math.max(4, String(frameCount).length);
-  const nameOf = (index: number) => `frame-${String(index + 1).padStart(digits, '0')}.png`;
   const mounted = await mountVideoExportFrames(composition, options, frameCount, PNG_FRAME_COPIES);
   let pool: FramePicturePool | undefined;
+  let stopped = false;
   try {
     const workers = createFramePicturePool();
     pool = workers;
-    const frames = inOrder<Kept>(mounted.copies + workers.size, (result, index) => {
+    const frames = inOrder<void>(mounted.copies + workers.size, (_, index) => {
       signal.throwIfAborted();
-      kept(result, nameOf(index));
       onProgress?.({ stage: 'picture', frame: index + 1, frames: frameCount });
     });
     for (const [index, movieFrame] of timeline.frames.entries()) {
@@ -531,54 +563,21 @@ async function renderPngFrames<Kept>(
           .pictureAt(movieFrame.frame, movieHold(timeline, movieFrame))
           .then((picture) => workers.png(picture))
           .then((png) => {
+            // After a failed frame, do not start any late writes during folder cleanup.
+            if (stopped) return;
+            signal.throwIfAborted();
             if (!png.byteLength)
               throw new Error('The browser could not encode the PNG at this size.');
-            return keep(png, nameOf(index));
+            return write(png, index);
           }),
       );
     }
     await awaitExportOperation(frames.finish(), signal);
   } finally {
+    stopped = true;
     pool?.dispose();
     mounted.dispose();
   }
-}
-
-/**
- * Render the movie timeline to one ZIP of numbered PNGs. The ZIP is put together in memory, which
- * is what limits its length and size.
- */
-export async function preparePngSequenceExportFile(
-  project: Project,
-  composition: Composition,
-  options: VideoFrameExportOptions,
-): Promise<ExportFile> {
-  const { holdSeconds, signal, onProgress } = options;
-  signal.throwIfAborted();
-  // JSZip writes ZIP32. Stay below the ZIP64 sentinel values for the directory and offsets.
-  const timeline = movieTimeline(composition, holdSeconds, 0xfffe);
-  const zip = new JSZip();
-  let archiveSize = 22;
-  await renderPngFrames(
-    composition,
-    options,
-    timeline,
-    (png) => png,
-    (png, name) => {
-      // Local header, data descriptor, central directory entry, and two ASCII filenames.
-      archiveSize += png.byteLength + 92 + 2 * name.length;
-      if (archiveSize >= 0xffffffff)
-        throw new Error('The PNG sequence exceeds the ZIP size limit. Export at a smaller size.');
-      zip.file(name, png, { compression: 'STORE' });
-    },
-  );
-  signal.throwIfAborted();
-  onProgress?.({ stage: 'file' });
-  return {
-    format: 'png-sequence',
-    fileName: `${project.name || 'untitled'}.png-sequence.zip`,
-    blob: await generateExportZip(zip, signal),
-  };
 }
 
 /**
@@ -596,14 +595,12 @@ export async function savePngSequenceInFolder(
   const { holdSeconds, signal } = options;
   signal.throwIfAborted();
   const timeline = movieTimeline(composition, holdSeconds);
-  const { name, folder } = await createExportFolder(
-    parent,
-    { format: 'png-sequence', fileName: `${project.name || 'untitled'}.png-sequence.zip` },
-    signal,
-  );
+  const { name, folder } = await createExportFolder(parent, project.name, signal);
+  const frameNameBase = sanitizeExportName(project.name);
   const writing = new Set<Promise<void>>();
   try {
-    await renderPngFrames(composition, options, timeline, (png, frameName) => {
+    await renderPngFrames(composition, options, timeline, async (png, index) => {
+      const frameName = `${frameNameBase}.${String(index + 1).padStart(4, '0')}.png`;
       const written = writeExportFolderFile(
         folder,
         frameName,
@@ -611,7 +608,11 @@ export async function savePngSequenceInFolder(
         signal,
       );
       writing.add(written);
-      return written;
+      try {
+        await written;
+      } finally {
+        writing.delete(written);
+      }
     });
     return name;
   } catch (error) {

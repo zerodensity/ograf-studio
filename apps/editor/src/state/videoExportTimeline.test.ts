@@ -139,6 +139,45 @@ describe('movieSounds', () => {
     ]);
   });
 
+  it.each([
+    [1, 0],
+    [0, 1],
+    [1, 1],
+  ])(
+    'keeps audio inside the authored frames with %s opening and %s closing frames',
+    (startFrames, endFrames) => {
+      const composition = oneStep({ assets: [sound] });
+      composition.mediaCues = [
+        clip({ trigger: { type: 'timeline', startFrame: 0 }, loop: true }),
+        clip({
+          trigger: { type: 'lifecycle', keyframeId: composition.keyframes[1]!.id },
+          durationFrames: 4,
+          trimStartMs: 100,
+        }),
+        clip({ trigger: { type: 'timeline', startFrame: 24 }, durationFrames: 8 }),
+        // This sound starts at the first frame after the authored movie, even when a black frame is added there.
+        clip({ trigger: { type: 'timeline', startFrame: 25 } }),
+      ];
+      const timeline = movieTimeline(composition, 0.5);
+      const [loop, step, end, ...remaining] = movieSounds(composition, timeline, {
+        startFrames,
+        endFrames,
+      });
+      const offset = startFrames / 10;
+      expect(remaining).toEqual([]);
+      expect(loop).toMatchObject({
+        loop: true,
+        startSeconds: offset,
+        stopSeconds: endFrames ? 3 + offset : null,
+      });
+      expect(step?.startSeconds).toBeCloseTo(1.2 + offset);
+      expect(step?.stopSeconds).toBeCloseTo(1.6 + offset);
+      expect(step?.offsetSeconds).toBe(0.1);
+      expect(end?.startSeconds).toBeCloseTo(2.9 + offset);
+      expect(end?.stopSeconds).toBeCloseTo((endFrames ? 3 : 3.7) + offset);
+    },
+  );
+
   it('leaves out sounds that have no place on a timeline', () => {
     const composition = oneStep({ assets: [sound] });
     composition.mediaCues = [
