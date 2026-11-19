@@ -112,6 +112,15 @@ describe('createFramePicturePool', () => {
     expect(workers.every((worker) => worker.terminated)).toBe(true);
     expect(queued.close).toHaveBeenCalledOnce();
   });
+
+  it('closes a picture that arrives after it was disposed, as a frame still rendering does', async () => {
+    const { start } = standInWorkers();
+    const pool = createFramePicturePool(1, start);
+    pool.dispose();
+    const late = picture('late');
+    await expect(pool.png(late)).rejects.toThrow('The frame workers were stopped');
+    expect(late.close).toHaveBeenCalledOnce();
+  });
 });
 
 describe('inOrder', () => {

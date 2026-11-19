@@ -13,7 +13,8 @@ import type { WebmExportProgress } from '../state/videoExport';
 import { ExportDialogWindow } from './ExportDialogWindow';
 import { ExportThumbnail } from './ExportThumbnail';
 
-type VideoFormat = 'webm' | 'png-sequence';
+/** `png-frames` is the PNG sequence as loose files in a folder, where the browser can write one. */
+type VideoFormat = 'webm' | 'png-sequence' | 'png-frames';
 type SizeDraft = { width: string; height: string };
 
 function isPixelSize(value: number): boolean {
@@ -87,9 +88,48 @@ function VideoExportOptions({
   const webmWidth = width + (width % 2);
   const webmHeight = height + (height % 2);
   const fileName = getUnnumberedExportFileName({
-    format,
+    format: webm ? 'webm' : 'png-sequence',
     fileName: `${project.name || 'untitled'}${webm ? '.webm' : '.png-sequence.zip'}`,
   });
+  const canPickFolder = typeof request.owner.showDirectoryPicker === 'function';
+  const framesToFolder = format === 'png-frames';
+
+  /** The export settings, once nothing changed while a folder was being chosen. */
+  const exportOptions = (
+    signal: AbortSignal,
+    reportProgress: (message: string, fraction?: number) => void,
+  ) => {
+    const current = useProjectStore.getState();
+    const session = useProjectSetStore.getState();
+    if (
+      current.project.id !== project.id ||
+      current.activeCompositionId !== composition.id ||
+      session.projectSet?.id !== projectSet?.id ||
+      session.activeTemplateId !== activeTemplateId
+    ) {
+      throw new Error(
+        'The current template changed while choosing a folder. Export again to use it.',
+      );
+    }
+    return {
+      transparent,
+      holdSeconds,
+      signal,
+      ...(width === native.width && height === native.height ? {} : { size: { width, height } }),
+      onProgress: (progress: WebmExportProgress) => {
+        if (progress.stage === 'picture') {
+          reportProgress(
+            `Rendering frame ${progress.frame} of ${progress.frames}…`,
+            progress.frame / progress.frames,
+          );
+        } else if (progress.stage === 'sound') {
+          reportProgress('Mixing the sound…');
+        } else {
+          reportProgress(webm ? 'Writing the WebM file…' : 'Assembling the PNG sequence…');
+        }
+      },
+    };
+  };
 
   const resize = (axis: keyof SizeDraft, value: string, lock = lockAspect) => {
     const size = Number(value);
@@ -108,41 +148,19 @@ function VideoExportOptions({
       subject={project.name}
       preparationMessage="Preparing the frames…"
       disabled={invalidSettings || !hasCurrentTemplate}
+      {...(framesToFolder
+        ? {
+            saveInFolder: async (folder, signal, reportProgress) => {
+              const options = exportOptions(signal, reportProgress);
+              const { savePngSequenceInFolder } = await import('../state/videoExport');
+              return [await savePngSequenceInFolder(project, composition, options, folder)];
+            },
+          }
+        : {})}
       prepare={async (signal, reportProgress) => {
-        const current = useProjectStore.getState();
-        const session = useProjectSetStore.getState();
-        if (
-          current.project.id !== project.id ||
-          current.activeCompositionId !== composition.id ||
-          session.projectSet?.id !== projectSet?.id ||
-          session.activeTemplateId !== activeTemplateId
-        ) {
-          throw new Error(
-            'The current template changed while choosing a folder. Export again to use it.',
-          );
-        }
+        const options = exportOptions(signal, reportProgress);
         const { prepareWebmExportFile, preparePngSequenceExportFile } =
           await import('../state/videoExport');
-        const options = {
-          transparent,
-          holdSeconds,
-          signal,
-          ...(width === native.width && height === native.height
-            ? {}
-            : { size: { width, height } }),
-          onProgress: (progress: WebmExportProgress) => {
-            if (progress.stage === 'picture') {
-              reportProgress(
-                `Rendering frame ${progress.frame} of ${progress.frames}…`,
-                progress.frame / progress.frames,
-              );
-            } else if (progress.stage === 'sound') {
-              reportProgress('Mixing the sound…');
-            } else {
-              reportProgress(webm ? 'Writing the WebM file…' : 'Assembling the PNG sequence…');
-            }
-          },
-        };
         const file = webm
           ? await prepareWebmExportFile(project, composition, { ...options, bitrate })
           : await preparePngSequenceExportFile(project, composition, options);
@@ -174,7 +192,10 @@ function VideoExportOptions({
                 }}
               >
                 <option value="webm">WebM video</option>
-                <option value="png-sequence">PNG image sequence</option>
+                <option value="png-sequence">
+                  {canPickFolder ? 'PNG image sequence (ZIP)' : 'PNG image sequence'}
+                </option>
+                {canPickFolder && <option value="png-frames">PNG image sequence (folder)</option>}
               </select>
             </label>
             <div className="studio-export-dimensions">
@@ -276,7 +297,9 @@ function VideoExportOptions({
             <p>
               {webm
                 ? 'The movie includes timeline sound and pauses at each step.'
-                : 'The ZIP contains numbered PNG frames, including the hold at each step.'}
+                : framesToFolder
+                  ? 'Save files… writes numbered PNG frames into a new folder as they render, including the hold at each step. A movie of any length fits. Graphics that render quickly export faster as a ZIP, and Download instead always gives the ZIP.'
+                  : 'The ZIP contains numbered PNG frames, including the hold at each step.'}
             </p>
             {includesUnsupportedMedia(composition, webm) && (
               <p>
@@ -286,9 +309,9 @@ function VideoExportOptions({
               </p>
             )}
             <div className="studio-export-file-list">
-              <p>File to export</p>
+              <p>{framesToFolder ? 'Folder to export' : 'File to export'}</p>
               <ul>
-                <li>{fileName}</li>
+                <li>{framesToFolder ? fileName.replace(/\.zip$/, '') : fileName}</li>
               </ul>
             </div>
           </div>

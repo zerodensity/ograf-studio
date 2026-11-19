@@ -6,6 +6,7 @@ import {
   withProjectFonts,
 } from './projectFonts';
 import { captureMaskedCanvas } from './maskedCapture';
+import { picturesFromCopies, type FrameCopy } from './frameCopies';
 import { createLiveElementCapture } from './liveElementCapture';
 import { canCaptureSelfStyled, selfStyledCapture } from './selfStyledCapture';
 import { awaitExportOperation } from './exportAbort';
@@ -31,6 +32,7 @@ import {
   resolveBoundElement,
   setLottieDeterministicRendering,
   shaderBackingSizeForLayer,
+  shaderContextCounts,
   shaderStrokePaddingForLayer,
   sampleCompiledLayerVisualState,
   waitForElementContentReady,
@@ -1012,115 +1014,181 @@ async function acquireCaptureResources(authored: Composition, signal?: AbortSign
 export interface MountedCompositionFrames {
   width: number;
   height: number;
-  /** The picture at a composition frame. The caller closes it. */
+  /** How many frames render at once. More may be asked for; they wait for their turn. */
+  copies: number;
+  /**
+   * The picture at a composition frame. Pictures are handed out in the order they were asked
+   * for, whichever is ready first. The caller closes it.
+   */
   pictureAt(frame: number, hold?: CaptureHold): Promise<ImageBitmap>;
   dispose(): void;
 }
+
+/** One mounted tree of the composition, and whether the page hands over its picture of it. */
+interface MountedFrameCopy extends FrameCopy<[frame: number, hold?: CaptureHold]> {
+  paints: boolean;
+  dispose(): void;
+}
+
+/**
+ * A browser keeps about sixteen WebGL contexts for a page and drops the oldest beyond that. Each
+ * shader of each copy holds one, so the copies together stay well inside the limit.
+ */
+const SHADER_CONTEXT_BUDGET = 12;
 
 /**
  * Mounts a composition for an export that renders its whole timeline. Building the tree, loading
  * its images and embedding its fonts happen once; each frame only re-samples and takes a picture.
  *
  * Where the browser can draw a canvas's children, the picture is the one the page itself paints,
- * one per screen refresh. Elsewhere, and from the moment the page is hidden, a frame is drawn from
- * a copy of the tree: from its own markup where that is enough, and through html-to-image for
- * patterns, effect filters and video.
+ * one per screen refresh for each mounted tree, so up to `copies` trees are mounted and render
+ * different frames in the same refresh. Elsewhere, and from the moment the page is hidden, a
+ * frame is drawn from a copy of the tree, one at a time: from its own markup where that is enough,
+ * and through html-to-image for patterns, effect filters and video.
  */
 export async function mountCompositionFrames(
   authored: Composition,
   matte: string,
   signal?: AbortSignal,
   rasterSize?: { width: number; height: number },
+  copies = 1,
 ): Promise<MountedCompositionFrames> {
   signal?.throwIfAborted();
   const { composition, lease } = await acquireCaptureResources(authored, signal);
   const layout = getCompositionOutputRect(composition);
   const output = rasterSize ?? layout;
-  let wrapper: HTMLDivElement | undefined;
-  const live = createLiveElementCapture(layout, output);
-  const unmount = () => {
-    for (const layer of wrapper?.querySelectorAll<HTMLElement>('[data-agent-capture-layer]') ?? [])
-      disposeElementContent(layer);
-    wrapper?.remove();
-    wrapper = undefined;
+  // html-to-image draws text a little smaller than the page does, so a movie that has needed it
+  // for one frame stays with it.
+  let selfStyled = true;
+  // The fonts are the same for every copy of the tree.
+  let fontCss: Promise<string> | undefined;
+
+  const mountCopy = async (): Promise<MountedFrameCopy> => {
+    let wrapper: HTMLDivElement | undefined;
+    const live = createLiveElementCapture(layout, output);
+    const unmount = () => {
+      for (const layer of wrapper?.querySelectorAll<HTMLElement>('[data-agent-capture-layer]') ??
+        [])
+        disposeElementContent(layer);
+      wrapper?.remove();
+      wrapper = undefined;
+    };
+    const mount = async () => {
+      wrapper = buildCompositionDom(composition, 0, matte);
+      // The tree is mounted where it will be drawn from the start: moving it later would restart
+      // what it is playing.
+      if (live) live.adopt(wrapper);
+      else document.body.appendChild(wrapper);
+      await settleCaptureContent(wrapper, signal);
+      return wrapper;
+    };
+    const dispose = () => {
+      unmount();
+      live?.dispose();
+    };
+    try {
+      let root = await mount();
+      const fontEmbedCSS = await (fontCss ??= captureFontCss(root, composition.assets, signal));
+      const draw = () =>
+        rasterizeCanvas(
+          root,
+          layout.width,
+          layout.height,
+          output,
+          { zIndex: 'auto' },
+          fontEmbedCSS,
+          signal,
+          true,
+        );
+      // The first snapshot of an expanded collection can be partly flattened: see captureComposition.
+      if (composition.runtimeCollections.length > 0 && matte === 'transparent') {
+        await draw();
+        unmount();
+        root = await mount();
+      }
+      const drawSelfStyled = selfStyledCapture(root, {
+        width: layout.width,
+        height: layout.height,
+        canvasWidth: output.width,
+        canvasHeight: output.height,
+        style: { zIndex: 'auto' },
+        fontEmbedCSS,
+        // Keep mask dependencies when copying the capture tree.
+        ...(root.querySelector(LAYER_MASK_CONTENT) ? {} : { filter: captureLayerPaints }),
+      });
+      return {
+        paints: live !== null,
+        async painted(frame, hold) {
+          if (!live) return null;
+          captureFrameRenders.get(root)?.(frame, hold);
+          await awaitExportOperation(waitForElementContentReady(root, 'submitted'), signal);
+          // The GPU's word that the frame is done takes about as long as the page's next paint,
+          // and that paint does not need it, so the two are waited for together.
+          const completed = awaitExportOperation(waitForElementContentReady(root), signal);
+          completed.catch(() => undefined);
+          const picture = await live.pictureOf(root, signal);
+          try {
+            await completed;
+          } catch (error) {
+            picture?.close();
+            throw error;
+          }
+          return picture;
+        },
+        async copied(frame, hold) {
+          captureFrameRenders.get(root)?.(frame, hold);
+          await awaitExportOperation(waitForElementContentReady(root), signal);
+          selfStyled &&= canCaptureSelfStyled(root);
+          const canvas = await (selfStyled ? drawSelfStyled(signal) : draw());
+          try {
+            return await awaitExportOperation(createImageBitmap(canvas), signal);
+          } finally {
+            canvas.width = 0;
+            canvas.height = 0;
+          }
+        },
+        dispose,
+      };
+    } catch (error) {
+      dispose();
+      throw error;
+    }
   };
-  const mount = async () => {
-    wrapper = buildCompositionDom(composition, 0, matte);
-    // The tree is mounted where it will be drawn from the start: moving it later would restart
-    // what it is playing.
-    if (live) live.adopt(wrapper);
-    else document.body.appendChild(wrapper);
-    await settleCaptureContent(wrapper, signal);
-    return wrapper;
+
+  const mounted: MountedFrameCopy[] = [];
+  const dispose = () => {
+    for (const copy of mounted.splice(0)) copy.dispose();
+    lease.dispose();
   };
   try {
-    let root = await mount();
-    let fontEmbedCSS = await captureFontCss(root, composition.assets, signal);
-    const draw = () =>
-      rasterizeCanvas(
-        root,
-        layout.width,
-        layout.height,
-        output,
-        { zIndex: 'auto' },
-        fontEmbedCSS,
-        signal,
-        true,
+    const contextsBefore = shaderContextCounts().live;
+    const first = await mountCopy();
+    mounted.push(first);
+    if (first.paints && copies > 1) {
+      const contexts = shaderContextCounts().live;
+      const each = contexts - contextsBefore;
+      const room = each > 0 ? Math.floor((SHADER_CONTEXT_BUDGET - contexts) / each) : copies;
+      const more = await Promise.allSettled(
+        Array.from({ length: Math.max(0, Math.min(copies - 1, room)) }, mountCopy),
       );
-    // The first snapshot of an expanded collection can be partly flattened: see captureComposition.
-    if (composition.runtimeCollections.length > 0 && matte === 'transparent') {
-      await draw();
-      unmount();
-      root = await mount();
-      fontEmbedCSS = await captureFontCss(root, composition.assets, signal);
+      for (const copy of more) if (copy.status === 'fulfilled') mounted.push(copy.value);
+      const failed = more.find((copy) => copy.status === 'rejected');
+      if (failed) throw failed.reason;
     }
-    const drawSelfStyled = selfStyledCapture(root, {
-      width: layout.width,
-      height: layout.height,
-      canvasWidth: output.width,
-      canvasHeight: output.height,
-      style: { zIndex: 'auto' },
-      fontEmbedCSS,
-      // Keep mask dependencies when copying the capture tree.
-      ...(root.querySelector(LAYER_MASK_CONTENT) ? {} : { filter: captureLayerPaints }),
-    });
-    // html-to-image draws text a little smaller than the page does, so a movie that has needed it
-    // for one frame stays with it.
-    let selfStyled = true;
-    // A movie that had to leave the page's own picture stays with the copies, for the same reason:
-    // one change of drawer in a movie, never a flicker between two.
-    let pagePaints = live !== null;
+
+    const pictureOf = picturesFromCopies(mounted, first.paints);
     return {
       width: output.width,
       height: output.height,
+      copies: mounted.length,
       async pictureAt(frame, hold) {
         signal?.throwIfAborted();
-        captureFrameRenders.get(root)?.(frame, hold);
-        await awaitExportOperation(waitForElementContentReady(root), signal);
-        if (pagePaints) {
-          const picture = await live!.pictureOf(root, signal);
-          if (picture) return picture;
-          pagePaints = false;
-        }
-        selfStyled &&= !root.querySelector(PATTERN_OR_EFFECT_CONTENT) && canCaptureSelfStyled(root);
-        const canvas = await (selfStyled ? drawSelfStyled(signal) : draw());
-        try {
-          return await awaitExportOperation(createImageBitmap(canvas), signal);
-        } finally {
-          canvas.width = 0;
-          canvas.height = 0;
-        }
+        return pictureOf(frame, hold);
       },
-      dispose() {
-        unmount();
-        live?.dispose();
-        lease.dispose();
-      },
+      dispose,
     };
   } catch (error) {
-    unmount();
-    live?.dispose();
-    lease.dispose();
+    dispose();
     throw error;
   }
 }

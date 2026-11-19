@@ -26,7 +26,7 @@ import {
 import { resolveLayerBindingEffects, resolveLayerBindingElement } from './runtimeBindings';
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light_canvas.js';
 import { mountPattern, applyPatternPaint } from './patternRendering';
-import { disposeLayerEffects, waitForLayerEffectsReady } from './effectCompositing';
+import { disposeLayerEffects, waitForLayerEffectsReady, type GpuWork } from './effectCompositing';
 import {
   waitForShadersReady,
   waitForShadersComplete,
@@ -374,8 +374,18 @@ function mountedLottiesWithin(root: ParentNode): MountedLottie[] {
   return mounted;
 }
 
-/** Waits for embedded assets and surfaces shader compilation, context, and draw failures. */
-export async function waitForElementContentReady(root: ParentNode): Promise<void> {
+/**
+ * Waits for embedded assets and surfaces shader compilation, context, and draw failures.
+ *
+ * `submitted` returns once every draw is handed to the GPU. That is all the page's own next paint
+ * needs, because the browser holds a paint until the GPU has caught up with it. Only `completed`
+ * also waits for the GPU's word that the frame is done, which is what reports a failed draw and
+ * what a pixel readback must wait for; in Chrome that word arrives about 10 ms later.
+ */
+export async function waitForElementContentReady(
+  root: ParentNode,
+  gpuWork: GpuWork = 'completed',
+): Promise<void> {
   await waitForTickersReady(root);
   root = tickerReadinessScope(root);
   refreshCroppedImages(root);
@@ -387,8 +397,8 @@ export async function waitForElementContentReady(root: ParentNode): Promise<void
   await waitForShaderPaintContentReady(root);
   await waitForMediaPaintContentReady(root);
   await waitForShadersReady(root);
-  await waitForLayerEffectsReady(root);
-  await waitForShadersComplete(root);
+  await waitForLayerEffectsReady(root, gpuWork);
+  if (gpuWork === 'completed') await waitForShadersComplete(root);
   refreshCroppedImages(root);
 }
 

@@ -148,6 +148,66 @@ export async function saveExportFilesInFolder(
   }
 }
 
+/**
+ * A new folder inside the selected one, for an export that is many files. It is named after the
+ * export's file without `.zip`, and numbered so that it takes the place of no earlier export.
+ */
+export async function createExportFolder(
+  parent: FileSystemDirectoryHandle,
+  file: Pick<ExportFile, 'format' | 'fileName'>,
+  signal?: AbortSignal,
+): Promise<{ name: string; folder: FileSystemDirectoryHandle }> {
+  const { base, extension } = exportNameParts(file);
+  const ending = extension.replace(/\.zip$/, '');
+  for (let index = 1; index <= 1000; index += 1) {
+    signal?.throwIfAborted();
+    const name = `${base}${index === 1 ? '' : ` (${index})`}${ending}`;
+    if (await nameExists(parent, name)) continue;
+    return { name, folder: await parent.getDirectoryHandle(name, { create: true }) };
+  }
+  throw new Error('Too many exports have this name. Choose another folder.');
+}
+
+/** Writes one file of an export folder in full, or leaves the failure to whoever made the folder. */
+export async function writeExportFolderFile(
+  folder: FileSystemDirectoryHandle,
+  name: string,
+  data: Blob,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted();
+  const handle = await folder.getFileHandle(name, { create: true });
+  const writer = await handle.createWritable();
+  try {
+    await writer.write(data);
+    signal?.throwIfAborted();
+    await writer.close();
+  } catch (error) {
+    await writer.abort().catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * Takes away a folder `createExportFolder` made, after its export failed or was cancelled. Says
+ * so in the export's error when the folder could not be removed.
+ */
+export async function discardExportFolder(
+  parent: FileSystemDirectoryHandle,
+  name: string,
+  failure: unknown,
+): Promise<never> {
+  try {
+    await parent.removeEntry(name, { recursive: true });
+  } catch {
+    throw new Error(
+      `${failure instanceof Error ? failure.message : String(failure)} Check for an incomplete folder: ${name}.`,
+      { cause: failure },
+    );
+  }
+  throw failure;
+}
+
 /** The browser controls where downloads go; this only requests delivery. */
 export async function downloadExportFiles(
   owner: Window,
