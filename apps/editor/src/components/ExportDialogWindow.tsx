@@ -17,12 +17,26 @@ type ExportError = {
   message: string;
   action?: { label: string; run: () => void };
 };
+type ReportProgress = (message: string, fraction?: number) => void;
+type ExportDelivery =
+  | {
+      prepare: (signal: AbortSignal, reportProgress: ReportProgress) => Promise<ExportFile[]>;
+      saveInFolder?: never;
+    }
+  | {
+      prepare?: never;
+      /** Writes files as they are prepared and returns the names saved in the chosen folder. */
+      saveInFolder: (
+        folder: FileSystemDirectoryHandle,
+        signal: AbortSignal,
+        reportProgress: ReportProgress,
+      ) => Promise<string[]>;
+    };
 
 const downloadLabels: Record<ExportFile['format'], string> = {
   zip: 'Download ZIP',
   html: 'Download HTML',
   webm: 'Download WebM',
-  'png-sequence': 'Download PNG sequence',
 };
 
 function errorMessage(cause: unknown): string {
@@ -46,23 +60,10 @@ export function ExportDialogWindow({
   subject: string;
   preparationMessage: string;
   disabled?: boolean;
-  prepare: (
-    signal: AbortSignal,
-    reportProgress: (message: string, fraction?: number) => void,
-  ) => Promise<ExportFile[]>;
-  /**
-   * Writes the export straight into the chosen folder and returns the names it saved, for an
-   * export of many files that should not all be held in memory first.
-   */
-  saveInFolder?: (
-    folder: FileSystemDirectoryHandle,
-    signal: AbortSignal,
-    reportProgress: (message: string, fraction?: number) => void,
-  ) => Promise<string[]>;
   onDelivered?: () => void;
   getError?: (cause: unknown) => ExportError;
   children: (state: { busy: boolean; clearError: () => void }) => ReactNode;
-}) {
+} & ExportDelivery) {
   const { owner, trigger } = request;
   const [activity, setActivity] = useState<ExportActivity | null>(null);
   const [progress, setProgress] = useState('');
@@ -75,6 +76,7 @@ export function ExportDialogWindow({
   const closeRef = useRef<HTMLButtonElement>(null);
   const movable = useMovableDialog(dialogRef);
   const canPickFolder = typeof owner.showDirectoryPicker === 'function';
+  const hasDestination = canPickFolder || Boolean(prepare);
   const canCancel = activity !== 'choosing' && activity !== 'saving' && activity !== 'cancelling';
   const busy = activity !== null;
   const clearError = () => setError(null);
@@ -105,7 +107,7 @@ export function ExportDialogWindow({
   };
 
   const start = async (downloadOnly: boolean) => {
-    if (operation.current || disabled) return;
+    if (operation.current || disabled || !hasDestination) return;
     const controller = new AbortController();
     const { signal } = controller;
     operation.current = controller;
@@ -133,7 +135,8 @@ export function ExportDialogWindow({
         setProgressFraction(fraction ?? null);
       };
       let result: ExportCompletion;
-      if (folder && saveInFolder) {
+      if (saveInFolder) {
+        if (!folder) throw new Error('Choose a folder to save the export.');
         result = { delivery: 'saved', names: await saveInFolder(folder, signal, reportProgress) };
       } else {
         const files = await prepare(signal, reportProgress);
@@ -271,7 +274,7 @@ export function ExportDialogWindow({
                   {error.action.label}
                 </button>
               )}
-              {canPickFolder && (
+              {canPickFolder && prepare && (
                 <button type="button" disabled={busy || disabled} onClick={() => void start(true)}>
                   Download instead
                 </button>
@@ -279,7 +282,7 @@ export function ExportDialogWindow({
               <button
                 type="button"
                 className="workspace-primary-action"
-                disabled={busy || disabled}
+                disabled={busy || disabled || !hasDestination}
                 onClick={() => void start(!canPickFolder)}
               >
                 {canPickFolder ? 'Save files…' : 'Download files'}

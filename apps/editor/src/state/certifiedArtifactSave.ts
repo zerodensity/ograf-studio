@@ -4,9 +4,6 @@ const EXPORT_FILE_TYPES: Record<ExportFile['format'], FilePickerAcceptType[]> = 
   zip: [{ description: 'OGraf package', accept: { 'application/zip': ['.ograf.zip'] } }],
   html: HTML_FILE_TYPES,
   webm: [{ description: 'WebM video', accept: { 'video/webm': ['.webm'] } }],
-  'png-sequence': [
-    { description: 'PNG image sequence', accept: { 'application/zip': ['.png-sequence.zip'] } },
-  ],
 };
 
 export class CoordinatedExportError extends Error {

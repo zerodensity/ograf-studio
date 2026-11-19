@@ -5,7 +5,7 @@ import {
   type Composition,
   type Project,
 } from '@ograf-editor/scene-model';
-import { getUnnumberedExportFileName } from '../state/exportFolderSave';
+import { getPngSequenceFolderName, getUnnumberedExportFileName } from '../state/exportFolderSave';
 import { useProjectSetStore } from '../state/projectSetStore';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import type { StudioExportRequest } from '../state/studioExportDialogStore';
@@ -13,8 +13,7 @@ import type { WebmExportProgress } from '../state/videoExport';
 import { ExportDialogWindow } from './ExportDialogWindow';
 import { ExportThumbnail } from './ExportThumbnail';
 
-/** `png-frames` is the PNG sequence as loose files in a folder, where the browser can write one. */
-type VideoFormat = 'webm' | 'png-sequence' | 'png-frames';
+type VideoFormat = 'webm' | 'png-frames';
 type SizeDraft = { width: string; height: string };
 
 function isPixelSize(value: number): boolean {
@@ -88,11 +87,10 @@ function VideoExportOptions({
   const webmWidth = width + (width % 2);
   const webmHeight = height + (height % 2);
   const fileName = getUnnumberedExportFileName({
-    format: webm ? 'webm' : 'png-sequence',
-    fileName: `${project.name || 'untitled'}${webm ? '.webm' : '.png-sequence.zip'}`,
+    format: 'webm',
+    fileName: `${project.name || 'untitled'}.webm`,
   });
   const canPickFolder = typeof request.owner.showDirectoryPicker === 'function';
-  const framesToFolder = format === 'png-frames';
 
   /** The export settings, once nothing changed while a folder was being chosen. */
   const exportOptions = (
@@ -125,7 +123,7 @@ function VideoExportOptions({
         } else if (progress.stage === 'sound') {
           reportProgress('Mixing the sound…');
         } else {
-          reportProgress(webm ? 'Writing the WebM file…' : 'Assembling the PNG sequence…');
+          reportProgress(webm ? 'Writing the WebM file…' : 'Saving the PNG frames…');
         }
       },
     };
@@ -148,24 +146,25 @@ function VideoExportOptions({
       subject={project.name}
       preparationMessage="Preparing the frames…"
       disabled={invalidSettings || !hasCurrentTemplate}
-      {...(framesToFolder
+      {...(webm
         ? {
+            prepare: async (signal, reportProgress) => {
+              const options = exportOptions(signal, reportProgress);
+              const { prepareWebmExportFile } = await import('../state/videoExport');
+              const file = await prepareWebmExportFile(project, composition, {
+                ...options,
+                bitrate,
+              });
+              return [{ ...file, fileName }];
+            },
+          }
+        : {
             saveInFolder: async (folder, signal, reportProgress) => {
               const options = exportOptions(signal, reportProgress);
               const { savePngSequenceInFolder } = await import('../state/videoExport');
               return [await savePngSequenceInFolder(project, composition, options, folder)];
             },
-          }
-        : {})}
-      prepare={async (signal, reportProgress) => {
-        const options = exportOptions(signal, reportProgress);
-        const { prepareWebmExportFile, preparePngSequenceExportFile } =
-          await import('../state/videoExport');
-        const file = webm
-          ? await prepareWebmExportFile(project, composition, { ...options, bitrate })
-          : await preparePngSequenceExportFile(project, composition, options);
-        return [{ ...file, fileName }];
-      }}
+          })}
     >
       {({ busy, clearError }) => (
         <>
@@ -192,12 +191,10 @@ function VideoExportOptions({
                 }}
               >
                 <option value="webm">WebM video</option>
-                <option value="png-sequence">
-                  {canPickFolder ? 'PNG image sequence (ZIP)' : 'PNG image sequence'}
-                </option>
-                {canPickFolder && <option value="png-frames">PNG image sequence (folder)</option>}
+                {canPickFolder && <option value="png-frames">PNG image sequence</option>}
               </select>
             </label>
+            {!canPickFolder && <p>PNG image sequences require folder access in Chrome or Edge.</p>}
             <div className="studio-export-dimensions">
               <label>
                 Width (px)
@@ -297,9 +294,7 @@ function VideoExportOptions({
             <p>
               {webm
                 ? 'The movie includes timeline sound and pauses at each step.'
-                : framesToFolder
-                  ? 'Save files… writes numbered PNG frames into a new folder as they render, including the hold at each step. A movie of any length fits. Graphics that render quickly export faster as a ZIP, and Download instead always gives the ZIP.'
-                  : 'The ZIP contains numbered PNG frames, including the hold at each step.'}
+                : 'Save files… writes individual PNG frames into a new folder, including the hold at each step.'}
             </p>
             {includesUnsupportedMedia(composition, webm) && (
               <p>
@@ -309,9 +304,9 @@ function VideoExportOptions({
               </p>
             )}
             <div className="studio-export-file-list">
-              <p>{framesToFolder ? 'Folder to export' : 'File to export'}</p>
+              <p>{webm ? 'File to export' : 'Folder to export'}</p>
               <ul>
-                <li>{framesToFolder ? fileName.replace(/\.zip$/, '') : fileName}</li>
+                <li>{webm ? fileName : getPngSequenceFolderName(project.name)}</li>
               </ul>
             </div>
           </div>

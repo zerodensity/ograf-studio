@@ -8,7 +8,7 @@ export type ExportFileFormat = 'zip' | 'html' | 'both';
 export type ExportFileSaveStatus = 'saved' | 'cancelled' | 'downloaded' | 'prepared';
 
 export interface ExportFile {
-  format: Exclude<ExportFileFormat, 'both'> | 'webm' | 'png-sequence';
+  format: Exclude<ExportFileFormat, 'both'> | 'webm';
   fileName: string;
   blob: Blob;
 }

@@ -1,14 +1,9 @@
 import { createComposition, createProject } from '@ograf-editor/scene-model';
-import JSZip from 'jszip';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountCompositionFrames, type CaptureHold } from './agentCapture';
 import { createExportFolder, discardExportFolder, writeExportFolderFile } from './exportFolderSave';
 import { createFramePicturePool } from './framePicturePool';
-import {
-  preparePngSequenceExportFile,
-  prepareWebmExportFile,
-  savePngSequenceInFolder,
-} from './videoExport';
+import { prepareWebmExportFile, savePngSequenceInFolder } from './videoExport';
 import { movieTimeline } from './videoExportTimeline';
 
 vi.mock('./agentCapture', () => ({ mountCompositionFrames: vi.fn() }));
@@ -25,7 +20,7 @@ vi.mock('./framePicturePool', async (original) => ({
 
 const project = createProject({ name: 'Lower third' });
 
-/** A picture that only remembers which frame it shows, so the ZIP entries prove ordering. */
+/** A picture that only remembers which frame it shows, so the PNG files prove ordering. */
 type StandInPicture = ImageBitmap & { png: ArrayBuffer };
 
 function mockMountedFrames(width: number, height: number, copies = 2) {
@@ -76,118 +71,6 @@ function rejectAlphaEncoderConfig() {
 afterEach(() => {
   vi.resetAllMocks();
   vi.unstubAllGlobals();
-});
-
-describe('PNG sequence export', () => {
-  it('preserves the authored crop and Step holds in a sized sequence', async () => {
-    const composition = createComposition({
-      width: 600,
-      height: 300,
-      crop: { x: 20, y: 10, width: 400, height: 200 },
-      backgroundColor: '#ff0000',
-      frameRate: 10,
-    });
-    const { dispose, pool } = mockMountedFrames(101, 51);
-    const onProgress = vi.fn();
-    const signal = new AbortController().signal;
-    const size = { width: 101, height: 51 };
-
-    const file = await preparePngSequenceExportFile(project, composition, {
-      holdSeconds: 0.2,
-      onProgress,
-      signal,
-      size,
-      transparent: true,
-    });
-
-    expect(file).toMatchObject({
-      format: 'png-sequence',
-      fileName: 'Lower third.png-sequence.zip',
-    });
-    // A movie this short is not worth a second mounted tree.
-    expect(mountCompositionFrames).toHaveBeenCalledWith(
-      { ...composition, backgroundColor: 'transparent' },
-      'transparent',
-      signal,
-      size,
-      1,
-    );
-    expect(composition.backgroundColor).toBe('#ff0000');
-
-    const archive = await JSZip.loadAsync(await file.blob.arrayBuffer(), { checkCRC32: true });
-    expect(Object.keys(archive.files)).toEqual(
-      Array.from({ length: 27 }, (_, index) => `frame-${String(index + 1).padStart(4, '0')}.png`),
-    );
-    expect(await archive.file('frame-0014.png')?.async('uint8array')).toEqual(
-      new Uint8Array([12, 1]),
-    );
-    expect(await archive.file('frame-0015.png')?.async('uint8array')).toEqual(
-      new Uint8Array([12, 2]),
-    );
-    expect(await archive.file('frame-0016.png')?.async('uint8array')).toEqual(
-      new Uint8Array([13, 2]),
-    );
-    // Progress counts finished frames in the movie's order, whatever order the workers answer in.
-    expect(onProgress.mock.calls.slice(0, 27)).toEqual(
-      Array.from({ length: 27 }, (_, index) => [
-        { stage: 'picture', frame: index + 1, frames: 27 },
-      ]),
-    );
-    expect(onProgress).toHaveBeenLastCalledWith({ stage: 'file' });
-    expect(dispose).toHaveBeenCalledOnce();
-    expect(pool.dispose).toHaveBeenCalledOnce();
-  });
-
-  it('stops and releases the scene and the workers when frame export is cancelled', async () => {
-    const { pictureAt, dispose, pool } = mockMountedFrames(60, 30);
-    const controller = new AbortController();
-    const reason = new DOMException('Export cancelled.', 'AbortError');
-    const composition = createComposition();
-    const onProgress = vi.fn(() => controller.abort(reason));
-
-    await expect(
-      preparePngSequenceExportFile(project, composition, {
-        holdSeconds: 0,
-        signal: controller.signal,
-        transparent: false,
-        onProgress,
-      }),
-    ).rejects.toBe(reason);
-    // Only the frames already on their way when the first one finished were drawn.
-    expect(pictureAt.mock.calls.length).toBeLessThanOrEqual(pool.size + 3);
-    expect(onProgress).toHaveBeenCalledOnce();
-    expect(dispose).toHaveBeenCalledOnce();
-    expect(pool.dispose).toHaveBeenCalledOnce();
-  });
-
-  it('mounts a tree for every thirty frames, up to four and one less than the cores', async () => {
-    const composition = createComposition({ frameRate: 50 });
-    const options = { holdSeconds: 3, signal: new AbortController().signal, transparent: true };
-    const frames = movieTimeline(composition, 3).frames.length;
-    expect(frames).toBeGreaterThan(90);
-    for (const [cores, copies] of [
-      [16, 4],
-      [3, 2],
-      [1, 1],
-    ] as const) {
-      vi.stubGlobal('navigator', { hardwareConcurrency: cores });
-      mockMountedFrames(60, 30);
-      await preparePngSequenceExportFile(project, composition, options);
-      expect(vi.mocked(mountCompositionFrames).mock.lastCall?.[4]).toBe(copies);
-    }
-  });
-
-  it('rejects invalid raster dimensions before mounting', async () => {
-    await expect(
-      preparePngSequenceExportFile(project, createComposition(), {
-        holdSeconds: 0,
-        signal: new AbortController().signal,
-        size: { width: 0, height: 1.5 },
-        transparent: true,
-      }),
-    ).rejects.toThrow('Enter positive whole pixel dimensions');
-    expect(mountCompositionFrames).not.toHaveBeenCalled();
-  });
 });
 
 describe('WebM encoder configuration', () => {
@@ -263,16 +146,25 @@ describe('PNG sequence in a folder', () => {
   const composition = createComposition({ width: 60, height: 30, frameRate: 10 });
   const frames = movieTimeline(composition, 0.2).frames.length;
 
-  function mockFolder() {
-    vi.mocked(createExportFolder).mockResolvedValue({ name: 'Lower third.png-sequence', folder });
+  function mockFolder(name = 'Lower third.png-sequence') {
+    vi.mocked(createExportFolder).mockResolvedValue({ name, folder });
     vi.mocked(discardExportFolder).mockImplementation(async (_parent, _name, failure) => {
       throw failure;
     });
   }
 
-  it('writes every frame as its own file and reports them in the order of the movie', async () => {
-    const { dispose, pool } = mockMountedFrames(60, 30);
-    mockFolder();
+  it('writes and reports named frames in movie order while keeping the authored crop and Step hold', async () => {
+    const cropped = createComposition({
+      width: 600,
+      height: 300,
+      crop: { x: 20, y: 10, width: 400, height: 200 },
+      backgroundColor: '#ff0000',
+      frameRate: 10,
+    });
+    const named = { ...project, name: 'Lower:third' };
+    const size = { width: 101, height: 51 };
+    const { dispose, pool } = mockMountedFrames(size.width, size.height);
+    mockFolder('Lower-third.png-sequence');
     const written = new Map<string, Uint8Array>();
     vi.mocked(writeExportFolderFile).mockImplementation(async (_folder, name, data) => {
       written.set(name, new Uint8Array(await data.arrayBuffer()));
@@ -282,25 +174,32 @@ describe('PNG sequence in a folder', () => {
 
     await expect(
       savePngSequenceInFolder(
-        project,
-        composition,
-        { holdSeconds: 0.2, signal, transparent: true, onProgress },
+        named,
+        cropped,
+        { holdSeconds: 0.2, signal, transparent: true, onProgress, size },
         parent,
       ),
-    ).resolves.toBe('Lower third.png-sequence');
+    ).resolves.toBe('Lower-third.png-sequence');
 
-    expect(createExportFolder).toHaveBeenCalledWith(
-      parent,
-      { format: 'png-sequence', fileName: 'Lower third.png-sequence.zip' },
+    expect(createExportFolder).toHaveBeenCalledWith(parent, named.name, signal);
+    // A movie this short is not worth a second mounted tree.
+    expect(mountCompositionFrames).toHaveBeenCalledWith(
+      { ...cropped, backgroundColor: 'transparent' },
+      'transparent',
       signal,
+      size,
+      1,
     );
+    expect(cropped.backgroundColor).toBe('#ff0000');
     expect([...written.keys()].sort()).toEqual(
       Array.from(
         { length: frames },
-        (_, index) => `frame-${String(index + 1).padStart(4, '0')}.png`,
+        (_, index) => `Lower-third.${String(index + 1).padStart(4, '0')}.png`,
       ),
     );
-    expect(written.get('frame-0015.png')).toEqual(new Uint8Array([12, 2]));
+    expect(written.get('Lower-third.0014.png')).toEqual(new Uint8Array([12, 1]));
+    expect(written.get('Lower-third.0015.png')).toEqual(new Uint8Array([12, 2]));
+    expect(written.get('Lower-third.0016.png')).toEqual(new Uint8Array([13, 2]));
     expect(vi.mocked(writeExportFolderFile).mock.calls.every(([to]) => to === folder)).toBe(true);
     expect(onProgress.mock.calls).toEqual(
       Array.from({ length: frames }, (_, index) => [
@@ -319,9 +218,9 @@ describe('PNG sequence in a folder', () => {
     let writing = 0;
     vi.mocked(writeExportFolderFile).mockImplementation(async (_folder, name) => {
       writing += 1;
-      await new Promise((resolve) => setTimeout(resolve, name === 'frame-0002.png' ? 0 : 5));
+      await new Promise((resolve) => setTimeout(resolve, name === 'Lower third.0002.png' ? 0 : 5));
       writing -= 1;
-      if (name === 'frame-0002.png') throw failure;
+      if (name === 'Lower third.0002.png') throw failure;
     });
     vi.mocked(discardExportFolder).mockImplementation(async (_parent, _name, cause) => {
       expect(writing).toBe(0);
@@ -340,12 +239,13 @@ describe('PNG sequence in a folder', () => {
     expect(dispose).toHaveBeenCalledOnce();
   });
 
-  it('removes the folder when the export is cancelled', async () => {
-    mockMountedFrames(60, 30);
+  it('stops encoding, releases resources and removes the folder when cancelled', async () => {
+    const { pictureAt, dispose, pool } = mockMountedFrames(60, 30);
     mockFolder();
     vi.mocked(writeExportFolderFile).mockResolvedValue();
     const controller = new AbortController();
     const reason = new DOMException('Export cancelled.', 'AbortError');
+    const onProgress = vi.fn(() => controller.abort(reason));
 
     await expect(
       savePngSequenceInFolder(
@@ -355,12 +255,35 @@ describe('PNG sequence in a folder', () => {
           holdSeconds: 0.2,
           signal: controller.signal,
           transparent: true,
-          onProgress: () => controller.abort(reason),
+          onProgress,
         },
         parent,
       ),
     ).rejects.toBe(reason);
+    // Only the frames already on their way when the first one finished were drawn.
+    expect(pictureAt.mock.calls.length).toBeLessThanOrEqual(pool.size + 3);
+    expect(onProgress).toHaveBeenCalledOnce();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(pool.dispose).toHaveBeenCalledOnce();
     expect(discardExportFolder).toHaveBeenCalledWith(parent, 'Lower third.png-sequence', reason);
+  });
+
+  it('mounts a tree for every thirty frames, up to four and one less than the cores', async () => {
+    const composition = createComposition({ frameRate: 50 });
+    const options = { holdSeconds: 3, signal: new AbortController().signal, transparent: true };
+    expect(movieTimeline(composition, 3).frames.length).toBeGreaterThan(90);
+    mockFolder();
+    vi.mocked(writeExportFolderFile).mockResolvedValue();
+    for (const [cores, copies] of [
+      [16, 4],
+      [3, 2],
+      [1, 1],
+    ] as const) {
+      vi.stubGlobal('navigator', { hardwareConcurrency: cores });
+      mockMountedFrames(60, 30);
+      await savePngSequenceInFolder(project, composition, options, parent);
+      expect(vi.mocked(mountCompositionFrames).mock.lastCall?.[4]).toBe(copies);
+    }
   });
 
   it('removes the folder of a movie that cannot be mounted', async () => {

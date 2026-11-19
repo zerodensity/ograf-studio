@@ -1,6 +1,5 @@
 import { NLE_EXPORT_PROFILE, compositionForExportProfile } from '@ograf-editor/codegen';
 import type { Composition, Project } from '@ograf-editor/scene-model';
-import JSZip from 'jszip';
 import { mountCompositionFrames } from './agentCapture';
 import {
   createFramePicturePool,
@@ -9,8 +8,12 @@ import {
   type FramePlanes,
 } from './framePicturePool';
 import { awaitExportOperation } from './exportAbort';
-import { createExportFolder, discardExportFolder, writeExportFolderFile } from './exportFolderSave';
-import { generateExportZip } from './exportZip';
+import {
+  createExportFolder,
+  discardExportFolder,
+  sanitizeExportName,
+  writeExportFolderFile,
+} from './exportFolderSave';
 import type { ExportFile } from './offlinePreviewPackage';
 import {
   movieHold,
@@ -500,28 +503,25 @@ export async function prepareWebmExportFile(
 
 /**
  * Renders the movie timeline to PNG files. Workers compress them beside the page, a few at a time,
- * so only that many uncompressed pictures exist at once. `keep` takes each file as soon as it is
- * compressed, whichever frame is ready first; `kept` hears of each one in the movie's order.
+ * so only that many uncompressed pictures exist at once. Frames are written as soon as they
+ * are compressed, while progress follows their order in the movie.
  */
-async function renderPngFrames<Kept>(
+async function renderPngFrames(
   composition: Composition,
   options: VideoFrameExportOptions,
   timeline: MovieTimeline,
-  keep: (png: ArrayBuffer, name: string) => Kept | Promise<Kept>,
-  kept: (result: Kept, name: string) => void = () => {},
+  write: (png: ArrayBuffer, index: number) => Promise<void>,
 ): Promise<void> {
   const { signal, onProgress } = options;
   const frameCount = timeline.frames.length;
-  const digits = Math.max(4, String(frameCount).length);
-  const nameOf = (index: number) => `frame-${String(index + 1).padStart(digits, '0')}.png`;
   const mounted = await mountVideoExportFrames(composition, options, frameCount, PNG_FRAME_COPIES);
   let pool: FramePicturePool | undefined;
+  let stopped = false;
   try {
     const workers = createFramePicturePool();
     pool = workers;
-    const frames = inOrder<Kept>(mounted.copies + workers.size, (result, index) => {
+    const frames = inOrder<void>(mounted.copies + workers.size, (_, index) => {
       signal.throwIfAborted();
-      kept(result, nameOf(index));
       onProgress?.({ stage: 'picture', frame: index + 1, frames: frameCount });
     });
     for (const [index, movieFrame] of timeline.frames.entries()) {
@@ -531,54 +531,21 @@ async function renderPngFrames<Kept>(
           .pictureAt(movieFrame.frame, movieHold(timeline, movieFrame))
           .then((picture) => workers.png(picture))
           .then((png) => {
+            // After a failed frame, do not start any late writes during folder cleanup.
+            if (stopped) return;
+            signal.throwIfAborted();
             if (!png.byteLength)
               throw new Error('The browser could not encode the PNG at this size.');
-            return keep(png, nameOf(index));
+            return write(png, index);
           }),
       );
     }
     await awaitExportOperation(frames.finish(), signal);
   } finally {
+    stopped = true;
     pool?.dispose();
     mounted.dispose();
   }
-}
-
-/**
- * Render the movie timeline to one ZIP of numbered PNGs. The ZIP is put together in memory, which
- * is what limits its length and size.
- */
-export async function preparePngSequenceExportFile(
-  project: Project,
-  composition: Composition,
-  options: VideoFrameExportOptions,
-): Promise<ExportFile> {
-  const { holdSeconds, signal, onProgress } = options;
-  signal.throwIfAborted();
-  // JSZip writes ZIP32. Stay below the ZIP64 sentinel values for the directory and offsets.
-  const timeline = movieTimeline(composition, holdSeconds, 0xfffe);
-  const zip = new JSZip();
-  let archiveSize = 22;
-  await renderPngFrames(
-    composition,
-    options,
-    timeline,
-    (png) => png,
-    (png, name) => {
-      // Local header, data descriptor, central directory entry, and two ASCII filenames.
-      archiveSize += png.byteLength + 92 + 2 * name.length;
-      if (archiveSize >= 0xffffffff)
-        throw new Error('The PNG sequence exceeds the ZIP size limit. Export at a smaller size.');
-      zip.file(name, png, { compression: 'STORE' });
-    },
-  );
-  signal.throwIfAborted();
-  onProgress?.({ stage: 'file' });
-  return {
-    format: 'png-sequence',
-    fileName: `${project.name || 'untitled'}.png-sequence.zip`,
-    blob: await generateExportZip(zip, signal),
-  };
 }
 
 /**
@@ -596,14 +563,12 @@ export async function savePngSequenceInFolder(
   const { holdSeconds, signal } = options;
   signal.throwIfAborted();
   const timeline = movieTimeline(composition, holdSeconds);
-  const { name, folder } = await createExportFolder(
-    parent,
-    { format: 'png-sequence', fileName: `${project.name || 'untitled'}.png-sequence.zip` },
-    signal,
-  );
+  const { name, folder } = await createExportFolder(parent, project.name, signal);
+  const frameNameBase = sanitizeExportName(project.name);
   const writing = new Set<Promise<void>>();
   try {
-    await renderPngFrames(composition, options, timeline, (png, frameName) => {
+    await renderPngFrames(composition, options, timeline, async (png, index) => {
+      const frameName = `${frameNameBase}.${String(index + 1).padStart(4, '0')}.png`;
       const written = writeExportFolderFile(
         folder,
         frameName,
@@ -611,7 +576,11 @@ export async function savePngSequenceInFolder(
         signal,
       );
       writing.add(written);
-      return written;
+      try {
+        await written;
+      } finally {
+        writing.delete(written);
+      }
     });
     return name;
   } catch (error) {
