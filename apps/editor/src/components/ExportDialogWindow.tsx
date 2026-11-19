@@ -49,6 +49,7 @@ export function ExportDialogWindow({
   subject,
   preparationMessage,
   disabled,
+  showDestination = false,
   prepare,
   saveInFolder,
   onDelivered,
@@ -60,6 +61,7 @@ export function ExportDialogWindow({
   subject: string;
   preparationMessage: string;
   disabled?: boolean;
+  showDestination?: boolean;
   onDelivered?: () => void;
   getError?: (cause: unknown) => ExportError;
   children: (state: { busy: boolean; clearError: () => void }) => ReactNode;
@@ -68,6 +70,7 @@ export function ExportDialogWindow({
   const [activity, setActivity] = useState<ExportActivity | null>(null);
   const [progress, setProgress] = useState('');
   const [progressFraction, setProgressFraction] = useState<number | null>(null);
+  const [folderName, setFolderName] = useState<string | null>(null);
   const [error, setError] = useState<ExportError | null>(null);
   const [completion, setCompletion] = useState<ExportCompletion | null>(null);
   const operation = useRef<AbortController | null>(null);
@@ -113,6 +116,7 @@ export function ExportDialogWindow({
     operation.current = controller;
     clearError();
     setProgressFraction(null);
+    setFolderName(null);
     try {
       let folder: FileSystemDirectoryHandle | undefined;
       if (!downloadOnly && owner.showDirectoryPicker) {
@@ -125,6 +129,7 @@ export function ExportDialogWindow({
         }
       }
       signal.throwIfAborted();
+      if (showDestination && folder) setFolderName(folder.name || 'Selected folder');
       setActivity('preparing');
       setProgress(preparationMessage);
       await allowExportDialogPaint(owner, signal);
@@ -199,12 +204,18 @@ export function ExportDialogWindow({
           {!completion && <fieldset disabled={busy}>{children({ busy, clearError })}</fieldset>}
           {completion?.delivery === 'saved' && (
             <p role="status" className="studio-export-completion">
-              Saved {completion.names.join(', ')}.
+              {folderName
+                ? `Saved to ${completion.names.map((name) => `${folderName} / ${name}`).join(', ')}.`
+                : `Saved ${completion.names.join(', ')}.`}
             </p>
           )}
           {completion?.delivery === 'download' && (
             <div className="studio-export-completion">
-              <p role="status">Download requested. Check your browser downloads.</p>
+              <p role="status">
+                {showDestination
+                  ? 'Download requested. Check your browser downloads for the file location.'
+                  : 'Download requested. Check your browser downloads.'}
+              </p>
               <ul className="studio-export-downloads">
                 {completion.files.map((file) => (
                   <li key={file.fileName}>
@@ -227,6 +238,11 @@ export function ExportDialogWindow({
           )}
           {activity && activity !== 'choosing' && (
             <div className="studio-export-progress">
+              {folderName && (
+                <p className="studio-export-destination" aria-live="polite">
+                  Selected folder <strong>{folderName}</strong>
+                </p>
+              )}
               <progress
                 aria-label="Export preparation"
                 {...(activity === 'preparing' && progressFraction !== null

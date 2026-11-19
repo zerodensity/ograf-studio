@@ -17,20 +17,21 @@ export interface MovieFrame {
  * A composition's timeline as a movie plays it: straight through from Start to End, waiting on
  * every Step the way a graphic waits on air.
  */
-export interface MovieTimeline {
+export interface MovieTiming {
   frameRate: number;
+  lastFrame: number;
   /** Frames the movie waits on each Step. */
   holdFrames: number;
   /** The composition frames of the Steps, in order. */
   stepFrames: readonly number[];
+  frameCount: number;
+}
+
+export interface MovieTimeline extends MovieTiming {
   frames: readonly MovieFrame[];
 }
 
-export function movieTimeline(
-  composition: Composition,
-  holdSeconds: number,
-  frameLimit = Number.POSITIVE_INFINITY,
-): MovieTimeline {
+export function movieTiming(composition: Composition, holdSeconds: number): MovieTiming {
   const frameRate = composition.frameRate;
   const holdFrames = Math.max(0, Math.round(holdSeconds * frameRate));
   const keyframes = computeKeyframeFrames(composition);
@@ -38,17 +39,27 @@ export function movieTimeline(
   const stepFrames = keyframes
     .filter((_, index) => composition.keyframes[index]?.role === 'step')
     .map(({ frame }) => frame);
-  const steps = new Set(stepFrames);
-  const frameCount = lastFrame + 1 + holdFrames * steps.size;
+  const frameCount = lastFrame + 1 + holdFrames * new Set(stepFrames).size;
+  return { frameRate, lastFrame, holdFrames, stepFrames, frameCount };
+}
+
+export function movieTimeline(
+  composition: Composition,
+  holdSeconds: number,
+  frameLimit = Number.POSITIVE_INFINITY,
+): MovieTimeline {
+  const timing = movieTiming(composition, holdSeconds);
+  const { lastFrame, holdFrames, stepFrames, frameCount } = timing;
   if (!Number.isSafeInteger(frameCount) || frameCount > frameLimit)
     throw new Error('The timeline has too many frames for this export. Reduce the Step hold time.');
+  const steps = new Set(stepFrames);
   const frames: MovieFrame[] = [];
   for (let frame = 0; frame <= lastFrame; frame += 1) {
     frames.push({ frame, heldHere: 0 });
     if (steps.has(frame))
       for (let held = 1; held <= holdFrames; held += 1) frames.push({ frame, heldHere: held });
   }
-  return { frameRate, holdFrames, stepFrames, frames };
+  return { ...timing, frames };
 }
 
 /** The time a movie has waited on Steps by one of its pictures, for the frame renderer. */
@@ -62,7 +73,7 @@ export function movieHold(timeline: MovieTimeline, at: MovieFrame): CaptureHold 
 }
 
 /** Seconds into the movie at which a composition frame is first shown. */
-export function movieSecondsAtFrame(timeline: MovieTimeline, frame: number): number {
+export function movieSecondsAtFrame(timeline: MovieTiming, frame: number): number {
   const passed = timeline.stepFrames.filter((step) => step < frame).length;
   return (frame + passed * timeline.holdFrames) / timeline.frameRate;
 }
@@ -90,11 +101,17 @@ export interface MovieSound {
  */
 export function movieSounds(
   composition: Composition,
-  timeline: MovieTimeline,
-  { startFrames = 0, endFrames = 0 }: { startFrames?: number; endFrames?: number } = {},
+  timeline: MovieTiming,
+  {
+    startFrames = 0,
+    endFrames = 0,
+    resolveSources = true,
+  }: { startFrames?: number; endFrames?: number; resolveSources?: boolean } = {},
 ): MovieSound[] {
   const keyframes = computeKeyframeFrames(composition);
   const sounds: MovieSound[] = [];
+  const audioUrl = (src: string) =>
+    resolveSources ? resolveAssetValue(src, composition.assets) : src;
   for (const cue of composition.mediaCues) {
     const source = cue.sources.find(({ id }) => id === cue.activeSourceId);
     if (!source || source.kind !== 'clip' || source.mediaType !== 'audio') continue;
@@ -109,7 +126,7 @@ export function movieSounds(
     if (frame === undefined) continue;
     const startSeconds = movieSecondsAtFrame(timeline, frame);
     sounds.push({
-      src: resolveAssetValue(source.src, composition.assets),
+      src: audioUrl(source.src),
       startSeconds,
       offsetSeconds: cue.trimStartMs / 1000,
       spanSeconds: cue.trimEndMs === null ? null : (cue.trimEndMs - cue.trimStartMs) / 1000,
@@ -125,7 +142,7 @@ export function movieSounds(
     if (element.type !== 'audio' || !element.src || !layer.isVisible || element.volume <= 0)
       continue;
     sounds.push({
-      src: resolveAssetValue(element.src, composition.assets),
+      src: audioUrl(element.src),
       startSeconds: movieSecondsAtFrame(
         timeline,
         (element.timelineStartMs / 1000) * timeline.frameRate,
@@ -142,9 +159,9 @@ export function movieSounds(
   const playable = sounds.filter(({ spanSeconds }) => spanSeconds === null || spanSeconds > 0);
   if (!startFrames && !endFrames) return playable;
 
-  const authoredDuration = timeline.frames.length / timeline.frameRate;
+  const authoredDuration = timeline.frameCount / timeline.frameRate;
   const offset = startFrames / timeline.frameRate;
-  const end = (timeline.frames.length + startFrames) / timeline.frameRate;
+  const end = (timeline.frameCount + startFrames) / timeline.frameRate;
   return playable
     .filter(({ startSeconds }) => startSeconds < authoredDuration)
     .map((sound) => {

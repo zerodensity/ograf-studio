@@ -80,6 +80,7 @@
 }
 
 .studio-export-completion,
+.studio-export-destination,
 .studio-export-file-list,
 .studio-export-downloads {
   overflow-wrap: anywhere;
@@ -161,6 +162,23 @@
 
 .studio-export-dialog footer {
   flex-wrap: wrap;
+}
+
+.studio-webm-bitrate {
+  display: grid;
+  gap: 6px;
+}
+
+.studio-webm-bitrate-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.studio-webm-bitrate input[type='range'] {
+  width: 100%;
+  margin: 0;
 }
 
 @media (max-width: 640px) {
