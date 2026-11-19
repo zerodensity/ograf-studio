@@ -12,6 +12,7 @@ import {
   assertStudioRendererPluginsAllowed,
   useRendererPluginSettingsStore,
 } from './pluginSettingsStore';
+import { resolveStudioRendererComposition } from './studioRendererResolution';
 import { compileDescriptor, type CompiledLayer } from '@ograf-editor/codegen';
 import {
   applyAnimatedPaint,
@@ -567,7 +568,7 @@ function buildCompositionDom(
         sequenceFrame(element, frame, composition.frameRate),
         {
           frameRate: composition.frameRate,
-          rendererPlugins: composition.rendererPlugins,
+          rendererPlugins: descriptor.rendererPlugins,
           chartMarkAnimations: layer.chartMarkAnimations,
           shaderBackingSize: shaderBackingSizeForLayer(layer),
           shaderStrokePadding: shaderStrokePaddingForLayer(layer),
@@ -604,10 +605,10 @@ function buildCompositionDom(
 
 async function captureComposition(
   request: AgentCaptureRequest,
+  composition: Composition,
   signal?: AbortSignal,
 ): Promise<AgentCaptureResult> {
   signal?.throwIfAborted();
-  const composition = compositionFor(request.project, request.compositionId);
   const totalFrames = getTotalFrames(composition);
   if (request.frame > totalFrames) {
     throw new Error(
@@ -984,14 +985,17 @@ export async function measureAgentText(
   );
 }
 
-/** What a capture needs before it mounts a composition: allowed plugins and the project's fonts. */
-async function acquireCaptureFonts(composition: Composition, signal?: AbortSignal) {
-  const plugins = compileDescriptor(composition).rendererPlugins ?? [];
-  if (plugins.length) {
+/** Preflight the same renderer snapshots the detached capture will mount. */
+async function acquireCaptureResources(authored: Composition, signal?: AbortSignal) {
+  if (authored.rendererPlugins?.length) {
     await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
     signal?.throwIfAborted();
-    assertStudioRendererPluginsAllowed(plugins);
   }
+  const composition = resolveStudioRendererComposition(
+    authored,
+    useRendererPluginSettingsStore.getState().installed,
+  );
+  assertStudioRendererPluginsAllowed(compileDescriptor(composition).rendererPlugins ?? []);
   const lease = acquireProjectFonts(document, composition.assets);
   try {
     await awaitExportOperation(lease.ready, signal);
@@ -1000,7 +1004,7 @@ async function acquireCaptureFonts(composition: Composition, signal?: AbortSigna
     lease.dispose();
     throw error;
   }
-  return lease;
+  return { composition, lease };
 }
 
 /** A composition mounted once and sampled frame by frame. */
@@ -1019,13 +1023,13 @@ export interface MountedCompositionFrames {
  * through html-to-image, which still handles patterns, effect filters and video.
  */
 export async function mountCompositionFrames(
-  composition: Composition,
+  authored: Composition,
   matte: string,
   signal?: AbortSignal,
   rasterSize?: { width: number; height: number },
 ): Promise<MountedCompositionFrames> {
   signal?.throwIfAborted();
-  const lease = await acquireCaptureFonts(composition, signal);
+  const { composition, lease } = await acquireCaptureResources(authored, signal);
   const layout = getCompositionOutputRect(composition);
   const output = rasterSize ?? layout;
   let wrapper: HTMLDivElement | undefined;
@@ -1104,12 +1108,12 @@ export async function captureAgentPng(
 ): Promise<AgentCaptureResult> {
   try {
     signal?.throwIfAborted();
-    const composition = compositionFor(request.project, request.compositionId);
-    const lease = await acquireCaptureFonts(composition, signal);
+    const authored = compositionFor(request.project, request.compositionId);
+    const { composition, lease } = await acquireCaptureResources(authored, signal);
     try {
       return await (request.target === 'viewport'
         ? captureViewport(request, signal)
-        : captureComposition(request, signal));
+        : captureComposition(request, composition, signal));
     } finally {
       lease.dispose();
     }

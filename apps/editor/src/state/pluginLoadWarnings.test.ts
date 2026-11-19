@@ -75,15 +75,26 @@ describe('blocking document plugin requirements', () => {
     });
   });
 
-  it('offers a trusted compatible different build at the same version without treating its name as trust', () => {
+  it('silently uses a trusted compatible same-version build while leaving the saved chart intact', () => {
     const replacement = plugin('1.0.0', 'export default {apiVersion:1,create(){/* revision */}};');
     const project = fixture().project;
-    expect(warnings(project, [installed(replacement)])[0]).toMatchObject({
-      reason: 'not-installed',
-      replacement: studioPluginReference(replacement),
-      replacementErrors: [],
-    });
+    const original = structuredClone(project);
+    expect(warnings(project, [installed(replacement)])).toEqual([]);
+    expect(project).toEqual(original);
     expect(warnings(project, [installed(replacement, false)])[0]?.replacement).toBeNull();
+    expect(warnings(project, [installed(replacement, true, false)])[0]?.replacement).toBeNull();
+  });
+
+  it('warns when a same-version installed build cannot render a saved chart type', () => {
+    const replacement = createRendererPluginSnapshot({
+      ...saved,
+      manifest: { ...saved.manifest, presets: ['line'] },
+    });
+    expect(warnings(fixture().project, [installed(replacement)])[0]).toMatchObject({
+      reason: 'not-installed',
+      replacement: null,
+      replacementErrors: [expect.stringContaining('chart type not supported')],
+    });
   });
 
   it('does not offer a migration whose preflight would alter locked objects', () => {

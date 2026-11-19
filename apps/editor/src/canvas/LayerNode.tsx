@@ -14,9 +14,11 @@ import {
   shaderParameterTarget,
   type Element,
   type Asset,
+  type ChartElement,
   type FieldDefinition,
   type Layer,
   type LayerTransform,
+  type RendererPluginSnapshot,
   type TextElement,
   type TilingPattern,
 } from '@ograf-editor/scene-model';
@@ -75,6 +77,8 @@ import {
 interface LayerNodeProps {
   renderActive?: boolean;
   layer: Layer;
+  rendererSnapshots?: RendererPluginSnapshot[];
+  rendererChart?: Pick<ChartElement, 'provider'>;
   pose: LayerTransform;
   isSelected: boolean;
   onSelect: (modifiers: {
@@ -120,6 +124,8 @@ function emptyContentLabel(element: Element): string | null {
 export function LayerNode({
   renderActive = true,
   layer,
+  rendererSnapshots,
+  rendererChart,
   pose: authoredTransform,
   isSelected,
   onSelect,
@@ -147,10 +153,7 @@ export function LayerNode({
   compositionRef.current = composition;
   const projectId = useProjectStore((state) => state.project.id);
   const compositionLayers = composition.layers;
-  const rendererPlugins = useMemo(
-    () => composition.rendererPlugins ?? [],
-    [composition.rendererPlugins],
-  );
+  const rendererPlugins = useMemo(() => rendererSnapshots ?? [], [rendererSnapshots]);
   const pluginPolicyRevision = useRendererPluginSettingsStore((state) => state.revision);
   // Rules on any layer may drive this one; one shared evaluation serves every canvas node.
   const currentRuleEffect = editorVisualRuleEffects(
@@ -206,10 +209,14 @@ export function LayerNode({
       };
     }
   }, [assets, dataFields, layer, testValues, patterns, ruleEffect]);
-  const element = useMemo(
-    () => prepareModifierTextElement(resolvedContent.element, layer.modifiers),
-    [resolvedContent.element, layer.modifiers],
-  );
+  const element = useMemo(() => {
+    const content = resolvedContent.element;
+    const rendered =
+      content.type === 'chart' && rendererChart && content.provider !== rendererChart.provider
+        ? { ...content, provider: rendererChart.provider }
+        : content;
+    return prepareModifierTextElement(rendered, layer.modifiers);
+  }, [resolvedContent.element, rendererChart, layer.modifiers]);
   const effectiveVisible = resolveEffectiveVisibility(layer, testValues, dataFields, ruleEffect);
   const chartMarkContent = useMemo(() => {
     try {

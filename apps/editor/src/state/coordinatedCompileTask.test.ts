@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExportArtifacts, ExportProfile } from '@ograf-editor/codegen';
-import { createProject } from '@ograf-editor/scene-model';
+import { createProject, createRendererPluginSnapshot } from '@ograf-editor/scene-model';
+import { useRendererPluginSettingsStore } from './pluginSettingsStore';
 import { createProjectSet } from './projectSet';
 
 const compile = vi.hoisted(() => vi.fn());
@@ -61,6 +62,51 @@ afterEach(() => {
 });
 
 describe('responsive coordinated compilation task', () => {
+  it('passes trusted installed matching versions to the worker', async () => {
+    vi.stubGlobal('Worker', CompileWorker);
+    const source = fixture();
+    const saved = createRendererPluginSnapshot({
+      manifest: {
+        schemaVersion: 1,
+        apiVersion: 1,
+        kind: 'chart',
+        id: 'test.chart',
+        version: '1.0.0',
+        name: 'Test chart',
+        presets: ['bar'],
+        license: 'MIT',
+      },
+      source: '// saved build\nexport default {};',
+      licenseText: 'MIT',
+    });
+    const local = createRendererPluginSnapshot({
+      manifest: saved.manifest,
+      source: '// installed build\nexport default {};',
+      licenseText: saved.licenseText,
+    });
+    source.templates[0]!.project.compositions[0]!.rendererPlugins = [saved];
+    const entry = { snapshot: local, installedAt: '', enabled: true, trusted: true };
+    const { installed, initialize } = useRendererPluginSettingsStore.getState();
+    try {
+      useRendererPluginSettingsStore.setState({
+        installed: [entry],
+        initialize: async () => {},
+      });
+      const task = buildCoordinatedProjectSetArtifactsTask(source, dualProfile);
+      await vi.waitFor(() => expect(CompileWorker.instances).toHaveLength(1));
+      const worker = CompileWorker.instances[0]!;
+      expect(worker.postMessage).toHaveBeenCalledWith({
+        set: source,
+        profile: dualProfile,
+        installed: [entry],
+      });
+      worker.emit({ type: 'complete', artifacts });
+      await expect(task).resolves.toBe(artifacts);
+    } finally {
+      useRendererPluginSettingsStore.setState({ installed, initialize });
+    }
+  });
+
   it('uses a module worker and returns its exact compiled snapshot without mutating source', async () => {
     vi.stubGlobal('Worker', CompileWorker);
     const source = fixture(),

@@ -5,12 +5,18 @@ import {
   type ExportProfile,
 } from '@ograf-editor/codegen';
 import { componentLibraryFromTemplates } from './componentSetLibrary';
+import type { InstalledStudioPlugin } from './pluginSettingsStore';
 import { resolveProjectSetTemplate, type ProjectSetDocument } from './projectSet';
+import {
+  resolveStudioRendererComponent,
+  resolveStudioRendererProject,
+} from './studioRendererResolution';
 
 /** Pure compilation shared by workers, packages and non-browser callers. */
 export function buildCoordinatedProjectSetArtifacts(
   set: ProjectSetDocument,
   profile?: ExportProfile,
+  installed: readonly InstalledStudioPlugin[] = [],
 ): ExportArtifacts {
   const snapshot = structuredClone(set);
   if (!snapshot.transitionLogic)
@@ -25,9 +31,14 @@ export function buildCoordinatedProjectSetArtifacts(
       templates: snapshot.templates.map((template) => ({
         id: template.id,
         name: template.name,
-        project: resolveProjectSetTemplate(snapshot, template.id),
+        project: resolveStudioRendererProject(
+          resolveProjectSetTemplate(snapshot, template.id),
+          installed,
+        ),
       })),
-      componentAssets: componentLibraryFromTemplates(snapshot),
+      componentAssets: componentLibraryFromTemplates(snapshot).map((component) =>
+        resolveStudioRendererComponent(component, installed),
+      ),
     },
     graphicRuntimeSource,
     profile,

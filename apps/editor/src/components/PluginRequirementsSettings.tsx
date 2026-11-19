@@ -8,7 +8,11 @@ import { useConfigurationRequestStore } from '../state/configurationRequestStore
 import { useProjectSetStore } from '../state/projectSetStore';
 import { resolveProjectSetTemplate } from '../state/projectSet';
 import { useProjectStore } from '../state/projectStore';
-import { useRendererPluginSettingsStore } from '../state/pluginSettingsStore';
+import { collectPluginLoadWarnings } from '../state/pluginLoadWarnings';
+import {
+  isInstalledChartPlugin,
+  useRendererPluginSettingsStore,
+} from '../state/pluginSettingsStore';
 import { requiredProjectStudioPlugins } from './configurationPlugins';
 import { applicationComponents, applicationProjectUsage } from './configurationApplications';
 
@@ -18,6 +22,8 @@ export function PluginRequirementsSettings({ scope }: { scope: 'template-set' | 
   const projectSet = useProjectSetStore((state) => state.projectSet);
   const activeTemplateId = useProjectSetStore((state) => state.activeTemplateId);
   const installed = useRendererPluginSettingsStore((state) => state.installed);
+  const initialized = useRendererPluginSettingsStore((state) => state.initialized);
+  const loading = useRendererPluginSettingsStore((state) => state.loading);
   const initialize = useRendererPluginSettingsStore((state) => state.initialize);
   useEffect(() => {
     void initialize();
@@ -73,6 +79,20 @@ export function PluginRequirementsSettings({ scope }: { scope: 'template-set' | 
       ),
     );
   }, [scope, projectSet, activeTemplateId, project]);
+  const blockedCharts = useMemo(
+    () =>
+      new Set(
+        collectPluginLoadWarnings({
+          project,
+          projectSet: scope === 'template-set' ? projectSet : null,
+          activeTemplateId,
+          installed,
+          initialized,
+          loading,
+        }).flatMap(({ reference }) => (reference ? [rendererPluginKey(reference)] : [])),
+      ),
+    [scope, projectSet, activeTemplateId, project, installed, initialized, loading],
+  );
   if (scope === 'template-set' && !projectSet)
     return <p>Create or open a template set to see its plugin requirements.</p>;
   return (
@@ -97,21 +117,41 @@ export function PluginRequirementsSettings({ scope }: { scope: 'template-set' | 
           const local = installed.find(
             (entry) => rendererPluginKey(studioPluginReference(entry.snapshot)) === key,
           );
+          const chart = snapshot.manifest.kind === 'chart';
+          const blocked = chart && blockedCharts.has(key);
+          const usesInstalledVersion =
+            chart &&
+            initialized &&
+            !loading &&
+            !blocked &&
+            installed.some(
+              (entry) =>
+                isInstalledChartPlugin(entry) &&
+                entry.trusted &&
+                entry.enabled &&
+                entry.snapshot.manifest.id === reference.id &&
+                entry.snapshot.manifest.version === reference.version,
+            );
+          const usesReplacement = usesInstalledVersion && !(local?.enabled && local.trusted);
           return (
             <article className="plugin-requirement" key={key}>
               <header>
                 <strong>{applicationComponents(snapshot).name}</strong>
                 <span>{reference.version}</span>
                 <small>
-                  {local?.bundled
-                    ? local.enabled
-                      ? 'Included with Studio'
-                      : 'Included with Studio · Disabled'
-                    : local?.trusted && local.enabled
+                  {blocked && local?.enabled && local.trusted
+                    ? 'Unavailable in Studio'
+                    : usesReplacement
                       ? 'Available in Studio'
-                      : local
-                        ? 'Disabled or awaiting review'
-                        : 'Saved in document'}
+                      : local?.bundled
+                        ? local.enabled
+                          ? 'Included with Studio'
+                          : 'Included with Studio · Disabled'
+                        : local?.trusted && local.enabled
+                          ? 'Available in Studio'
+                          : local
+                            ? 'Disabled or awaiting review'
+                            : 'Saved in document'}
                 </small>
               </header>
               <p>
@@ -127,7 +167,11 @@ export function PluginRequirementsSettings({ scope }: { scope: 'template-set' | 
                 onClick={() =>
                   useConfigurationRequestStore
                     .getState()
-                    .openSettings(reference.id, snapshot.manifest.kind, key)
+                    .openSettings(
+                      reference.id,
+                      snapshot.manifest.kind,
+                      usesReplacement ? undefined : key,
+                    )
                 }
               >
                 Manage installed plugin…

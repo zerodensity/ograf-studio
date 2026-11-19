@@ -17,7 +17,7 @@ const warning: PluginLoadWarning = {
   reference: { id: 'chart.test', version: '1.3.1', sha256: 'a'.repeat(64) },
   replacement: { id: 'chart.test', version: '1.3.1', sha256: 'b'.repeat(64) },
   pluginName: 'Chart.js renderer',
-  reason: 'not-installed',
+  reason: 'missing-bundle',
   objects: 1,
   componentObjects: 0,
   replacementErrors: [],
@@ -47,12 +47,13 @@ function render(row = warning, active = true) {
 }
 
 describe('plugin load warning dialog', () => {
-  it('makes the blocked template and exact same-version build difference explicit without applying it', () => {
+  it('shows manual repair for missing saved code even when an installed version matches', () => {
     const { html, actions } = render();
     expect(html).toContain('role="alertdialog"');
     expect(html).toContain('Plugin mismatch — charts unavailable');
     expect(html).toContain('NFL Review Set');
     expect(html).toContain('A20 — Win Probability');
+    expect(html).toContain('The renderer code is missing from the document.');
     expect(html).toContain('The version numbers match, but these are different renderer builds.');
     expect(html).toContain('a'.repeat(64));
     expect(html).toContain('b'.repeat(64));
