@@ -41,7 +41,7 @@ import {
   type DockPaneId,
 } from '../layout/dockModel';
 import { selectableLayerIds } from '../state/selectAllLayers';
-import { requestStudioExport } from '../state/studioExportDialogStore';
+import { requestStudioExport, type StudioExportRequest } from '../state/studioExportDialogStore';
 import './Menubar.css';
 import { useDetachedWindows } from '../layout/detachedWindowContext';
 import { duplicateSelectedLayers } from '../state/editorShortcuts';
@@ -157,6 +157,13 @@ export function Menubar({
     setWindowMenuOpen(false);
     setWorkspacesOpen(false);
     setHelpMenuOpen(false);
+  };
+  const openExportDialog = (trigger: HTMLElement, kind: StudioExportRequest['kind']) => {
+    const focusTarget =
+      fileMenuRef.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]') ??
+      trigger;
+    closeMenus();
+    requestStudioExport(focusTarget, kind);
   };
   const history = useSyncExternalStore(subscribeHistory, getHistorySnapshot, getHistorySnapshot);
   const agentConnected = useAgentBridgeStatus((state) => state.connected);
@@ -757,18 +764,27 @@ export function Menubar({
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={(event) => {
-                    const focusTarget =
-                      fileMenuRef.current?.querySelector<HTMLButtonElement>(
-                        'button[aria-haspopup="menu"]',
-                      ) ?? event.currentTarget;
-                    closeMenus();
-                    requestStudioExport(focusTarget);
-                  }}
-                  title="Open the export options for the current template or template set."
+                  onClick={(event) => openExportDialog(event.currentTarget, 'ograf')}
+                  title="Export an OGraf package or standalone HTML for the current template or template set."
                 >
                   <span aria-hidden="true" />
-                  Export…
+                  Export OGraf…
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={
+                    !!projectSet &&
+                    !projectSet.templates.some(
+                      (member) =>
+                        member.id === activeTemplateId && member.project.id === project.id,
+                    )
+                  }
+                  onClick={(event) => openExportDialog(event.currentTarget, 'video')}
+                  title="Export the current template as a WebM video or PNG image sequence."
+                >
+                  <span aria-hidden="true" />
+                  Export Video…
                 </button>
                 <div className="menubar-menu-separator" role="separator" />
                 <button

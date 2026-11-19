@@ -1,7 +1,9 @@
 import { NLE_EXPORT_PROFILE, compositionForExportProfile } from '@ograf-editor/codegen';
 import type { Composition, Project } from '@ograf-editor/scene-model';
+import JSZip from 'jszip';
 import { mountCompositionFrames } from './agentCapture';
 import { awaitExportOperation } from './exportAbort';
+import { generateExportZip } from './exportZip';
 import type { ExportFile } from './offlinePreviewPackage';
 import { movieHold, movieSounds, movieTimeline, type MovieSound } from './videoExportTimeline';
 import { writeWebm, type WebmAudioTrack, type WebmColour, type WebmFrame } from './webmFile';
@@ -9,13 +11,20 @@ import { writeWebm, type WebmAudioTrack, type WebmColour, type WebmFrame } from 
 export type WebmExportProgress =
   { stage: 'picture'; frame: number; frames: number } | { stage: 'sound' } | { stage: 'file' };
 
-export interface WebmExportOptions {
+interface VideoFrameExportOptions {
   /** Keep what the graphic does not cover see-through, instead of filling it. */
   transparent: boolean;
   /** Seconds the movie waits on each Step, as a graphic waits on air. */
   holdSeconds: number;
+  /** Raster size after cropping and rendering the authored composition. */
+  size?: { width: number; height: number };
   signal: AbortSignal;
   onProgress?: (progress: WebmExportProgress) => void;
+}
+
+export interface WebmExportOptions extends VideoFrameExportOptions {
+  /** Total target bitrate in bits per second for color and transparency. */
+  bitrate?: number;
 }
 
 const SOUND_RATE = 48_000;
@@ -56,6 +65,25 @@ export function webmExportSupported(): boolean {
     typeof AudioEncoder === 'function' &&
     typeof VideoFrame === 'function' &&
     typeof OfflineAudioContext === 'function'
+  );
+}
+
+function mountVideoExportFrames(
+  composition: Composition,
+  { transparent, signal, size }: VideoFrameExportOptions,
+) {
+  if (
+    size &&
+    [size.width, size.height].some(
+      (dimension) => !Number.isInteger(dimension) || dimension < 1 || dimension > 0xffffffff,
+    )
+  )
+    throw new Error('Enter positive whole pixel dimensions for the export size.');
+  return mountCompositionFrames(
+    transparent ? compositionForExportProfile(composition, NLE_EXPORT_PROFILE) : composition,
+    transparent ? 'transparent' : '#000000',
+    signal,
+    size,
   );
 }
 
@@ -259,40 +287,52 @@ async function encodeSound(
 export async function prepareWebmExportFile(
   project: Project,
   composition: Composition,
-  { transparent, holdSeconds, signal, onProgress }: WebmExportOptions,
+  options: WebmExportOptions,
 ): Promise<ExportFile> {
+  const { transparent, holdSeconds, signal, onProgress, bitrate } = options;
   if (!webmExportSupported())
     throw new Error('This browser cannot encode video. Use a current Chrome or Edge for WebM.');
   signal.throwIfAborted();
+  if (bitrate !== undefined && (!Number.isSafeInteger(bitrate) || bitrate < 1))
+    throw new Error('Enter a positive target video bitrate.');
+  if (transparent && bitrate === 1)
+    throw new Error('Transparent video needs a target bitrate of at least 2 bits per second.');
   const timeline = movieTimeline(composition, holdSeconds);
   const { frameRate } = timeline;
   const frameCount = timeline.frames.length;
-  const mounted = await mountCompositionFrames(
-    transparent ? compositionForExportProfile(composition, NLE_EXPORT_PROFILE) : composition,
-    transparent ? 'transparent' : '#000000',
-    signal,
-  );
+  const mounted = await mountVideoExportFrames(composition, options);
   // VP9 pictures store colour at half size, so the picture's sides are made even.
   const width = mounted.width + (mounted.width % 2);
   const height = mounted.height + (mounted.height % 2);
+  const autoBitrate = Math.round(Math.min(40e6, Math.max(1e6, width * height * frameRate * 0.03)));
+  const alphaBitrate = transparent
+    ? bitrate === undefined
+      ? Math.round(autoBitrate / 2)
+      : Math.max(1, Math.round(bitrate / 3))
+    : 0;
   const config: VideoEncoderConfig = {
     codec: vp9Codec(width, height, frameRate),
     width,
     height,
     framerate: frameRate,
-    bitrate: Math.round(Math.min(40e6, Math.max(1e6, width * height * frameRate * 0.03))),
+    bitrate: bitrate === undefined ? autoBitrate : bitrate - alphaBitrate,
     latencyMode: 'quality',
   };
   const encoders: ReturnType<typeof pictureEncoder>[] = [];
   try {
-    if (!(await VideoEncoder.isConfigSupported(config)).supported)
-      throw new Error(`This browser cannot encode a ${width} × ${height} WebM.`);
+    const alphaConfig = transparent ? { ...config, bitrate: alphaBitrate } : null;
+    if (
+      !(await VideoEncoder.isConfigSupported(config)).supported ||
+      (alphaConfig && !(await VideoEncoder.isConfigSupported(alphaConfig)).supported)
+    )
+      throw new Error(
+        `This browser cannot encode a ${width} × ${height} WebM at the selected bitrate.`,
+      );
+    signal.throwIfAborted();
     const colourEncoder = pictureEncoder(config);
     encoders.push(colourEncoder);
     // Transparency is a second picture stream whose brightness is the alpha.
-    const alphaEncoder = transparent
-      ? pictureEncoder({ ...config, bitrate: Math.round(config.bitrate! / 2) })
-      : null;
+    const alphaEncoder = alphaConfig ? pictureEncoder(alphaConfig) : null;
     if (alphaEncoder) encoders.push(alphaEncoder);
 
     const work = document.createElement('canvas');
@@ -378,4 +418,59 @@ export async function prepareWebmExportFile(
     for (const encoder of encoders) encoder.close();
     mounted.dispose();
   }
+}
+
+/** Render the movie timeline to ordered PNGs, holding only one uncompressed picture at a time. */
+export async function preparePngSequenceExportFile(
+  project: Project,
+  composition: Composition,
+  options: VideoFrameExportOptions,
+): Promise<ExportFile> {
+  const { holdSeconds, signal, onProgress } = options;
+  signal.throwIfAborted();
+  // JSZip writes ZIP32. Stay below the ZIP64 sentinel values for the directory and offsets.
+  const timeline = movieTimeline(composition, holdSeconds, 0xfffe);
+  const frameCount = timeline.frames.length;
+  const digits = Math.max(4, String(frameCount).length);
+  const zip = new JSZip();
+  let archiveSize = 22;
+  const mounted = await mountVideoExportFrames(composition, options);
+  try {
+    for (const [index, movieFrame] of timeline.frames.entries()) {
+      signal.throwIfAborted();
+      const canvas = await mounted.canvasAt(movieFrame.frame, movieHold(timeline, movieFrame));
+      try {
+        const png = await awaitExportOperation(
+          new Promise<Blob>((resolve, reject) => {
+            canvas.toBlob((blob) => {
+              if (blob?.size) resolve(blob);
+              else reject(new Error('The browser could not encode the PNG at this size.'));
+            }, 'image/png');
+          }),
+          signal,
+        );
+        const name = `frame-${String(index + 1).padStart(digits, '0')}.png`;
+        // Local header, data descriptor, central directory entry, and two ASCII filenames.
+        archiveSize += png.size + 92 + 2 * name.length;
+        if (archiveSize >= 0xffffffff)
+          throw new Error('The PNG sequence exceeds the ZIP size limit. Export at a smaller size.');
+        zip.file(name, await awaitExportOperation(png.arrayBuffer(), signal), {
+          compression: 'STORE',
+        });
+      } finally {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      onProgress?.({ stage: 'picture', frame: index + 1, frames: frameCount });
+    }
+  } finally {
+    mounted.dispose();
+  }
+  signal.throwIfAborted();
+  onProgress?.({ stage: 'file' });
+  return {
+    format: 'png-sequence',
+    fileName: `${project.name || 'untitled'}.png-sequence.zip`,
+    blob: await generateExportZip(zip, signal),
+  };
 }

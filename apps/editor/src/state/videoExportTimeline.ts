@@ -26,7 +26,11 @@ export interface MovieTimeline {
   frames: readonly MovieFrame[];
 }
 
-export function movieTimeline(composition: Composition, holdSeconds: number): MovieTimeline {
+export function movieTimeline(
+  composition: Composition,
+  holdSeconds: number,
+  frameLimit = Number.POSITIVE_INFINITY,
+): MovieTimeline {
   const frameRate = composition.frameRate;
   const holdFrames = Math.max(0, Math.round(holdSeconds * frameRate));
   const keyframes = computeKeyframeFrames(composition);
@@ -34,10 +38,14 @@ export function movieTimeline(composition: Composition, holdSeconds: number): Mo
   const stepFrames = keyframes
     .filter((_, index) => composition.keyframes[index]?.role === 'step')
     .map(({ frame }) => frame);
+  const steps = new Set(stepFrames);
+  const frameCount = lastFrame + 1 + holdFrames * steps.size;
+  if (!Number.isSafeInteger(frameCount) || frameCount > frameLimit)
+    throw new Error('The timeline has too many frames for this export. Reduce the Step hold time.');
   const frames: MovieFrame[] = [];
   for (let frame = 0; frame <= lastFrame; frame += 1) {
     frames.push({ frame, heldHere: 0 });
-    if (stepFrames.includes(frame))
+    if (steps.has(frame))
       for (let held = 1; held <= holdFrames; held += 1) frames.push({ frame, heldHere: held });
   }
   return { frameRate, holdFrames, stepFrames, frames };

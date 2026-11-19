@@ -2108,11 +2108,11 @@ export function SingleTemplatePreviewExportPanel() {
         >
           <div className="preview-controls-row">
             <button type="button" onClick={(event) => requestStudioExport(event.currentTarget)}>
-              Export…
+              Export OGraf…
             </button>
           </div>
           <p className="panel-placeholder">
-            Choose the scope, files, thumbnail and destination in the Export dialog.
+            Choose the scope, files, thumbnail and destination in the Export OGraf dialog.
           </p>
           {hasCurrentTemplate && (
             <>
