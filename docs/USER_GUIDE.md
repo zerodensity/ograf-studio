@@ -538,8 +538,10 @@ proportions as you edit either dimension. The fields start at the template's out
 its crop. The size settings apply to the export and leave the editable canvas intact. WebM pads
 odd dimensions to the next even pixel. PNG uses the requested dimensions exactly.
 
-Enter a target video bitrate in Mb/s for WebM, or leave it on **Auto**. When transparency is on,
-the bitrate covers the color and alpha streams together. Audio is encoded separately.
+For WebM, use the **Video bitrate** slider to change the target in Mb/s, or choose **Reset to Auto**.
+**Estimated file size** updates as you adjust the bitrate or export duration. When transparency is
+on, the target covers the color and alpha streams together. The estimate includes scheduled audio.
+The actual file size varies with the graphic and the encoder.
 
 Studio renders from Start to End at the template's frame rate. **Hold on each step** adds time at
 each Step while loops continue playing. **Transparent background** preserves alpha where authored
@@ -559,7 +561,9 @@ each frame straight from the page, and renders up to four frames in each screen 
 is hidden or covered during a render, Studio finishes that export with its slower frame copies.
 
 For WebM, choose **Save files…** to select a folder or **Download instead** for browser delivery.
-The window reports rendering progress and lets you cancel. Keep Studio's tab in front while it renders.
+While rendering, Studio keeps the last thumbnail visible and reports the current frame and total.
+For folder saves, the completed export shows the selected folder and saved names. For downloads,
+use your browser's Downloads list to locate the file. Keep Studio's tab in front while it renders.
 
 ### Load an exported graphic in Nodos
 

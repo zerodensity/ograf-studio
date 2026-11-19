@@ -22,6 +22,12 @@ import {
   type MovieSound,
   type MovieTimeline,
 } from './videoExportTimeline';
+import {
+  WEBM_AUDIO_BITRATE,
+  webmMovieTiming,
+  webmRasterSize,
+  webmVideoBitrates,
+} from './webmExportSettings';
 import { writeWebm, type WebmAudioTrack, type WebmColour, type WebmFrame } from './webmFile';
 
 export type WebmExportProgress =
@@ -281,7 +287,7 @@ async function encodeSound(
       codec: 'opus',
       sampleRate: SOUND_RATE,
       numberOfChannels: SOUND_CHANNELS,
-      bitrate: 128_000,
+      bitrate: WEBM_AUDIO_BITRATE,
     });
     const channels = Array.from({ length: SOUND_CHANNELS }, (_, index) =>
       mixed.getChannelData(index),
@@ -345,32 +351,30 @@ export async function prepareWebmExportFile(
   if (transparent && bitrate === 1)
     throw new Error('Transparent video needs a target bitrate of at least 2 bits per second.');
   const timeline = movieTimeline(composition, holdSeconds);
-  const { frameRate } = timeline;
-  const startFrames = options.blackFrameAtStart ? 1 : 0;
-  const endFrames = options.blackFrameAtEnd ? 1 : 0;
-  const authoredFrames = timeline.frames.length;
-  const frameCount = startFrames + authoredFrames + endFrames;
+  const { frameRate, frameCount: authoredFrames } = timeline;
+  const { startFrames, endFrames, frameCount, durationSeconds } = webmMovieTiming(
+    timeline,
+    options,
+  );
   const mounted = await mountVideoExportFrames(
     composition,
     options,
     authoredFrames,
     WEBM_FRAME_COPIES,
   );
-  // VP9 pictures store colour at half size, so the picture's sides are made even.
-  const width = mounted.width + (mounted.width % 2);
-  const height = mounted.height + (mounted.height % 2);
-  const autoBitrate = Math.round(Math.min(40e6, Math.max(1e6, width * height * frameRate * 0.03)));
-  const alphaBitrate = transparent
-    ? bitrate === undefined
-      ? Math.round(autoBitrate / 2)
-      : Math.max(1, Math.round(bitrate / 3))
-    : 0;
+  const raster = webmRasterSize(mounted);
+  const { width, height } = raster;
+  const { colour: colourBitrate, alpha: alphaBitrate } = webmVideoBitrates(
+    raster,
+    frameRate,
+    options,
+  );
   const config: VideoEncoderConfig = {
     codec: vp9Codec(width, height, frameRate),
     width,
     height,
     framerate: frameRate,
-    bitrate: bitrate === undefined ? autoBitrate : bitrate - alphaBitrate,
+    bitrate: colourBitrate,
     latencyMode: 'quality',
   };
   const encoders: ReturnType<typeof pictureEncoder>[] = [];
@@ -494,7 +498,7 @@ export async function prepareWebmExportFile(
     onProgress?.({ stage: 'sound' });
     const audio = await encodeSound(
       movieSounds(composition, timeline, { startFrames, endFrames }),
-      frameCount / frameRate,
+      durationSeconds,
       signal,
     );
 

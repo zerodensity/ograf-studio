@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import {
   getCompositionOutputRect,
   hasElementMediaPaint,
@@ -10,11 +10,23 @@ import { useProjectSetStore } from '../state/projectSetStore';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import type { StudioExportRequest } from '../state/studioExportDialogStore';
 import type { WebmExportProgress } from '../state/videoExport';
+import { estimateWebmExport, webmRasterSize } from '../state/webmExportSettings';
 import { ExportDialogWindow } from './ExportDialogWindow';
 import { ExportThumbnail } from './ExportThumbnail';
 
 type VideoFormat = 'webm' | 'png-frames';
 type SizeDraft = { width: string; height: string };
+const BITS_PER_MEGABIT = 1_000_000;
+
+function formatEstimatedBytes(bytes: number): string {
+  const [scale, unit]: [number, string] =
+    bytes >= 1_000_000_000
+      ? [1_000_000_000, 'GB']
+      : bytes >= 1_000_000
+        ? [1_000_000, 'MB']
+        : [1_000, 'kB'];
+  return `${(bytes / scale).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`;
+}
 
 function isPixelSize(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
@@ -66,28 +78,54 @@ function VideoExportOptions({
   const [holdDraft, setHoldDraft] = useState('3');
   const [lockAspect, setLockAspect] = useState(true);
   const [sizeDraft, setSizeDraft] = useState<SizeDraft | null>(null);
-  const [bitrateDraft, setBitrateDraft] = useState('');
+  const [bitrate, setBitrate] = useState<number>();
   const [blackFrameAtStart, setBlackFrameAtStart] = useState(false);
   const [blackFrameAtEnd, setBlackFrameAtEnd] = useState(false);
+  const bitrateId = useId();
   const native = getCompositionOutputRect(composition);
   const draft = sizeDraft ?? { width: String(native.width), height: String(native.height) };
   const width = Number(draft.width);
   const height = Number(draft.height);
   const holdSeconds = Number(holdDraft);
   const webm = format === 'webm';
-  const bitrate =
-    webm && bitrateDraft.trim() !== '' ? Math.round(Number(bitrateDraft) * 1_000_000) : undefined;
   const invalidSize = !isPixelSize(width) || !isPixelSize(height);
   const invalidHold =
     holdDraft.trim() === '' ||
     !Number.isFinite(holdSeconds) ||
     holdSeconds < 0 ||
     holdSeconds > 600;
-  const invalidBitrate =
-    bitrate !== undefined && (!Number.isSafeInteger(bitrate) || bitrate < (transparent ? 2 : 1));
-  const invalidSettings = invalidSize || invalidHold || invalidBitrate;
-  const webmWidth = width + (width % 2);
-  const webmHeight = height + (height % 2);
+  const invalidSettings = invalidSize || invalidHold;
+  const estimate = useMemo(
+    () =>
+      webm && !invalidSettings
+        ? estimateWebmExport(composition, {
+            transparent,
+            holdSeconds,
+            size: { width, height },
+            bitrate,
+            blackFrameAtStart,
+            blackFrameAtEnd,
+          })
+        : null,
+    [
+      webm,
+      invalidSettings,
+      composition,
+      transparent,
+      holdSeconds,
+      width,
+      height,
+      bitrate,
+      blackFrameAtStart,
+      blackFrameAtEnd,
+    ],
+  );
+  const targetMegabits = (estimate?.videoBitrate ?? bitrate ?? BITS_PER_MEGABIT) / BITS_PER_MEGABIT;
+  const targetLabel = `${targetMegabits.toLocaleString(undefined, { maximumFractionDigits: 2 })} Mb/s`;
+  const bitrateLabel =
+    bitrate === undefined ? (estimate ? `Auto · ${targetLabel}` : 'Auto') : targetLabel;
+  const estimatedSize = estimate ? formatEstimatedBytes(estimate.estimatedBytes) : '—';
+  const { width: webmWidth, height: webmHeight } = webmRasterSize({ width, height });
   const fileName = getUnnumberedExportFileName({
     format: 'webm',
     fileName: `${project.name || 'untitled'}.webm`,
@@ -148,6 +186,7 @@ function VideoExportOptions({
       subject={project.name}
       preparationMessage="Preparing the frames…"
       disabled={invalidSettings || !hasCurrentTemplate}
+      showDestination
       {...(webm
         ? {
             prepare: async (signal, reportProgress) => {
@@ -174,14 +213,13 @@ function VideoExportOptions({
         <>
           <div className="studio-export-preview">
             <p>Preview</p>
-            {!busy && (
-              <ExportThumbnail
-                project={project}
-                composition={composition}
-                frame={project.thumbnailFrame ?? null}
-                nleExport={transparent}
-              />
-            )}
+            <ExportThumbnail
+              project={project}
+              composition={composition}
+              frame={project.thumbnailFrame ?? null}
+              nleExport={transparent}
+              frozen={busy}
+            />
           </div>
           <div className="studio-export-options">
             <label>
@@ -249,24 +287,41 @@ function VideoExportOptions({
               </p>
             )}
             {webm && (
-              <label>
-                Video bitrate (Mb/s)
+              <div className="studio-webm-bitrate">
+                <div className="studio-webm-bitrate-line">
+                  <label htmlFor={bitrateId}>Video bitrate</label>
+                  <output htmlFor={bitrateId}>{bitrateLabel}</output>
+                </div>
                 <input
-                  type="number"
-                  min={0.000001}
-                  step="any"
-                  placeholder="Auto"
-                  value={bitrateDraft}
-                  aria-invalid={invalidBitrate}
+                  id={bitrateId}
+                  type="range"
+                  min={0.1}
+                  max={60}
+                  step={0.1}
+                  value={Math.round(targetMegabits * 10) / 10}
+                  aria-valuetext={bitrateLabel}
+                  aria-describedby={`${bitrateId}-estimate`}
                   onChange={(event) => {
-                    setBitrateDraft(event.currentTarget.value);
+                    setBitrate(Math.round(event.currentTarget.valueAsNumber * BITS_PER_MEGABIT));
                     clearError();
                   }}
                 />
-              </label>
-            )}
-            {invalidBitrate && (
-              <p role="alert">Enter a positive video bitrate or leave it blank for Auto.</p>
+                <div className="studio-webm-bitrate-line">
+                  <p id={`${bitrateId}-estimate`}>
+                    Estimated file size <strong>{estimatedSize}</strong>
+                  </p>
+                  <button
+                    type="button"
+                    disabled={bitrate === undefined}
+                    onClick={() => {
+                      setBitrate(undefined);
+                      clearError();
+                    }}
+                  >
+                    Reset to Auto
+                  </button>
+                </div>
+              </div>
             )}
             <label className="studio-export-option">
               <input
