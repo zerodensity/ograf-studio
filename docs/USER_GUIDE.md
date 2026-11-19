@@ -546,6 +546,10 @@ each Step while loops continue playing. **Transparent background** preserves alp
 layers leave the canvas uncovered. Turn it off to keep the composition background and use black
 where there is no background.
 
+For WebM, **Black frame at start** and **Black frame at end** each insert one opaque black frame
+at the template's frame rate. Added frames are silent. The options also work when
+**Transparent background** is enabled.
+
 WebM includes audio layers and sound cues that start at a frame or on arrival at a Step. PNG
 sequences contain image frames. Video and live media, and sounds triggered by an operator or a
 custom action, are omitted. WebM requires a current Chrome or Edge browser.

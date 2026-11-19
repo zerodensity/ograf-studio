@@ -67,6 +67,8 @@ function VideoExportOptions({
   const [lockAspect, setLockAspect] = useState(true);
   const [sizeDraft, setSizeDraft] = useState<SizeDraft | null>(null);
   const [bitrateDraft, setBitrateDraft] = useState('');
+  const [blackFrameAtStart, setBlackFrameAtStart] = useState(false);
+  const [blackFrameAtEnd, setBlackFrameAtEnd] = useState(false);
   const native = getCompositionOutputRect(composition);
   const draft = sizeDraft ?? { width: String(native.width), height: String(native.height) };
   const width = Number(draft.width);
@@ -154,6 +156,8 @@ function VideoExportOptions({
               const file = await prepareWebmExportFile(project, composition, {
                 ...options,
                 bitrate,
+                blackFrameAtStart,
+                blackFrameAtEnd,
               });
               return [{ ...file, fileName }];
             },
@@ -291,6 +295,32 @@ function VideoExportOptions({
               />
             </label>
             {invalidHold && <p role="alert">Enter a hold between 0 and 600 seconds.</p>}
+            {webm && (
+              <>
+                <label className="studio-export-option">
+                  <input
+                    type="checkbox"
+                    checked={blackFrameAtStart}
+                    onChange={(event) => {
+                      setBlackFrameAtStart(event.currentTarget.checked);
+                      clearError();
+                    }}
+                  />
+                  Black frame at start
+                </label>
+                <label className="studio-export-option">
+                  <input
+                    type="checkbox"
+                    checked={blackFrameAtEnd}
+                    onChange={(event) => {
+                      setBlackFrameAtEnd(event.currentTarget.checked);
+                      clearError();
+                    }}
+                  />
+                  Black frame at end
+                </label>
+              </>
+            )}
             <p>
               {webm
                 ? 'The movie includes timeline sound and pauses at each step.'

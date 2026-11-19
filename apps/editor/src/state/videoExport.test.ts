@@ -68,6 +68,62 @@ function rejectAlphaEncoderConfig() {
   return isConfigSupported;
 }
 
+function mockWebmEncoder() {
+  const encoded = vi.fn<(frame: VideoFrame, keyFrame: boolean) => void>();
+  class TestVideoFrame {
+    close = vi.fn();
+    timestamp: number;
+    duration: number;
+
+    constructor(
+      _canvas: unknown,
+      { timestamp, duration }: { timestamp: number; duration: number },
+    ) {
+      this.timestamp = timestamp;
+      this.duration = duration;
+    }
+  }
+  class TestVideoEncoder {
+    private readonly init: VideoEncoderInit;
+
+    static async isConfigSupported() {
+      return { supported: true };
+    }
+
+    constructor(init: VideoEncoderInit) {
+      this.init = init;
+    }
+
+    configure() {}
+    async flush() {}
+    close() {}
+
+    encode(frame: VideoFrame, { keyFrame }: VideoEncoderEncodeOptions) {
+      encoded(frame, keyFrame ?? false);
+      this.init.output({
+        byteLength: 1,
+        timestamp: frame.timestamp,
+        duration: frame.duration,
+        type: keyFrame ? 'key' : 'delta',
+        copyTo: () => {},
+      });
+    }
+  }
+  const createImageBitmap = vi.fn(async (_canvas: HTMLCanvasElement) => ({ close: vi.fn() }));
+  vi.stubGlobal('VideoEncoder', TestVideoEncoder);
+  vi.stubGlobal('VideoFrame', TestVideoFrame);
+  vi.stubGlobal('AudioEncoder', class {});
+  vi.stubGlobal('OfflineAudioContext', class {});
+  vi.stubGlobal('createImageBitmap', createImageBitmap);
+  vi.stubGlobal('document', {
+    createElement() {
+      const context = { fillStyle: '', fillRect: vi.fn(), drawImage: vi.fn() };
+      return { getContext: () => context };
+    },
+  });
+  return { createImageBitmap, encoded, TestVideoFrame };
+}
+
 afterEach(() => {
   vi.resetAllMocks();
   vi.unstubAllGlobals();
@@ -138,6 +194,80 @@ describe('WebM encoder configuration', () => {
       expect.objectContaining({ bitrate: 1_866_240 }),
     );
   });
+});
+
+describe('WebM black frames', () => {
+  it.each([
+    [false, false, false],
+    [true, true, false],
+    [false, false, true],
+    [true, true, true],
+    [false, true, true],
+  ])(
+    'preserves frame order with transparency %s, a black opening %s and a black closing %s',
+    async (transparent, blackFrameAtStart, blackFrameAtEnd) => {
+      const composition = createComposition({ width: 61, height: 31, frameRate: 10 });
+      const { pictureAt, dispose, pool } = mockMountedFrames(61, 31);
+      const { createImageBitmap, encoded, TestVideoFrame } = mockWebmEncoder();
+      pool.planes.mockImplementation(async (picture, { timestamp, duration }) => {
+        picture.close();
+        return {
+          colour: new TestVideoFrame(null, { timestamp, duration }),
+          alpha: new TestVideoFrame(null, { timestamp, duration }),
+        };
+      });
+      const onProgress = vi.fn();
+      const result = await prepareWebmExportFile(project, composition, {
+        transparent,
+        blackFrameAtStart,
+        blackFrameAtEnd,
+        holdSeconds: 0.2,
+        signal: new AbortController().signal,
+        onProgress,
+      });
+
+      const timeline = movieTimeline(composition, 0.2);
+      const startFrames = Number(blackFrameAtStart);
+      const endFrames = Number(blackFrameAtEnd);
+      const frames = startFrames + timeline.frames.length + endFrames;
+      expect(result.format).toBe('webm');
+      expect(pictureAt.mock.calls.map(([frame, hold]) => [frame, hold?.frames])).toEqual(
+        timeline.frames.map(({ frame, heldHere }) => [
+          frame,
+          frame > 12 ? timeline.holdFrames : heldHere,
+        ]),
+      );
+      expect(createImageBitmap).toHaveBeenCalledTimes(startFrames + endFrames);
+      for (const [canvas] of createImageBitmap.mock.calls) {
+        expect([canvas.width, canvas.height]).toEqual([62, 32]);
+        const context = canvas.getContext('2d');
+        expect(context?.fillStyle).toBe('#000000');
+        expect(context?.fillRect).toHaveBeenCalledWith(0, 0, 62, 32);
+      }
+      const timestamps = Array.from({ length: frames }, (_, index) => index * 100_000);
+      expect(encoded.mock.calls.map(([frame]) => frame.timestamp)).toEqual(
+        transparent ? timestamps.flatMap((timestamp) => [timestamp, timestamp]) : timestamps,
+      );
+      expect(encoded.mock.calls.every(([frame]) => frame.duration === 100_000)).toBe(true);
+      const keyTimestamps = encoded.mock.calls
+        .filter(([, key]) => key)
+        .map(([frame]) => frame.timestamp);
+      expect(keyTimestamps).toContain(0);
+      expect(keyTimestamps).toContain(startFrames * 100_000);
+      if (blackFrameAtEnd) expect(keyTimestamps).toContain((frames - 1) * 100_000);
+      if (transparent) {
+        const pictures = pool.planes.mock.calls.map(([picture]) => picture);
+        if (blackFrameAtStart)
+          expect(pictures[0]).toBe(await createImageBitmap.mock.results[0]?.value);
+        if (blackFrameAtEnd)
+          expect(pictures.at(-1)).toBe(await createImageBitmap.mock.results.at(-1)?.value);
+      } else {
+        expect(pool.planes).not.toHaveBeenCalled();
+      }
+      expect(onProgress).toHaveBeenCalledWith({ stage: 'picture', frame: frames, frames });
+      expect(dispose).toHaveBeenCalledOnce();
+    },
+  );
 });
 
 describe('PNG sequence in a folder', () => {
