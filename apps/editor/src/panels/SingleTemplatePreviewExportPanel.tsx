@@ -317,14 +317,18 @@ export function SingleTemplatePreviewExportPanel() {
       : behaviorActive
         ? Boolean(behavior.snapshot?.loaded && !behavior.loading)
         : nativePreviewLoaded;
-  const canControlPreview = isPreviewLoaded && (!behaviorActive || !behavior.busy);
+  const canControlPreview =
+    isPreviewLoaded &&
+    (!behaviorActive || !behavior.busy) &&
+    (!sharedLiveEnabled || Boolean(livePublicationId));
   const selectedSharedSlot =
-    sharedDefinition &&
-    Object.values(sharedLive.snapshot?.slots ?? {}).find(
-      (slot) =>
-        !(slot.transition && !slot.incoming) &&
-        (slot.incoming ?? slot.current)?.templateId === activeTemplateId,
-    );
+    livePublicationId && sharedDefinition
+      ? Object.values(sharedLive.snapshot?.slots ?? {}).find(
+          (slot) =>
+            !(slot.transition && !slot.incoming) &&
+            (slot.incoming ?? slot.current)?.templateId === activeTemplateId,
+        )
+      : undefined;
   const selectedSharedGraphic = selectedSharedSlot
     ? (selectedSharedSlot.incoming ?? selectedSharedSlot.current)
     : undefined;
@@ -340,7 +344,8 @@ export function SingleTemplatePreviewExportPanel() {
     values: Record<string, TestValue>;
   } | null>(null);
   const activeSharedEdits =
-    sharedEdits?.publicationId === sharedLive.publicationId &&
+    livePublicationId &&
+    sharedEdits?.publicationId === livePublicationId &&
     sharedEdits.templateId === activeTemplateId
       ? sharedEdits
       : null;
@@ -357,11 +362,16 @@ export function SingleTemplatePreviewExportPanel() {
     dataSessionKey,
     previewFields,
     previewDefaults,
-    composition,
+    previewComposition,
   );
   // Reset synchronously so the new graphic's initial load cannot receive the old template's data.
   if (resolvedDataSession !== dataSession) setDataSession(resolvedDataSession);
-  const acceptedSharedData = sharedSet ? selectedSharedGraphic?.data : sharedLive.data;
+  // The live receiver and the publisher can update in either order during a document switch.
+  const acceptedSharedData = livePublicationId
+    ? sharedSet
+      ? selectedSharedGraphic?.data
+      : sharedLive.data
+    : undefined;
   const dataForm = useMemo(
     () =>
       sharedLiveEnabled
@@ -394,7 +404,7 @@ export function SingleTemplatePreviewExportPanel() {
   const updateDataField = useCallback(
     (key: string, value: TestValue) => {
       if (sharedLiveEnabled) {
-        const publicationId = sharedLive.publicationId;
+        const publicationId = livePublicationId;
         if (!publicationId) return;
         if (sharedSet && sharedDefinition && selectedSharedState)
           stageSharedPreviewSlotField(sharedSet, sharedDefinition, selectedSharedState, key, value);
@@ -432,7 +442,7 @@ export function SingleTemplatePreviewExportPanel() {
     },
     [
       sharedLiveEnabled,
-      sharedLive.publicationId,
+      livePublicationId,
       sharedSet,
       sharedDefinition,
       selectedSharedState,
@@ -562,8 +572,8 @@ export function SingleTemplatePreviewExportPanel() {
         : previewDescriptor,
   );
   const previewData = useMemo(
-    () => resolvePreviewDataRecord({ ...composition, dataFields: previewFields }, dataForm),
-    [composition, previewFields, dataForm],
+    () => resolvePreviewDataRecord({ ...previewComposition, dataFields: previewFields }, dataForm),
+    [previewComposition, previewFields, dataForm],
   );
   const latestPreviewDataRef = useRef(previewData);
   const lastAttemptedDataSignatureRef = useRef<string | null>(null);
@@ -1448,17 +1458,18 @@ export function SingleTemplatePreviewExportPanel() {
     fields: previewFields,
     values: dataForm,
     customActions: syncEditorPreview ? [] : descriptor.customActions,
-    sharedTransition: sharedSet
-      ? {
-          source: sharedSet,
-          snapshot: sharedLive.snapshot,
-          manifest: sharedLive.manifest,
-          ready: sharedLive.ready,
-          error: sharedError,
-          sendAction: (actionId, payload) =>
-            callShared('customAction', { kind: 'action', actionId, payload }),
-        }
-      : undefined,
+    sharedTransition:
+      sharedSet && livePublicationId
+        ? {
+            source: sharedSet,
+            snapshot: sharedLive.snapshot,
+            manifest: sharedLive.manifest,
+            ready: canControlPreview,
+            error: sharedError,
+            sendAction: (actionId, payload) =>
+              callShared('customAction', { kind: 'action', actionId, payload }),
+          }
+        : undefined,
     changeTemplate,
     play: handlePlayAction,
     out: handleStop,
