@@ -546,6 +546,10 @@ WebM includes audio layers and sound cues that start at a frame or on arrival at
 sequences contain image frames. Video and live media, and sounds triggered by an operator or a
 custom action, are omitted. WebM requires a current Chrome or Edge browser.
 
+Rendering is fastest while Studio's tab stays visible. A current Chrome or Edge browser then takes
+each frame straight from the page, one per screen refresh. If the tab is hidden or covered during a
+render, Studio finishes that export with its slower frame copies.
+
 Choose **Save files…** to select a folder or **Download instead** for browser delivery. The window
 reports rendering progress and lets you cancel. Keep Studio's tab in front while it renders.
 
