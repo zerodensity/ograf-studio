@@ -153,6 +153,12 @@ describe('isolated function host protocol', () => {
     );
     expect(env.frame.srcdoc).not.toContain("script-src 'unsafe-inline' blob:");
     expect(env.attributes.get('allow')).toContain("camera 'none'");
+    expect(env.frame.hidden).toBe(false);
+    expect(env.frame.tabIndex).toBe(-1);
+    expect(env.attributes.get('aria-hidden')).toBe('true');
+    expect(env.attributes.get('style')).toContain(
+      'width:1px;height:1px;border:0;opacity:0;pointer-events:none;',
+    );
     await env.prepare();
     const probe = env.requests.mock.calls[0]![0];
     expect(probe.kind).toBe('probe');

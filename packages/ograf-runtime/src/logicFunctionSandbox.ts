@@ -819,7 +819,12 @@ export function createLogicFunctionSandbox(
     'allow',
     "camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'",
   );
-  iframe.hidden = true;
+  // Keep the bootstrap in the viewport without displaying it. Chromium can postpone
+  // starting Workers owned by a display:none frame even in a foreground preview.
+  iframe.setAttribute(
+    'style',
+    'position:fixed;top:0;left:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none;',
+  );
   iframe.tabIndex = -1;
   iframe.referrerPolicy = 'no-referrer';
   iframe.title = 'Isolated function runtime';
