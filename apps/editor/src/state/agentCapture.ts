@@ -6,6 +6,7 @@ import {
   withProjectFonts,
 } from './projectFonts';
 import { captureMaskedCanvas } from './maskedCapture';
+import { createLiveElementCapture } from './liveElementCapture';
 import { canCaptureSelfStyled, selfStyledCapture } from './selfStyledCapture';
 import { awaitExportOperation } from './exportAbort';
 import {
@@ -1011,16 +1012,19 @@ async function acquireCaptureResources(authored: Composition, signal?: AbortSign
 export interface MountedCompositionFrames {
   width: number;
   height: number;
-  /** The picture at a composition frame. The canvas belongs to the caller. */
-  canvasAt(frame: number, hold?: CaptureHold): Promise<HTMLCanvasElement>;
+  /** The picture at a composition frame. The caller closes it. */
+  pictureAt(frame: number, hold?: CaptureHold): Promise<ImageBitmap>;
   dispose(): void;
 }
 
 /**
  * Mounts a composition for an export that renders its whole timeline. Building the tree, loading
- * its images and embedding its fonts happen once; each frame only re-samples and rasterizes. A
- * frame is drawn from the tree's own markup where that is enough, several times faster than
- * through html-to-image, which still handles patterns, effect filters and video.
+ * its images and embedding its fonts happen once; each frame only re-samples and takes a picture.
+ *
+ * Where the browser can draw a canvas's children, the picture is the one the page itself paints,
+ * one per screen refresh. Elsewhere, and from the moment the page is hidden, a frame is drawn from
+ * a copy of the tree: from its own markup where that is enough, and through html-to-image for
+ * patterns, effect filters and video.
  */
 export async function mountCompositionFrames(
   authored: Composition,
@@ -1033,6 +1037,7 @@ export async function mountCompositionFrames(
   const layout = getCompositionOutputRect(composition);
   const output = rasterSize ?? layout;
   let wrapper: HTMLDivElement | undefined;
+  const live = createLiveElementCapture(layout, output);
   const unmount = () => {
     for (const layer of wrapper?.querySelectorAll<HTMLElement>('[data-agent-capture-layer]') ?? [])
       disposeElementContent(layer);
@@ -1041,7 +1046,10 @@ export async function mountCompositionFrames(
   };
   const mount = async () => {
     wrapper = buildCompositionDom(composition, 0, matte);
-    document.body.appendChild(wrapper);
+    // The tree is mounted where it will be drawn from the start: moving it later would restart
+    // what it is playing.
+    if (live) live.adopt(wrapper);
+    else document.body.appendChild(wrapper);
     await settleCaptureContent(wrapper, signal);
     return wrapper;
   };
@@ -1079,23 +1087,39 @@ export async function mountCompositionFrames(
     // html-to-image draws text a little smaller than the page does, so a movie that has needed it
     // for one frame stays with it.
     let selfStyled = true;
+    // A movie that had to leave the page's own picture stays with the copies, for the same reason:
+    // one change of drawer in a movie, never a flicker between two.
+    let pagePaints = live !== null;
     return {
       width: output.width,
       height: output.height,
-      async canvasAt(frame, hold) {
+      async pictureAt(frame, hold) {
         signal?.throwIfAborted();
         captureFrameRenders.get(root)?.(frame, hold);
         await awaitExportOperation(waitForElementContentReady(root), signal);
+        if (pagePaints) {
+          const picture = await live!.pictureOf(root, signal);
+          if (picture) return picture;
+          pagePaints = false;
+        }
         selfStyled &&= !root.querySelector(PATTERN_OR_EFFECT_CONTENT) && canCaptureSelfStyled(root);
-        return selfStyled ? drawSelfStyled(signal) : draw();
+        const canvas = await (selfStyled ? drawSelfStyled(signal) : draw());
+        try {
+          return await awaitExportOperation(createImageBitmap(canvas), signal);
+        } finally {
+          canvas.width = 0;
+          canvas.height = 0;
+        }
       },
       dispose() {
         unmount();
+        live?.dispose();
         lease.dispose();
       },
     };
   } catch (error) {
     unmount();
+    live?.dispose();
     lease.dispose();
     throw error;
   }

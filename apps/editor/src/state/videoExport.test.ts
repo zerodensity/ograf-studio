@@ -2,25 +2,40 @@ import { createComposition, createProject } from '@ograf-editor/scene-model';
 import JSZip from 'jszip';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountCompositionFrames, type CaptureHold } from './agentCapture';
+import { createFramePicturePool } from './framePicturePool';
 import { preparePngSequenceExportFile, prepareWebmExportFile } from './videoExport';
 
 vi.mock('./agentCapture', () => ({ mountCompositionFrames: vi.fn() }));
+vi.mock('./framePicturePool', async (original) => ({
+  ...(await original<typeof import('./framePicturePool')>()),
+  createFramePicturePool: vi.fn(),
+}));
 
 const project = createProject({ name: 'Lower third' });
 
+/** A picture that only remembers which frame it shows, so the ZIP entries prove ordering. */
+type StandInPicture = ImageBitmap & { png: ArrayBuffer };
+
 function mockMountedFrames(width: number, height: number) {
-  const canvasAt = vi.fn(async (frame: number, hold?: CaptureHold) => {
-    // A tiny stand-in for the already encoded frame lets the ZIP entries prove ordering.
-    const png = new Blob([new Uint8Array([frame, hold?.frames ?? 0])], { type: 'image/png' });
-    return {
-      width,
-      height,
-      toBlob: (callback: BlobCallback) => callback(png),
-    } as HTMLCanvasElement;
+  const pictureAt = vi.fn(async (frame: number, hold?: CaptureHold) => {
+    const png = new Uint8Array([frame, hold?.frames ?? 0]).buffer;
+    return { width, height, close: vi.fn(), png } as unknown as StandInPicture;
   });
   const dispose = vi.fn();
-  vi.mocked(mountCompositionFrames).mockResolvedValue({ width, height, canvasAt, dispose });
-  return { canvasAt, dispose };
+  vi.mocked(mountCompositionFrames).mockResolvedValue({ width, height, pictureAt, dispose });
+  // Workers that answer out of step: a later frame's file is ready before an earlier one's.
+  let turn = 0;
+  const pool = {
+    size: 2,
+    png: vi.fn(async (picture: ImageBitmap) => {
+      await new Promise((resolve) => setTimeout(resolve, turn++ % 2 ? 0 : 3));
+      return (picture as StandInPicture).png;
+    }),
+    planes: vi.fn(),
+    dispose: vi.fn(),
+  };
+  vi.mocked(createFramePicturePool).mockReturnValue(pool);
+  return { pictureAt, dispose, pool };
 }
 
 function rejectAlphaEncoderConfig() {
@@ -54,7 +69,7 @@ describe('PNG sequence export', () => {
       backgroundColor: '#ff0000',
       frameRate: 10,
     });
-    const { dispose } = mockMountedFrames(101, 51);
+    const { dispose, pool } = mockMountedFrames(101, 51);
     const onProgress = vi.fn();
     const signal = new AbortController().signal;
     const size = { width: 101, height: 51 };
@@ -92,25 +107,37 @@ describe('PNG sequence export', () => {
     expect(await archive.file('frame-0016.png')?.async('uint8array')).toEqual(
       new Uint8Array([13, 2]),
     );
+    // Progress counts finished frames in the movie's order, whatever order the workers answer in.
+    expect(onProgress.mock.calls.slice(0, 27)).toEqual(
+      Array.from({ length: 27 }, (_, index) => [
+        { stage: 'picture', frame: index + 1, frames: 27 },
+      ]),
+    );
     expect(onProgress).toHaveBeenLastCalledWith({ stage: 'file' });
     expect(dispose).toHaveBeenCalledOnce();
+    expect(pool.dispose).toHaveBeenCalledOnce();
   });
 
-  it('disposes the mounted scene when frame export is cancelled', async () => {
-    const { canvasAt, dispose } = mockMountedFrames(60, 30);
+  it('stops and releases the scene and the workers when frame export is cancelled', async () => {
+    const { pictureAt, dispose, pool } = mockMountedFrames(60, 30);
     const controller = new AbortController();
     const reason = new DOMException('Export cancelled.', 'AbortError');
+    const composition = createComposition();
+    const onProgress = vi.fn(() => controller.abort(reason));
 
     await expect(
-      preparePngSequenceExportFile(project, createComposition(), {
+      preparePngSequenceExportFile(project, composition, {
         holdSeconds: 0,
         signal: controller.signal,
         transparent: false,
-        onProgress: () => controller.abort(reason),
+        onProgress,
       }),
     ).rejects.toBe(reason);
-    expect(canvasAt).toHaveBeenCalledOnce();
+    // Only the frames already on their way when the first one finished were drawn.
+    expect(pictureAt.mock.calls.length).toBeLessThanOrEqual(pool.size + 3);
+    expect(onProgress).toHaveBeenCalledOnce();
     expect(dispose).toHaveBeenCalledOnce();
+    expect(pool.dispose).toHaveBeenCalledOnce();
   });
 
   it('rejects invalid raster dimensions before mounting', async () => {

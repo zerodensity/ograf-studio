@@ -2,6 +2,12 @@ import { NLE_EXPORT_PROFILE, compositionForExportProfile } from '@ograf-editor/c
 import type { Composition, Project } from '@ograf-editor/scene-model';
 import JSZip from 'jszip';
 import { mountCompositionFrames } from './agentCapture';
+import {
+  createFramePicturePool,
+  inOrder,
+  type FramePicturePool,
+  type FramePlanes,
+} from './framePicturePool';
 import { awaitExportOperation } from './exportAbort';
 import { generateExportZip } from './exportZip';
 import type { ExportFile } from './offlinePreviewPackage';
@@ -319,6 +325,7 @@ export async function prepareWebmExportFile(
     latencyMode: 'quality',
   };
   const encoders: ReturnType<typeof pictureEncoder>[] = [];
+  let pool: FramePicturePool | undefined;
   try {
     const alphaConfig = transparent ? { ...config, bitrate: alphaBitrate } : null;
     if (
@@ -335,41 +342,70 @@ export async function prepareWebmExportFile(
     const alphaEncoder = alphaConfig ? pictureEncoder(alphaConfig) : null;
     if (alphaEncoder) encoders.push(alphaEncoder);
 
-    const work = document.createElement('canvas');
-    work.width = width;
-    work.height = height;
-    const context = work.getContext('2d', { willReadFrequently: transparent });
-    if (!context) throw new Error('The browser could not provide a drawing surface.');
-    const alphaPlanes = new Uint8Array(width * height + 2 * (width / 2) * (height / 2)).fill(128);
     const keyEvery = Math.max(1, Math.round(frameRate * KEY_PICTURE_SECONDS));
-
-    for (const [index, movieFrame] of timeline.frames.entries()) {
-      signal.throwIfAborted();
-      const canvas = await mounted.canvasAt(movieFrame.frame, movieHold(timeline, movieFrame));
-      context.clearRect(0, 0, width, height);
-      if (!transparent) {
-        context.fillStyle = '#000000';
-        context.fillRect(0, 0, width, height);
-      }
-      context.drawImage(canvas, 0, 0);
-      const timing = {
-        timestamp: Math.round((index * 1e6) / frameRate),
-        duration: Math.round(1e6 / frameRate),
-      };
-      const key = index % keyEvery === 0;
-      if (alphaEncoder) {
-        // getImageData gives colours that are not multiplied by their alpha, as WebM stores them.
-        const pixels = context.getImageData(0, 0, width, height).data;
-        for (let pixel = 0; pixel < width * height; pixel += 1)
-          alphaPlanes[pixel] = pixels[pixel * 4 + 3]!;
-        const size = { codedWidth: width, codedHeight: height, ...timing };
-        colourEncoder.encode(new VideoFrame(pixels, { format: 'RGBX', ...size }), key);
-        alphaEncoder.encode(new VideoFrame(alphaPlanes, { format: 'I420', ...size }), key);
-      } else {
-        colourEncoder.encode(new VideoFrame(work, { ...timing, alpha: 'discard' }), key);
-      }
+    const timingAt = (index: number) => ({
+      timestamp: Math.round((index * 1e6) / frameRate),
+      duration: Math.round(1e6 / frameRate),
+    });
+    const encoded = async (index: number) => {
       for (const encoder of encoders) await encoder.settle(signal);
       onProgress?.({ stage: 'picture', frame: index + 1, frames: frameCount });
+    };
+
+    if (alphaEncoder) {
+      // Splitting a frame into colour and alpha means reading every pixel back. Workers do that
+      // beside the page, and the frames still reach the encoders in the movie's order.
+      const workers = createFramePicturePool();
+      pool = workers;
+      const frames = inOrder<FramePlanes>(
+        workers.size + 2,
+        async ({ colour, alpha }, index) => {
+          const key = index % keyEvery === 0;
+          // Each encoder closes the frame it is given, also when it refuses it.
+          try {
+            signal.throwIfAborted();
+          } catch (error) {
+            colour.close();
+            alpha.close();
+            throw error;
+          }
+          try {
+            colourEncoder.encode(colour, key);
+          } catch (error) {
+            alpha.close();
+            throw error;
+          }
+          alphaEncoder.encode(alpha, key);
+          await encoded(index);
+        },
+        ({ colour, alpha }) => {
+          colour.close();
+          alpha.close();
+        },
+      );
+      for (const [index, movieFrame] of timeline.frames.entries()) {
+        signal.throwIfAborted();
+        const picture = await mounted.pictureAt(movieFrame.frame, movieHold(timeline, movieFrame));
+        await frames.add(workers.planes(picture, { ...timingAt(index), width, height }));
+      }
+      await awaitExportOperation(frames.finish(), signal);
+    } else {
+      const work = document.createElement('canvas');
+      work.width = width;
+      work.height = height;
+      const context = work.getContext('2d');
+      if (!context) throw new Error('The browser could not provide a drawing surface.');
+      for (const [index, movieFrame] of timeline.frames.entries()) {
+        signal.throwIfAborted();
+        const picture = await mounted.pictureAt(movieFrame.frame, movieHold(timeline, movieFrame));
+        context.fillStyle = '#000000';
+        context.fillRect(0, 0, width, height);
+        context.drawImage(picture, 0, 0);
+        picture.close();
+        const frame = new VideoFrame(work, { ...timingAt(index), alpha: 'discard' });
+        colourEncoder.encode(frame, index % keyEvery === 0);
+        await encoded(index);
+      }
     }
     for (const encoder of encoders) await awaitExportOperation(encoder.finish(), signal);
     const alphaPictures = alphaEncoder?.pictures;
@@ -415,12 +451,16 @@ export async function prepareWebmExportFile(
       blob: new Blob([bytes], { type: 'video/webm' }),
     };
   } finally {
+    pool?.dispose();
     for (const encoder of encoders) encoder.close();
     mounted.dispose();
   }
 }
 
-/** Render the movie timeline to ordered PNGs, holding only one uncompressed picture at a time. */
+/**
+ * Render the movie timeline to ordered PNGs. Workers compress them beside the page, a few at a
+ * time, so only that many uncompressed pictures exist at once.
+ */
 export async function preparePngSequenceExportFile(
   project: Project,
   composition: Composition,
@@ -435,35 +475,29 @@ export async function preparePngSequenceExportFile(
   const zip = new JSZip();
   let archiveSize = 22;
   const mounted = await mountVideoExportFrames(composition, options);
+  let pool: FramePicturePool | undefined;
   try {
-    for (const [index, movieFrame] of timeline.frames.entries()) {
+    const workers = createFramePicturePool();
+    pool = workers;
+    const files = inOrder<ArrayBuffer>(workers.size + 2, (png, index) => {
       signal.throwIfAborted();
-      const canvas = await mounted.canvasAt(movieFrame.frame, movieHold(timeline, movieFrame));
-      try {
-        const png = await awaitExportOperation(
-          new Promise<Blob>((resolve, reject) => {
-            canvas.toBlob((blob) => {
-              if (blob?.size) resolve(blob);
-              else reject(new Error('The browser could not encode the PNG at this size.'));
-            }, 'image/png');
-          }),
-          signal,
-        );
-        const name = `frame-${String(index + 1).padStart(digits, '0')}.png`;
-        // Local header, data descriptor, central directory entry, and two ASCII filenames.
-        archiveSize += png.size + 92 + 2 * name.length;
-        if (archiveSize >= 0xffffffff)
-          throw new Error('The PNG sequence exceeds the ZIP size limit. Export at a smaller size.');
-        zip.file(name, await awaitExportOperation(png.arrayBuffer(), signal), {
-          compression: 'STORE',
-        });
-      } finally {
-        canvas.width = 0;
-        canvas.height = 0;
-      }
+      if (!png.byteLength) throw new Error('The browser could not encode the PNG at this size.');
+      const name = `frame-${String(index + 1).padStart(digits, '0')}.png`;
+      // Local header, data descriptor, central directory entry, and two ASCII filenames.
+      archiveSize += png.byteLength + 92 + 2 * name.length;
+      if (archiveSize >= 0xffffffff)
+        throw new Error('The PNG sequence exceeds the ZIP size limit. Export at a smaller size.');
+      zip.file(name, png, { compression: 'STORE' });
       onProgress?.({ stage: 'picture', frame: index + 1, frames: frameCount });
+    });
+    for (const movieFrame of timeline.frames) {
+      signal.throwIfAborted();
+      const picture = await mounted.pictureAt(movieFrame.frame, movieHold(timeline, movieFrame));
+      await files.add(workers.png(picture));
     }
+    await awaitExportOperation(files.finish(), signal);
   } finally {
+    pool?.dispose();
     mounted.dispose();
   }
   signal.throwIfAborted();
