@@ -6,10 +6,13 @@ Open **Window → Plugins** and choose **Charts** in the dockable pane beside Ti
 Select a provider's plugin card, its exact version and a chart template below the card to
 create a chart pinned to that provider, not to a different global default.
 The gear inside a plugin card and **Manage plugin…** open
-**File → Preferences → OGraf Studio → Plugins**. Disabled versions remain manageable but cannot
-create or preview charts; existing charts keep their pins. Chart drawing uses an exact plugin
-provider. Studio includes Chart.js as the initial new-chart default, while each created chart
-retains its chosen version and digest. A missing pin never silently substitutes another renderer.
+**File → Preferences → OGraf Studio → Plugins**. Disabled versions remain manageable. Chart
+drawing requires an enabled, trusted renderer. Studio includes Chart.js as the initial new-chart
+default, and each created chart retains its chosen version and digest.
+
+For a valid saved chart, Studio can use an enabled, trusted installed build with the same plugin
+ID and version. Studio checks the chosen bundle's digest and the required chart features. The
+editor and Preview use that installed bundle, and Studio includes its exact bytes in new exports.
 
 ### Included with Studio
 
@@ -61,24 +64,24 @@ notices stay in the package's `LICENSE.txt`. Separate-library installation, raw 
 updates, and commercial BYOL are not implemented; commercial permissions remain the user's
 responsibility. Do not assume source/template exports omit third-party code.
 
-Enable and disable installed versions independently; additional versions can also be removed.
-Installation and default changes
-do not upgrade existing charts: each chart pins an exact version and digest. Select another
-renderer explicitly to change it. Local installation settings are separate from the template.
+Enable and disable installed versions independently. Additional versions can also be removed.
+Each chart retains its saved version and digest across installation and default changes. Select
+another renderer explicitly to change the saved reference. Local installation settings are
+separate from the template.
 Chart creation from the selected plugin does not require a global default.
 Older charts without a provider remain editable, but require a selection before rendering/export.
 Changing a chart's provider preserves its other controls and removes its former snapshot only
 when no layer or saved component still references it.
 
-An `.ogs` source carries the selected renderer's source and license. Opening a template never
-grants unfamiliar code execution permission. In **Plugins → Charts**, select the provider and exact version,
-open its **settings gear**, choose **Review saved bundle**, then **Trust & Install** only after
-reviewing and approving that exact code. New code always requires user approval; a new installed
-version never upgrades existing chart pins automatically. Disabled, missing, or untrusted renderers show a blocked chart and
-prevent certification/export instead of silently substituting a different renderer.
+An `.ogs` source carries the selected renderer's source and license. Plugin trust applies to
+installed bundles. In **Plugins → Charts**, select the provider and exact version, open its
+**settings gear**, and choose **Review saved bundle**. Click **Trust & Install** after reviewing
+and approving those bytes. Studio prompts for review when a chart needs a renderer and no
+compatible trusted build of the saved version is available. An explicit renderer change can
+select a different version.
 
-Exported OGraf graphics include their pinned code and do not need Studio's installed catalog or
-a CDN. Disabling a plugin in Studio does not change graphics already exported. Import OGraf
+Each exported OGraf graphic includes the exact code selected for export and runs with its bundled
+resources. Studio's plugin settings apply to future renders and exports. Import OGraf
 recovers compatible pinned renderers but still requires local trust before execution.
 
 External providers require browser ES modules, Blob module loading, and WebAssembly for module

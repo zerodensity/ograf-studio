@@ -27,7 +27,7 @@ vi.mock('../state/projectSetStore', () => ({
 }));
 vi.mock('../state/pluginSettingsStore', () => ({
   useRendererPluginSettingsStore: (selector: (state: any) => unknown) =>
-    selector({ installed: fixture.installed }),
+    selector({ installed: fixture.installed, initialized: true, loading: false }),
   isInstalledChartPlugin: (entry: any) => entry.snapshot.manifest.kind === 'chart',
 }));
 vi.mock('../state/historyStore', () => ({
@@ -76,15 +76,28 @@ beforeEach(() => {
 });
 
 describe('chart renderer update notice', () => {
-  it('explains a same-version different build and requires an explicit action', () => {
+  it('stays silent for a trusted same-version build without changing the document', () => {
     fixture.installed = [entry(replacement)];
+    expect(renderToStaticMarkup(createElement(ChartRendererUpgradeNotice))).toBe('');
+    expect(fixture.upgrade).not.toHaveBeenCalled();
+
+    fixture.set = { templates: [{ id: 'other', name: 'Sports', project: fixture.project }] };
+    fixture.activeTemplateId = 'current';
+    fixture.project = createProject();
+    expect(renderToStaticMarkup(createElement(ChartRendererUpgradeNotice))).toBe('');
+    expect(fixture.upgrade).not.toHaveBeenCalled();
+  });
+
+  it('still offers a different-version renderer upgrade for review', () => {
+    const newer = plugin('2.0.0', 'export default { apiVersion: 1 };');
+    fixture.installed = [entry(replacement), entry(newer)];
     const html = renderToStaticMarkup(createElement(ChartRendererUpgradeNotice));
-    expect(html).toContain('Saved chart renderer is unavailable');
-    expect(html).toContain('a different installed build');
+    expect(html).toContain('Chart renderer update available');
+    expect(html).toContain('version 2.0.0');
     expect(html).toContain(saved.sha256.slice(0, 8));
-    expect(html).toContain(replacement.sha256.slice(0, 8));
+    expect(html).toContain(newer.sha256.slice(0, 8));
     expect(html).toContain('Use this renderer for the template');
-    expect(html).toContain('Review saved renderer instead');
+    expect(html).not.toContain('Review saved renderer instead');
     expect(fixture.upgrade).not.toHaveBeenCalled();
   });
 

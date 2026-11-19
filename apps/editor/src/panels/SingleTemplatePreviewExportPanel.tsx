@@ -42,6 +42,7 @@ import {
   assertStudioRendererPluginsAllowed,
   useRendererPluginSettingsStore,
 } from '../state/pluginSettingsStore';
+import { resolveStudioRendererComposition } from '../state/studioRendererResolution';
 import {
   buildExportArtifacts,
   certifyExportArtifacts,
@@ -219,6 +220,7 @@ export function SingleTemplatePreviewExportPanel() {
     [behaviorActive, previewFields, behavior.data, sharedLiveEnabled, testValues],
   );
   const pluginPolicyRevision = useRendererPluginSettingsStore((state) => state.revision);
+  const installedPlugins = useRendererPluginSettingsStore((state) => state.installed);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -527,7 +529,10 @@ export function SingleTemplatePreviewExportPanel() {
 
   useEffect(() => setComparisonNaturalSize(null), [comparisonAssetId]);
 
-  const descriptor = useMemo(() => compileDescriptor(composition), [composition]);
+  const descriptor = useMemo(
+    () => compileDescriptor(resolveStudioRendererComposition(composition, installedPlugins)),
+    [composition, installedPlugins],
+  );
   const previewStepCount = behaviorActive ? 1 : descriptor.stepCount;
   const previewDescriptorRef = useRef({
     latest: descriptor,

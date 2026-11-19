@@ -128,6 +128,7 @@ import { duplicateLayerSelection } from '../state/editorShortcuts';
 import { inlineTextEditTarget } from './inlineTextEditing';
 import { measureAutoSizedText } from '../panels/textAutoSize';
 import { useRendererPluginSettingsStore } from '../state/pluginSettingsStore';
+import { resolveStudioRendererComposition } from '../state/studioRendererResolution';
 import {
   hasShaderCanvasDrag,
   shaderCanvasDragData,
@@ -185,8 +186,8 @@ export function Stage({ style }: { style?: CSSProperties }) {
   const templateSetEmpty = useProjectSetStore(
     (state) => !!state.projectSet && !state.projectSet.templates.length,
   );
-  // Re-render open choices when a pack is disabled, removed, updated or reviewed.
-  useRendererPluginSettingsStore((state) => state.installed);
+  // Re-render open choices and resolve visible renderers as the local catalog changes.
+  const installedPlugins = useRendererPluginSettingsStore((state) => state.installed);
   const [inlineTextEditingLayerId, setInlineTextEditingLayerId] = useState<string | null>(null);
   const [enteredGroupId, setEnteredGroupId] = useState<string | null>(null);
   const selectionBeforeDoubleClick = useRef<string[]>([]);
@@ -252,11 +253,19 @@ export function Stage({ style }: { style?: CSSProperties }) {
   }, [placingReview]);
   useEffect(() => setEnteredGroupId(null), [project.id, composition.id]);
   const backgroundLayer = useMemo(() => compositionBackgroundLayer(composition), [composition]);
+  const rendererComposition = useMemo(
+    () => resolveStudioRendererComposition(composition, installedPlugins),
+    [composition, installedPlugins],
+  );
+  const rendererLayers = useMemo(
+    () => new Map(rendererComposition.layers.map((layer) => [layer.id, layer.element])),
+    [rendererComposition.layers],
+  );
   // Test data never changes the authored descriptor. Masks, loops and transport share its
   // immutable structure while sampling current bindings and Rules on every requested render.
   const compiledDescriptor = useMemo(
-    () => compileDescriptor(composition, { includeGuides: true }),
-    [composition],
+    () => compileDescriptor(rendererComposition, { includeGuides: true }),
+    [rendererComposition],
   );
   const outputSourceRef = useRef<HTMLDivElement>(null);
   const synchronizedPreview = useWorkspaceStore(
@@ -1862,6 +1871,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
                       <LayerNode
                         renderActive={canvasRenderingActive}
                         layer={backgroundLayer}
+                        rendererSnapshots={rendererComposition.rendererPlugins}
                         pose={getLayerTransformAtFrame(backgroundLayer, canvasFrame(composition))}
                         isSelected={false}
                         onSelect={() => {}}
@@ -1881,6 +1891,7 @@ export function Stage({ style }: { style?: CSSProperties }) {
                     </div>
                   ) : null}
                   {composition.layers.map((layer) => {
+                    const rendererElement = rendererLayers.get(layer.id);
                     const frame = canvasFrame(composition);
                     const ruleEffects = editorVisualRuleEffects(
                       composition.layers,
@@ -1919,6 +1930,10 @@ export function Stage({ style }: { style?: CSSProperties }) {
                       <LayerNode
                         renderActive={canvasRenderingActive}
                         key={layer.id}
+                        rendererSnapshots={rendererComposition.rendererPlugins}
+                        rendererChart={
+                          rendererElement?.type === 'chart' ? rendererElement : undefined
+                        }
                         layer={
                           editingPath &&
                           layer.id === pathLayerId &&

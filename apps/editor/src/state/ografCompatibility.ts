@@ -46,6 +46,10 @@ import {
   rendererPluginAllowed,
   useRendererPluginSettingsStore,
 } from './pluginSettingsStore';
+import {
+  resolveStudioRendererComposition,
+  resolveStudioRendererProject,
+} from './studioRendererResolution';
 
 export type { ExportArtifacts } from '@ograf-editor/codegen';
 
@@ -69,8 +73,20 @@ export function buildExportArtifacts(
   composition: Composition,
   profile?: ExportProfile,
 ): ExportArtifacts {
-  assertStudioRendererPluginsAllowed(compileDescriptor(composition).rendererPlugins ?? []);
-  return buildExportArtifactsWithRuntime(project, composition, graphicRuntimeSource, profile);
+  const { installed } = useRendererPluginSettingsStore.getState();
+  const effectiveProject = resolveStudioRendererProject(project, installed);
+  const compositionIndex = project.compositions.indexOf(composition);
+  const effectiveComposition =
+    compositionIndex >= 0
+      ? effectiveProject.compositions[compositionIndex]!
+      : resolveStudioRendererComposition(composition, installed);
+  assertStudioRendererPluginsAllowed(compileDescriptor(effectiveComposition).rendererPlugins ?? []);
+  return buildExportArtifactsWithRuntime(
+    effectiveProject,
+    effectiveComposition,
+    graphicRuntimeSource,
+    profile,
+  );
 }
 
 function defaultsFromManifest(manifest: OGrafManifest): Record<string, unknown> {

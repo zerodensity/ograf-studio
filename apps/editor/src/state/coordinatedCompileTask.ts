@@ -1,6 +1,12 @@
 import type { ExportArtifacts, ExportProfile } from '@ograf-editor/codegen';
 import type { ProjectSetDocument } from './projectSet';
 import { buildCoordinatedProjectSetArtifacts } from './coordinatedCompile';
+import { awaitExportOperation } from './exportAbort';
+import {
+  isInstalledChartPlugin,
+  useRendererPluginSettingsStore,
+  type InstalledRendererPlugin,
+} from './pluginSettingsStore';
 
 export async function buildCoordinatedProjectSetArtifactsTask(
   set: ProjectSetDocument,
@@ -8,9 +14,39 @@ export async function buildCoordinatedProjectSetArtifactsTask(
   signal?: AbortSignal,
 ): Promise<ExportArtifacts> {
   signal?.throwIfAborted();
+  const savedRenderers = [
+    ...(set.componentAssets ?? []).flatMap((asset) => asset.context?.rendererPlugins ?? []),
+    ...set.templates.flatMap(({ project }) =>
+      project.compositions.flatMap((composition) => [
+        ...(composition.rendererPlugins ?? []),
+        ...(composition.components ?? []).flatMap(
+          (component) => component.context?.rendererPlugins ?? [],
+        ),
+      ]),
+    ),
+  ];
+  let installed: InstalledRendererPlugin[] = [];
+  if (savedRenderers.length) {
+    await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
+    installed = useRendererPluginSettingsStore
+      .getState()
+      .installed.filter(isInstalledChartPlugin)
+      .filter(
+        ({ enabled, trusted, snapshot }) =>
+          enabled &&
+          trusted &&
+          savedRenderers.some(
+            (saved) =>
+              saved?.manifest?.id === snapshot.manifest.id &&
+              saved.manifest.version === snapshot.manifest.version,
+          ),
+      );
+  }
   const compileOnMainThread = () => {
     signal?.throwIfAborted();
-    const artifacts = buildCoordinatedProjectSetArtifacts(set, profile);
+    const artifacts = installed.length
+      ? buildCoordinatedProjectSetArtifacts(set, profile, installed)
+      : buildCoordinatedProjectSetArtifacts(set, profile);
     signal?.throwIfAborted();
     return artifacts;
   };
@@ -62,7 +98,7 @@ export async function buildCoordinatedProjectSetArtifactsTask(
       return;
     }
     try {
-      worker.postMessage({ set, profile });
+      worker.postMessage({ set, profile, ...(installed.length ? { installed } : {}) });
     } catch (cause) {
       finish({ error: cause instanceof Error ? cause : new Error(String(cause)) });
     }

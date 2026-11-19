@@ -126,18 +126,15 @@ and compares versions and contents before review. Chart JavaScript requires expl
 animation packs contain validated JSON, not executable code. Shader packs contain GLSL GPU code
 and also require review before preview/application. Updated
 versions install alongside old versions. Version selection, Enable, Details, and removal controls apply to the selected bundle.
-Existing charts retain their exact renderer version. Preview & Export can offer an explicit update
-to an installed, trusted compatible build, showing affected objects and shared component instances.
-The previous bundle stays saved and the update is undoable; check the result because renderer
-versions can look different. Individual charts can also change provider in Properties. Templates
-carry their renderer code, but Studio requires approval before executing an unfamiliar plugin.
-Opening a template or template set checks the chart renderers used by every template, including
-inactive ones. A prominent **Plugin mismatch — charts unavailable** dialog identifies missing,
-disabled or untrusted builds, shows the saved version/build and offers compatible installed
-renderers where available. Dismissing it leaves a **Charts cannot render** warning bar with
-**Review plugins…** until the problem is resolved. Healthy older renderers do not trigger this
-blocking warning merely because an update exists. Renderer replacement is explicit and undoable;
-save the `.ogs` document to keep changed references.
+Existing charts retain their saved renderer version and digest. When an enabled, trusted installed
+build has the same plugin ID and version and supports the chart's settings, Studio uses its
+verified bytes in the editor, Preview and new exports. Preview & Export offers explicit upgrades
+to other compatible versions. Renderer changes are undoable, and individual charts can change
+provider in Properties. Save the `.ogs` document to keep explicit reference changes.
+Opening a template or template set checks every template's chart renderers, including inactive
+ones. The **Plugin mismatch — charts unavailable** dialog appears when Studio needs a renderer
+and cannot use a compatible trusted build of the saved version. Dismissing it leaves a
+**Charts cannot render** warning bar with **Review plugins…** until the problem is resolved.
 See [Renderer plugins](RENDERER_PLUGINS.md) for installation, portability, and the provider API.
 Disabled versions remain manageable, but unavailable versions cannot preview or apply templates.
 

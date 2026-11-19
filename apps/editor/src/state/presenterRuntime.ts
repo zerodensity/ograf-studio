@@ -21,6 +21,7 @@ import {
   registerRendererPluginPolicy,
   useRendererPluginSettingsStore,
 } from './pluginSettingsStore';
+import { resolveStudioRendererComposition } from './studioRendererResolution';
 
 export interface PresenterEntryInfo {
   fields: FieldDefinition[];
@@ -102,7 +103,7 @@ async function independentRuntime(
   // Keep one registered class per source template when navigating back and forth.
   const compiled = new Map<
     string,
-    { descriptor: ReturnType<typeof compileDescriptor>; tagName: string }
+    { descriptor: ReturnType<typeof compileDescriptor>; tagName: string; policyRevision: number }
   >();
   const plugins: RendererPluginSnapshot[] = [];
   const assertLive = () => {
@@ -118,18 +119,26 @@ async function independentRuntime(
   const prepare = async (entry: ResolvedPresenterEntry, data: Record<string, FieldValue>) => {
     assertLive();
     const composition = compositionFor(source, entry);
-    let cached = compiled.get(entry.templateId);
-    if (!cached) {
-      const descriptor = compileDescriptor(composition);
-      cached = { descriptor, tagName: registerGraphicElement(descriptor) };
-      compiled.set(entry.templateId, cached);
-    }
-    const descriptor = cached.descriptor;
-    const required = descriptor.rendererPlugins ?? [];
-    if (required.length) await useRendererPluginSettingsStore.getState().initialize();
+    if (composition.rendererPlugins?.length)
+      await useRendererPluginSettingsStore.getState().initialize();
     assertLive();
+    const { installed, revision } = useRendererPluginSettingsStore.getState();
+    let cached = compiled.get(entry.templateId);
+    if (cached?.policyRevision !== revision) cached = undefined;
+    const descriptor =
+      cached?.descriptor ??
+      compileDescriptor(resolveStudioRendererComposition(composition, installed));
+    const required = descriptor.rendererPlugins ?? [];
     assertStudioRendererPluginsAllowed(required);
     registerRendererPluginPolicy();
+    if (!cached) {
+      cached = {
+        descriptor,
+        tagName: registerGraphicElement(descriptor),
+        policyRevision: revision,
+      };
+      compiled.set(entry.templateId, cached);
+    }
     for (const plugin of required) if (!plugins.includes(plugin)) plugins.push(plugin);
     const graphic = globalThis.document.createElement(cached.tagName) as HTMLElement & Graphic;
     const mount = { entryId: entry.id, graphic };
