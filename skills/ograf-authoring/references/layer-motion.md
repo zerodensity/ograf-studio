@@ -103,4 +103,4 @@ before the first Step (In) or before End (Out), and the layer holds its pose for
 span. `durationFrames + offsetFrames` must fit the window. For a left-to-right cascade of three
 layers with a 3-frame stagger, use 6, 3 and 0 from left to right. Use
 `ograf_get_capabilities sections:["easing"]` for the current catalog and
-`ograf_get_timeline`/`ograf_render_strip` to review the baked keys and motion.
+`ograf_get_project` `view: "timeline"` and `ograf_capture` `mode: "strip"` to review the baked keys and motion.

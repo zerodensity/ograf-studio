@@ -15,7 +15,7 @@ The connected editor exposes `ograf_get_template_set` and `ograf_update_template
 structure, template duplication/clipboard operations, shared defaults/inheritance, and control/asset
 links. Set commands use the opaque set revision from the read tool; layer batches use the separate
 numeric project revision. Re-read the active project after activation or set-default changes.
-`ograf_save_template_set` saves the whole connected set to a workspace-confined `.ogs` path using
+`ograf_save_project` with `scope: "set"` saves the whole connected set to a workspace-confined `.ogs` path using
 its opaque `expectedRevision`, `confirm:true` and optional `overwrite:true`. `archiveMode:"compact"`
 (default, schema 6) stores shared fonts, resources and component sources once; `"compatible"` writes
 the schema 5 archive layout for older set readers without down-converting newer features.
@@ -221,7 +221,7 @@ copy the full text, or **Use prompt** to load it into the composer for editing. 
 without an AI provider configured.
 
 An external MCP client must supply the user's creation request as `originalPrompt` when calling
-`ograf_create_project`, `ograf_reset_project`, or creating, duplicating, or pasting a template set
+`ograf_create_project` (also with `mode: "reset"`), or creating, duplicating, or pasting a template set
 member through `ograf_update_template_set`. Studio requires a nonblank prompt and saves it with the
 new template. Duplicate and paste preserve existing prompt history and append the copy request.
 Opening or importing an existing template preserves its existing provenance.
@@ -535,6 +535,35 @@ Use `mcp-remote` as a local compatibility bridge.
 `--allow-http` is appropriate here only because the endpoint is loopback-only. Do not use this
 configuration for a server exposed on another machine or network. `npx` downloads the compatibility
 bridge on first use, so Node.js and network access are required for that first launch.
+
+## Merged MCP tools
+
+The server lists 22 tools. Fourteen earlier tools are now one argument on a listed tool. Their
+earlier names still answer a script or an older skill that calls them, but no client sees them in
+the tool list.
+
+| Earlier tool                       | Call instead                                             |
+| ---------------------------------- | -------------------------------------------------------- |
+| `ograf_list_sessions`              | `ograf_get_capabilities` with `view: "sessions"`         |
+| `ograf_get_changes`                | `ograf_get_project` with `view: "changes"`               |
+| `ograf_get_timeline`               | `ograf_get_project` with `view: "timeline"`              |
+| `ograf_query_scene`                | `ograf_inspect_scene` with `mode: "query"` or any filter |
+| `ograf_render_strip`               | `ograf_capture` with `mode: "strip"`                     |
+| `ograf_render_frame`               | `ograf_capture` with `mode: "svg"`                       |
+| `ograf_review_design`              | `ograf_validate_project` with `check: "design"`          |
+| `ograf_measure_text`               | `ograf_validate_project` with `check: "text"`            |
+| `ograf_import_svg_bundle`          | `ograf_import_asset` with `paths`                        |
+| `ograf_reset_project`              | `ograf_create_project` with `mode: "reset"`              |
+| `ograf_save_template_set`          | `ograf_save_project` with `scope: "set"`                 |
+| `ograf_export_coordinated_package` | `ograf_export_package` with `scope: "set"`               |
+| `ograf_redo`                       | `ograf_undo` with `direction: "redo"`                    |
+| `ograf_preview_template_transfer`  | `ograf_review_template_transfer` with `step: "preview"`  |
+
+The selector argument is optional when another argument already belongs to one choice only: `paths`
+selects the SVG bundle import and `sinceRevision` selects the change history. An argument that
+belongs to a different choice is refused with the choice it belongs to. No read is merged into a
+write, so a client that approves reads automatically keeps doing so. The built-in AI Assistant
+gets the same merged tools, limited to the choices it already had.
 
 ## Using the `ograf-authoring` skill
 

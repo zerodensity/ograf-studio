@@ -747,7 +747,7 @@ registers selected fonts as project font assets. Any unresolved relative URL is 
 Resources panel. The result remains one portable image asset; Photoshop's rasterized content and
 arbitrary SVG structure are not decomposed into independently editable studio layers.
 
-MCP clients can perform the same portable import through `ograf_import_svg_bundle`, or ingest one
+MCP clients can perform the same portable import through `ograf_import_asset` with `paths`, or ingest one
 workspace-confined file through `ograf_import_asset`. Both tools enforce file and aggregate payload
 limits before committing one revision-checked asset transaction.
 

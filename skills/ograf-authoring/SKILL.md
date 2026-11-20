@@ -27,8 +27,8 @@ For numbered canvas references, match each annotation to its rectangle or freeha
    browser-dependent tool while the socket is open but the editor is unresponsive; bring the editor
    tab to the foreground first. Require `editor.certificationReady` before certification or file
    output; follow `certificationLikelyCause` recovery guidance. `liveEditorConnected` is deprecated.
-2. Inspect before editing with `ograf_query_scene`, `ograf_get_project` or `ograf_inspect_scene`.
-   Query roles, tags, names, bindings, kinds and animation status to identify targets compactly.
+2. Inspect before editing with `ograf_inspect_scene` or `ograf_get_project`. Add `mode: "query"`
+   filters for roles, tags, names, bindings, kinds and animation status to identify targets compactly.
    Keep stable IDs and `revision`. Prefer explicit `include` and `tracks:"animated-only"` for
    routine project reads; omit filters for full compatibility snapshots. Use `ograf_read_result_page`
    for large results; follow paths/offsets. Pages are snapshots; never repeat a mutation to paginate.
@@ -50,8 +50,8 @@ For numbered canvas references, match each annotation to its rectangle or freeha
    projected IDs, validation, optional broadcast lint, and compact per-operation summaries, but its
    generated IDs are hypothetical and must not be reused after the real batch.
 4. Apply with the latest `expectedRevision`. If a revision conflict occurs, re-read the project and consciously rebase; never blindly retry stale operations.
-5. Inspect the result with `ograf_review_design`, `ograf_get_timeline`, `ograf_capture`,
-   `ograf_render_strip`, and `ograf_validate_project`. Design QA is deterministic and advisory: use
+5. Inspect the result with `ograf_validate_project` (also `check: "design"`), `ograf_get_project`
+   `view: "timeline"` and `ograf_capture`. Design QA is deterministic and advisory: use
    its stable finding IDs/layer IDs and preview frames to guide changes. Resolve unintended
    lockstep, wrong-direction easing, missing stagger/reveal, weak type hierarchy, near-miss
    alignment, inconsistent padding, and loop seams; do not treat the score as a substitute for
@@ -60,14 +60,14 @@ For numbered canvas references, match each annotation to its rectangle or freeha
    `qa:allow-offcanvas` only for deliberately clipped or wrapped layers, and `qa:static-text` only
    for punctuation or fixed glyphs that should not become operator fields.
    Use `target: "composition"` with a checker matte for design checks and `target: "viewport"`
-   when editor chrome or canvas state may be involved. Use `ograf_render_strip` for animation work;
+   when editor chrome or canvas state may be involved. Use `mode: "strip"` for animation work;
    omit `frames` to sample lifecycle frames and transition midpoints, or provide up to 12 diagnostic
-   frames. For `ograf_capture`, omit `frame` to inspect the first Step/on-air state rather than
+   frames. For one frame, omit `frame` to inspect the first Step/on-air state rather than
    transparent Start. Prefer the short-lived PNG URL; request inline base64 only when the client
    cannot fetch localhost URLs.
    Use `ograf_sample_tracks` for browser-free geometry and invariant checks such as fixed right or
    bottom edges. It remains available when capture, strips, measurement, and certification do not.
-   For data-bound text, call `ograf_measure_text` at the relevant frame with representative values;
+   For data-bound text, run `check: "text"` at the relevant frame with representative values;
    treat `degenerate: true` as a layout fault even when the text is legible at its 50% clamp. Then
    distinguish `clippedBy: "own-box"` (a fault) from `clippedBy: "parent"` (intentional masking).
    validate with `browserTextOverflow: true`, `detail: "summary"`, and stress `testValues`. Use
@@ -81,12 +81,12 @@ For numbered canvas references, match each annotation to its rectangle or freeha
 6. Call `ograf_certify_project` before reporting output as compatible. Pass `profile` when the
    result is specifically real-time, non-real-time, or dual-mode; omitting it certifies the project-
    declared flags.
-7. Use `ograf_save_project`, `ograf_export_package`, or `ograf_export_coordinated_package` only when the user requested a file operation.
+7. Use `ograf_save_project` or `ograf_export_package` (`scope: "set"` for a whole set) only when the user requested a file operation.
    For package export choose the named `realtime`, `non-realtime`, or `dual` profile; it derives
    output flags and identity without mutating source. Pass `confirm: true`; leave `overwrite` false
    unless replacement was explicitly intended.
 
-For whole-set source saves use `ograf_save_template_set` with the opaque set revision and `confirm:true`.
+For whole-set source saves use `ograf_save_project` with `scope: "set"`, the opaque set revision and `confirm:true`.
 Compact storage shares dependencies once; compatible mode targets older set readers. Standalone saves
 must embed resolved fonts/resources/components. See the [set storage contract](./references/template-sets-and-crops.md#portable-set-storage).
 External MCP clients pass the user's original request as `originalPrompt` on `ograf_create_project`,
@@ -110,7 +110,7 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   convert an existing OGraf package, use the visible editor workflow rather than fabricating a
   project document.
 - Use `ograf_import_asset` for one workspace-confined image, font, CSS, or source attachment. Use
-  `ograf_import_svg_bundle` for one SVG plus companion CSS, images, and fonts; it embeds relative
+  its `paths` argument (`mode: "svg-bundle"`) for one SVG plus companion CSS, images, and fonts; it embeds relative
   dependencies into one portable SVG and registers packaged fonts. The result remains one image
   layer—arbitrary Photoshop raster/vector output is not semantically decomposed into editable
   objects.
@@ -290,7 +290,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   `squeeze` deliberately scales glyph width and height independently to fill the authored box;
   `fixed` performs no fitting. Fit-to-width keeps the typeface proportional and treats only explicit
   line breaks as multiple lines. Use squeeze only when deformation is intentional, and verify
-  data-bound extremes with `ograf_measure_text`.
+  data-bound extremes with `ograf_validate_project` `check: "text"`.
 - `save_component` creates an asset and links the selected source objects. `instantiate_component`
   defaults to linked inheritance; use `linked:false` for an independent copy. Asset edits propagate
   while local overrides and instance placement survive. Use `reset_component_overrides` to inherit
@@ -461,8 +461,8 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
 - Do not encode editor-only automation or cross-timeline triggers into output. Pointer and keyboard rules are
   real-time HTML interactions, not deterministic non-real-time scheduled actions.
 - Use `ograf_undo` to reverse the last agent transaction. Direct browser edits retain their own browser history.
-- Use `ograf_get_changes` after a revision conflict to distinguish browser edits from agent edits.
-- Use `ograf_reset_project` with explicit confirmation for a genuinely fresh visible session; the
+- Use `ograf_get_project` with `view: "changes"` after a revision conflict to distinguish browser edits from agent edits.
+- Use `ograf_create_project` with `mode: "reset"` and explicit confirmation for a genuinely fresh visible session; the
   reset is an undoable agent transaction. Do not manually tear down every layer and field.
 - Never write project JSON or construct a package outside the MCP save/export tools; doing so bypasses certification.
 - If the editor is disconnected and you have browser control, open the configured Studio URL:

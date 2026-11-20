@@ -72,7 +72,7 @@ include `componentId` and `instanceId` when linked, plus stable `layers`, `field
 `timelineGroupId` mappings. Edit the component source to update all its instances; instance edits
 remain overrides. Use `asComponent:false` to keep an independent grouped starter.
 
-Treat returned layer IDs as opaque. Query roles/tags with `ograf_query_scene` rather than relying
+Treat returned layer IDs as opaque. Query roles/tags with `ograf_inspect_scene` filters rather than relying
 on a fixed layer count or display name. Keep source `.ogs` files for editing; compiled coordinated
 packages do not reconstruct component sources.
 

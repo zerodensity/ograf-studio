@@ -5,10 +5,11 @@
     {
       "name": "ograf_get_capabilities",
       "title": "Get OGraf authoring capabilities",
-      "description": "Discover section contracts and editor readiness.",
+      "description": "Discover section contracts and editor readiness. view=sessions: List session revisions.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "view": { "enum": ["capabilities", "sessions"] },
           "sections": {
             "minItems": 1,
             "type": "array",
@@ -40,50 +41,13 @@
       "execution": { "taskSupport": "forbidden" }
     },
     {
-      "name": "ograf_list_sessions",
-      "title": "List OGraf authoring sessions",
-      "description": "List session revisions.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_get_changes",
-      "title": "Get OGraf revision changes",
-      "description": "Read up to 100 changes after sinceRevision.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
-          "sinceRevision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
-        },
-        "required": ["sinceRevision"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
       "name": "ograf_get_project",
       "title": "Get editable OGraf project",
-      "description": "Read project/revision; include/tracks filter output.",
+      "description": "Read project/revision; include/tracks filter output. view=changes: Read up to 100 changes after sinceRevision. view=timeline: Read layer tracks/lifecycle/loops. Easing applies to the incoming segment.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "view": { "enum": ["project", "changes", "timeline"] },
           "sessionId": { "default": "editor", "type": "string" },
           "include": {
             "minItems": 1,
@@ -106,7 +70,10 @@
               ]
             }
           },
-          "tracks": { "default": "full", "enum": ["none", "animated-only", "full"] }
+          "tracks": { "default": "full", "enum": ["none", "animated-only", "full"] },
+          "sinceRevision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "compositionId": { "type": "string" },
+          "layerIds": { "type": "array", "items": { "type": "string" } }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
@@ -121,30 +88,11 @@
     {
       "name": "ograf_inspect_scene",
       "title": "Inspect OGraf scene",
-      "description": "Inspect scene links/motion/warnings/revision.",
+      "description": "Inspect scene links/motion/warnings/revision. mode=query: Query layer semantics/names/bindings/motion.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
-          "compositionId": { "type": "string" }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_query_scene",
-      "title": "Query OGraf scene by semantic intent",
-      "description": "Query layer semantics/names/bindings/motion.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
+          "mode": { "enum": ["inspect", "query"] },
           "sessionId": { "default": "editor", "type": "string" },
           "compositionId": { "type": "string" },
           "roles": {
@@ -212,27 +160,6 @@
       "execution": { "taskSupport": "forbidden" }
     },
     {
-      "name": "ograf_get_timeline",
-      "title": "Get OGraf property timeline",
-      "description": "Read layer tracks/lifecycle/loops. Easing applies to the incoming segment.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
-          "compositionId": { "type": "string" },
-          "layerIds": { "type": "array", "items": { "type": "string" } }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
       "name": "ograf_sample_tracks",
       "title": "Sample resolved OGraf layer geometry",
       "description": "Sample geometry/lights/patterns; loopElapsedFrame is absolute on-air time. No browser.",
@@ -270,41 +197,29 @@
       "execution": { "taskSupport": "forbidden" }
     },
     {
-      "name": "ograf_render_frame",
-      "title": "Render OGraf frame",
-      "description": "Render a deterministic SVG without mutation.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
-          "compositionId": { "type": "string" },
-          "frame": { "default": 0, "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
       "name": "ograf_capture",
       "title": "Capture browser-rendered OGraf PNG",
-      "description": "PNG; first Step default. Matte/dataOverrides: composition only. URL 5 min; base64 opt-in. Not certification.",
+      "description": "PNG; first Step default. Matte/dataOverrides: composition only. URL 5 min; base64 opt-in. Not certification. mode=strip: Browser strip: max12 frames, lifecycle/midpoints default; maxDimension/tile. URL 5 min; base64 opt-in. mode=svg: Render a deterministic SVG without mutation.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "mode": { "enum": ["frame", "strip", "svg"] },
           "sessionId": { "default": "editor", "type": "string" },
           "target": { "default": "composition", "enum": ["composition", "viewport"] },
           "frame": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "compositionId": { "type": "string" },
-          "maxDimension": { "default": 900, "type": "integer", "minimum": 64, "maximum": 4096 },
+          "maxDimension": { "type": "integer", "minimum": 64, "maximum": 4096 },
           "matte": { "default": "checker", "type": "string" },
           "dataOverrides": { "type": "object", "additionalProperties": { "$ref": "#/$defs/0" } },
-          "enableBase64Response": { "default": false, "type": "boolean" }
+          "enableBase64Response": { "default": false, "type": "boolean" },
+          "frames": {
+            "minItems": 1,
+            "maxItems": 12,
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+          },
+          "columns": { "default": 3, "type": "integer", "minimum": 1, "maximum": 12 },
+          "labelFrames": { "default": true, "type": "boolean" }
         },
         "$schema": "http://json-schema.org/draft-07/schema#",
         "$defs": {
@@ -342,37 +257,6 @@
             ]
           }
         }
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_render_strip",
-      "title": "Render OGraf PNG frame strip",
-      "description": "Browser strip: max12 frames, lifecycle/midpoints default; maxDimension/tile. URL 5 min; base64 opt-in.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
-          "compositionId": { "type": "string" },
-          "frames": {
-            "minItems": 1,
-            "maxItems": 12,
-            "type": "array",
-            "items": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
-          },
-          "columns": { "default": 3, "type": "integer", "minimum": 1, "maximum": 12 },
-          "maxDimension": { "default": 320, "type": "integer", "minimum": 64, "maximum": 1024 },
-          "labelFrames": { "default": true, "type": "boolean" },
-          "matte": { "default": "checker", "type": "string" },
-          "enableBase64Response": { "default": false, "type": "boolean" }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
         "readOnlyHint": true,
@@ -3085,15 +2969,16 @@
     {
       "name": "ograf_validate_project",
       "title": "Validate editable OGraf project",
-      "description": "Advisory semantic/field/text/broadcast checks; not certification.",
+      "description": "Advisory semantic/field/text/broadcast checks; not certification. check=design: Advisory QA with IDs; includeStrip adds frames. Not certification. check=text: Browser text fit/overflow/clipping at frame.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "check": { "enum": ["project", "design", "text"] },
           "sessionId": { "default": "editor", "type": "string" },
-          "browserTextOverflow": { "default": false, "type": "boolean" },
-          "dataFieldUsage": { "default": false, "type": "boolean" },
-          "broadcastLint": { "default": false, "type": "boolean" },
-          "interlacedOutput": { "default": false, "type": "boolean" },
+          "browserTextOverflow": { "$ref": "#/$defs/0" },
+          "dataFieldUsage": { "$ref": "#/$defs/0" },
+          "broadcastLint": { "$ref": "#/$defs/0" },
+          "interlacedOutput": { "$ref": "#/$defs/0" },
           "detail": { "default": "summary", "enum": ["summary", "full"] },
           "testValues": {
             "type": "object",
@@ -3105,58 +2990,19 @@
                 { "type": "array", "items": { "type": ["string", "number", "boolean"] } }
               ]
             }
-          }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_review_design",
-      "title": "Review OGraf design and motion",
-      "description": "Advisory QA with IDs; includeStrip adds frames. Not certification.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
+          },
           "compositionId": { "type": "string" },
-          "includeStrip": { "default": false, "type": "boolean" },
+          "includeStrip": { "$ref": "#/$defs/0" },
           "columns": { "default": 3, "type": "integer", "minimum": 1, "maximum": 12 },
           "maxDimension": { "default": 320, "type": "integer", "minimum": 64, "maximum": 1024 },
           "matte": { "default": "checker", "type": "string" },
-          "enableBase64Response": { "default": false, "type": "boolean" }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_measure_text",
-      "title": "Measure OGraf text in the browser",
-      "description": "Browser text fit/overflow/clipping at frame.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
-          "compositionId": { "type": "string" },
+          "enableBase64Response": { "$ref": "#/$defs/0" },
           "layerId": { "type": "string" },
           "text": { "type": "string" },
           "frame": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
         },
-        "required": ["layerId"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$defs": { "0": { "default": false, "type": "boolean" } }
       },
       "annotations": {
         "readOnlyHint": true,
@@ -3169,47 +3015,23 @@
     {
       "name": "ograf_create_project",
       "title": "Create OGraf project session",
-      "description": "Create a memory session with the original user prompt saved in the template. Pass the user’s request verbatim from your conversation. The editor session belongs to the browser.",
+      "description": "Create a memory session with the original user prompt saved in the template. Pass the user’s request verbatim from your conversation. The editor session belongs to the browser. mode=reset: Replace the session with a fresh template and save the supplied original user prompt verbatim. Requires confirmation and the current revision. keepDataFields retains main fields.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "mode": { "enum": ["create", "reset"] },
           "sessionId": { "type": "string" },
           "name": { "type": "string" },
           "originalPrompt": {
             "type": "string",
             "minLength": 1,
             "description": "Verbatim user request for this template, from the MCP client conversation."
-          }
-        },
-        "required": ["sessionId", "originalPrompt"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_reset_project",
-      "title": "Reset an OGraf project session",
-      "description": "Replace the session with a fresh template and save the supplied original user prompt verbatim. Requires confirmation and the current revision. keepDataFields retains main fields.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
+          },
           "expectedRevision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "confirm": { "type": "boolean", "const": true },
-          "keepDataFields": { "default": false, "type": "boolean" },
-          "originalPrompt": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Verbatim user request for this template, from the MCP client conversation."
-          }
+          "keepDataFields": { "default": false, "type": "boolean" }
         },
-        "required": ["expectedRevision", "confirm", "originalPrompt"],
+        "required": ["originalPrompt"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
@@ -3262,15 +3084,16 @@
     {
       "name": "ograf_import_asset",
       "title": "Import a workspace asset into OGraf",
-      "description": "Embed workspace image/video/audio/font/text (32 MiB max); returns asset:<id>.",
+      "description": "Embed workspace image/video/audio/font/text (32 MiB max); returns asset:<id>. mode=svg-bundle: Embed workspace SVG/CSS/images/fonts atomically: 32 MiB/file, 64 MiB total.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "mode": { "enum": ["asset", "svg-bundle"] },
           "sessionId": { "default": "editor", "type": "string" },
           "expectedRevision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "compositionId": { "type": "string" },
-          "path": { "type": "string", "minLength": 1 },
-          "name": { "type": "string", "minLength": 1 },
+          "path": { "$ref": "#/$defs/0" },
+          "name": { "$ref": "#/$defs/0" },
           "mimeType": {
             "enum": [
               "image/png",
@@ -3291,44 +3114,23 @@
               "text/plain"
             ]
           },
-          "fontFamily": { "type": "string", "minLength": 1 },
-          "fontWeight": { "type": "string", "minLength": 1 },
+          "fontFamily": { "$ref": "#/$defs/0" },
+          "fontWeight": { "$ref": "#/$defs/0" },
           "fontStyle": { "enum": ["normal", "italic", "oblique"] },
-          "packagePath": { "type": "string", "minLength": 1 },
+          "packagePath": { "$ref": "#/$defs/0" },
           "licenseName": { "type": "string" },
           "licenseUrl": { "type": "string" },
-          "licenseText": { "type": "string" }
-        },
-        "required": ["expectedRevision", "path"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_import_svg_bundle",
-      "title": "Import a portable Photoshop SVG bundle",
-      "description": "Embed workspace SVG/CSS/images/fonts atomically: 32 MiB/file, 64 MiB total.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
-          "expectedRevision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
-          "compositionId": { "type": "string" },
+          "licenseText": { "type": "string" },
           "paths": {
             "minItems": 1,
             "maxItems": 64,
             "type": "array",
-            "items": { "type": "string", "minLength": 1 }
+            "items": { "$ref": "#/$defs/0" }
           }
         },
-        "required": ["expectedRevision", "paths"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "required": ["expectedRevision"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$defs": { "0": { "type": "string", "minLength": 1 } }
       },
       "annotations": {
         "readOnlyHint": false,
@@ -3341,31 +3143,11 @@
     {
       "name": "ograf_undo",
       "title": "Undo agent change",
-      "description": "Undo the latest agent transaction.",
+      "description": "Undo the latest agent transaction. direction=redo: Redo the latest agent transaction.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "sessionId": { "default": "editor", "type": "string" },
-          "expectedRevision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
-        },
-        "required": ["expectedRevision"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_redo",
-      "title": "Redo agent change",
-      "description": "Redo the latest agent transaction.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
+          "direction": { "enum": ["undo", "redo"] },
           "sessionId": { "default": "editor", "type": "string" },
           "expectedRevision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
         },
@@ -3403,10 +3185,11 @@
     {
       "name": "ograf_save_project",
       "title": "Save OGraf project and PNG",
-      "description": "Certify/save .ogs + thumbnail.",
+      "description": "Certify/save .ogs + thumbnail. scope=set: Save a revision-checked whole-set .ogs snapshot copy. Compact stores shared payloads once; compatible writes schema 5 for older set readers. Workspace paths only, up to 64 MiB compressed. Does not certify playout or rename the open document.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "scope": { "enum": ["template", "set"] },
           "sessionId": { "default": "editor", "type": "string" },
           "path": { "type": "string" },
           "confirm": { "type": "boolean", "const": true },
@@ -3416,7 +3199,9 @@
               { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
               { "type": "null" }
             ]
-          }
+          },
+          "expectedRevision": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "archiveMode": { "default": "compact", "enum": ["compact", "compatible"] }
         },
         "required": ["path", "confirm"],
         "$schema": "http://json-schema.org/draft-07/schema#"
@@ -3432,72 +3217,26 @@
     {
       "name": "ograf_export_package",
       "title": "Export certified OGraf or standalone HTML",
-      "description": "Export a certified .ograf.zip with thumbnail or a self-contained .html preview. The path extension selects the output.",
+      "description": "Export a certified .ograf.zip with thumbnail or a self-contained .html preview. The path extension selects the output. scope=set: Export frozen graph/artwork with a PNG thumbnail. Select a .ograf.zip package or self-contained .html preview by path extension. Lane-dependent selects have defaults and the runtime checks the current on-air template. Rejects stale revisions, unapplied drafts and source changes. Explicit workspace path; no picker. Reuse operationId with identical arguments to recover uncertain results or retry the same certified bytes. IDs live for this server process (32 operations); success rechecks output hash. Reports included states/templates and unreferenced templates.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "scope": { "enum": ["template", "set"] },
           "sessionId": { "default": "editor", "type": "string" },
           "path": { "type": "string" },
           "confirm": { "type": "boolean", "const": true },
           "overwrite": { "default": false, "type": "boolean" },
-          "profile": { "default": "dual", "enum": ["realtime", "non-realtime", "dual"] },
+          "profile": { "enum": ["realtime", "non-realtime", "dual"] },
           "thumbnailFrame": {
             "anyOf": [
               { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
               { "type": "null" }
             ]
-          }
+          },
+          "expectedRevision": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "operationId": { "type": "string", "minLength": 1, "maxLength": 128 }
         },
         "required": ["path", "confirm"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_export_coordinated_package",
-      "title": "Export certified coordinated OGraf or standalone HTML",
-      "description": "Export frozen graph/artwork with a PNG thumbnail. Select a .ograf.zip package or self-contained .html preview by path extension. Lane-dependent selects have defaults and the runtime checks the current on-air template. Rejects stale revisions, unapplied drafts and source changes. Explicit workspace path; no picker. Reuse operationId with identical arguments to recover uncertain results or retry the same certified bytes. IDs live for this server process (32 operations); success rechecks output hash. Reports included states/templates and unreferenced templates.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "path": { "type": "string", "minLength": 1 },
-          "expectedRevision": { "type": "string", "minLength": 1, "maxLength": 256 },
-          "operationId": { "type": "string", "minLength": 1, "maxLength": 128 },
-          "confirm": { "type": "boolean", "const": true },
-          "overwrite": { "default": false, "type": "boolean" },
-          "profile": { "enum": ["realtime", "non-realtime", "dual"] }
-        },
-        "required": ["path", "expectedRevision", "operationId", "confirm", "profile"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_save_template_set",
-      "title": "Save the open template set",
-      "description": "Save a revision-checked whole-set .ogs snapshot copy. Compact stores shared payloads once; compatible writes schema 5 for older set readers. Workspace paths only, up to 64 MiB compressed. Does not certify playout or rename the open document.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "expectedRevision": { "type": "string", "minLength": 1, "maxLength": 256 },
-          "path": { "type": "string", "minLength": 1 },
-          "archiveMode": { "default": "compact", "enum": ["compact", "compatible"] },
-          "confirm": { "type": "boolean", "const": true },
-          "overwrite": { "default": false, "type": "boolean" }
-        },
-        "required": ["expectedRevision", "path", "confirm"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
@@ -3970,10 +3709,11 @@
     {
       "name": "ograf_review_template_transfer",
       "title": "Review template branding transfer",
-      "description": "Review branding and settings, or list members of a workspace set. Select source.templateId when requested. Returns bounded rows and a frozen plan ID. Files up to 64 MiB.",
+      "description": "Review branding and settings, or list members of a workspace set. Select source.templateId when requested. Returns bounded rows and a frozen plan ID. Files up to 64 MiB. step=preview: Render before and after images for the exact reviewed plan. Returns expiring image URLs. Recheck a file with the same workspaceFile path and member.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "step": { "enum": ["review", "preview"] },
           "expectedRevision": { "$ref": "#/$defs/0" },
           "source": {
             "oneOf": [
@@ -4028,28 +3768,7 @@
             "description": "Verbatim user request for this template, from the MCP client conversation."
           },
           "offset": { "default": 0, "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
-          "limit": { "default": 25, "type": "integer", "minimum": 1, "maximum": 50 }
-        },
-        "required": ["expectedRevision", "source"],
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "$defs": { "0": { "type": "string", "minLength": 1, "maxLength": 256 } }
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      },
-      "execution": { "taskSupport": "forbidden" }
-    },
-    {
-      "name": "ograf_preview_template_transfer",
-      "title": "Preview a reviewed template transfer",
-      "description": "Render before and after images for the exact reviewed plan. Returns expiring image URLs. Recheck a file with the same workspaceFile path and member.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "expectedRevision": { "$ref": "#/$defs/0" },
+          "limit": { "default": 25, "type": "integer", "minimum": 1, "maximum": 50 },
           "planId": { "type": "string", "minLength": 1, "maxLength": 128 },
           "sourceRevision": { "$ref": "#/$defs/0" },
           "workspaceFile": {
@@ -4062,14 +3781,14 @@
             "additionalProperties": false
           }
         },
-        "required": ["expectedRevision", "planId", "sourceRevision"],
+        "required": ["expectedRevision"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "$defs": { "0": { "type": "string", "minLength": 1, "maxLength": 256 } }
       },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true,
+        "idempotentHint": false,
         "openWorldHint": false
       },
       "execution": { "taskSupport": "forbidden" }

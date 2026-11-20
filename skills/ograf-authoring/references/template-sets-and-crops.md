@@ -431,7 +431,7 @@ real-time only. Audio/media cues, shader/media Rule side effects, custom-action 
 and loops activated at later steps remain unsupported.
 Runtime packages cannot be reverse-imported
 as complete template sets; preserve the original `.ogs`.
-Use `ograf_export_coordinated_package` for coordinated file output. First read
+Use `ograf_export_package` with `scope: "set"` for coordinated file output. First read
 `ograf_get_template_set` and pass its `expectedRevision`, an explicit `profile`
 (`realtime`, `non-realtime`, or `dual`), workspace `.ograf.zip` or `.html` path,
 `confirm:true`, and a unique `operationId`. Request `overwrite:true` only after
@@ -638,7 +638,7 @@ specifically approved mapping. Exact source kit import requires shared-kit prove
 standalone template still supports keeping its appearance or mapping eligible local definitions to
 the destination. Never infer a shared-kit identity from similar names or color values.
 
-Use `ograf_preview_template_transfer` with the review's `planId`, `expectedRevision`, and
+Use `ograf_review_template_transfer` with `step: "preview"` and the review's `planId`, `expectedRevision`, and
 `sourceRevision` to compare representative frames. Then call `ograf_commit_template_transfer`
 with the same identifiers and `confirm:true` when the user approves the reviewed choices. Preview
 and commit for a workspace source also take its `workspaceFile:{path,templateId?}` so the host can
@@ -723,7 +723,7 @@ v4 cannot play guarded/preset definitions even inside a compatible schema 5 arch
 readers cannot open a set ZIP; existing legacy `.ogp` files can still be opened, but cannot preserve
 coordinated transitions.
 
-MCP `ograf_save_template_set` takes `expectedRevision` from `ograf_get_template_set`, a
+MCP `ograf_save_project` with `scope: "set"` takes `expectedRevision` from `ograf_get_template_set`, a
 workspace-confined `.ogs` `path`, `confirm:true`, optional `archiveMode:"compact"|"compatible"`
 (default compact), and optional `overwrite:true` only when replacement is authorized. It serializes an
 immutable complete set snapshot through Studio's save worker. An edit during generation rejects the
@@ -798,7 +798,7 @@ request as `originalPrompt`. Studio requires a nonblank prompt and stores it as 
 }
 ```
 
-Pass the same `originalPrompt` field to `ograf_reset_project` or in a `new_template`,
+Pass the same `originalPrompt` field to `ograf_create_project` `mode: "reset"` or in a `new_template`,
 `duplicate_template`, or `paste_template` operation sent to `ograf_update_template_set`.
 Duplicate and paste preserve the source's prompt history and append the request that created
 the copy. Opening or importing an existing template preserves its saved provenance.

@@ -5,27 +5,31 @@ import { templateSetOperationSchema } from './templateSetSchemas';
 
 export const IN_APP_AGENT_TOOL_NAMES = [
   'ograf_get_capabilities',
-  'ograf_query_scene',
   'ograf_inspect_scene',
   'ograf_get_project',
   'ograf_get_template_set',
   'ograf_update_template_set',
   'ograf_get_playout',
   'ograf_control_playout',
-  'ograf_get_timeline',
   'ograf_sample_tracks',
   'ograf_apply_operations',
   'ograf_capture',
-  'ograf_render_strip',
-  'ograf_measure_text',
-  'ograf_review_design',
   'ograf_validate_project',
   'ograf_undo',
-  'ograf_redo',
   'ograf_read_result_page',
 ] as const;
 
 export type InAppAgentToolName = (typeof IN_APP_AGENT_TOOL_NAMES)[number];
+
+/** Earlier in-app tools that a listed tool now covers. The chat reaches no other merged route. */
+export const IN_APP_MERGED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'ograf_query_scene',
+  'ograf_get_timeline',
+  'ograf_render_strip',
+  'ograf_measure_text',
+  'ograf_review_design',
+  'ograf_redo',
+]);
 
 const IN_APP_AGENT_TOOL_SET = new Set<string>(IN_APP_AGENT_TOOL_NAMES);
 
@@ -50,21 +54,15 @@ export interface ProviderToolDefinition {
 /** Compact provider-only wording; canonical MCP records and validation remain unchanged. */
 const IN_APP_DESCRIPTIONS: Record<string, string> = {
   ograf_get_capabilities: 'Contracts/readiness.',
-  ograf_get_project: 'Project/revision.',
-  ograf_inspect_scene: 'Links/motion/warnings/revision.',
-  ograf_query_scene: 'Find layers.',
-  ograf_get_timeline: 'Tracks/lifecycle/loops/incoming easing.',
+  ograf_get_project: 'Project/revision. view=timeline: tracks/lifecycle/loops/incoming easing.',
+  ograf_inspect_scene: 'Links/motion/warnings/revision. mode=query or any filter: find layers.',
   ograf_sample_tracks: 'Pose; absolute on-air loopElapsedFrame; no browser.',
   ograf_capture:
-    'PNG(first Step); composition-only matte/dataOverrides; URL5min; opt-in base64; uncertified.',
-  ograf_render_strip:
-    'PNG strip≤12frames(lifecycle/midpoints default); maxDimension/tile; URL5min; opt-in base64.',
+    'PNG(first Step); composition-only matte/dataOverrides; URL5min; opt-in base64; uncertified. mode=strip: ≤12frames(lifecycle/midpoints default), tile maxDimension≤1024.',
   ograf_apply_operations: 'Atomic apply/dry-run/preview/propose(Accept/Reject).',
-  ograf_validate_project: 'Advisory semantic/field/text/broadcast QA; uncertified.',
-  ograf_review_design: 'Advisory QA+IDs; includeStrip=frames; uncertified.',
-  ograf_measure_text: 'Browser text fit/overflow/clipping at frame.',
-  ograf_undo: 'Undo agent transaction.',
-  ograf_redo: 'Redo agent transaction.',
+  ograf_validate_project:
+    'Advisory semantic/field/text/broadcast QA; uncertified. check=design: QA+IDs, includeStrip=frames. check=text: browser fit/overflow/clipping of layerId at frame.',
+  ograf_undo: 'Undo agent transaction. direction=redo: redo it.',
   ograf_get_template_set: 'Set/revision; opt-in projects/usage; IDs/offset/limit.',
   ograf_update_template_set:
     'Set revision; read templateSets capabilities; confirm removal/replacement; UI files.',

@@ -16,30 +16,30 @@ the absence of an on-canvas marker does not mean a layer is unbound.
   connection/responsiveness/latency, certification readiness, browser dependency map, and safety
   policy. Omit `sections` only for the complete backward-compatible payload. Do not guess domains
   that were not requested.
-- `ograf_list_sessions`: session IDs, revisions, project names, validity.
+- `ograf_get_capabilities` with `view: "sessions"`: session IDs, revisions, project names, validity.
 - `ograf_delete_session`: confirmed cleanup of a non-editor in-memory session; never targets the
   live `editor` session or saved files.
 - `ograf_get_project`: editable source, latest revision, validation. No filters preserves the full
   legacy response. Prefer explicit `include` plus `tracks: "animated-only"` for compact routine
   reads; use `tracks: "full"` when compatibility layer keyframes are required.
 - `ograf_inspect_scene`: compact layer and lifecycle outline.
-- `ograf_query_scene`: smallest intent-oriented read. Filter by semantic roles/tags, name fragment,
+- `ograf_inspect_scene` with `mode: "query"` or any filter: smallest intent-oriented read. Filter by semantic roles/tags, name fragment,
   element types, bound field keys, visibility, or animation. Results retain stable layer IDs,
   semantic metadata, frame bounds, bindings, design-token links, component links, relations, and
   animated property names.
-- `ograf_get_timeline`: independent property tracks and stable key IDs.
+- `ograf_get_project` with `view: "timeline"`: independent property tracks and stable key IDs.
 - `ograf_sample_tracks`: browser-free resolved values and derived bounds at requested frames. Use it
   for fixed-edge, containment, opacity, and complementary-track invariants during degraded mode.
   Pass `loopElapsedFrame` to overlay local loop tracks at an absolute elapsed clip frame.
-- `ograf_get_changes`: bounded agent/browser/undo/redo revision history after `sinceRevision`.
+- `ograf_get_project` with `view: "changes"`: bounded agent/browser/undo/redo revision history after `sinceRevision`.
 - `ograf_capture`: authoritative browser-rendered PNG of a composition frame or the visible editor
   viewport. Composition capture supports transparent/checker/solid mattes and temporary data-field
   overrides without changing revision. Omit `frame` for the first Step/on-air state. The five-minute localhost URL is the primary response;
   `enableBase64Response: true` adds an inline `image/png` block for clients that cannot fetch it.
-- `ograf_render_strip`: authoritative browser-rendered PNG contact sheet for up to 12 composition
+- `ograf_capture` with `mode: "strip"`: authoritative browser-rendered PNG contact sheet for up to 12 composition
   frames. Omit `frames` to sample lifecycle frames and transition midpoints. Use explicit frames to
   diagnose staggers, holds, easing, and premature exits. It is read-only and returns the same
-  five-minute URL plus optional inline `image/png` convention as `ograf_capture`.
+  five-minute URL plus optional inline `image/png` convention as a single capture.
 - `ograf_apply_operations` is the single operation entry point. `mode: "apply"` commits;
   `mode: "dry-run"` performs browser-free validation/lint; `mode: "preview"` renders the projected
   frame or strip without changing project state, revision, or undo history; and `mode: "propose"`
@@ -52,7 +52,7 @@ the absence of an on-canvas marker does not mean a layer is unbound.
   the editor is responsive. Capture omission or failure is reported without failing the mutation or
   QA. Generated dry-run IDs are hypothetical. Proposal acceptance applies the exact batch only when
   the base revision is still current; rejection, expiry, or conflict leaves the project unchanged.
-- `ograf_review_design`: deterministic semantic, layout, typography, palette, spacing, and motion QA
+- `ograf_validate_project` with `check: "design"`: deterministic semantic, layout, typography, palette, spacing, and motion QA
   with stable finding/layer IDs and recommended preview frames. `includeStrip: true` adds an
   authoritative browser contact sheet. Craft findings cover lockstep translation, easing direction,
   missing stagger, headline/subheadline scale, near-miss text edges, sibling-container padding, and
@@ -61,9 +61,9 @@ the absence of an on-canvas marker does not mean a layer is unbound.
   masked/offscreen wrap or rotational cycle, `qa:allow-offcanvas` for deliberately clipped or
   wrapped layers, and `qa:static-text` for fixed punctuation that should not be operator-editable.
   Findings remain advisory and do not replace certification.
-- `ograf_render_frame`: legacy approximate SVG snapshot; use only when the live browser required by
-  `ograf_capture` is unavailable and do not use it to judge final typography.
-- `ograf_measure_text`: browser/runtime measurement of a text layer, optional replacement string,
+- `ograf_capture` with `mode: "svg"`: legacy approximate SVG snapshot; use only when the live
+  browser is unavailable and do not use it to judge final typography.
+- `ograf_validate_project` with `check: "text"`: browser/runtime measurement of a text layer, optional replacement string,
   frame (default first Step), resolved font, shrink ratio/degeneracy, box overflow, and fitting-prefix
   index. `clippedBy: "parent"` identifies intentional ancestor masking and is not an overflow fault;
   `clippedBy: "own-box"` is actionable. `resolvedFont.resolution: "inferred"` is advisory. It is read-only.
@@ -119,8 +119,8 @@ Supported operation discriminators:
   `remove_lifecycle_step`, `add_canvas_guide`, `update_canvas_guide`, `remove_canvas_guide`,
   `create_timeline_group`, `rename_timeline_group`, `set_timeline_group_color`,
   `ungroup_timeline_group`
-- Assets: `add_asset`, `update_asset`, `remove_asset`; use the separate `ograf_import_asset` and
-  `ograf_import_svg_bundle` tools when payloads already exist under the configured workspace
+- Assets: `add_asset`, `update_asset`, `remove_asset`; use the separate `ograf_import_asset`
+  tool when payloads already exist under the configured workspace
 - Plugin catalog: `remove_renderer_plugin` removes an exact unused provider snapshot; it never
   installs/uninstalls or trusts code. See [renderer-plugins.md](./renderer-plugins.md).
 - Layers: `add_layer`, `duplicate_group`, `remove_layer`, `rename_layer`, `set_layer_flags`,
@@ -221,7 +221,7 @@ removing an in-use font reports fallback risk.
 
 `ograf_import_asset` avoids client-side base64 transport for one workspace-confined image, font,
 CSS, or text file and commits it through the same asset operation. Files are limited to 32 MiB.
-`ograf_import_svg_bundle` accepts up to 64 workspace paths containing exactly one SVG and selected
+With `paths` (`mode: "svg-bundle"`) it accepts up to 64 workspace paths containing exactly one SVG and selected
 companion CSS/images/fonts. It rejects duplicate base names, limits each file to 32 MiB and the
 bundle to 64 MiB, embeds relative dependencies into one SVG asset, registers discovered fonts, and
 commits all assets atomically.
@@ -340,11 +340,11 @@ bindings atomically and reports them in `summary.clearedBindings`.
 
 ## Undo and concurrency
 
-- `ograf_undo` and `ograf_redo` each require the current `expectedRevision`.
+- `ograf_undo`, also with `direction: "redo"`, requires the current `expectedRevision`.
 - A committed batch is one undo unit.
 - A dry run does not increment the revision or change the editor.
 - After any other human or agent edit, assume the revision changed and re-read.
-- After a conflict, call `ograf_get_changes` for a compact history before consciously rebasing.
+- After a conflict, call `ograf_get_project` with `view: "changes"` for a compact history before consciously rebasing.
 
 ## Shaders and visual patterns
 
@@ -355,7 +355,7 @@ conveniences. Pattern presets are ordinary `set_tiling_pattern.patch` data.
 
 ## Session reset
 
-`ograf_reset_project` requires `confirm: true` and the current `expectedRevision`. It replaces the
+`ograf_create_project` with `mode: "reset"` requires `confirm: true` and the current `expectedRevision`. It replaces the
 session with a fresh project as one undoable transaction. `keepDataFields: true` preserves field
 definitions only; layers and bindings are removed.
 
@@ -386,13 +386,13 @@ The MCP file tools do not import or reverse-engineer an existing `.ograf.zip`. F
 the visible editor's **Import OGraf** command and preserve its best-effort recovery report. Never
 execute an imported third-party `main.js` merely to make conversion appear more complete.
 
-Use `ograf_export_coordinated_package` with the current set revision, explicit profile/path,
+Use `ograf_export_package` with `scope: "set"`, the current set revision, explicit profile/path,
 `confirm:true`, unique `operationId`, and authorized overwrite choice. Follow the snapshot,
 recovery, and graph-inclusion rules in [template sets](./template-sets-and-crops.md).
 Choose an `.html` path for standalone browser playback or `.ograf.zip` for the playout package.
 Separate standalone imports do not verify Reality Hub host coordination; test the coordinated
 package in the actual host. Do not claim Windows runtime validation from cross-compilation.
 
-`ograf_export_package` and `ograf_export_coordinated_package` emit typed color defaults and
+`ograf_export_package` emits typed color defaults and
 coordinated state presets as GDD's canonical lowercase hex, including nested object/array values.
 Editable source values retain their original spelling.

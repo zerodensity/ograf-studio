@@ -4,6 +4,7 @@ export * from './chatReferences';
 export * from './schemas';
 export * from './toolRecords';
 export * from './inAppTools';
+export * from './mergedTools';
 export * from './generatedInAppPrompt';
 export * from './resultPaging';
 export * from './ografSetup';

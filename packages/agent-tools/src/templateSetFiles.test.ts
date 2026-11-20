@@ -212,7 +212,7 @@ describe('template-set MCP snapshot saves', () => {
     };
     expect(output.structuredContent).toMatchObject({
       templateSets: {
-        save: 'ograf_save_template_set',
+        save: 'ograf_save_project scope=set',
         storage: {
           defaultArchiveMode: 'compact',
           archiveSchemaVersion: 6,
@@ -266,8 +266,14 @@ describe('MCP template transfer review', () => {
     expect(() => z.object(commit.config.inputSchema).parse(suppliedPlan)).toThrow();
     const reviewSchema = z.object(review.config.inputSchema);
     const clipboard = { expectedRevision, source: { kind: 'clipboard' } };
-    expect(reviewSchema.parse(clipboard)).toMatchObject({ offset: 0, limit: 25 });
+    // The listed tool also previews a plan, so each step applies its own defaults when called.
+    expect(reviewSchema.parse(clipboard)).toEqual(clipboard);
     expect(() => reviewSchema.parse({ ...clipboard, limit: 51 })).toThrow();
+    await review.handler(reviewSchema.parse(clipboard));
+    expect(requestTemplateSet).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: 'transfer-review', offset: 0, limit: 25 }),
+      60_000,
+    );
 
     await review.handler(
       reviewSchema.parse({

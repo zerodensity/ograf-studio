@@ -94,7 +94,7 @@ from scene queries before changing or deleting a shared source.
 4. Use `ograf_apply_operations` with `mode: "preview"` for uncommitted visual refinements. If the
    change substantially affects layout/theme/motion, use `mode: "propose"` so the human can Accept
    or Reject it in OGraf Studio.
-5. Run `ograf_review_design`, then render entrance start, mid-motion, settled frame, and exit.
+5. Run `ograf_validate_project` with `check: "design"`, then render entrance start, mid-motion, settled frame, and exit.
    Inspect property tracks to confirm stagger and independent easing.
 6. Validate and certify. Save `.ogs` only if requested; export `.ograf.zip` only if requested.
 
@@ -123,7 +123,7 @@ the same batch by `fieldKey`; use `fieldId` after its creation result has been r
    IDs. This keeps the repeated animation rows navigable without changing the canvas groups or
    compiled OGraf result.
 7. Sample the first, middle, and last cells with `ograf_sample_tracks`, then inspect the complete
-   cascade with `ograf_render_strip` and no explicit `frames`.
+   cascade with `ograf_capture` `mode: "strip"` and no explicit `frames`.
 8. Run summary overflow validation with representative long values, broadcast lint, and exact OGraf
    certification before any requested save or export.
 
@@ -161,7 +161,7 @@ certification.
 2. Call `set_layer_loop` with lifecycle activation, a 30-frame duration, and infinite repeats.
 3. Add local `opacity` keys `0.2 → 1 → 0.2` with Sine easing.
 4. Add local `width` and `height` keys `base → pulse → base` with independent Back/Quad easing.
-5. Inspect with `ograf_get_timeline`, then exercise `playAction`, capture multiple loop phases, and
+5. Inspect with `ograf_get_project` `view: "timeline"`, then exercise `playAction`, capture multiple loop phases, and
    confirm `goToTime` returns the same pixels for the same scheduled timestamp.
 
 The entrance Promise resolves normally while the loop continues. The loop never advances the

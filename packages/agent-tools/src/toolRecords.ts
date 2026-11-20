@@ -1,4 +1,6 @@
 import { coordinatedExportFile } from './coordinatedExportFile';
+import { mergeToolRecords } from './mergedTools';
+import { IN_APP_MERGED_TOOL_NAMES } from './inAppTools';
 import {
   registerToolResultPager,
   toolResultPagerForWorkspace,
@@ -144,6 +146,8 @@ export interface AgentToolRecord {
   name: string;
   config: AgentToolConfig;
   handler: AgentToolHandler;
+  /** An earlier name that a listed tool now covers: still callable, left out of tool lists. */
+  hidden?: boolean;
 }
 
 interface ToolRegistrar {
@@ -2138,7 +2142,7 @@ export function createOGrafToolRecords(
           available: bridge.health.templateSetsReady === true,
           read: 'ograf_get_template_set',
           update: 'ograf_update_template_set',
-          save: 'ograf_save_template_set',
+          save: 'ograf_save_project scope=set',
           format: '.ogs',
           legacyFormat: '.ogp',
           storage: {
@@ -2149,7 +2153,7 @@ export function createOGrafToolRecords(
             contract:
               'Compact archives share identical font/resource bytes and set component sources, then hydrate editable projects with original IDs, bindings, animation and overrides. A set with local Brand Kit inheritance uses schema 7 so older readers cannot reapply shared branding. Other compact sets use schema 6 and can be saved in compatible schema 5. Readers accept schemas 1–7 and legacy .ogp. A standalone project embeds its resolved dependencies.',
             mcpSave:
-              'ograf_save_template_set saves a revision-checked snapshot copy of the connected editor set to a workspace-confined .ogs path. archiveMode compact (default) or compatible; confirm:true and explicit overwrite permission. Compressed MCP transfer limit 64 MiB; larger sets use Studio Save Template Set. Saving preserves open editor names, revisions and unsaved edits.',
+              'ograf_save_project scope=set saves a revision-checked snapshot copy of the connected editor set to a workspace-confined .ogs path. archiveMode compact (default) or compatible; confirm:true and explicit overwrite permission. Compressed MCP transfer limit 64 MiB; larger sets use Studio Save Template Set. Saving preserves open editor names, revisions and unsaved edits.',
           },
           transfers: {
             crossSetPastePolicy: 'keep-appearance',
@@ -2160,7 +2164,7 @@ export function createOGrafToolRecords(
             ...(!inApp && {
               available: bridge.health.templateTransfersReady === true,
               review: 'ograf_review_template_transfer',
-              preview: 'ograf_preview_template_transfer',
+              preview: 'ograf_review_template_transfer step=preview',
               commit: 'ograf_commit_template_transfer',
               policies: ['keep-appearance', 'adopt-destination', 'bring-source-branding'],
               workflow:
@@ -2271,7 +2275,7 @@ export function createOGrafToolRecords(
             behavior:
               'The active transition finishes before the latest pending ready request; Clear is immediate. Preparation failures keep current output. Editor selection is separate from playout state.',
             limits:
-              'Rules can issue Take/Update/Out/Clear; transition definitions remain in Transitions or set_transition_logic. Coordinated Rules supports data/change, pointer/entry hover, key-down/key-up, play/first-step/stop/custom-action, local set-data, animated properties and delayed commands. Shader/media Rule side effects and later-step behavior remain unsupported. Playout rules require coordinated set output; standalone exports reject them. Preview snapshots unsaved edits; failed replacement preparation preserves working output and details remain expandable. Only older unapplied drafts need Apply/Discard. Save Template Set writes .ogs; coordinated export certifies exact artifacts. MCP live output loads the applied set separately. ograf_export_coordinated_package exports a certified revision-checked set with operationId recovery; ograf_export_package exports the active composition. Legacy .ogp cannot preserve the coordinator.',
+              'Rules can issue Take/Update/Out/Clear; transition definitions remain in Transitions or set_transition_logic. Coordinated Rules supports data/change, pointer/entry hover, key-down/key-up, play/first-step/stop/custom-action, local set-data, animated properties and delayed commands. Shader/media Rule side effects and later-step behavior remain unsupported. Playout rules require coordinated set output; standalone exports reject them. Preview snapshots unsaved edits; failed replacement preparation preserves working output and details remain expandable. Only older unapplied drafts need Apply/Discard. Save Template Set writes .ogs; coordinated export certifies exact artifacts. MCP live output loads the applied set separately. ograf_export_package scope=set exports a certified revision-checked set with operationId recovery; ograf_export_package exports the active composition. Legacy .ogp cannot preserve the coordinator.',
             livePlayout: {
               available: editor.playoutReady === true,
               read: 'ograf_get_playout',
@@ -2326,7 +2330,7 @@ export function createOGrafToolRecords(
           copies:
             'Independent template/project/composition identities. Same-set copies preserve parent control and shared-asset bindings. Cross-set paste materializes resolved local values.',
           files:
-            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact .ogs with schema 7 when local branding needs it, otherwise schema 6. Eligible sets can use schema 5 compatibility. Export Legacy Template Set (.ogp) flattens component links in eligible copies. MCP project open/save use standalone JSON; ograf_save_template_set writes whole-set snapshots.',
+            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact .ogs with schema 7 when local branding needs it, otherwise schema 6. Eligible sets can use schema 5 compatibility. Export Legacy Template Set (.ogp) flattens component links in eligible copies. MCP project open/save use standalone JSON; ograf_save_project scope=set writes whole-set snapshots.',
         },
         cropping: {
           layer:
@@ -3486,7 +3490,7 @@ export function createOGrafToolRecords(
             'remove_component',
           ],
           customActions: ['add_custom_action', 'update_custom_action', 'remove_custom_action'],
-          assets: ['add_asset', 'remove_asset', 'ograf_import_asset', 'ograf_import_svg_bundle'],
+          assets: ['add_asset', 'remove_asset', 'ograf_import_asset'],
           mediaCues: ['add_media_cue', 'update_media_cue', 'remove_media_cue'],
           detail:
             'Lifecycle retiming and component inheritance share the browser editor mutation rules. Live component assets retain stable instance IDs and per-property overrides; exports contain ordinary materialized layers.',
@@ -3779,7 +3783,7 @@ export function createOGrafToolRecords(
         },
         assets: {
           operations: ['add_asset', 'remove_asset'],
-          importTools: ['ograf_import_asset', 'ograf_import_svg_bundle'],
+          importTools: ['ograf_import_asset', 'ograf_import_asset mode=svg-bundle'],
           referenceSyntax: 'asset:<id>',
           semantics:
             'Assets persist once in composition.assets; editor/capture resolve references and certified package export writes each registry entry once. remove_asset refuses referenced image sources unless force=true, which clears those references; removing an in-use font reports a fallback warning.',
@@ -3830,9 +3834,9 @@ export function createOGrafToolRecords(
           },
         },
         aiReview: {
-          query: 'ograf_query_scene',
+          query: 'ograf_inspect_scene mode=query',
           visualDryRun: 'ograf_apply_operations mode=preview',
-          deterministicQa: 'ograf_review_design',
+          deterministicQa: 'ograf_validate_project check=design',
           humanProposal: 'ograf_apply_operations mode=propose',
           semantics:
             'Use semantic query for compact selection, visual dry-run for model inspection, and proposals when a human should approve visually consequential edits.',
@@ -5986,6 +5990,7 @@ export function createOGrafToolRecords(
       }
     },
   });
+  mergeToolRecords(consolidated, inApp ? IN_APP_MERGED_TOOL_NAMES : undefined);
   registerToolResultPager(consolidated, pager);
   return consolidated;
 }
