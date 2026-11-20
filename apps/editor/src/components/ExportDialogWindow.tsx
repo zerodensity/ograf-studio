@@ -62,7 +62,7 @@ export function ExportDialogWindow({
   preparationMessage: string;
   disabled?: boolean;
   showDestination?: boolean;
-  onDelivered?: () => void;
+  onDelivered?: (files: readonly ExportFile[]) => void;
   getError?: (cause: unknown) => ExportError;
   children: (state: { busy: boolean; clearError: () => void }) => ReactNode;
 } & ExportDelivery) {
@@ -140,11 +140,12 @@ export function ExportDialogWindow({
         setProgressFraction(fraction ?? null);
       };
       let result: ExportCompletion;
+      let files: ExportFile[] = [];
       if (saveInFolder) {
         if (!folder) throw new Error('Choose a folder to save the export.');
         result = { delivery: 'saved', names: await saveInFolder(folder, signal, reportProgress) };
       } else {
-        const files = await prepare(signal, reportProgress);
+        files = await prepare(signal, reportProgress);
         signal.throwIfAborted();
         setActivity('saving');
         if (folder) {
@@ -156,7 +157,7 @@ export function ExportDialogWindow({
         }
       }
       signal.throwIfAborted();
-      onDelivered?.();
+      onDelivered?.(files);
       setCompletion(result);
     } catch (cause) {
       if (!signal.aborted) setError(getError?.(cause) ?? { message: errorMessage(cause) });

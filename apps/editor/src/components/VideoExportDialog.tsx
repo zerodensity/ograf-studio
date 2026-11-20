@@ -6,6 +6,7 @@ import {
   type Project,
 } from '@ograf-editor/scene-model';
 import { getPngSequenceFolderName, getUnnumberedExportFileName } from '../state/exportFolderSave';
+import { useRendererPluginSettingsStore } from '../state/pluginSettingsStore';
 import { useProjectSetStore } from '../state/projectSetStore';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import type { StudioExportRequest } from '../state/studioExportDialogStore';
@@ -17,8 +18,10 @@ import { ExportThumbnail } from './ExportThumbnail';
 type VideoFormat = 'webm' | 'png-frames';
 type SizeDraft = { width: string; height: string };
 const BITS_PER_MEGABIT = 1_000_000;
+// Keep only byte counts for the loaded project snapshot across dialog opens.
+const webmSizes = new WeakMap<Project, Map<string, number>>();
 
-function formatEstimatedBytes(bytes: number): string {
+function formatFileSize(bytes: number): string {
   const [scale, unit]: [number, string] =
     bytes >= 1_000_000_000
       ? [1_000_000_000, 'GB']
@@ -68,6 +71,7 @@ function VideoExportOptions({
 }) {
   const projectSet = useProjectSetStore((state) => state.projectSet);
   const activeTemplateId = useProjectSetStore((state) => state.activeTemplateId);
+  const rendererRevision = useRendererPluginSettingsStore((state) => state.revision);
   const hasCurrentTemplate =
     !projectSet ||
     projectSet.templates.some(
@@ -124,7 +128,21 @@ function VideoExportOptions({
   const targetLabel = `${targetMegabits.toLocaleString(undefined, { maximumFractionDigits: 2 })} Mb/s`;
   const bitrateLabel =
     bitrate === undefined ? (estimate ? `Auto · ${targetLabel}` : 'Auto') : targetLabel;
-  const estimatedSize = estimate ? formatEstimatedBytes(estimate.estimatedBytes) : '—';
+  const targetSize = estimate ? formatFileSize(estimate.estimatedBytes) : '—';
+  const settingsKey = estimate
+    ? JSON.stringify([
+        composition.id,
+        width,
+        height,
+        transparent,
+        holdSeconds,
+        bitrate ?? null,
+        blackFrameAtStart,
+        blackFrameAtEnd,
+        rendererRevision,
+      ])
+    : null;
+  const lastSize = settingsKey === null ? undefined : webmSizes.get(project)?.get(settingsKey);
   const { width: webmWidth, height: webmHeight } = webmRasterSize({ width, height });
   const fileName = getUnnumberedExportFileName({
     format: 'webm',
@@ -199,6 +217,21 @@ function VideoExportOptions({
                 blackFrameAtEnd,
               });
               return [{ ...file, fileName }];
+            },
+            onDelivered: (files) => {
+              const file = files[0];
+              if (
+                settingsKey === null ||
+                file?.format !== 'webm' ||
+                rendererRevision !== useRendererPluginSettingsStore.getState().revision
+              )
+                return;
+              let sizes = webmSizes.get(project);
+              if (!sizes) {
+                sizes = new Map();
+                webmSizes.set(project, sizes);
+              }
+              sizes.set(settingsKey, file.blob.size);
             },
           }
         : {
@@ -307,9 +340,16 @@ function VideoExportOptions({
                   }}
                 />
                 <div className="studio-webm-bitrate-line">
-                  <p id={`${bitrateId}-estimate`}>
-                    Estimated file size <strong>{estimatedSize}</strong>
-                  </p>
+                  <div id={`${bitrateId}-estimate`}>
+                    <p>
+                      Size at target bitrate <strong>{targetSize}</strong>
+                    </p>
+                    {lastSize !== undefined && (
+                      <p>
+                        Last actual size <strong>{formatFileSize(lastSize)}</strong>
+                      </p>
+                    )}
+                  </div>
                   <button
                     type="button"
                     disabled={bitrate === undefined}
