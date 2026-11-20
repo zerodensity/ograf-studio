@@ -604,6 +604,24 @@ describe('sound effects and the playhead', () => {
     expect(started()).toEqual([50, 75]);
   });
 
+  it('leaves the sounds silent that playback finds long past, as after its tab was hidden', () => {
+    const { runtime, started } = soundEffects([0, 25, 50, 75, 100, 125]);
+    runtime.renderAtTime(0);
+    // Nothing was drawn for four seconds. The sound a moment ago still starts; the earlier ones do not.
+    runtime.renderAtTime(4_200);
+    expect(started()).toEqual([0, 100]);
+    runtime.renderAtTime(5_000);
+    runtime.renderAtTime(6_000);
+    expect(started()).toEqual([0, 100, 125]);
+  });
+
+  it('starts a sound that playback finds a few frames late', () => {
+    const { runtime, started } = soundEffects([25]);
+    runtime.renderAtTime(900);
+    runtime.renderAtTime(1_200);
+    expect(started()).toEqual([25]);
+  });
+
   it('plays every sound again once the cues are rearmed for a new playout', () => {
     const { runtime, started } = soundEffects([0, 25]);
     runtime.renderAtTime(1_000, { jumped: true });
