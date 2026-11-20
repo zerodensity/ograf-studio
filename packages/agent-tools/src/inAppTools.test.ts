@@ -23,7 +23,7 @@ describe('in-app agent tool surface', () => {
     const admitted = IN_APP_AGENT_TOOL_NAMES.map(record);
     const dropped = record('ograf_save_project');
     const filtered = filterInAppToolRecords([...admitted, dropped]);
-    expect(filtered).toHaveLength(19);
+    expect(filtered).toHaveLength(13);
     expect(filtered.map((tool) => tool.name)).toEqual(IN_APP_AGENT_TOOL_NAMES);
     expect(filtered[0]?.handler).toBe(admitted[0]?.handler);
     expect(filtered).not.toContain(dropped);

@@ -9,7 +9,7 @@ Use revision-checked `ograf_apply_operations` batches:
 
 ```json
 {
-  "type": "add_data_connection",
+  "type": "set_data_connection",
   "connection": {
     "name": "Market quotes",
     "source": "public-markets",
@@ -24,7 +24,8 @@ Use revision-checked `ograf_apply_operations` batches:
 }
 ```
 
-`update_data_connection` takes `connectionId` and `patch`; `remove_data_connection` takes
+With a `connectionId`, `set_data_connection` changes that connection by the given `connection`
+fields; `remove_data_connection` takes
 `connectionId`. Creation returns `connectionId`. Use actual field IDs from that composition;
 foreign/duplicate targets and unsafe source paths are rejected. Normal field deletion protects
 connection mappings; explicit forced deletion clears affected mappings. Dry-run destructive edits.

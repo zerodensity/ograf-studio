@@ -56,7 +56,7 @@ Numeric limits use `min(N) max(N) step(N)`. No `expose` keyword is needed. Gener
 bindings are automatic; do not create duplicates. `paint.parameters` holds numbers, booleans,
 or numeric arrays, while runtime field values use the types above. Inspect
 `shaderPaintInspections` and `shaderAnimationProperties` for exact source diagnostics and tracks.
-Generated fields are publicly exposed by default. Use `update_data_field` with
+Generated fields are publicly exposed by default. Use `set_data_field` with
 `exposeToOgraf:false` (or its checkbox in Data → Operator controls) to keep a control internal.
 Its default, binding, local control, Rules and animation remain intact; public schema and
 external playout updates exclude it. Re-enable with `exposeToOgraf:true`.

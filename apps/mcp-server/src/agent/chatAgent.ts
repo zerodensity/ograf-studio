@@ -5,6 +5,7 @@ import {
   providerToolDefinitions,
   withInAppToolDefaults,
   ToolResultPager,
+  TOOL_MERGES,
   toolResultPagerForRecords,
   type AgentToolRecord,
   type AgentAreaReference,
@@ -14,6 +15,7 @@ import {
   normalizeAssistantContextPreferences,
   type AssistantContextPreferences,
 } from '@ograf-editor/ui-kit/workspace-model';
+import type { AgentToolUsage } from '../agentToolUsage';
 import { parseAreaReferences } from './areaReference';
 import { loadAgentProviderConfig, redactProviderError } from './config';
 import { createProviderAdapter, supportsAmbientSystemMessage } from './providerAdapters';
@@ -129,11 +131,17 @@ function proposalId(result: unknown): string | null {
   return null;
 }
 
-function toolSummary(name: string): string {
-  return name
+/** What the chat shows while a tool runs: its name, and the choice a merged tool was asked for. */
+function toolSummary(name: string, args: Record<string, unknown> = {}): string {
+  const merge = TOOL_MERGES.find((candidate) => candidate.into === name);
+  const choice = merge && args[merge.selector];
+  const summary = name
     .replace(/^ograf_/, '')
     .replaceAll('_', ' ')
     .replace(/^./, (value) => value.toUpperCase());
+  return typeof choice === 'string' && choice !== Object.keys(merge!.routes)[0]
+    ? `${summary}: ${choice}`
+    : summary;
 }
 
 function isTrivialAuthoringRequest(text: string): boolean {
@@ -197,6 +205,7 @@ export class ChatAgentController {
       sessionId: string,
       prompt: AuthoringPrompt,
     ) => { projectId: string; revision: number },
+    private readonly toolUsage?: AgentToolUsage,
   ) {
     this.#pager = toolResultPagerForRecords(records) ?? new ToolResultPager();
     this.#tools = filterInAppToolRecords(records);
@@ -502,7 +511,8 @@ export class ChatAgentController {
           if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
           const tool = this.#tools.find((candidate) => candidate.name === call.name);
           if (!tool) throw new Error(`The model requested unavailable tool ${call.name}.`);
-          const summary = toolSummary(tool.name);
+          const summary = toolSummary(tool.name, call.arguments);
+          this.toolUsage?.called('chat', tool.name, call.arguments);
           this.emit({
             type: 'chat.tool',
             turnId: message.turnId,
@@ -559,6 +569,7 @@ export class ChatAgentController {
             }
           } catch (error) {
             const detail = redactProviderError(error, [config.apiKey]);
+            this.toolUsage?.refused('chat', tool.name, detail);
             history.push({
               role: 'tool',
               callId: call.id,

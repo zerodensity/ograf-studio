@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { localhostHostValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express, { type Request, type Response } from 'express';
+import { agentToolUsageFromEnvironment } from './agentToolUsage';
 import { EditorBridge } from './editorBridge';
 import { createOGrafMcpServer } from './mcpServer';
 import { AuthoringWorkspace } from './workspace';
@@ -31,6 +32,7 @@ export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}
   const workspace = new AuthoringWorkspace(options.workspaceRoot);
   const bridge = new EditorBridge(httpServer, workspace);
   const { bundledAuthoringSkill } = options;
+  const usage = agentToolUsageFromEnvironment();
   const chat = new ChatAgentController(
     createOGrafToolRecords(workspace, bridge, { inApp: true, bundledAuthoringSkill }),
     (event) => bridge.sendChatEvent(event),
@@ -40,6 +42,7 @@ export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}
       const revision = workspace.get('editor').recordAuthoringPrompt(projectId, prompt);
       return { projectId, revision };
     },
+    usage,
   );
   bridge.setChatController(chat);
   const nodosPresets = new NodosPresetHost(httpServer);
@@ -60,7 +63,7 @@ export function createOGrafAuthoringHost(options: OGrafAuthoringHostOptions = {}
       });
     }
     response.once('close', releaseExternal);
-    const mcp = createOGrafMcpServer(workspace, bridge, { bundledAuthoringSkill });
+    const mcp = createOGrafMcpServer(workspace, bridge, { bundledAuthoringSkill, usage });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on('close', () => {
       void transport.close();

@@ -554,7 +554,8 @@ at the template's frame rate. Added frames are silent. The options also work whe
 
 WebM includes audio layers and sound cues that start at a frame or on arrival at a Step. PNG
 sequences contain image frames. Video and live media, and sounds triggered by an operator or a
-custom action, are omitted. WebM requires a current Chrome or Edge browser.
+custom action, are omitted. WebM requires a current Chrome or Edge browser. An MCP client exports
+the same WebM into the workspace with `ograf_export_video`, for movies up to 64 MiB.
 
 Rendering is fastest while Studio's tab stays visible. A current Chrome or Edge browser then takes
 each frame straight from the page, and renders up to four frames in each screen refresh. If the tab
@@ -639,7 +640,7 @@ until you change the Nodos selection. Internal fields remain available to bindin
 Rules. Object and array defaults omit internal descendants. Changing a matched value updates the
 graphic through `updateAction` and its configured data transition.
 
-MCP clients can set `exposeToNodos` on `add_data_field` and `update_data_field` to select or
+MCP clients can set `exposeToNodos` on `set_data_field` to select or
 deselect a public field. The field's `nodosType` controls its native value type separately.
 
 A live-media source's tag supplies a texture slot name, such as `TextureInput1`. The Nodos page
@@ -747,7 +748,7 @@ registers selected fonts as project font assets. Any unresolved relative URL is 
 Resources panel. The result remains one portable image asset; Photoshop's rasterized content and
 arbitrary SVG structure are not decomposed into independently editable studio layers.
 
-MCP clients can perform the same portable import through `ograf_import_svg_bundle`, or ingest one
+MCP clients can perform the same portable import through `ograf_import_asset` with `paths`, or ingest one
 workspace-confined file through `ograf_import_asset`. Both tools enforce file and aggregate payload
 limits before committing one revision-checked asset transaction.
 

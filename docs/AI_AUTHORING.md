@@ -15,7 +15,7 @@ The connected editor exposes `ograf_get_template_set` and `ograf_update_template
 structure, template duplication/clipboard operations, shared defaults/inheritance, and control/asset
 links. Set commands use the opaque set revision from the read tool; layer batches use the separate
 numeric project revision. Re-read the active project after activation or set-default changes.
-`ograf_save_template_set` saves the whole connected set to a workspace-confined `.ogs` path using
+`ograf_save_project` with `scope: "set"` saves the whole connected set to a workspace-confined `.ogs` path using
 its opaque `expectedRevision`, `confirm:true` and optional `overwrite:true`. `archiveMode:"compact"`
 (default, schema 6) stores shared fonts, resources and component sources once; `"compatible"` writes
 the schema 5 archive layout for older set readers without down-converting newer features.
@@ -65,7 +65,7 @@ the [modifier data and lifecycle cases](../skills/ograf-authoring/references/mod
 Continuous ticker text uses `update_element.patch.crawl:{speedPixelsPerSecond,gap,direction}`;
 `crawl:null` removes it. The runtime repeats measured bound text, with a composition-pixel gap and
 graphic-clock motion, so updates do not retain a fixed empty travel distance. Existing crawls retain
-this behavior. New `create_ticker` recipes use the native mixed-content ticker, with safe Next
+this behavior. New ticker recipes use the native mixed-content ticker, with safe Next
 appearance updates, transparent edge fades, RTL text, images, animations and shaders. See
 [broadcast recipes](../skills/ograf-authoring/references/broadcast-recipes.md) for all six updated
 starters and linked asset behavior, and [ticker controls](../skills/ograf-authoring/references/loop-controls.md#continuous-tickers)
@@ -73,7 +73,7 @@ for legacy limits and migration from an authored single-copy x-loop.
 
 ## Component source updates
 
-`update_component_from_layers` takes `componentId` and `layerIds`. Select members of one linked
+`save_component` with a `componentId` takes that component's `layerIds`. Select members of one linked
 instance plus any new independent layers to promote the edited content. New layers join that
 instance without changing their IDs; other instances receive one corresponding child. Canonical
 source/field IDs remain stable, and local bindings, animation, placement and overrides survive.
@@ -221,7 +221,7 @@ copy the full text, or **Use prompt** to load it into the composer for editing. 
 without an AI provider configured.
 
 An external MCP client must supply the user's creation request as `originalPrompt` when calling
-`ograf_create_project`, `ograf_reset_project`, or creating, duplicating, or pasting a template set
+`ograf_create_project` (also with `mode: "reset"`), or creating, duplicating, or pasting a template set
 member through `ograf_update_template_set`. Studio requires a nonblank prompt and saves it with the
 new template. Duplicate and paste preserve existing prompt history and append the copy request.
 Opening or importing an existing template preserves its existing provenance.
@@ -535,6 +535,119 @@ Use `mcp-remote` as a local compatibility bridge.
 `--allow-http` is appropriate here only because the endpoint is loopback-only. Do not use this
 configuration for a server exposed on another machine or network. `npx` downloads the compatibility
 bridge on first use, so Node.js and network access are required for that first launch.
+
+## Merged MCP tools
+
+The server lists 23 tools. Fourteen earlier tools are now one argument on a listed tool. Their
+earlier names still answer a script or an older skill that calls them, but no client sees them in
+the tool list.
+
+| Earlier tool                       | Call instead                                             |
+| ---------------------------------- | -------------------------------------------------------- |
+| `ograf_list_sessions`              | `ograf_get_capabilities` with `view: "sessions"`         |
+| `ograf_get_changes`                | `ograf_get_project` with `view: "changes"`               |
+| `ograf_get_timeline`               | `ograf_get_project` with `view: "timeline"`              |
+| `ograf_query_scene`                | `ograf_inspect_scene` with `mode: "query"` or any filter |
+| `ograf_render_strip`               | `ograf_capture` with `mode: "strip"`                     |
+| `ograf_render_frame`               | `ograf_capture` with `mode: "svg"`                       |
+| `ograf_review_design`              | `ograf_validate_project` with `check: "design"`          |
+| `ograf_measure_text`               | `ograf_validate_project` with `check: "text"`            |
+| `ograf_import_svg_bundle`          | `ograf_import_asset` with `paths`                        |
+| `ograf_reset_project`              | `ograf_create_project` with `mode: "reset"`              |
+| `ograf_save_template_set`          | `ograf_save_project` with `scope: "set"`                 |
+| `ograf_export_coordinated_package` | `ograf_export_package` with `scope: "set"`               |
+| `ograf_redo`                       | `ograf_undo` with `direction: "redo"`                    |
+| `ograf_preview_template_transfer`  | `ograf_review_template_transfer` with `step: "preview"`  |
+
+The selector argument is optional when another argument already belongs to one choice only: `paths`
+selects the SVG bundle import and `sinceRevision` selects the change history. An argument that
+belongs to a different choice is refused with the choice it belongs to. No read is merged into a
+write, so a client that approves reads automatically keeps doing so. The built-in AI Assistant
+gets the same merged tools, limited to the choices it already had.
+
+## Export a WebM video through MCP
+
+`ograf_export_video` renders one template as a WebM movie and saves it in the workspace. The
+connected editor does the rendering with the same export as **File → Export Video…**, so the
+movie plays from Start to End, waits on every Step, and carries timeline sound.
+
+| Argument                               | Meaning                                                                     |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| `path`                                 | Where to save it, inside the workspace, ending in `.webm`                   |
+| `operationId`                          | A name you choose for this export                                           |
+| `confirm`                              | Must be `true`, because the tool writes a file                              |
+| `overwrite`                            | Replace an existing file; off unless given                                  |
+| `holdSeconds`                          | Seconds to wait on each Step; 3 unless given                                |
+| `transparent`                          | Keep what the graphic does not cover see-through; on unless `false`         |
+| `maxDimension`                         | Longest side in pixels, for a smaller movie                                 |
+| `bitrate`                              | Total target bitrate in bits per second; chosen from the size when left out |
+| `blackFrameAtStart`, `blackFrameAtEnd` | Add one black frame at that end                                             |
+
+The answer gives the saved path, size in bytes, checksum, pixel size, frame rate, frame count and
+duration. An export takes about as long as the movie has frames to draw. If the client stops
+waiting, call the tool again with the same `operationId` and the same arguments: it waits for the
+running export, or answers again for the saved one without rendering twice.
+
+A movie may be at most 64 MiB, because the editor hands it to the server in one piece. For a
+longer movie lower `bitrate`, `maxDimension` or `holdSeconds`, or export it from Studio's Export
+Video window, which has no such limit. The built-in AI Assistant does not get this tool: saving
+files stays an explicit action in Studio.
+
+## Compare a capture with a reference picture
+
+When a graphic is rebuilt from a still of another system, a Photoshop export or a Figma frame, an
+agent can measure how close it is. `ograf_capture` takes `reference`, the path of a PNG, JPEG or
+WebP file in the workspace. The editor scales that picture to the capture and compares the two.
+The result adds `comparison`:
+
+- `meanDifference` is the average colour distance over all pixels, from 0 for the same picture
+  to 1.
+- `differingFraction` is the share of pixels that differ by more than a tenth of the colour range.
+- `url` leads to a difference picture the size of the capture: black where the two agree, brighter
+  where they differ.
+
+Capture over a solid `matte` in the reference's background colour, and export the reference in
+the composition's aspect ratio, because a reference of another shape is stretched to fit. The
+comparison applies to one composition frame, not to a strip or the editor viewport.
+
+## Merged operations
+
+`ograf_apply_operations` lists 79 operation types. Forty-one earlier names are no longer listed.
+The server still accepts each of them, so an older skill or script keeps working, and it carries
+them out exactly as before.
+
+| Earlier operations                                                                                           | Send instead                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `add_data_field`, `update_data_field`                                                                        | `set_data_field`: it finds a field by `fieldId`, `fieldKey` or `key`, and creates one when a new `key` comes with a `fieldType`         |
+| `add_data_connection`, `update_data_connection`                                                              | `set_data_connection`: with `connectionId` it changes that connection by the `connection` fields given                                  |
+| `add_custom_action`, `update_custom_action`                                                                  | `set_custom_action`, by `actionId`                                                                                                      |
+| `add_media_cue`, `update_media_cue`                                                                          | `set_media_cue`: with `cueId` it changes that cue by the `cue` fields given                                                             |
+| `create_runtime_collection`, `update_runtime_collection`                                                     | `set_runtime_collection`: with `collectionId` it changes that collection                                                                |
+| `create_lower_third`, `create_bug`, `create_ticker`, `create_scoreboard`, `create_clock`, `create_countdown` | `create_recipe` with `recipe`: `lower-third`, `bug`, `ticker`, `scoreboard`, `clock` or `countdown`                                     |
+| `create_timeline_group`, `rename_timeline_group`, `set_timeline_group_color`, `ungroup_timeline_group`       | `set_timeline_group`: without `groupId` it creates a group; with it, `name` and `color` change the group and `layerIds: []` ungroups it |
+| `rename_lifecycle_keyframe`, `move_lifecycle_keyframe`                                                       | `set_lifecycle_keyframe` with `name`, `frame` or both                                                                                   |
+| `rename_layer`, `set_layer_flags`, `set_layer_semantics`                                                     | `update_layer` with `name`, the flags, or `semantics`                                                                                   |
+| `set_layer_binding`                                                                                          | `set_layer_bindings` with one row, or none to clear                                                                                     |
+| `move_property_key`, `set_property_key_easing`                                                               | `set_property_key` at the key's frame, or `remove_property_key` and a new key                                                           |
+| `duplicate_effect`, `duplicate_modifier`                                                                     | `add_effect` or `add_modifier` with the same settings                                                                                   |
+| `remove_layer_loop`                                                                                          | `set_layer_loop` with `remove: true`                                                                                                    |
+| `remove_tiling_pattern`                                                                                      | `set_tiling_pattern` with `patch: null`                                                                                                 |
+| `unbind_design_token`                                                                                        | `bind_design_token` with `tokenId: null`                                                                                                |
+| `remove_style_pack`                                                                                          | `apply_style_pack` with `stylePack: null`                                                                                               |
+| `update_component_from_layers`                                                                               | `save_component` with the `componentId`                                                                                                 |
+| `remove_renderer_plugin`, `remove_animation_preset_plugin`                                                   | `remove_plugin` with `kind`: `renderer` or `animation-preset`                                                                           |
+
+Four operations left the list without a replacement: `add_canvas_guide`, `update_canvas_guide`
+and `remove_canvas_guide` place guides that help a person's eye in the editor, and
+`set_review_approval` records an approval that is a person's to give in Studio.
+
+`update_element`, `update_transform`, `update_layer`, `set_property_track` and `set_layer_motion`
+also accept `layerIds`, or a `layerNamePattern` in which `*` stands for any run of characters, in
+place of one layer. The same change is then applied to each of those layers, and the batch still
+succeeds or fails as a whole.
+
+One sent operation can stand for several applied ones. The result of a batch names the operation
+that was sent and its position in the sent batch.
 
 ## Using the `ograf-authoring` skill
 

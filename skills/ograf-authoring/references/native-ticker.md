@@ -2,8 +2,8 @@
 
 Use the native `ticker` element for a continuous feed containing text, images, image sequences,
 Lottie, shapes, patterns or shaders. Discover `elementSchemas.ticker` in the running server's
-`elements` capability section before authoring. `add_layer` with `kind:"ticker"` and the
-`create_ticker` recipe create this native element. Existing saved text crawls remain unchanged;
+`elements` capability section before authoring. `add_layer` with `kind:"ticker"` and
+`create_recipe` with `recipe: "ticker"` create this native element. Existing saved text crawls remain unchanged;
 see [broadcast recipes](./broadcast-recipes.md) for compatible field names and native recipe options.
 
 ## Authoring

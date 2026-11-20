@@ -182,6 +182,21 @@ workspace to the repository root. Set `OGRAF_WORKSPACE_ROOT` before starting tha
 different confined workspace. Set `OGRAF_MCP_PORT` to change port `4318`, and set the editor's
 `VITE_OGRAF_AGENT_BRIDGE_URL` to the matching WebSocket URL when changing the port.
 
+### Count what agents call
+
+The server can count which tools and operation types agents call, and which calls it refuses. The
+counts show what the tool list is used for, which earlier names are still called, and where agents
+fail. Counting is off unless `OGRAF_AGENT_USAGE_FILE` names a file:
+
+```powershell
+$env:OGRAF_AGENT_USAGE_FILE = "$env:LOCALAPPDATA\OGraf Studio\agent-usage.json"
+```
+
+The file is JSON with one section for MCP clients and one for the built-in AI Assistant. It holds
+names and counts only: a tool with the choice it was called with, an operation type, and the
+shape of a refusal, in which quoted names, IDs and numbers are replaced. Nothing from a project is
+kept and nothing is sent anywhere. Later runs add to the same file; delete it to start again.
+
 ## Can the editor run without a backend?
 
 Yes. The visual editor is a client-side application and can author, preview, import, certify, save

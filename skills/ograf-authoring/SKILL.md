@@ -27,8 +27,8 @@ For numbered canvas references, match each annotation to its rectangle or freeha
    browser-dependent tool while the socket is open but the editor is unresponsive; bring the editor
    tab to the foreground first. Require `editor.certificationReady` before certification or file
    output; follow `certificationLikelyCause` recovery guidance. `liveEditorConnected` is deprecated.
-2. Inspect before editing with `ograf_query_scene`, `ograf_get_project` or `ograf_inspect_scene`.
-   Query roles, tags, names, bindings, kinds and animation status to identify targets compactly.
+2. Inspect before editing with `ograf_inspect_scene` or `ograf_get_project`. Add `mode: "query"`
+   filters for roles, tags, names, bindings, kinds and animation status to identify targets compactly.
    Keep stable IDs and `revision`. Prefer explicit `include` and `tracks:"animated-only"` for
    routine project reads; omit filters for full compatibility snapshots. Use `ograf_read_result_page`
    for large results; follow paths/offsets. Pages are snapshots; never repeat a mutation to paginate.
@@ -50,8 +50,8 @@ For numbered canvas references, match each annotation to its rectangle or freeha
    projected IDs, validation, optional broadcast lint, and compact per-operation summaries, but its
    generated IDs are hypothetical and must not be reused after the real batch.
 4. Apply with the latest `expectedRevision`. If a revision conflict occurs, re-read the project and consciously rebase; never blindly retry stale operations.
-5. Inspect the result with `ograf_review_design`, `ograf_get_timeline`, `ograf_capture`,
-   `ograf_render_strip`, and `ograf_validate_project`. Design QA is deterministic and advisory: use
+5. Inspect the result with `ograf_validate_project` (also `check: "design"`), `ograf_get_project`
+   `view: "timeline"` and `ograf_capture`. Design QA is deterministic and advisory: use
    its stable finding IDs/layer IDs and preview frames to guide changes. Resolve unintended
    lockstep, wrong-direction easing, missing stagger/reveal, weak type hierarchy, near-miss
    alignment, inconsistent padding, and loop seams; do not treat the score as a substitute for
@@ -60,14 +60,14 @@ For numbered canvas references, match each annotation to its rectangle or freeha
    `qa:allow-offcanvas` only for deliberately clipped or wrapped layers, and `qa:static-text` only
    for punctuation or fixed glyphs that should not become operator fields.
    Use `target: "composition"` with a checker matte for design checks and `target: "viewport"`
-   when editor chrome or canvas state may be involved. Use `ograf_render_strip` for animation work;
+   when editor chrome or canvas state may be involved. Use `mode: "strip"` for animation work;
    omit `frames` to sample lifecycle frames and transition midpoints, or provide up to 12 diagnostic
-   frames. For `ograf_capture`, omit `frame` to inspect the first Step/on-air state rather than
+   frames. For one frame, omit `frame` to inspect the first Step/on-air state rather than
    transparent Start. Prefer the short-lived PNG URL; request inline base64 only when the client
    cannot fetch localhost URLs.
    Use `ograf_sample_tracks` for browser-free geometry and invariant checks such as fixed right or
    bottom edges. It remains available when capture, strips, measurement, and certification do not.
-   For data-bound text, call `ograf_measure_text` at the relevant frame with representative values;
+   For data-bound text, run `check: "text"` at the relevant frame with representative values;
    treat `degenerate: true` as a layout fault even when the text is legible at its 50% clamp. Then
    distinguish `clippedBy: "own-box"` (a fault) from `clippedBy: "parent"` (intentional masking).
    validate with `browserTextOverflow: true`, `detail: "summary"`, and stress `testValues`. Use
@@ -81,12 +81,12 @@ For numbered canvas references, match each annotation to its rectangle or freeha
 6. Call `ograf_certify_project` before reporting output as compatible. Pass `profile` when the
    result is specifically real-time, non-real-time, or dual-mode; omitting it certifies the project-
    declared flags.
-7. Use `ograf_save_project`, `ograf_export_package`, or `ograf_export_coordinated_package` only when the user requested a file operation.
+7. Use `ograf_save_project` or `ograf_export_package` (`scope: "set"` for a whole set) only when the user requested a file operation. Use `ograf_export_video` when they ask for a movie.
    For package export choose the named `realtime`, `non-realtime`, or `dual` profile; it derives
    output flags and identity without mutating source. Pass `confirm: true`; leave `overwrite` false
    unless replacement was explicitly intended.
 
-For whole-set source saves use `ograf_save_template_set` with the opaque set revision and `confirm:true`.
+For whole-set source saves use `ograf_save_project` with `scope: "set"`, the opaque set revision and `confirm:true`.
 Compact storage shares dependencies once; compatible mode targets older set readers. Standalone saves
 must embed resolved fonts/resources/components. See the [set storage contract](./references/template-sets-and-crops.md#portable-set-storage).
 External MCP clients pass the user's original request as `originalPrompt` on `ograf_create_project`,
@@ -110,7 +110,7 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
   convert an existing OGraf package, use the visible editor workflow rather than fabricating a
   project document.
 - Use `ograf_import_asset` for one workspace-confined image, font, CSS, or source attachment. Use
-  `ograf_import_svg_bundle` for one SVG plus companion CSS, images, and fonts; it embeds relative
+  its `paths` argument (`mode: "svg-bundle"`) for one SVG plus companion CSS, images, and fonts; it embeds relative
   dependencies into one portable SVG and registers packaged fonts. The result remains one image
   layer—arbitrary Photoshop raster/vector output is not semantically decomposed into editable
   objects.
@@ -180,7 +180,7 @@ For installed GLSL packs and copied shader attribution, read [shader-plugins.md]
 Smart layout: [Modifiers](./references/modifiers.md) covers fit, size, follow, hide,
 arrange, look-at and spline paths.
 
-Use `add_effect`, `update_effect`, `duplicate_effect`, `remove_effect`, and `reorder_effects` inside
+Use `add_effect`, `update_effect`, `remove_effect`, and `reorder_effects` inside
 revision-checked batches; discover the `elements` parameter catalog. New effects start bypassed;
 `blendMode` enables them and `blendOpacity` mixes 0..1. Effects run top-to-bottom, repeated types
 are allowed, and returned IDs remain stable. Animate `effects.ID.PARAM` paths; runtime data
@@ -263,7 +263,7 @@ Design for air: align edges, protect readable text over video, use easing-out on
 easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-only data.
 
 - Prefer `sessionId: "editor"` when collaborating in the visible application.
-- Assign meaningful `set_layer_semantics` roles, tags, and descriptions. For built-in lower third,
+- Assign meaningful `update_layer` `semantics` roles, tags, and descriptions. For built-in lower third,
   bug, native ticker, scoreboard, live clock/timer or countdown starters, read
   [broadcast recipes](./references/broadcast-recipes.md). Recipes create editable linked assets by
   default; `asComponent:false` keeps independent layers. Query stable returned IDs for later edits.
@@ -275,7 +275,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   exported graphics have no style-pack runtime dependency. A recipe `stylePack` option applies the
   same vocabulary while explicit recipe theme/motion values remain deliberate overrides.
 - Packs recolor existing controls and GDD defaults while retaining gradient alpha/shading and motion.
-  Parent swatch edits propagate. `remove_style_pack` restores recorded fonts, colors, bindings,
+  Parent swatch edits propagate. `apply_style_pack` with `stylePack: null` restores recorded fonts, colors, bindings,
   tokens/defaults and timing; content/layout edits survive. The baseline persists across pack
   switches and `.ogs` reloads. Legacy packs without a baseline only detach. See
   [style-packs.md](./references/style-packs.md) for color routing and restoration limits.
@@ -290,7 +290,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   `squeeze` deliberately scales glyph width and height independently to fill the authored box;
   `fixed` performs no fitting. Fit-to-width keeps the typeface proportional and treats only explicit
   line breaks as multiple lines. Use squeeze only when deformation is intentional, and verify
-  data-bound extremes with `ograf_measure_text`.
+  data-bound extremes with `ograf_validate_project` `check: "text"`.
 - `save_component` creates an asset and links the selected source objects. `instantiate_component`
   defaults to linked inheritance; use `linked:false` for an independent copy. Asset edits propagate
   while local overrides and instance placement survive. Use `reset_component_overrides` to inherit
@@ -298,7 +298,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
 - Use `create_repeater` when a finite horizontal or vertical collection should be materialized from
   selected source layers. It creates ordinary grouped layers and cloned fields with semantic item
   tags; use runtime data fields normally afterward. It is not a live array-binding primitive.
-- Use `create_runtime_collection` when Reality Hub supplies a variable-length object-item array.
+- Use `set_runtime_collection` when Reality Hub supplies a variable-length object-item array.
   Author one contiguous persistent group as the item prototype, bind its properties to scalar item
   leaves with `sourcePath: ["segment", ...]`, then register explicit `offsetPerItem`, capacity 1..100,
   and `overflow: "truncate"`. Every instance shares the prototype lifecycle and absolute loop phase;
@@ -316,7 +316,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   wraps offscreen. Use `repeatCount: null` for infinite motion. Loops must never invoke OGraf actions.
 - For a one-shot trigger, use `activation: {type:"customAction",customActionId}` and finite repeats.
   Its payload updates data before matching clips play and settle; the manifest publishes duration.
-- Use `add_media_cue` with an audio clip source and `trigger:{type:"customAction",actionId}` for
+- Use `set_media_cue` with an audio clip source and `trigger:{type:"customAction",actionId}` for
   action-triggered sound. In Studio choose Audio → Create Playback Cue, then select the Custom
   Action under Resources → Media. Add at Playhead remains the simpler timeline Sound Event path.
 - Use `update_transform`/`update_effects` with their default `scope: "authored"` for base layout;
@@ -331,13 +331,12 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   are deduplicated. Do not remove a resource until its reported layer/field/font uses are retargeted.
 - Use `set_layer_bindings` when one layer exposes more than one data-driven property. Each binding
   accepts a stable `fieldId` or unique `fieldKey`, and each target property may appear only once.
-  `set_layer_binding` remains a legacy single-binding replacement and clears any additional rows.
   In the Studio Properties UI, **+ Add Binding** creates a field seeded from the next unbound
   property's current value and connects it in one undoable edit; the Field menu can then retarget
   that binding to an existing field. MCP operations still require explicit field creation.
 - Treat the data schema as the operator contract. Author meaningful field `description`, select
-  `options`, file extensions, and JSON Schema constraints through `add_data_field` or
-  `update_data_field`; every compiled field emits `gddType`. Give bound on-air text a realistic
+  `options`, file extensions, and JSON Schema constraints through `set_data_field`;
+  every compiled field emits `gddType`. Give bound on-air text a realistic
   `maxLength` so Reality Hub/Form Builder can prevent unusable values before playout. Object
   `properties` and array `items` use the same recursive field shape; keep property keys unique and
   defaults valid. A runtime collection requires array `items.fieldType: "object"`, and its capacity
@@ -411,10 +410,10 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   per axis and title/graphics safe is inset 5% per axis, with pixel margins rounded to the nearest
   integer. At 1920x1080 this is 67/38 px and 96/54 px; at 3840x2160 it is 134/76 px and 192/108 px.
   Use the bounds returned by scene inspection rather than reviving legacy 5%/10% assumptions.
-- Use `create_timeline_group` to organize two or more related timeline rows after their stable layer
+- Use `set_timeline_group` to organize two or more related timeline rows after their stable layer
   IDs are known. This is recommended for multi-part lower thirds, repeated forecast/day cells, and
   other compositions with many independently animated layers. Rename and color groups for legible
-  agent/human handoff; use `ungroup_timeline_group` to remove the organization. Timeline groups are
+  agent/human handoff; pass `layerIds: []` with its `groupId` to remove the organization. Timeline groups are
   UI-only metadata: they do not change paint order, transforms, animation, canvas `groupId`, or
   compiled OGraf output. The source document retains the legacy `timelineFolders` storage field for
   compatibility, while MCP inspection exposes the canonical `timelineGroups` alias.
@@ -422,7 +421,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   masking with synchronized opacity fades on every child. `duplicate_group` preserves and remaps the
   clipping relationship. The mask follows animated parent rotation and transform origin as well as
   position/size, so rotate the parent to create a diagonal wipe; children retain their own rotation.
-- Use `set_layer_flags.blendMode` for static composition-local compositing. Blend modes operate only
+- Use `update_layer` `blendMode` for static composition-local compositing. Blend modes operate only
   against lower layers inside OGraf Studio's isolated transparent composition; they never blend
   against a controller's external video bed. Do not rely on the editor checkerboard as source
   imagery, and keep a normal-mode fallback when a target renderer has not been smoke-tested.
@@ -443,7 +442,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   Lottie are not mask sources; use a vector path or alpha image for those mattes.
 - `hideSource` defaults to true and sets source `isMaskOnly`; it remains selectable in Layers and
   usable by multiple targets. Do not hide it with `isVisible: false`, which disables its mask
-  contribution. `set_layer_flags isMaskOnly: false` shows its normal output again. Detach with
+  contribution. `update_layer` with `isMaskOnly: false` shows its normal output again. Detach with
   `sourceLayerId: null`; detaching does not unhide a shared source. Animate the source's own tracks
   or local loop; do not duplicate its movement onto the target. Mask chains must be acyclic and
   stay within one composition/runtime-collection prototype. Include mask sources in component
@@ -461,8 +460,8 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
 - Do not encode editor-only automation or cross-timeline triggers into output. Pointer and keyboard rules are
   real-time HTML interactions, not deterministic non-real-time scheduled actions.
 - Use `ograf_undo` to reverse the last agent transaction. Direct browser edits retain their own browser history.
-- Use `ograf_get_changes` after a revision conflict to distinguish browser edits from agent edits.
-- Use `ograf_reset_project` with explicit confirmation for a genuinely fresh visible session; the
+- Use `ograf_get_project` with `view: "changes"` after a revision conflict to distinguish browser edits from agent edits.
+- Use `ograf_create_project` with `mode: "reset"` and explicit confirmation for a genuinely fresh visible session; the
   reset is an undoable agent transaction. Do not manually tear down every layer and field.
 - Never write project JSON or construct a package outside the MCP save/export tools; doing so bypasses certification.
 - If the editor is disconnected and you have browser control, open the configured Studio URL:

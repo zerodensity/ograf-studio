@@ -83,7 +83,7 @@ from scene queries before changing or deleting a shared source.
 
 # Example: animated lower third
 
-1. Read capabilities and the current revision, then call `create_lower_third` with the intended
+1. Read capabilities and the current revision, then call `create_recipe` with `recipe: "lower-third"` and the intended
    placement, initial headline/subheadline, field keys, and theme. Keep the default `wipe` for a
    professional mask reveal, or explicitly choose `stagger`, `slide`, or `none` when required.
 2. Capture the returned layer, field, canvas-group, and timeline-group IDs. Refine the ordinary
@@ -94,7 +94,7 @@ from scene queries before changing or deleting a shared source.
 4. Use `ograf_apply_operations` with `mode: "preview"` for uncommitted visual refinements. If the
    change substantially affects layout/theme/motion, use `mode: "propose"` so the human can Accept
    or Reject it in OGraf Studio.
-5. Run `ograf_review_design`, then render entrance start, mid-motion, settled frame, and exit.
+5. Run `ograf_validate_project` with `check: "design"`, then render entrance start, mid-motion, settled frame, and exit.
    Inspect property tracks to confirm stagger and independent easing.
 6. Validate and certify. Save `.ogs` only if requested; export `.ograf.zip` only if requested.
 
@@ -117,13 +117,13 @@ the same batch by `fieldKey`; use `fieldId` after its creation result has been r
    - `namePattern: "D{n} "`;
    - `fieldKeyRewrite: {from: "d1", to: "d{n}"}`;
    - `labelRewrite: {from: "Day 1", to: "Day {n}"}`.
-5. Retarget cloned defaults with `update_data_field` by `fieldKey`; no project read is needed solely
+5. Retarget cloned defaults with `set_data_field` by `fieldKey`; no project read is needed solely
    to recover copied field IDs.
 6. Create a named, color-coded timeline group for each completed day cell using its returned layer
    IDs. This keeps the repeated animation rows navigable without changing the canvas groups or
    compiled OGraf result.
 7. Sample the first, middle, and last cells with `ograf_sample_tracks`, then inspect the complete
-   cascade with `ograf_render_strip` and no explicit `frames`.
+   cascade with `ograf_capture` `mode: "strip"` and no explicit `frames`.
 8. Run summary overflow validation with representative long values, broadcast lint, and exact OGraf
    certification before any requested save or export.
 
@@ -138,7 +138,7 @@ custom frame offsets, rewrite rules, or explicit binding share/clone/clear contr
 For a variable leaderboard supplied by Reality Hub, add an `array` field whose `items` is an
 `object` with scalar properties such as `name` and `score`. Group one row prototype, bind its text
 layers to the array field with `sourcePath: ["name"]` and `["score"]`, then call
-`create_runtime_collection` with that group, `{x:0,y:72}`, capacity 12, and truncate overflow. Use
+`set_runtime_collection` with that group, `{x:0,y:72}`, capacity 12, and truncate overflow. Use
 `ograf_capture` with array `dataOverrides` to verify 0, 1, capacity, and over-capacity cases before
 certification.
 
@@ -149,7 +149,7 @@ certification.
 2. Save the reviewed layer selection as a component. Insert linked instances for automatic source
    updates, or independent copies for graphics that will diverge.
 3. Revise canonical source layers with `update_component_layer`, or promote one edited instance
-   and new independent children using `update_component_from_layers`. Preview the operation or use
+   and new independent children using `save_component` with its `componentId`. Preview the operation or use
    `mode: "propose"` for visual review. New children keep their IDs; other instances retain overrides.
    Retarget any Transitions references before removing a referenced source child.
 4. Accept only after the editor preview is correct; then query semantic roles/tags and rerun design
@@ -161,7 +161,7 @@ certification.
 2. Call `set_layer_loop` with lifecycle activation, a 30-frame duration, and infinite repeats.
 3. Add local `opacity` keys `0.2 → 1 → 0.2` with Sine easing.
 4. Add local `width` and `height` keys `base → pulse → base` with independent Back/Quad easing.
-5. Inspect with `ograf_get_timeline`, then exercise `playAction`, capture multiple loop phases, and
+5. Inspect with `ograf_get_project` `view: "timeline"`, then exercise `playAction`, capture multiple loop phases, and
    confirm `goToTime` returns the same pixels for the same scheduled timestamp.
 
 The entrance Promise resolves normally while the loop continues. The loop never advances the

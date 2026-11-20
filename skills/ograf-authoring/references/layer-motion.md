@@ -67,8 +67,10 @@ Use `set_layer_motion` for Studio's entrance/exit presets: Fade, Slide, Fly, Foc
 Pop, Grow, Spin, and Drop. The operation bakes ordinary keys; the exported OGraf graphic needs no
 preset runtime. Besides x/y/opacity/blur, styles write `scale` (Scale, Pop), the `clipLeft`,
 `clipRight`, `clipTop` and `clipBottom` wipe insets (0–1, Wipe), width/height (Grow), or rotation
-(Spin). Scale and the insets are track-only properties that exist once a layer has keys for them. At least
-one Step is required. `side: "in"` writes between Start and the first Step; `side: "out"` writes
+(Spin). Scale and the insets are track-only properties that exist once a layer has keys for them.
+`set_property_key`, `set_property_track`, `set_loop_property_track` and the other keyframe operations
+accept them as well: `scale` is non-negative with 1 as full size, and each inset runs from 0 (nothing
+hidden) to 1. At least one Step is required. `side: "in"` writes between Start and the first Step; `side: "out"` writes
 between the last Step and End. `durationFrames` must fit that window. The first/last Step's on-air
 pose is retained. Reapplying replaces the selected side's keys; inspect for hand-authored motion
 before doing so. `spec: null` clears that side to a cut/hold.
@@ -101,4 +103,4 @@ before the first Step (In) or before End (Out), and the layer holds its pose for
 span. `durationFrames + offsetFrames` must fit the window. For a left-to-right cascade of three
 layers with a 3-frame stagger, use 6, 3 and 0 from left to right. Use
 `ograf_get_capabilities sections:["easing"]` for the current catalog and
-`ograf_get_timeline`/`ograf_render_strip` to review the baked keys and motion.
+`ograf_get_project` `view: "timeline"` and `ograf_capture` `mode: "strip"` to review the baked keys and motion.

@@ -18,6 +18,9 @@ import { nodosSendMessageSchema, type NodosPresetHost } from './nodos/nodosPrese
 import {
   livePlayoutRequestSchema,
   MAX_PLAYOUT_REQUEST_BYTES,
+  type BrowserVideoRequest,
+  type BrowserVideoResult,
+  type CaptureComparisonResult,
   type LivePlayoutRequest,
   type TemplateSetRequest,
 } from '@ograf-editor/agent-tools';
@@ -41,6 +44,7 @@ export interface BrowserCaptureRequest {
   maxDimension: number;
   matte: string;
   dataOverrides?: Record<string, FieldValue>;
+  reference?: { mimeType: string; data: string };
 }
 
 export interface ResolvedFontResult {
@@ -58,6 +62,7 @@ export interface BrowserCaptureResult {
   height: number;
   originalWidth: number;
   originalHeight: number;
+  comparison?: CaptureComparisonResult;
   resolvedFonts: ResolvedFontResult[];
   runtimeCollections?: Array<{
     id: string;
@@ -89,13 +94,14 @@ export interface BrowserStripResult extends BrowserCaptureResult {
   compositionHeight: number;
 }
 
-export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data'> {
+export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;
+  comparison?: Omit<CaptureComparisonResult, 'data' | 'mimeType'> & { url: string };
 }
 
-export interface PublishedStrip extends Omit<BrowserStripResult, 'data'> {
+export interface PublishedStrip extends Omit<BrowserStripResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;
@@ -231,6 +237,8 @@ type EditorInbound =
       result?: BrowserStripResult;
       error?: string;
     }
+  | { type: 'video.progress'; requestId: string; frame: number; frames: number }
+  | { type: 'video.result'; requestId: string; result?: BrowserVideoResult; error?: string }
   | {
       type: 'measure-text.result';
       requestId: string;
@@ -257,6 +265,14 @@ interface PendingCapture {
 interface PendingStrip {
   resolve: (result: BrowserStripResult) => void;
   reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+interface PendingVideo {
+  resolve: (result: BrowserVideoResult) => void;
+  reject: (error: Error) => void;
+  /** Starts the wait for the editor's next sign of life again. */
+  stillWorking: () => void;
   timeout: ReturnType<typeof setTimeout>;
 }
 
@@ -314,6 +330,7 @@ export class EditorBridge {
   #pendingCertifications = new Map<string, PendingCertification>();
   #pendingCaptures = new Map<string, PendingCapture>();
   #pendingStrips = new Map<string, PendingStrip>();
+  #pendingVideos = new Map<string, PendingVideo>();
   #pendingTextMeasurements = new Map<string, PendingMeasureText>();
   #captureAssets = new Map<string, CaptureAsset>();
   #proposals = new Map<string, PendingProposal>();
@@ -532,6 +549,11 @@ export class EditorBridge {
         pending.reject(new Error('The live editor disconnected during frame-strip rendering.'));
       }
       this.#pendingStrips.clear();
+      for (const pending of this.#pendingVideos.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error('The live editor disconnected during video export.'));
+      }
+      this.#pendingVideos.clear();
       for (const pending of this.#pendingTextMeasurements.values()) {
         clearTimeout(pending.timeout);
         pending.reject(new Error('The live editor disconnected during text measurement.'));
@@ -659,6 +681,19 @@ export class EditorBridge {
       this.#pendingStrips.delete(message.requestId);
       if (message.result) pending.resolve(message.result);
       else pending.reject(new Error(message.error || 'Browser frame-strip rendering failed.'));
+      return;
+    }
+    if (message.type === 'video.progress') {
+      this.#pendingVideos.get(message.requestId)?.stillWorking();
+      return;
+    }
+    if (message.type === 'video.result') {
+      const pending = this.#pendingVideos.get(message.requestId);
+      if (!pending) return;
+      clearTimeout(pending.timeout);
+      this.#pendingVideos.delete(message.requestId);
+      if (message.result) pending.resolve(message.result);
+      else pending.reject(new Error(message.error || 'Browser video export failed.'));
       return;
     }
     if (message.type === 'measure-text.result') {
@@ -859,7 +894,14 @@ export class EditorBridge {
       this.#send({ type: 'capture.request', requestId, request });
     });
 
-    return this.#publishPng(result);
+    const { comparison, ...capture } = result;
+    const published = this.#publishPng(capture);
+    if (!comparison) return published;
+    const { data: _data, mimeType: _mimeType, ...scores } = comparison;
+    return {
+      ...published,
+      comparison: { ...scores, url: this.#publishPng({ ...capture, ...comparison }).url },
+    };
   }
 
   async renderStrip(request: BrowserStripRequest, timeoutMs = 60_000): Promise<PublishedStrip> {
@@ -879,6 +921,38 @@ export class EditorBridge {
       this.#send({ type: 'strip.request', requestId, request });
     });
     return this.#publishPng(result);
+  }
+
+  /**
+   * A movie takes as long as it has frames, so no total time is set: the wait ends when the
+   * editor has reported no progress for `idleMs`.
+   */
+  async exportVideo(request: BrowserVideoRequest, idleMs = 120_000): Promise<BrowserVideoResult> {
+    if (!this.connected) {
+      throw new Error(
+        'Video export requires OGraf Studio to be open and connected to the local MCP server.',
+      );
+    }
+    await this.#awaitResponsive('video export', idleMs);
+    const requestId = randomUUID();
+    return new Promise<BrowserVideoResult>((resolve, reject) => {
+      const idle = () =>
+        setTimeout(() => {
+          this.#pendingVideos.delete(requestId);
+          reject(this.#timeoutError('video export', idleMs));
+        }, idleMs);
+      const pending: PendingVideo = {
+        resolve,
+        reject,
+        timeout: idle(),
+        stillWorking: () => {
+          clearTimeout(pending.timeout);
+          pending.timeout = idle();
+        },
+      };
+      this.#pendingVideos.set(requestId, pending);
+      this.#send({ type: 'video.request', requestId, request });
+    });
   }
 
   async measureText(

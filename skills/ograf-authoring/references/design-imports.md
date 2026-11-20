@@ -25,7 +25,7 @@ They are separate from the MCP asset-import operations.
   and text using an available font become editable; unsupported nodes use embedded PNG fallbacks.
   Nested groups may be flattened. The importer bounds file size, node count, depth and PNG pixels.
 
-`ograf_import_svg_bundle` remains a distinct MCP tool: it embeds one SVG and selected companions
+`ograf_import_asset` with `paths` remains a distinct MCP import: it embeds one SVG and selected companions
 into **one image asset**, registers discovered fonts, and does not decompose the SVG into editable
 layers. MCP does not provide an editable PSD/Figma import operation. Do not invent one; use the
 visible Studio workflow and report its actual warnings and fallback boundaries.

@@ -132,3 +132,53 @@ describe('independent animation through canonical authoring operations', () => {
     );
   });
 });
+
+describe('scale and wipe insets through keyframe operations', () => {
+  it('keys scale and a wipe inset without touching the transform channels', () => {
+    const { session, layerId } = fixture();
+    const result = session.apply({
+      expectedRevision: 0,
+      operations: [
+        {
+          type: 'set_property_track',
+          layerId,
+          property: 'scale',
+          keys: [
+            { frame: 0, value: 0, easing: 'linear' },
+            { frame: 10, value: 1.25, easing: 'linear' },
+          ],
+        },
+        { type: 'set_property_key', layerId, property: 'clipLeft', frame: 0, value: 1 },
+        { type: 'set_property_key', layerId, property: 'clipLeft', frame: 10, value: 0 },
+      ],
+    });
+    const layer = layerIn(result.project, layerId);
+    expect(layer.animationTracks.scale?.map((key) => [key.frame, key.value])).toEqual([
+      [0, 0],
+      [10, 1.25],
+    ]);
+    expect(layer.animationTracks.clipLeft?.map((key) => [key.frame, key.value])).toEqual([
+      [0, 1],
+      [10, 0],
+    ]);
+    for (const property of ['x', 'y', 'width', 'height', 'rotation', 'opacity'] as const)
+      expect(isLayerPropertyAnimated(layer, property)).toBe(false);
+    expect(getLayerTransformAtFrame(layer, 5)).toMatchObject({ x: 100, width: 320, height: 180 });
+  });
+
+  it.each([
+    ['scale', -0.1, 'Scale must be non-negative'],
+    ['clipTop', 1.5, 'Wipe inset clipTop must be from 0 to 1'],
+    ['clipBottom', -0.2, 'Wipe inset clipBottom must be from 0 to 1'],
+  ] as const)('rejects %s at %s and changes nothing', (property, value, message) => {
+    const { session, layerId } = fixture();
+    expect(() =>
+      session.apply({
+        expectedRevision: 0,
+        operations: [{ type: 'set_property_key', layerId, property, frame: 0, value }],
+      }),
+    ).toThrow(message);
+    expect(session.snapshot().revision).toBe(0);
+    expect(layerIn(session.snapshot().project, layerId).animationTracks).toEqual({});
+  });
+});
