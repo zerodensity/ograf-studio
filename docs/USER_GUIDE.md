@@ -1249,8 +1249,10 @@ moves the finished effect picture. **Finish current fade first** finishes each t
 **Jump to newest data** ends the running transition at once with its data on air, then transitions
 to the newest update, so values keep landing however fast they arrive; resending the data already on
 its way leaves the running transition alone. Scheduled non-realtime rendering follows the same
-policy, so a change that lands mid-fade starts when that fade ends. Exported action durations report
-the longest authored layer update so playout can schedule accurately.
+policy, so a change that lands mid-fade starts when that fade ends. Under either policy an update
+does not wait for a Take In or Take Out that is still playing: new data shows during the animation,
+however long it runs. Exported action durations report the longest authored layer update so playout
+can schedule accurately.
 
 Each lane in a template set chooses how it shows new data under **Transitions → When its content
 changes**. **Update transition**, the default, mounts the template again with the new data and plays
