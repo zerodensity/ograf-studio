@@ -896,7 +896,11 @@ crossing the marker plays the sound once. Drag the marker horizontally to retime
 edit the audio file, exact frame, volume, start offset and retrigger behavior. Multiple sounds may
 share one frame and appear as stacked markers. Sound Events create neither canvas layers nor audio
 tracks. A sound fires when playback enters its marker frame; leaving that Step with **Take Out**
-does not replay it. Starting a new IN after OUT arms the Sound Events again.
+does not replay it. Starting a new IN after OUT arms the Sound Events again, and the IN plays from
+the Start keyframe, so each sound fires at its own frame. A sound stays silent when the playhead is
+put past its marker instead of playing through it, as by a Take In or Take Out without animation.
+A browser also keeps a page silent until someone presses something on it: a sound it blocked plays
+with the first Take In only while the playhead still stands on its marker.
 
 For action-triggered audio, expand the imported file and choose **Create Playback Cue** instead of
 **Add at Playhead**. The cue appears under Resources → Media with a Manual trigger. Expand it,

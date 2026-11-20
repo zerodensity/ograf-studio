@@ -2358,7 +2358,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#loopExitCorrection = null;
       this.#directLifecycleTransition = null;
       tl.seek(keyframe.frame, true);
-      if (includeAudio) this.#mediaCueRuntime?.renderAtTime(targetSeconds * 1000);
+      if (includeAudio) this.#mediaCueRuntime?.renderAtTime(targetSeconds * 1000, { jumped: true });
     } else {
       const fromFrame = tl.frame();
       const directOut =
@@ -2687,6 +2687,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     try {
       await this.#awaitContentReady();
       const previousStep = this.#currentStep;
+      const target = this.#resolvePlayTarget(previousStep, params);
       if (
         previousStep === undefined &&
         this.#timeline &&
@@ -2694,8 +2695,11 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       ) {
         // A new IN after completing OUT is a new playout cycle, so one-shot sounds may arm again.
         this.#mediaCueRuntime?.reset();
+        // It starts where the first one did. The timeline stands at its end, and from there the In
+        // would run the Out backwards and pass every sound of the In at once.
+        if (target.currentStep !== undefined)
+          await this.#seekToKeyframeId(this.descriptor.startKeyframeId, true, undefined, false);
       }
-      const target = this.#resolvePlayTarget(this.#currentStep, params);
       this.#keyboardOnAir = target.currentStep !== undefined;
       void this.#logicFunctions
         ?.setOnAir(target.currentStep !== undefined)
@@ -3800,7 +3804,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#loopExitCorrection = null;
       this.#timeline?.seek((params.timestamp / 1000) * this.activeDescriptor.frameRate, true);
       this.#mediaCueRuntime?.reset();
-      this.#mediaCueRuntime?.renderAtTime(params.timestamp);
+      this.#mediaCueRuntime?.renderAtTime(params.timestamp, { jumped: true });
       let chartMarkFrame: number | undefined;
       if (this.#schedule.length > 0) chartMarkFrame = this.#applySchedule(params.timestamp);
       else {
