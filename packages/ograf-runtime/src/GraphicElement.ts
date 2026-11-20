@@ -465,7 +465,13 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #chartAnimationFrame: number | null = null;
   #chartAnimationEpochs = new Map<string, number>();
   #contentPlaybackError: Error | null = null;
+  /** Everything asked of the graphic, in the order it was asked. */
   #operationQueue: Promise<void> = Promise.resolve();
+  /**
+   * What a data update waits for: loading, seeking and the updates before it. Not a Take in, a Take
+   * out or a custom action, whose animation can run for as long as its author made it.
+   */
+  #updateQueue: Promise<void> = Promise.resolve();
   #renderType: LoadParams['renderType'] = 'realtime';
   /** Absolute clock epochs for active layer-local loops. Values use performance.now() in realtime
    * and the scheduled OGraf timestamp in non-realtime; sampling always derives phase absolutely. */
@@ -635,13 +641,38 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     );
   }
 
-  async #serializeOperation<T>(operation: () => Promise<T>): Promise<T> {
+  /** Runs an operation after everything asked before it. `animation` marks one updates don't wait for. */
+  async #serializeOperation<T>(operation: () => Promise<T>, animation = false): Promise<T> {
     const previous = this.#operationQueue;
     let release = () => {};
-    this.#operationQueue = new Promise<void>((resolve) => {
+    const done = new Promise<void>((resolve) => {
       release = resolve;
     });
+    this.#operationQueue = done;
+    if (!animation) this.#updateQueue = done;
     await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Runs a data update after the updates before it, so each fade finishes first, but beside a Take
+   * in, Take out or custom action that is still animating: new data shows at once, however long the
+   * animation runs. Whatever is asked next waits for the update and for all that was asked before it.
+   */
+  async #serializeUpdate<T>(operation: () => Promise<T>): Promise<T> {
+    const previousUpdate = this.#updateQueue;
+    const previousOperation = this.#operationQueue;
+    let release = () => {};
+    const done = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.#updateQueue = done;
+    this.#operationQueue = Promise.all([previousOperation, done]).then(() => undefined);
+    await previousUpdate;
     try {
       return await operation();
     } finally {
@@ -2550,7 +2581,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     if ((this.descriptor.updateInterruption ?? 'queue') === 'replace') {
       return this.#replaceRunningUpdate(params);
     }
-    return this.#serializeOperation(() =>
+    return this.#serializeUpdate(() =>
       this.#updateActionUnlocked(params, ++this.#updateGeneration),
     );
   }
@@ -2680,7 +2711,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   async playAction(params: PlayActionParams): Promise<PlayActionReturnPayload> {
     this.#mediaCueRuntime?.resumeBlocked();
-    return this.#serializeOperation(() => this.#playActionUnlocked(params));
+    return this.#serializeOperation(() => this.#playActionUnlocked(params), true);
   }
 
   async #playActionUnlocked(params: PlayActionParams): Promise<PlayActionReturnPayload> {
@@ -2756,7 +2787,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async stopAction(params: StopActionParams): Promise<ReturnPayload | undefined> {
-    return this.#serializeOperation(() => this.#stopActionUnlocked(params));
+    return this.#serializeOperation(() => this.#stopActionUnlocked(params), true);
   }
 
   async #stopActionUnlocked(params: StopActionParams): Promise<ReturnPayload | undefined> {
