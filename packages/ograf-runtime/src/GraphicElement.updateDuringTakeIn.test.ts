@@ -8,8 +8,8 @@ import {
 } from '@ograf-editor/scene-model';
 
 const mock = vi.hoisted(() => {
-  /** The animations the timeline has been asked for and not yet finished, oldest first. */
-  const running: Array<{ to: number; finish: () => void }> = [];
+  /** The animations the timeline has been asked for, oldest first: finished by the test, or cut short. */
+  const running: Array<{ to: number; cut: boolean; finish: () => void }> = [];
   /** Update fades the content has been asked for and not yet finished. */
   const fades: Array<() => void> = [];
   const hooks: { holdFades: boolean; loading: Promise<void> | null } = {
@@ -71,16 +71,26 @@ vi.mock('./buildRuntimeTimeline', () => ({
         frame = value;
       },
       // An animation runs until the test finishes it, as a long Take in runs for its author's time.
-      animateTo: (value: number, options: { onUpdate?: () => void; onComplete?: () => void }) => {
-        mock.running.push({
+      animateTo: (
+        value: number,
+        options: { onUpdate?: () => void; onComplete?: () => void; onInterrupt?: () => void },
+      ) => {
+        const animation = {
           to: value,
+          cut: false,
           finish: () => {
             frame = value;
             options.onUpdate?.();
             options.onComplete?.();
           },
-        });
-        return { cancel() {} };
+        };
+        mock.running.push(animation);
+        return {
+          cancel() {
+            animation.cut = true;
+            options.onInterrupt?.();
+          },
+        };
       },
       dispose() {},
       pause() {},
@@ -300,21 +310,21 @@ describe('what waits for a data update', () => {
     await takeIn;
   });
 
-  it('a Take out asked during a Take in waits for the Take in, and for an update sent meanwhile', async () => {
+  it('a Take out asked during a Take in cuts it short, and keeps an update sent meanwhile', async () => {
     const graphic = await loaded();
     const takeIn = graphic.playAction({});
     await settle();
     const update = graphic.updateAction({ data: { title: 'new' } });
     const takeOut = graphic.stopAction({});
+    await takeIn;
     await update;
     await settle();
-    // Only the Take in is animating: the Take out has not begun.
-    expect(mock.running.map((animation) => animation.to)).toEqual([10]);
-
-    mock.running[0]!.finish();
-    await takeIn;
-    await settle();
-    expect(mock.running.map((animation) => animation.to)).toEqual([10, 30]);
+    // The Take in was cut short and the Take out is animating: nothing waited for the In's length.
+    expect(mock.running.map((animation) => [animation.to, animation.cut])).toEqual([
+      [10, true],
+      [30, false],
+    ]);
+    expect(shown(graphic)).toBe('new');
     mock.running[1]!.finish();
     await takeOut;
   });

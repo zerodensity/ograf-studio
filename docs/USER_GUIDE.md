@@ -2205,6 +2205,13 @@ and **Take Out** plays it out. **Live** plays in real time; **Rendered** steps t
 like a video renderer. The raw OGraf call log and the scheduled-action tester are under
 **Developer**; the log's heading shows **error** when a call fails.
 
+A **Take Out** does not wait for a Take In or a Step change that is still animating. That animation
+stops where it is, and the graphic goes out from that picture over the Out's own length, without
+the sounds on the stretch it skips. A Take Out without animation cuts to off air at once. The Take
+In or Step change that was cut short answers that it did not arrive, and a Take In after it plays
+from the Start keyframe. Only a single template's own playout does this: a template set's lanes
+still finish a running transition first.
+
 Choose **Fullscreen** for the active template's lifecycle preview.
 
 A compact data panel with a 15% transparent background lets you edit the template's data fields in
