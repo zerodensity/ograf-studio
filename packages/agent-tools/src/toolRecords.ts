@@ -630,6 +630,17 @@ function importMimeType(path: string): string {
   return IMPORT_MIME_BY_EXTENSION[extname(path).toLowerCase()] ?? 'application/octet-stream';
 }
 
+/** A workspace picture to compare a capture with, in the form the editor reads. */
+async function readReferencePicture(path: string): Promise<{ mimeType: string; data: string }> {
+  const mimeType = importMimeType(path);
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType))
+    throw new Error('A reference picture must be a PNG, JPEG or WebP file.');
+  const data = await readFile(path);
+  if (data.byteLength > 32 * 1024 * 1024)
+    throw new Error('The reference picture exceeds the 32 MiB workspace limit.');
+  return { mimeType, data: data.toString('base64') };
+}
+
 function dataUriBase64(dataUri: string): string {
   const separator = dataUri.indexOf(',');
   if (separator < 0 || !dataUri.slice(0, separator).endsWith(';base64')) {
@@ -4307,7 +4318,7 @@ export function createOGrafToolRecords(
     {
       title: 'Capture browser-rendered OGraf PNG',
       description:
-        'PNG; first Step default. Matte/dataOverrides: composition only. URL 5 min; base64 opt-in. Not certification.',
+        'PNG; first Step default. Matte/dataOverrides: composition only. reference: workspace PNG/JPEG/WebP to compare with; returns difference scores and a difference picture. URL 5 min; base64 opt-in. Not certification.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         target: z.enum(['composition', 'viewport']).default('composition'),
@@ -4316,6 +4327,7 @@ export function createOGrafToolRecords(
         maxDimension: z.number().int().min(64).max(4096).default(900),
         matte: captureMatteSchema,
         dataOverrides: z.record(z.string(), fieldValueSchema).optional(),
+        reference: z.string().min(1).optional(),
         enableBase64Response: z.boolean().default(false),
       },
       annotations: readOnly,
@@ -4328,6 +4340,7 @@ export function createOGrafToolRecords(
       maxDimension,
       matte,
       dataOverrides,
+      reference,
       enableBase64Response,
     }) => {
       if (target === 'viewport' && sessionId !== 'editor') {
@@ -4336,6 +4349,12 @@ export function createOGrafToolRecords(
       if (target === 'viewport' && dataOverrides) {
         throw new Error('dataOverrides is available only for target=composition.');
       }
+      if (target === 'viewport' && reference) {
+        throw new Error('reference is available only for target=composition.');
+      }
+      const referencePicture = reference
+        ? await readReferencePicture(workspace.resolveAllowedPath(reference))
+        : undefined;
       const snapshot = workspace.get(sessionId).snapshot();
       const composition = snapshot.project.compositions.find(
         (item) => item.id === (compositionId ?? snapshot.project.mainCompositionId),
@@ -4356,6 +4375,7 @@ export function createOGrafToolRecords(
         maxDimension,
         matte,
         ...(dataOverrides ? { dataOverrides } : {}),
+        ...(referencePicture ? { reference: referencePicture } : {}),
       });
       const { data, ...metadata } = capture;
       const structuredContent = {
@@ -4375,6 +4395,13 @@ export function createOGrafToolRecords(
           text: `PNG capture ready (${capture.width}×${capture.height}, natural ${capture.originalWidth}×${capture.originalHeight}). Fetch within five minutes: ${capture.url}\n${structuredContent.fetchCommand}`,
         },
       ];
+      if (capture.comparison) {
+        const { meanDifference, differingFraction, url } = capture.comparison;
+        content.push({
+          type: 'text',
+          text: `Against the reference: mean difference ${(meanDifference * 100).toFixed(1)}%, ${(differingFraction * 100).toFixed(1)}% of pixels differ. Difference picture, brighter where they differ: ${url}`,
+        });
+      }
       if (enableBase64Response) content.push({ type: 'image', data, mimeType: 'image/png' });
       return { content, structuredContent };
     },

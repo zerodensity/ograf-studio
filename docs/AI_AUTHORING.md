@@ -565,6 +565,23 @@ belongs to a different choice is refused with the choice it belongs to. No read 
 write, so a client that approves reads automatically keeps doing so. The built-in AI Assistant
 gets the same merged tools, limited to the choices it already had.
 
+## Compare a capture with a reference picture
+
+When a graphic is rebuilt from a still of another system, a Photoshop export or a Figma frame, an
+agent can measure how close it is. `ograf_capture` takes `reference`, the path of a PNG, JPEG or
+WebP file in the workspace. The editor scales that picture to the capture and compares the two.
+The result adds `comparison`:
+
+- `meanDifference` is the average colour distance over all pixels, from 0 for the same picture
+  to 1.
+- `differingFraction` is the share of pixels that differ by more than a tenth of the colour range.
+- `url` leads to a difference picture the size of the capture: black where the two agree, brighter
+  where they differ.
+
+Capture over a solid `matte` in the reference's background colour, and export the reference in
+the composition's aspect ratio, because a reference of another shape is stretched to fit. The
+comparison applies to one composition frame, not to a strip or the editor viewport.
+
 ## Merged operations
 
 `ograf_apply_operations` lists 79 operation types. Forty-one earlier names are no longer listed.

@@ -3,10 +3,11 @@ import type { ExportArtifacts } from '@ograf-editor/codegen';
 import type { FieldValue, Project } from '@ograf-editor/scene-model';
 import type { LivePlayoutRequest } from './playoutSchemas';
 import type { TemplateTransferRequest } from './templateTransferReview';
-import type { BrowserCaptureResult } from './browserCaptureResult';
+import type { BrowserCaptureResult, CaptureComparisonResult } from './browserCaptureResult';
 
 export type {
   BrowserCaptureResult,
+  CaptureComparisonResult,
   ResolvedFontResult,
   RuntimeCollectionCaptureResult,
 } from './browserCaptureResult';
@@ -25,6 +26,8 @@ export interface BrowserCaptureRequest {
   maxDimension: number;
   matte: string;
   dataOverrides?: Record<string, FieldValue>;
+  /** A picture file to compare the composition capture with, as base64. */
+  reference?: { mimeType: string; data: string };
 }
 
 export interface BrowserStripRequest {
@@ -47,13 +50,15 @@ export interface BrowserStripResult extends BrowserCaptureResult {
   compositionHeight: number;
 }
 
-export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data'> {
+export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;
+  /** The comparison's scores, with its difference picture published beside the capture. */
+  comparison?: Omit<CaptureComparisonResult, 'data' | 'mimeType'> & { url: string };
 }
 
-export interface PublishedStrip extends Omit<BrowserStripResult, 'data'> {
+export interface PublishedStrip extends Omit<BrowserStripResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;

@@ -58,7 +58,7 @@ const IN_APP_DESCRIPTIONS: Record<string, string> = {
   ograf_inspect_scene: 'Links/motion/warnings/revision. mode=query or any filter: find layers.',
   ograf_sample_tracks: 'Pose; absolute on-air loopElapsedFrame; no browser.',
   ograf_capture:
-    'PNG(first Step); composition-only matte/dataOverrides; URL5min; opt-in base64; uncertified. mode=strip: ≤12frames(lifecycle/midpoints default), tile maxDimension≤1024.',
+    'PNG(first Step); composition-only matte/dataOverrides; reference=workspace picture: difference; URL5min; opt-in base64; uncertified. mode=strip: ≤12frames(lifecycle/midpoints default), tile maxDimension≤1024.',
   ograf_apply_operations: 'Atomic apply/dry-run/preview/propose(Accept/Reject).',
   ograf_validate_project:
     'Advisory semantic/field/text/broadcast QA; uncertified. check=design: QA+IDs, includeStrip=frames. check=text: browser fit/overflow/clipping of layerId at frame.',

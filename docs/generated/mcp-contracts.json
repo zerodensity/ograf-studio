@@ -199,7 +199,7 @@
     {
       "name": "ograf_capture",
       "title": "Capture browser-rendered OGraf PNG",
-      "description": "PNG; first Step default. Matte/dataOverrides: composition only. URL 5 min; base64 opt-in. Not certification. mode=strip: Browser strip: max12 frames, lifecycle/midpoints default; maxDimension/tile. URL 5 min; base64 opt-in. mode=svg: Render a deterministic SVG without mutation.",
+      "description": "PNG; first Step default. Matte/dataOverrides: composition only. reference: workspace PNG/JPEG/WebP to compare with; returns difference scores and a difference picture. URL 5 min; base64 opt-in. Not certification. mode=strip: Browser strip: max12 frames, lifecycle/midpoints default; maxDimension/tile. URL 5 min; base64 opt-in. mode=svg: Render a deterministic SVG without mutation.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -211,6 +211,7 @@
           "maxDimension": { "type": "integer", "minimum": 64, "maximum": 4096 },
           "matte": { "default": "checker", "type": "string" },
           "dataOverrides": { "type": "object", "additionalProperties": { "$ref": "#/$defs/0" } },
+          "reference": { "type": "string", "minLength": 1 },
           "enableBase64Response": { "default": false, "type": "boolean" },
           "frames": {
             "minItems": 1,
@@ -2344,7 +2345,7 @@
           "13": {
             "type": "string",
             "minLength": 1,
-            "description": "Applies to every layer whose name matches; * is any run of characters."
+            "description": "Every layer whose name matches; * is any run of characters."
           },
           "15": {
             "type": "object",

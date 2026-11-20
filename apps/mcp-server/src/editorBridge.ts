@@ -18,6 +18,7 @@ import { nodosSendMessageSchema, type NodosPresetHost } from './nodos/nodosPrese
 import {
   livePlayoutRequestSchema,
   MAX_PLAYOUT_REQUEST_BYTES,
+  type CaptureComparisonResult,
   type LivePlayoutRequest,
   type TemplateSetRequest,
 } from '@ograf-editor/agent-tools';
@@ -41,6 +42,7 @@ export interface BrowserCaptureRequest {
   maxDimension: number;
   matte: string;
   dataOverrides?: Record<string, FieldValue>;
+  reference?: { mimeType: string; data: string };
 }
 
 export interface ResolvedFontResult {
@@ -58,6 +60,7 @@ export interface BrowserCaptureResult {
   height: number;
   originalWidth: number;
   originalHeight: number;
+  comparison?: CaptureComparisonResult;
   resolvedFonts: ResolvedFontResult[];
   runtimeCollections?: Array<{
     id: string;
@@ -89,13 +92,14 @@ export interface BrowserStripResult extends BrowserCaptureResult {
   compositionHeight: number;
 }
 
-export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data'> {
+export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;
+  comparison?: Omit<CaptureComparisonResult, 'data' | 'mimeType'> & { url: string };
 }
 
-export interface PublishedStrip extends Omit<BrowserStripResult, 'data'> {
+export interface PublishedStrip extends Omit<BrowserStripResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;
@@ -859,7 +863,14 @@ export class EditorBridge {
       this.#send({ type: 'capture.request', requestId, request });
     });
 
-    return this.#publishPng(result);
+    const { comparison, ...capture } = result;
+    const published = this.#publishPng(capture);
+    if (!comparison) return published;
+    const { data: _data, mimeType: _mimeType, ...scores } = comparison;
+    return {
+      ...published,
+      comparison: { ...scores, url: this.#publishPng({ ...capture, ...comparison }).url },
+    };
   }
 
   async renderStrip(request: BrowserStripRequest, timeoutMs = 60_000): Promise<PublishedStrip> {

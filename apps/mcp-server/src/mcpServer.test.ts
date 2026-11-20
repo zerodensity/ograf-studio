@@ -1557,7 +1557,7 @@ describe('OGraf MCP authoring host', () => {
         'ograf_export_package',
       ]),
     );
-    expect(providerToolWireBytes(records)).toBeLessThanOrEqual(68_000);
+    expect(providerToolWireBytes(records)).toBeLessThanOrEqual(68_500);
   });
 
   it('requires and preserves the original user prompt when creating a template through MCP', async () => {

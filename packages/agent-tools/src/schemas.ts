@@ -272,7 +272,7 @@ const severalLayers = {
   layerNamePattern: z
     .string()
     .min(1)
-    .describe('Applies to every layer whose name matches; * is any run of characters.')
+    .describe('Every layer whose name matches; * is any run of characters.')
     .optional(),
 };
 const frame = z.number().int().nonnegative();

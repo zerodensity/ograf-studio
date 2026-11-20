@@ -1,3 +1,8 @@
+import {
+  compareWithReference,
+  type CaptureComparison,
+  type CaptureReference,
+} from './captureComparison';
 import { getFontEmbedCSS, toCanvas } from 'html-to-image';
 import {
   acquireProjectFonts,
@@ -75,6 +80,8 @@ export interface AgentCaptureRequest {
   maxDimension: number;
   matte: string;
   dataOverrides?: Record<string, FieldValue>;
+  /** A picture to compare the composition capture with. */
+  reference?: CaptureReference;
 }
 
 export interface AgentCaptureResult {
@@ -84,6 +91,7 @@ export interface AgentCaptureResult {
   height: number;
   originalWidth: number;
   originalHeight: number;
+  comparison?: CaptureComparison;
   resolvedFonts: Array<{
     layerId: string;
     layerName: string;
@@ -1203,9 +1211,12 @@ export async function captureAgentPng(
     const authored = compositionFor(request.project, request.compositionId);
     const { composition, lease } = await acquireCaptureResources(authored, signal);
     try {
-      return await (request.target === 'viewport'
+      const capture = await (request.target === 'viewport'
         ? captureViewport(request, signal)
         : captureComposition(request, composition, signal));
+      if (!request.reference) return capture;
+      signal?.throwIfAborted();
+      return { ...capture, comparison: await compareWithReference(capture, request.reference) };
     } finally {
       lease.dispose();
     }

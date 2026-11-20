@@ -157,6 +157,26 @@ describe('merged agent tools', () => {
     }
   });
 
+  it('refuses a reference picture it cannot compare with, before asking the editor', async () => {
+    const notPicture = await call('ograf_capture', { sessionId, reference: 'package.json' });
+    expect(notPicture.isError).toBe(true);
+    expect(text(notPicture)).toContain('A reference picture must be a PNG, JPEG or WebP file.');
+
+    const outside = await call('ograf_capture', { sessionId, reference: '../outside.png' });
+    expect(outside.isError).toBe(true);
+
+    const viewport = await call('ograf_capture', {
+      target: 'viewport',
+      reference: 'docs/images/ograf-logo-colour.svg',
+    });
+    expect(viewport.isError).toBe(true);
+    expect(text(viewport)).toContain('reference is available only for target=composition.');
+
+    const strip = await call('ograf_capture', { sessionId, mode: 'strip', reference: 'a.png' });
+    expect(strip.isError).toBe(true);
+    expect(text(strip)).toContain('ograf_capture mode=strip does not take reference');
+  });
+
   it('describes its capabilities with listed tool and operation names only', async () => {
     const capabilities = JSON.stringify((await call('ograf_get_capabilities')).structuredContent);
     const named = (name: string) => new RegExp(`(?<![a-z_])${name}(?![a-z_])`).test(capabilities);

@@ -36,6 +36,9 @@ the absence of an on-canvas marker does not mean a layer is unbound.
   viewport. Composition capture supports transparent/checker/solid mattes and temporary data-field
   overrides without changing revision. Omit `frame` for the first Step/on-air state. The five-minute localhost URL is the primary response;
   `enableBase64Response: true` adds an inline `image/png` block for clients that cannot fetch it.
+  `reference` names a workspace PNG, JPEG or WebP to compare the composition with: the result adds
+  `comparison` with `meanDifference` and `differingFraction` (0 to 1) and the URL of a difference
+  picture, black where the two agree. Use a solid `matte` that matches the reference's background.
 - `ograf_capture` with `mode: "strip"`: authoritative browser-rendered PNG contact sheet for up to 12 composition
   frames. Omit `frames` to sample lifecycle frames and transition midpoints. Use explicit frames to
   diagnose staggers, holds, easing, and premature exits. It is read-only and returns the same
