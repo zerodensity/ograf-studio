@@ -8,6 +8,7 @@ import {
   MERGED_TOOL_NAMES,
   providerToolDefinitions,
   TOOL_MERGES,
+  UNLISTED_OPERATION_TYPES,
 } from '@ograf-editor/agent-tools';
 import { createOGrafAuthoringHost } from './index';
 import { createOGrafMcpServer } from './mcpServer';
@@ -154,6 +155,13 @@ describe('merged agent tools', () => {
       );
       expect(new Set(access).size, merge.into).toBe(1);
     }
+  });
+
+  it('describes its capabilities with listed tool and operation names only', async () => {
+    const capabilities = JSON.stringify((await call('ograf_get_capabilities')).structuredContent);
+    const named = (name: string) => new RegExp(`(?<![a-z_])${name}(?![a-z_])`).test(capabilities);
+    expect([...MERGED_TOOL_NAMES].filter(named)).toEqual([]);
+    expect([...UNLISTED_OPERATION_TYPES].filter(named)).toEqual([]);
   });
 
   it('gives the built-in chat only the routes of tools it already had', () => {
