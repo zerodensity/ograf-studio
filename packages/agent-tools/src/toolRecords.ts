@@ -2808,6 +2808,8 @@ export function createOGrafToolRecords(
         },
         animatableProperties: [...ANIMATABLE_LAYER_PROPERTIES],
         animatablePropertyPatterns: {
+          'scale / clipLeft / clipRight / clipTop / clipBottom':
+            'Track-only display channels with no static layer field; keyframe operations accept them. scale is non-negative and 1 is full size. Each wipe inset runs from 0 (nothing hidden) to 1.',
           'fill.parameters.NAME / strokePaint.parameters.NAME':
             'Exposed float/int/bool scalar; int/bool hold outgoing values until next key. Bool keys are0/1.',
           'fill.parameters.NAME.CHANNEL / strokePaint.parameters.NAME.CHANNEL':

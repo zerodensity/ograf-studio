@@ -253,7 +253,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^(x|y|width|height|rotation|opacity|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|(fill|strokePaint)\\.parameters\\.[A-Za-z_]\\w*(\\.[xyrgba])?|effects\\.[\\w-]+\\.(radius|offset[XY]|opacity|amount|angle)|modifiers\\.[\\w-]+\\.[A-Za-z]\\w*)$"
+              "pattern": "^(x|y|width|height|rotation|opacity|scale|clip(Left|Right|Top|Bottom)|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|(fill|strokePaint)\\.parameters\\.[A-Za-z_]\\w*(\\.[xyrgba])?|effects\\.[\\w-]+\\.(radius|offset[XY]|opacity|amount|angle)|modifiers\\.[\\w-]+\\.[A-Za-z]\\w*)$"
             }
           },
           "loopElapsedFrame": { "type": "number", "minimum": 0 }
@@ -2126,12 +2126,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": {
-                      "anyOf": [
-                        { "$ref": "#/$defs/22" },
-                        { "enum": ["scale", "clipLeft", "clipRight", "clipTop", "clipBottom"] }
-                      ]
-                    },
+                    "property": { "$ref": "#/$defs/22" },
                     "frame": { "$ref": "#/$defs/u" },
                     "loopElapsedFrames": { "$ref": "#/$defs/3" }
                   },
@@ -2528,7 +2523,7 @@
           },
           "22": {
             "type": "string",
-            "pattern": "^(x|y|width|height|rotation|opacity|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|(fill|strokePaint)\\.parameters\\.[A-Za-z_]\\w*(\\.[xyrgba])?|effects\\.[\\w-]+\\.(radius|offset[XY]|opacity|amount|angle)|modifiers\\.[\\w-]+\\.[A-Za-z]\\w*)$"
+            "pattern": "^(x|y|width|height|rotation|opacity|scale|clip(Left|Right|Top|Bottom)|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|(fill|strokePaint)\\.parameters\\.[A-Za-z_]\\w*(\\.[xyrgba])?|effects\\.[\\w-]+\\.(radius|offset[XY]|opacity|amount|angle)|modifiers\\.[\\w-]+\\.[A-Za-z]\\w*)$"
           },
           "23": {
             "enum": [

@@ -3,7 +3,6 @@ import { modifierParamsSchema, modifierPatchSchema, modifierTypeSchema } from '.
 import {
   BLEND_MODES,
   LAYER_MOTION_STYLES,
-  REVEAL_ANIMATION_PROPERTIES,
   layerMotionDirections,
   EFFECT_TYPES,
   STYLE_PACK_IDS,
@@ -260,7 +259,7 @@ export const gradientPaintSchema = z
 export const propertySchema = z
   .string()
   .regex(
-    /^(x|y|width|height|rotation|opacity|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\.stops\[(0|[1-9]\d*)\]\.offset|(fill|strokePaint)\.parameters\.[A-Za-z_]\w*(\.[xyrgba])?|effects\.[\w-]+\.(radius|offset[XY]|opacity|amount|angle)|modifiers\.[\w-]+\.[A-Za-z]\w*)$/,
+    /^(x|y|width|height|rotation|opacity|scale|clip(Left|Right|Top|Bottom)|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\.stops\[(0|[1-9]\d*)\]\.offset|(fill|strokePaint)\.parameters\.[A-Za-z_]\w*(\.[xyrgba])?|effects\.[\w-]+\.(radius|offset[XY]|opacity|amount|angle)|modifiers\.[\w-]+\.[A-Za-z]\w*)$/,
   )
   .transform((value) => value as AnimatableLayerProperty);
 
@@ -1836,7 +1835,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     compositionId,
     layerId,
     layerName,
-    property: z.union([propertySchema, z.enum(REVEAL_ANIMATION_PROPERTIES)]),
+    property: propertySchema,
     frame,
     loopElapsedFrames: z.number().finite().nonnegative().optional(),
   }),

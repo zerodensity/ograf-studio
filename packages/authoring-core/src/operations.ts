@@ -85,6 +85,7 @@ import {
   reorderLayerModifiers,
   modifierProperty,
   parseModifierProperty,
+  isRevealAnimationProperty,
   modifierParameterSpec,
   layerModifiersErrors,
   remapLayerModifierReferences,
@@ -521,6 +522,17 @@ function assertPropertyApplicable(
     if (value !== undefined) {
       const errors = shaderAnimationValueErrors(layer.element, property, value);
       if (errors.length) throw new Error(errors.join(' '));
+    }
+    return;
+  }
+  if (isRevealAnimationProperty(property)) {
+    if (value === undefined) return;
+    if (property === 'scale' ? value < 0 : value < 0 || value > 1) {
+      throw new Error(
+        property === 'scale'
+          ? 'Scale must be non-negative; 1 is full size.'
+          : `Wipe inset ${property} must be from 0 to 1; 0 hides nothing.`,
+      );
     }
     return;
   }

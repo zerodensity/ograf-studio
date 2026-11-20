@@ -63,7 +63,7 @@ describe('reset property animation operation schema', () => {
     },
   );
 
-  it('rejects unsupported channel names and leaves existing reveal-operation schemas unchanged', () => {
+  it('rejects unsupported channel names', () => {
     for (const property of ['unknown', 'fill.parameters.0bad', 'effects.fx.offsetZ'])
       expect(
         authoringOperationSchema.safeParse({
@@ -73,14 +73,5 @@ describe('reset property animation operation schema', () => {
           frame: 0,
         }).success,
       ).toBe(false);
-    expect(
-      authoringOperationSchema.safeParse({
-        type: 'set_property_key',
-        layerId: 'panel',
-        property: 'clipLeft',
-        frame: 0,
-        value: 0,
-      }).success,
-    ).toBe(false);
   });
 });
