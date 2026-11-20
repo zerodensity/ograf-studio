@@ -899,6 +899,8 @@ tracks. A sound fires when playback enters its marker frame; leaving that Step w
 does not replay it. Starting a new IN after OUT arms the Sound Events again, and the IN plays from
 the Start keyframe, so each sound fires at its own frame. A sound stays silent when the playhead is
 put past its marker instead of playing through it, as by a Take In or Take Out without animation.
+It also stays silent when playback finds its marker more than half a second late, as after the
+browser tab was hidden: the sounds missed meanwhile are dropped, not played together on return.
 A browser also keeps a page silent until someone presses something on it: a sound it blocked plays
 with the first Take In only while the playhead still stands on its marker.
 
