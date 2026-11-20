@@ -32,7 +32,8 @@ vi.stubGlobal('window', {
   clearTimeout: (timer: ReturnType<typeof setTimeout> | undefined) => clearTimeout(timer),
 });
 const history = await import('./historyStore');
-const { initializeSharedBrandKit } = await import('./templateSetBrandKit');
+const { addSharedBrandToken, getBrandTokenOrigin, initializeSharedBrandKit } =
+  await import('./templateSetBrandKit');
 const { activateProjectSetTemplate } = await import('./projectSetSession');
 const { saveTemplateSetSettings } = await import('./templateSetSettingsStore');
 const {
@@ -171,6 +172,66 @@ describe('shared typography and background styles', () => {
     history.resetHistory();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('edits kept tokens and styles as local even when master IDs match', () => {
+    fixture();
+    const tokenId = addSharedBrandToken();
+    const masterToken = currentSet().brandKit!.tokens.find((token) => token.id === tokenId)!;
+    const typographyId = headline();
+    const backgroundId = addBackgroundStyle('set');
+    updateBackgroundStyle('set', backgroundId, { paint: '#ffeedd' });
+
+    const source = projectWithText('Kept');
+    const sourceComposition = source.compositions[0]!;
+    sourceComposition.designSystem = {
+      name: 'Kept Brand Kit',
+      tokens: [{ ...masterToken, value: '#1166aa' }],
+      typography: [
+        { id: typographyId, name: 'Kept headline', properties: properties({ fontSize: 42 }) },
+      ],
+      backgrounds: [{ id: backgroundId, name: 'Kept background', paint: '#223344' }],
+    };
+    sourceComposition.assets.push(
+      createAsset({
+        id: 'different-show-font',
+        name: 'Show Sans.woff2',
+        kind: 'font',
+        fontFamily: 'Show Sans',
+        mimeType: 'font/woff2',
+        dataUri: 'data:font/woff2;base64,AwQF',
+      }),
+    );
+    sourceComposition.layers[0]!.typographyBinding = { presetId: typographyId };
+    sourceComposition.backgroundStyleId = backgroundId;
+    sourceComposition.backgroundPaint = '#223344';
+    const added = addProjectSetTemplate(currentSet(), source, source.name, false, {
+      inheritBrandKit: false,
+    });
+    const kept = added.templates.at(-1)!;
+    useProjectSetStore.getState().setProjectSet(added);
+    activateProjectSetTemplate(kept.id);
+
+    expect(getBrandTokenOrigin(tokenId).origin).toBe('local');
+    expect(getTypographyOrigin(typographyId).origin).toBe('local');
+    expect(getBackgroundStyleOrigin(backgroundId).origin).toBe('local');
+
+    useProjectStore.getState().updateDesignToken(tokenId, { value: '#00bbcc' });
+    expect(composition().designSystem.tokens[0]!.value).toBe('#00bbcc');
+    expect(currentSet().brandKit!.tokens.find((token) => token.id === tokenId)?.value).toBe(
+      masterToken.value,
+    );
+    expect(currentSet().templates.at(-1)!.brandKitOverrides ?? []).toEqual([]);
+    useProjectStore.getState().removeDesignToken(tokenId);
+    expect(composition().designSystem.tokens).toEqual([]);
+
+    const assetCount = currentSet().assets.length;
+    removeTypographyPreset('set', typographyId);
+    removeBackgroundStyle('set', backgroundId);
+    expect(composition().designSystem.typography![0]!.name).toBe('Kept headline');
+    expect(composition().designSystem.backgrounds![0]!.name).toBe('Kept background');
+    expect(composition().backgroundPaint).toBe('#223344');
+    expect(currentSet().assets).toHaveLength(assetCount);
   });
 
   it('adds a shared typography catalog and applies all seven fields without altering paint/content', () => {

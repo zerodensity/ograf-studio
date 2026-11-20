@@ -12,6 +12,7 @@ import {
   buildExportArtifacts,
   exportProjectAsZip,
   OGrafExportCertificationError,
+  prepareProjectExportFiles,
 } from './exportPackage';
 import { RUNTIME_PACKAGE_LICENSES } from '@ograf-editor/codegen';
 import {
@@ -374,6 +375,16 @@ describe('export package artifacts', () => {
     );
   });
 
+  it.each(['zip', 'html', 'both'] as const)(
+    'blocks %s preparation when certification fails',
+    async (format) => {
+      const project = createProject({ name: '' });
+      await expect(
+        prepareProjectExportFiles(project, project.compositions[0]!, undefined, { format }),
+      ).rejects.toBeInstanceOf(OGrafExportCertificationError);
+    },
+  );
+
   it('fails certification before browser execution for an unsafe package path', async () => {
     const project = createProject();
     const composition = project.compositions[0]!;
@@ -386,6 +397,21 @@ describe('export package artifacts', () => {
       /safe relative URL/,
     );
     expect(result.checks.find((check) => check.id === 'module')?.valid).toBe(false);
+  });
+
+  it('revalidates discovery metadata on the exact artifacts before browser execution', async () => {
+    const project = createProject();
+    const artifacts = buildExportArtifacts(project, project.compositions[0]!);
+    expect(artifacts.manifestErrors).toEqual([]);
+    Object.assign(artifacts.manifest.v_ografDiscovery!, { version: 2 });
+    const result = await certifyExportArtifacts(artifacts);
+    expect(result.valid).toBe(false);
+    expect(result.checks.find((check) => check.id === 'manifest')!.errors.join(' ')).toContain(
+      'v_ografDiscovery',
+    );
+    expect(result.checks.find((check) => check.id === 'module')!.errors).toEqual([
+      'Not run because project, manifest, or package validation failed.',
+    ]);
   });
 
   it('rejects a project whose main composition reference is broken', async () => {

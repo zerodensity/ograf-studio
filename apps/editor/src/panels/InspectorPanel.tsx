@@ -1661,6 +1661,7 @@ export function InspectorPanel() {
                   <span>Content</span>
                   <textarea
                     rows={3}
+                    dir={layer.element.direction}
                     value={layer.element.content}
                     onChange={(e) => setTextElement({ content: e.target.value, runs: [] })}
                   />

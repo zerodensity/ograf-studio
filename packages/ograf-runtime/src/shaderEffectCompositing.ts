@@ -667,8 +667,19 @@ function shaderStacksUnder(root: ParentNode): ShaderEffectStackController[] {
   });
 }
 
-export async function waitForShaderEffectStacksReady(root: ParentNode): Promise<void> {
-  await Promise.all(shaderStacksUnder(root).map((controller) => controller.completeFrame()));
+/** How far a frame's GPU work has to be: handed to the GPU, or finished by it. */
+export type GpuWork = 'submitted' | 'completed';
+
+/** `submitted` waits for each stack's committed output; `completed` also for the GPU to finish it. */
+export async function waitForShaderEffectStacksReady(
+  root: ParentNode,
+  gpuWork: GpuWork = 'completed',
+): Promise<void> {
+  await Promise.all(
+    shaderStacksUnder(root).map((controller) =>
+      gpuWork === 'completed' ? controller.completeFrame() : controller.ready(),
+    ),
+  );
 }
 
 /** Stacks under a suspended root keep their latest state but stop capturing and committing. */

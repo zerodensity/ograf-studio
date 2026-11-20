@@ -2,7 +2,7 @@
 
 [Back to overview](../README.md) · [Using Studio](USER_GUIDE.md) · [AI authoring](AI_AUTHORING.md)
 
-These instructions describe the 0.34.0 source line. See [What's new in 0.34](releases/0.34.0.md)
+These instructions describe the 0.40.0 source line. See [What's new in 0.40](releases/0.40.0.md)
 for current authoring and integration capabilities.
 
 ## Requirements
@@ -43,7 +43,7 @@ For this source line, check it with:
 
 ```powershell
 npm pkg get version
-# Expected: "0.34.0"
+# Expected: "0.40.0"
 ```
 
 Restart the development server or rebuild after changing the version. Packaging creates local
@@ -123,7 +123,8 @@ while the default remains suitable for a console or background process. Run
 
 Start Studio normally. The console prints a fixed viewer URL and shows its QR in a color
 terminal when a private LAN address is available. Open the viewer URL in a browser or scan the QR.
-The viewer waits until Studio opens a template.
+The viewer waits until Studio opens a template with playout content. Starting an empty template
+keeps any existing shared session on air until the new template has content to publish.
 
 Opening a template or coordinated template set prepares a playback copy in memory. The viewer
 and the **Live** screen in **Preview & Export** use that same session, including its data and
@@ -180,6 +181,21 @@ The source-level `npm run mcp:start` server also binds only to loopback, but def
 workspace to the repository root. Set `OGRAF_WORKSPACE_ROOT` before starting that command to use a
 different confined workspace. Set `OGRAF_MCP_PORT` to change port `4318`, and set the editor's
 `VITE_OGRAF_AGENT_BRIDGE_URL` to the matching WebSocket URL when changing the port.
+
+### Count what agents call
+
+The server can count which tools and operation types agents call, and which calls it refuses. The
+counts show what the tool list is used for, which earlier names are still called, and where agents
+fail. Counting is off unless `OGRAF_AGENT_USAGE_FILE` names a file:
+
+```powershell
+$env:OGRAF_AGENT_USAGE_FILE = "$env:LOCALAPPDATA\OGraf Studio\agent-usage.json"
+```
+
+The file is JSON with one section for MCP clients and one for the built-in AI Assistant. It holds
+names and counts only: a tool with the choice it was called with, an operation type, and the
+shape of a refusal, in which quoted names, IDs and numbers are replaced. Nothing from a project is
+kept and nothing is sent anywhere. Later runs add to the same file; delete it to start again.
 
 ## Can the editor run without a backend?
 

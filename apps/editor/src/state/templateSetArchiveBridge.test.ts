@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProject } from '@ograf-editor/scene-model';
+import { LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION } from '@ograf-editor/agent-tools/template-set-storage';
 const archive = vi.hoisted(() => ({ run: vi.fn() }));
 vi.mock('./projectSetArchiveTask', () => ({ createProjectSetArchiveTask: archive.run }));
 import { createProjectSet, createProjectSetArchive, openProjectSetArchive } from './projectSet';
@@ -50,6 +51,37 @@ describe('native MCP template-set archive bridge', () => {
       expect(revision()).toBe(expectedRevision);
     },
   );
+  it('round-trips kept local branding in a compact save and rejects compatible save before the worker', async () => {
+    archive.run.mockImplementation(createProjectSetArchive);
+    const set = useProjectSetStore.getState().projectSet!;
+    useProjectSetStore.getState().setProjectSet({
+      ...set,
+      templates: set.templates.map((template) => ({ ...template, inheritBrandKit: false })),
+    });
+    const expectedRevision = revision();
+    expect(handleTemplateSetRequest({ action: 'read' })).toMatchObject({
+      templateSet: {
+        storage: {
+          archiveSchemaVersion: LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
+          compatibleArchiveAvailable: false,
+        },
+      },
+    });
+    await expect(
+      archiveTemplateSetForBridge({
+        action: 'archive',
+        expectedRevision,
+        archiveMode: 'compatible',
+      }),
+    ).rejects.toThrow(/local brand/i);
+    expect(archive.run).not.toHaveBeenCalled();
+
+    const result = await archiveTemplateSetForBridge({ action: 'archive', expectedRevision });
+    expect(result.schemaVersion).toBe(LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION);
+    const opened = await openProjectSetArchive(Buffer.from(result.archiveBase64, 'base64'));
+    expect(opened.templates[0]?.inheritBrandKit).toBe(false);
+    expect(revision()).toBe(expectedRevision);
+  });
   it('rejects stale or expired admission before preparing any archive', async () => {
     await expect(
       archiveTemplateSetForBridge({ action: 'archive', expectedRevision: 'old' }),

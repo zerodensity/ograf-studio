@@ -2,6 +2,15 @@ import type { AuthoringSession } from '@ograf-editor/authoring-core';
 import type { ExportArtifacts } from '@ograf-editor/codegen';
 import type { FieldValue, Project } from '@ograf-editor/scene-model';
 import type { LivePlayoutRequest } from './playoutSchemas';
+import type { TemplateTransferRequest } from './templateTransferReview';
+import type { BrowserCaptureResult, CaptureComparisonResult } from './browserCaptureResult';
+
+export type {
+  BrowserCaptureResult,
+  CaptureComparisonResult,
+  ResolvedFontResult,
+  RuntimeCollectionCaptureResult,
+} from './browserCaptureResult';
 
 export interface CompatibilityResult {
   valid: boolean;
@@ -17,34 +26,34 @@ export interface BrowserCaptureRequest {
   maxDimension: number;
   matte: string;
   dataOverrides?: Record<string, FieldValue>;
+  /** A picture file to compare the composition capture with, as base64. */
+  reference?: { mimeType: string; data: string };
 }
 
-export interface ResolvedFontResult {
-  layerId: string;
-  layerName: string;
-  requestedFamily: string;
-  resolvedFamily: string;
-  resolution: 'inferred';
+/** What a WebM movie of one template is rendered with. */
+export interface BrowserVideoRequest {
+  project: Project;
+  compositionId?: string;
+  transparent: boolean;
+  holdSeconds: number;
+  bitrate?: number;
+  /** Longest side of the movie in pixels; the composition's own size when left out. */
+  maxDimension?: number;
+  blackFrameAtStart?: boolean;
+  blackFrameAtEnd?: boolean;
 }
 
-export interface RuntimeCollectionCaptureResult {
-  id: string;
-  name: string;
-  receivedCount: number;
-  renderedCount: number;
-  capacity: number;
-  truncated: boolean;
-}
-
-export interface BrowserCaptureResult {
-  mimeType: 'image/png';
+export interface BrowserVideoResult {
+  mimeType: 'video/webm';
+  /** Base64 of the WebM file. */
   data: string;
+  bytes: number;
+  sha256: string;
   width: number;
   height: number;
-  originalWidth: number;
-  originalHeight: number;
-  resolvedFonts: ResolvedFontResult[];
-  runtimeCollections?: RuntimeCollectionCaptureResult[];
+  frameRate: number;
+  frames: number;
+  durationSeconds: number;
 }
 
 export interface BrowserStripRequest {
@@ -67,13 +76,15 @@ export interface BrowserStripResult extends BrowserCaptureResult {
   compositionHeight: number;
 }
 
-export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data'> {
+export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;
+  /** The comparison's scores, with its difference picture published beside the capture. */
+  comparison?: Omit<CaptureComparisonResult, 'data' | 'mimeType'> & { url: string };
 }
 
-export interface PublishedStrip extends Omit<BrowserStripResult, 'data'> {
+export interface PublishedStrip extends Omit<BrowserStripResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;
@@ -113,6 +124,7 @@ export interface BrowserMeasureTextResult {
 
 export interface EditorBridgeHealth {
   templateSetsReady?: boolean;
+  templateTransfersReady?: boolean;
   playoutReady?: boolean;
   connected: boolean;
   responsive: boolean;
@@ -160,6 +172,8 @@ export interface EditorBridgePort {
   certify(artifacts: ExportArtifacts, timeoutMs?: number): Promise<CompatibilityResult>;
   capture(request: BrowserCaptureRequest, timeoutMs?: number): Promise<PublishedCapture>;
   renderStrip(request: BrowserStripRequest, timeoutMs?: number): Promise<PublishedStrip>;
+  /** Renders a movie; the wait ends only when the editor stops reporting progress for `idleMs`. */
+  exportVideo?(request: BrowserVideoRequest, idleMs?: number): Promise<BrowserVideoResult>;
   measureText(
     request: BrowserMeasureTextRequest,
     timeoutMs?: number,
@@ -170,7 +184,7 @@ export interface EditorBridgePort {
   ): void;
 }
 
-export interface TemplateSetRequest {
+interface BasicTemplateSetRequest {
   action: 'read' | 'command' | 'archive' | 'export-coordinated';
   profile?: 'realtime' | 'non-realtime' | 'dual';
   expectedRevision?: string;
@@ -184,6 +198,8 @@ export interface TemplateSetRequest {
   operation?: Record<string, unknown>;
   confirm?: boolean;
 }
+
+export type TemplateSetRequest = BasicTemplateSetRequest | TemplateTransferRequest;
 
 export interface AuthoringWorkspacePort {
   readonly root: string;

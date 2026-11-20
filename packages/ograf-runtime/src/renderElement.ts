@@ -26,7 +26,7 @@ import {
 import { resolveLayerBindingEffects, resolveLayerBindingElement } from './runtimeBindings';
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light_canvas.js';
 import { mountPattern, applyPatternPaint } from './patternRendering';
-import { disposeLayerEffects, waitForLayerEffectsReady } from './effectCompositing';
+import { disposeLayerEffects, waitForLayerEffectsReady, type GpuWork } from './effectCompositing';
 import {
   waitForShadersReady,
   waitForShadersComplete,
@@ -121,6 +121,7 @@ interface MountedTextFit {
 
 const textFits = new WeakMap<HTMLElement, MountedTextFit>();
 const textFitCallbacks = new WeakMap<HTMLElement, () => void>();
+const basePaintCache = new WeakMap<HTMLElement, { serialized: string; paint: Paint }>();
 const clockContentOptions = new WeakMap<HTMLElement, ElementContentRenderOptions>();
 interface MountedLottie {
   container: HTMLElement;
@@ -373,8 +374,18 @@ function mountedLottiesWithin(root: ParentNode): MountedLottie[] {
   return mounted;
 }
 
-/** Waits for embedded assets and surfaces shader compilation, context, and draw failures. */
-export async function waitForElementContentReady(root: ParentNode): Promise<void> {
+/**
+ * Waits for embedded assets and surfaces shader compilation, context, and draw failures.
+ *
+ * `submitted` returns once every draw is handed to the GPU. That is all the page's own next paint
+ * needs, because the browser holds a paint until the GPU has caught up with it. Only `completed`
+ * also waits for the GPU's word that the frame is done, which is what reports a failed draw and
+ * what a pixel readback must wait for; in Chrome that word arrives about 10 ms later.
+ */
+export async function waitForElementContentReady(
+  root: ParentNode,
+  gpuWork: GpuWork = 'completed',
+): Promise<void> {
   await waitForTickersReady(root);
   root = tickerReadinessScope(root);
   refreshCroppedImages(root);
@@ -386,8 +397,8 @@ export async function waitForElementContentReady(root: ParentNode): Promise<void
   await waitForShaderPaintContentReady(root);
   await waitForMediaPaintContentReady(root);
   await waitForShadersReady(root);
-  await waitForLayerEffectsReady(root);
-  await waitForShadersComplete(root);
+  await waitForLayerEffectsReady(root, gpuWork);
+  if (gpuWork === 'completed') await waitForShadersComplete(root);
   refreshCroppedImages(root);
 }
 
@@ -535,6 +546,7 @@ export function disposeElementContent(container: HTMLElement): void {
   mountedFit?.probe?.remove();
   textFits.delete(container);
   textFitCallbacks.delete(container);
+  basePaintCache.delete(container);
   container.replaceChildren();
   delete container.dataset.ografBasePaint;
 }
@@ -548,6 +560,7 @@ export function applyAnimatedPaint(
   container: HTMLElement,
   tracks: LayerAnimationTracks,
   frame: number,
+  fitLayoutChanged = true,
 ): void {
   const directChild = container.firstElementChild as HTMLElement | null;
   const outerHost = directChild?.classList?.contains('layer-content-host')
@@ -561,7 +574,12 @@ export function applyAnimatedPaint(
   const content = renderHost.firstElementChild as HTMLElement | null;
   if (!content) return;
   if (serialized) {
-    const paint = JSON.parse(serialized) as Paint;
+    let cached = basePaintCache.get(renderHost);
+    if (cached?.serialized !== serialized) {
+      cached = { serialized, paint: JSON.parse(serialized) as Paint };
+      basePaintCache.set(renderHost, cached);
+    }
+    const { paint } = cached;
     const sampledPaint = getPaintAtFrame(paint, tracks, frame);
     const background = paintToCss(sampledPaint);
     for (const fillHost of textCrawlPaintTargets(renderHost) ?? [
@@ -583,16 +601,26 @@ export function applyAnimatedPaint(
   const strokeTrack = tracks.strokeWidth ?? [];
   if (strokeTrack.length > 0) {
     const fallback = strokeTrack[0]?.value ?? 0;
-    content.style.webkitTextStrokeWidth = `${Math.max(
-      0,
-      getTrackValueAtFrame(strokeTrack, frame, fallback),
-    )}px`;
-    content.style.paintOrder = 'stroke fill';
+    const strokeWidth = `${Math.max(0, getTrackValueAtFrame(strokeTrack, frame, fallback))}px`;
+    const strokeChanged = content.style.webkitTextStrokeWidth !== strokeWidth;
+    if (strokeChanged) content.style.webkitTextStrokeWidth = strokeWidth;
+    if (content.style.paintOrder !== 'stroke fill') content.style.paintOrder = 'stroke fill';
     for (const copy of textCrawlPaintTargets(renderHost) ?? []) {
       copy.style.webkitTextStrokeWidth = content.style.webkitTextStrokeWidth;
       copy.style.paintOrder = 'stroke fill';
     }
-    textFitCallbacks.get(renderHost)?.();
+    const fit = textFits.get(renderHost);
+    // A known size or visibility change still refits synchronously, including on exact seeks.
+    // Other hosts keep the synchronous path unless they can prove the layout is unchanged.
+    if (
+      fitLayoutChanged ||
+      strokeChanged ||
+      !fit?.observer ||
+      fit.inputs?.document !== renderHost.ownerDocument ||
+      fit.inputs?.fontStatus !== renderHost.ownerDocument.fonts?.status
+    ) {
+      textFitCallbacks.get(renderHost)?.();
+    }
   }
 }
 

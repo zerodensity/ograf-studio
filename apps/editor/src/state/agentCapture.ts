@@ -1,3 +1,8 @@
+import {
+  compareWithReference,
+  type CaptureComparison,
+  type CaptureReference,
+} from './captureComparison';
 import { getFontEmbedCSS, toCanvas } from 'html-to-image';
 import {
   acquireProjectFonts,
@@ -6,11 +11,15 @@ import {
   withProjectFonts,
 } from './projectFonts';
 import { captureMaskedCanvas } from './maskedCapture';
+import { picturesFromCopies, type FrameCopy } from './frameCopies';
+import { createLiveElementCapture } from './liveElementCapture';
+import { canCaptureSelfStyled, selfStyledCapture } from './selfStyledCapture';
 import { awaitExportOperation } from './exportAbort';
 import {
   assertStudioRendererPluginsAllowed,
   useRendererPluginSettingsStore,
 } from './pluginSettingsStore';
+import { resolveStudioRendererComposition } from './studioRendererResolution';
 import { compileDescriptor, type CompiledLayer } from '@ograf-editor/codegen';
 import {
   applyAnimatedPaint,
@@ -28,6 +37,7 @@ import {
   resolveBoundElement,
   setLottieDeterministicRendering,
   shaderBackingSizeForLayer,
+  shaderContextCounts,
   shaderStrokePaddingForLayer,
   sampleCompiledLayerVisualState,
   waitForElementContentReady,
@@ -70,6 +80,8 @@ export interface AgentCaptureRequest {
   maxDimension: number;
   matte: string;
   dataOverrides?: Record<string, FieldValue>;
+  /** A picture to compare the composition capture with. */
+  reference?: CaptureReference;
 }
 
 export interface AgentCaptureResult {
@@ -79,6 +91,7 @@ export interface AgentCaptureResult {
   height: number;
   originalWidth: number;
   originalHeight: number;
+  comparison?: CaptureComparison;
   resolvedFonts: Array<{
     layerId: string;
     layerName: string;
@@ -286,7 +299,18 @@ async function waitForRenderableDom(root: HTMLElement, signal?: AbortSignal): Pr
   );
 }
 
-const captureFrameRenders = new WeakMap<HTMLElement, () => void>();
+/** Time an export has spent waiting on Steps. Loops and on-air clocks keep running through it. */
+export interface CaptureHold {
+  /** Frames held so far, on every Step. */
+  frames: number;
+  /** Frames held so far on Steps at or after the given composition frame. */
+  since(frame: number): number;
+}
+
+const captureFrameRenders = new WeakMap<
+  HTMLElement,
+  (frame?: number, hold?: CaptureHold) => void
+>();
 
 /** Layout/font settling may enqueue another shader frame; the PNG must use that completed draw. */
 export async function settleCaptureContent(root: HTMLElement, signal?: AbortSignal): Promise<void> {
@@ -306,13 +330,14 @@ export function resolveCaptureFrameLayout(
   frame: number,
   data: Record<string, unknown>,
   elements?: Map<string, HTMLElement>,
+  hold?: CaptureHold,
 ): Map<string, ReturnType<typeof sampleCompiledLayerVisualState>> {
   const states = new Map(
     descriptor.layers.map((layer) => {
       const state = sampleCompiledLayerVisualState(
         layer,
         frame,
-        compiledLoopElapsedFrames(descriptor, layer, frame),
+        compiledLoopElapsedFrames(descriptor, layer, frame, hold ? (from) => hold.since(from) : 0),
         data,
       );
       state.isVisible =
@@ -320,7 +345,7 @@ export function resolveCaptureFrameLayout(
       return [layer.id, state] as const;
     }),
   );
-  const context = { timestampMs: (frame / descriptor.frameRate) * 1000 };
+  const context = { timestampMs: ((frame + (hold?.frames ?? 0)) / descriptor.frameRate) * 1000 };
   applyCompiledAutoLayout(descriptor, states, data, elements, context);
   applyCompiledMotionPaths(descriptor, states);
   applyCompiledModifiers(descriptor, states, data, elements, context);
@@ -393,28 +418,41 @@ function renderedTextMetrics(content: HTMLElement): {
   };
 }
 
-export async function rasterize(
+/** The fonts a capture embeds. They do not change between frames of one mounted composition. */
+async function captureFontCss(
+  root: HTMLElement,
+  fontAssets: readonly Asset[],
+  signal?: AbortSignal,
+): Promise<string> {
+  return [await awaitExportOperation(getFontEmbedCSS(root), signal), projectFontFaceCss(fontAssets)]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/** Content the plain capture cannot draw: it takes the masked capture, which fetches no fragment. */
+const LAYER_MASK_CONTENT = '[data-ograf-layer-mask-id]';
+const PATTERN_OR_EFFECT_CONTENT = '[data-ograf-pattern], [data-ograf-effect-filter]';
+const MASKED_CONTENT = `${LAYER_MASK_CONTENT}, ${PATTERN_OR_EFFECT_CONTENT}`;
+
+/** A capture layer that is hidden or fully see-through paints nothing in this frame. */
+function captureLayerPaints(node: HTMLElement): boolean {
+  if (node.dataset?.agentCaptureLayer !== 'true') return true;
+  return node.style.display !== 'none' && node.style.opacity !== '0';
+}
+
+async function rasterizeCanvas(
   root: HTMLElement,
   originalWidth: number,
   originalHeight: number,
-  maxDimension: number,
-  style?: Partial<CSSStyleDeclaration>,
-  fontAssets: readonly Asset[] = [],
+  output: { width: number; height: number },
+  style: Partial<CSSStyleDeclaration> | undefined,
+  fontEmbedCSS: string,
   signal?: AbortSignal,
-) {
-  signal?.throwIfAborted();
-  const output = captureDimensions(originalWidth, originalHeight, maxDimension);
-  const render = root.querySelector(
-    '[data-ograf-layer-mask-id], [data-ograf-pattern], [data-ograf-effect-filter]',
-  )
-    ? captureMaskedCanvas
-    : toCanvas;
-  const fontEmbedCSS = [
-    await awaitExportOperation(getFontEmbedCSS(root), signal),
-    projectFontFaceCss(fontAssets),
-  ]
-    .filter(Boolean)
-    .join('\n');
+  /** Leave out layers that paint nothing. Copying a layer's styles is most of this capture's time. */
+  skipUnseenLayers = false,
+): Promise<HTMLCanvasElement> {
+  const masked = root.querySelector(MASKED_CONTENT);
+  const render = masked ? captureMaskedCanvas : toCanvas;
   signal?.throwIfAborted();
   const canvas = await awaitExportOperation(
     render(root, {
@@ -427,10 +465,35 @@ export async function rasterize(
       skipAutoScale: true,
       fontEmbedCSS,
       ...(style ? { style } : {}),
+      // A masked layer may draw from a source layer that is itself hidden, so those keep every layer.
+      ...(skipUnseenLayers && !masked ? { filter: captureLayerPaints } : {}),
     }),
     signal,
   );
   signal?.throwIfAborted();
+  return canvas;
+}
+
+export async function rasterize(
+  root: HTMLElement,
+  originalWidth: number,
+  originalHeight: number,
+  maxDimension: number,
+  style?: Partial<CSSStyleDeclaration>,
+  fontAssets: readonly Asset[] = [],
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  const output = captureDimensions(originalWidth, originalHeight, maxDimension);
+  const canvas = await rasterizeCanvas(
+    root,
+    originalWidth,
+    originalHeight,
+    output,
+    style,
+    await captureFontCss(root, fontAssets, signal),
+    signal,
+  );
   const encoded = canvas.toDataURL('image/png');
   const separator = encoded.indexOf(',');
   if (separator < 0) throw new Error('Browser PNG encoder returned invalid data.');
@@ -516,7 +579,7 @@ function buildCompositionDom(
         sequenceFrame(element, frame, composition.frameRate),
         {
           frameRate: composition.frameRate,
-          rendererPlugins: composition.rendererPlugins,
+          rendererPlugins: descriptor.rendererPlugins,
           chartMarkAnimations: layer.chartMarkAnimations,
           shaderBackingSize: shaderBackingSizeForLayer(layer),
           shaderStrokePadding: shaderStrokePaddingForLayer(layer),
@@ -525,14 +588,15 @@ function buildCompositionDom(
       rendered.set(layer.id, layerRoot);
       resolvedElements.set(layer.id, element);
     }
-    const renderFrame = () => {
-      const states = resolveCaptureFrameLayout(descriptor, frame, data, rendered);
+    // The mounted tree can be sampled again at another frame: an export renders a whole timeline.
+    const renderFrame = (at = frame, hold?: CaptureHold) => {
+      const states = resolveCaptureFrameLayout(descriptor, at, data, rendered, hold);
+      const timestampMs = ((at + (hold?.frames ?? 0)) / descriptor.frameRate) * 1000;
       for (const layer of descriptor.layers) {
         const host = rendered.get(layer.id),
           state = states.get(layer.id);
         const element = resolvedElements.get(layer.id);
-        if (host && state && element)
-          renderCaptureElementFrame(host, element, state, (frame / descriptor.frameRate) * 1000);
+        if (host && state && element) renderCaptureElementFrame(host, element, state, timestampMs);
       }
       applyCompiledClipPaths(descriptor, rendered, states);
       applyCompiledMasks(descriptor, rendered, states, data);
@@ -552,10 +616,10 @@ function buildCompositionDom(
 
 async function captureComposition(
   request: AgentCaptureRequest,
+  composition: Composition,
   signal?: AbortSignal,
 ): Promise<AgentCaptureResult> {
   signal?.throwIfAborted();
-  const composition = compositionFor(request.project, request.compositionId);
   const totalFrames = getTotalFrames(composition);
   if (request.frame > totalFrames) {
     throw new Error(
@@ -932,6 +996,211 @@ export async function measureAgentText(
   );
 }
 
+/** Preflight the same renderer snapshots the detached capture will mount. */
+async function acquireCaptureResources(authored: Composition, signal?: AbortSignal) {
+  if (authored.rendererPlugins?.length) {
+    await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
+    signal?.throwIfAborted();
+  }
+  const composition = resolveStudioRendererComposition(
+    authored,
+    useRendererPluginSettingsStore.getState().installed,
+  );
+  assertStudioRendererPluginsAllowed(compileDescriptor(composition).rendererPlugins ?? []);
+  const lease = acquireProjectFonts(document, composition.assets);
+  try {
+    await awaitExportOperation(lease.ready, signal);
+    signal?.throwIfAborted();
+  } catch (error) {
+    lease.dispose();
+    throw error;
+  }
+  return { composition, lease };
+}
+
+/** A composition mounted once and sampled frame by frame. */
+export interface MountedCompositionFrames {
+  width: number;
+  height: number;
+  /** How many frames render at once. More may be asked for; they wait for their turn. */
+  copies: number;
+  /**
+   * The picture at a composition frame. Pictures are handed out in the order they were asked
+   * for, whichever is ready first. The caller closes it.
+   */
+  pictureAt(frame: number, hold?: CaptureHold): Promise<ImageBitmap>;
+  dispose(): void;
+}
+
+/** One mounted tree of the composition, and whether the page hands over its picture of it. */
+interface MountedFrameCopy extends FrameCopy<[frame: number, hold?: CaptureHold]> {
+  paints: boolean;
+  dispose(): void;
+}
+
+/**
+ * A browser keeps about sixteen WebGL contexts for a page and drops the oldest beyond that. Each
+ * shader of each copy holds one, so the copies together stay well inside the limit.
+ */
+const SHADER_CONTEXT_BUDGET = 12;
+
+/**
+ * Mounts a composition for an export that renders its whole timeline. Building the tree, loading
+ * its images and embedding its fonts happen once; each frame only re-samples and takes a picture.
+ *
+ * Where the browser can draw a canvas's children, the picture is the one the page itself paints,
+ * one per screen refresh for each mounted tree, so up to `copies` trees are mounted and render
+ * different frames in the same refresh. Elsewhere, and from the moment the page is hidden, a
+ * frame is drawn from a copy of the tree, one at a time: from its own markup where that is enough,
+ * and through html-to-image for patterns, effect filters and video.
+ */
+export async function mountCompositionFrames(
+  authored: Composition,
+  matte: string,
+  signal?: AbortSignal,
+  rasterSize?: { width: number; height: number },
+  copies = 1,
+): Promise<MountedCompositionFrames> {
+  signal?.throwIfAborted();
+  const { composition, lease } = await acquireCaptureResources(authored, signal);
+  const layout = getCompositionOutputRect(composition);
+  const output = rasterSize ?? layout;
+  // html-to-image draws text a little smaller than the page does, so a movie that has needed it
+  // for one frame stays with it.
+  let selfStyled = true;
+  // The fonts are the same for every copy of the tree.
+  let fontCss: Promise<string> | undefined;
+
+  const mountCopy = async (): Promise<MountedFrameCopy> => {
+    let wrapper: HTMLDivElement | undefined;
+    const live = createLiveElementCapture(layout, output);
+    const unmount = () => {
+      for (const layer of wrapper?.querySelectorAll<HTMLElement>('[data-agent-capture-layer]') ??
+        [])
+        disposeElementContent(layer);
+      wrapper?.remove();
+      wrapper = undefined;
+    };
+    const mount = async () => {
+      wrapper = buildCompositionDom(composition, 0, matte);
+      // The tree is mounted where it will be drawn from the start: moving it later would restart
+      // what it is playing.
+      if (live) live.adopt(wrapper);
+      else document.body.appendChild(wrapper);
+      await settleCaptureContent(wrapper, signal);
+      return wrapper;
+    };
+    const dispose = () => {
+      unmount();
+      live?.dispose();
+    };
+    try {
+      let root = await mount();
+      const fontEmbedCSS = await (fontCss ??= captureFontCss(root, composition.assets, signal));
+      const draw = () =>
+        rasterizeCanvas(
+          root,
+          layout.width,
+          layout.height,
+          output,
+          { zIndex: 'auto' },
+          fontEmbedCSS,
+          signal,
+          true,
+        );
+      // The first snapshot of an expanded collection can be partly flattened: see captureComposition.
+      if (composition.runtimeCollections.length > 0 && matte === 'transparent') {
+        await draw();
+        unmount();
+        root = await mount();
+      }
+      const drawSelfStyled = selfStyledCapture(root, {
+        width: layout.width,
+        height: layout.height,
+        canvasWidth: output.width,
+        canvasHeight: output.height,
+        style: { zIndex: 'auto' },
+        fontEmbedCSS,
+        // Keep mask dependencies when copying the capture tree.
+        ...(root.querySelector(LAYER_MASK_CONTENT) ? {} : { filter: captureLayerPaints }),
+      });
+      return {
+        paints: live !== null,
+        async painted(frame, hold) {
+          if (!live) return null;
+          captureFrameRenders.get(root)?.(frame, hold);
+          await awaitExportOperation(waitForElementContentReady(root, 'submitted'), signal);
+          // The GPU's word that the frame is done takes about as long as the page's next paint,
+          // and that paint does not need it, so the two are waited for together.
+          const completed = awaitExportOperation(waitForElementContentReady(root), signal);
+          completed.catch(() => undefined);
+          const picture = await live.pictureOf(root, signal);
+          try {
+            await completed;
+          } catch (error) {
+            picture?.close();
+            throw error;
+          }
+          return picture;
+        },
+        async copied(frame, hold) {
+          captureFrameRenders.get(root)?.(frame, hold);
+          await awaitExportOperation(waitForElementContentReady(root), signal);
+          selfStyled &&= canCaptureSelfStyled(root);
+          const canvas = await (selfStyled ? drawSelfStyled(signal) : draw());
+          try {
+            return await awaitExportOperation(createImageBitmap(canvas), signal);
+          } finally {
+            canvas.width = 0;
+            canvas.height = 0;
+          }
+        },
+        dispose,
+      };
+    } catch (error) {
+      dispose();
+      throw error;
+    }
+  };
+
+  const mounted: MountedFrameCopy[] = [];
+  const dispose = () => {
+    for (const copy of mounted.splice(0)) copy.dispose();
+    lease.dispose();
+  };
+  try {
+    const contextsBefore = shaderContextCounts().live;
+    const first = await mountCopy();
+    mounted.push(first);
+    if (first.paints && copies > 1) {
+      const contexts = shaderContextCounts().live;
+      const each = contexts - contextsBefore;
+      const room = each > 0 ? Math.floor((SHADER_CONTEXT_BUDGET - contexts) / each) : copies;
+      const more = await Promise.allSettled(
+        Array.from({ length: Math.max(0, Math.min(copies - 1, room)) }, mountCopy),
+      );
+      for (const copy of more) if (copy.status === 'fulfilled') mounted.push(copy.value);
+      const failed = more.find((copy) => copy.status === 'rejected');
+      if (failed) throw failed.reason;
+    }
+
+    const pictureOf = picturesFromCopies(mounted, first.paints);
+    return {
+      width: output.width,
+      height: output.height,
+      copies: mounted.length,
+      async pictureAt(frame, hold) {
+        signal?.throwIfAborted();
+        return pictureOf(frame, hold);
+      },
+      dispose,
+    };
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+}
+
 /** Rasterizes the real browser renderer without changing editor state or the authoring revision. */
 export async function captureAgentPng(
   request: AgentCaptureRequest,
@@ -939,20 +1208,15 @@ export async function captureAgentPng(
 ): Promise<AgentCaptureResult> {
   try {
     signal?.throwIfAborted();
-    const composition = compositionFor(request.project, request.compositionId);
-    const plugins = compileDescriptor(composition).rendererPlugins ?? [];
-    if (plugins.length) {
-      await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
-      signal?.throwIfAborted();
-      assertStudioRendererPluginsAllowed(plugins);
-    }
-    const lease = acquireProjectFonts(document, composition.assets);
+    const authored = compositionFor(request.project, request.compositionId);
+    const { composition, lease } = await acquireCaptureResources(authored, signal);
     try {
-      await awaitExportOperation(lease.ready, signal);
-      signal?.throwIfAborted();
-      return await (request.target === 'viewport'
+      const capture = await (request.target === 'viewport'
         ? captureViewport(request, signal)
-        : captureComposition(request, signal));
+        : captureComposition(request, composition, signal));
+      if (!request.reference) return capture;
+      signal?.throwIfAborted();
+      return { ...capture, comparison: await compareWithReference(capture, request.reference) };
     } finally {
       lease.dispose();
     }

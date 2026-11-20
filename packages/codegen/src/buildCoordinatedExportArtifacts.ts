@@ -1,14 +1,11 @@
 import {
   OGRAF_MANIFEST_SCHEMA_URL,
-  type CompiledGraphicDescriptor,
   type CompiledTransitionLogicDescriptor,
   type OGrafManifest,
 } from '@ograf-editor/ograf-types';
 import {
   compositionWithShaderParameterFields,
   compositionPlayoutActionErrors,
-  clockTimerActionId,
-  parseClockTimerActionId,
   createComposition,
   createFieldDefinition,
   createProject,
@@ -17,8 +14,9 @@ import {
   isElementImageSourceBinding,
   transitionLogicErrors,
   safeTransitionLogicStartupStates,
+  requireOutputLayer,
+  resolveOutputLayer,
   type ComponentDefinition,
-  type ClockTimerCommand,
   type Composition,
   type LayerVisualRule,
   type Project,
@@ -34,10 +32,25 @@ import {
   validatePackageLayout,
   type ExportArtifacts,
 } from './buildExportArtifacts';
-import { compileDataSchema, fieldValueForExport, publicDataForExport } from './compileDataSchema';
+import {
+  compileDataSchema,
+  fieldValueForExport,
+  publicDataForExport,
+  publicPatchDataSchema,
+} from './compileDataSchema';
 import { compileDescriptor } from './compileDescriptor';
 import { compileTransitionContentAnimations } from './compileTransitionContentAnimations';
-import { projectForExportProfile, type ExportProfile } from './exportProfiles';
+import {
+  coordinatedLayers,
+  coordinatedSharedTimerActions,
+  coordinatedTemplateActions,
+} from './coordinatedActions';
+import { buildPackageDiscoveryCatalog } from './discovery';
+import {
+  compositionForExportProfile,
+  projectForExportProfile,
+  type ExportProfile,
+} from './exportProfiles';
 import { STUDIO_RUNTIME_NOTICE } from './runtimeLicenses';
 import {
   tickerFeedResourceRuntimeSource,
@@ -47,6 +60,8 @@ import {
 
 /** Portable input. Callers resolve inherited set defaults before compiling. */
 export interface CoordinatedExportInput {
+  /** Independent package layer; template layers apply only to standalone exports. */
+  outputLayer?: number;
   id: string;
   name: string;
   definition: TransitionLogicDefinition;
@@ -159,27 +174,11 @@ function publicStateDataSchema(
   };
 }
 
-/** A patch form must not fill omitted fields from the template's authored defaults. */
 function publicStatePatchSchema(
   state: { templateId: string },
   templates: Map<string, PackagedComposition>,
 ): Record<string, unknown> {
-  const schema = publicStateDataSchema(state, templates);
-  const stripDefaults = (node: Record<string, unknown>) => {
-    delete node.default;
-    if (node.properties && typeof node.properties === 'object')
-      for (const child of Object.values(node.properties))
-        if (child && typeof child === 'object') stripDefaults(child as Record<string, unknown>);
-    if (node.items && typeof node.items === 'object' && !Array.isArray(node.items))
-      stripDefaults(node.items as Record<string, unknown>);
-    for (const key of ['allOf', 'anyOf', 'oneOf'])
-      if (Array.isArray(node[key]))
-        for (const child of node[key])
-          if (child && typeof child === 'object') stripDefaults(child as Record<string, unknown>);
-  };
-  stripDefaults(schema);
-  delete schema.required;
-  return { ...schema, default: {} };
+  return publicPatchDataSchema(publicStateDataSchema(state, templates));
 }
 
 /**
@@ -619,24 +618,9 @@ function coordinatedCommandTargets(descriptor: CompiledTransitionLogicDescriptor
 } {
   const actions: LaneCommandTargets[] = [];
   const loops: LaneCommandTargets[] = [];
-  const layersFor = (graphic: CompiledGraphicDescriptor) => [
-    ...graphic.layers,
-    ...(graphic.collections ?? []).flatMap((collection) =>
-      collection.capacity > 0 ? collection.prototypeLayers : [],
-    ),
-  ];
-  const executableTimer = (
-    layer: ReturnType<typeof layersFor>[number] | undefined,
-    command: ClockTimerCommand,
-  ) =>
-    layer?.element.type === 'text' &&
-    !!layer.element.clock &&
-    layer.element.clock.mode !== 'clock' &&
-    (layer.element.clock.source === 'automatic' || command === 'reset' || command === 'restart');
   for (const slot of [...descriptor.definition.slots].sort((a, b) => a.order - b.order)) {
     const actionLabels = new Map<string, Set<string>>();
     const loopLabels = new Map<string, Set<string>>();
-    const sharedTimerAliases = new Map<string, Set<string>>();
     const add = (labels: Map<string, Set<string>>, id: string, label: string) =>
       labels.set(id, new Set([...(labels.get(id) ?? []), label]));
     const templates = descriptor.definition.states
@@ -646,38 +630,8 @@ function coordinatedCommandTargets(descriptor: CompiledTransitionLogicDescriptor
         template: descriptor.templates.find((template) => template.id === state.templateId)!,
       }));
     for (const { state, template } of templates) {
-      const layers = layersFor(template.descriptor);
-      for (const action of template.descriptor.customActions) {
-        const clock = parseClockTimerActionId(action.id);
-        if (clock) {
-          const sharedLink = template.sharedLayers.find((link) => link.layerId === clock.layerId);
-          const instance =
-            sharedLink &&
-            descriptor.definition.sharedInstances.find(
-              (candidate) => candidate.id === sharedLink.instanceId,
-            );
-          if (instance?.slotId && instance.slotId !== slot.id) continue;
-          const layer = sharedLink
-            ? layersFor(
-                descriptor.sharedInstances.find((shared) => shared.id === sharedLink.instanceId)!
-                  .descriptor,
-              ).find((candidate) => candidate.id === sharedLink.sourceLayerId)
-            : layers.find((candidate) => candidate.id === clock.layerId);
-          // Manual Reset/Restart rearm alarms without changing the external value. Start/Pause
-          // cannot advance an external feed. Resolve shared proxies to their retained source.
-          if (!executableTimer(layer, clock.command)) continue;
-          if (sharedLink) {
-            const key = JSON.stringify([
-              sharedLink.instanceId,
-              sharedLink.sourceLayerId,
-              clock.command,
-            ]);
-            sharedTimerAliases.set(
-              key,
-              new Set([...(sharedTimerAliases.get(key) ?? []), template.id]),
-            );
-          }
-        }
+      const layers = coordinatedLayers(template.descriptor);
+      for (const action of coordinatedTemplateActions(descriptor, template, slot.id)) {
         add(actionLabels, action.id, `${state.name} / ${action.name}`);
       }
       const hidden = new Set(template.sharedLayers.map((layer) => layer.layerId));
@@ -685,6 +639,12 @@ function coordinatedCommandTargets(descriptor: CompiledTransitionLogicDescriptor
         if (!hidden.has(layer.id) && layer.loop?.timing)
           add(loopLabels, layer.loop.timing.groupId, `${state.name} / ${layer.loop.name}`);
     }
+    for (const action of coordinatedSharedTimerActions(
+      descriptor,
+      templates.map(({ template }) => template),
+      slot.id,
+    ))
+      add(actionLabels, action.id, action.name);
     for (const instance of descriptor.definition.sharedInstances) {
       const relatedTemplates = templates.filter(
         ({ template }) =>
@@ -694,28 +654,7 @@ function coordinatedCommandTargets(descriptor: CompiledTransitionLogicDescriptor
       );
       if (!relatedTemplates.length) continue;
       const shared = descriptor.sharedInstances.find((shared) => shared.id === instance.id)!;
-      const layers = layersFor(shared.descriptor);
-      for (const action of shared.descriptor.customActions) {
-        const clock = parseClockTimerActionId(action.id);
-        if (
-          clock &&
-          executableTimer(
-            layers.find((layer) => layer.id === clock.layerId),
-            clock.command,
-          ) &&
-          relatedTemplates.some(
-            ({ template }) =>
-              !sharedTimerAliases
-                .get(JSON.stringify([instance.id, clock.layerId, clock.command]))
-                ?.has(template.id),
-          )
-        )
-          add(
-            actionLabels,
-            clockTimerActionId(JSON.stringify([instance.id, clock.layerId]), clock.command),
-            `${instance.name} / ${action.name}`,
-          );
-      }
+      const layers = coordinatedLayers(shared.descriptor);
       for (const layer of layers)
         if (layer.loop?.timing)
           add(loopLabels, layer.loop.timing.groupId, `${instance.name} / ${layer.loop.name}`);
@@ -1015,6 +954,10 @@ function exportedPrepareDescriptor(descriptor) {
       for (const binding of layer.bindings ?? (layer.binding ? [layer.binding] : []))
         if (binding.targetProperty === 'src' && binding.valueMap)
           binding.valueMap = Object.fromEntries(Object.entries(binding.valueMap).map(([key, value]) => [key, exportedResourceValue(value)]));
+    for (const rule of layer.visualRules ?? [])
+      for (const action of rule.actions ?? [])
+        if (action.type === 'property' && action.targetProperty === 'src')
+          action.value = exportedResourceValue(action.value);
   }
   for (const font of descriptor.fonts ?? []) font.source = exportedResourceValue(font.source);
   for (const plugin of descriptor.rendererPlugins ?? []) if (plugin.moduleUrl) plugin.moduleUrl = exportedResourceValue(plugin.moduleUrl);
@@ -1058,6 +1001,7 @@ export function buildCoordinatedExportArtifactsWithRuntime(
   runtimeSource: string,
   profile?: ExportProfile,
 ): ExportArtifacts {
+  if (input.outputLayer !== undefined) requireOutputLayer(input.outputLayer);
   const definition = structuredClone(input.definition);
   const assets = new Map(input.componentAssets.map((asset) => [asset.id, asset]));
   const graphErrors = transitionLogicErrors(definition, {
@@ -1075,7 +1019,21 @@ export function buildCoordinatedExportArtifactsWithRuntime(
     graphErrors.push('Component asset IDs must be unique in a coordinated package.');
   if (graphErrors.length) throw new Error(graphErrors.join('\n'));
   const referenced = new Set(definition.states.map((state) => state.templateId));
-  const templates = input.templates.filter((template) => referenced.has(template.id));
+  const templates = input.templates
+    .filter((template) => referenced.has(template.id))
+    .map((template) =>
+      profile?.transparentCompositionBackground
+        ? {
+            ...template,
+            project: {
+              ...template.project,
+              compositions: template.project.compositions.map((composition) =>
+                compositionForExportProfile(composition, profile),
+              ),
+            },
+          }
+        : template,
+    );
   if (!templates.length)
     throw new Error('Coordinated export requires at least one template state.');
   const sourceCompositions = new Map(
@@ -1104,6 +1062,30 @@ export function buildCoordinatedExportArtifactsWithRuntime(
   const packagedShared = new Map<string, PackagedComposition>();
   const sharedBindingFields = new Map<string, Map<string, Record<string, string>>>();
   const resources = new Map<string, ExportArtifacts['resources'][number]>();
+  const mediaByMime = new Map<string, Map<string, string>>();
+  const duplicateMediaPaths = new Set<string>();
+  // Intern generated binary assets while composing references so that the descriptor, manifest,
+  // thumbnail renderer and offline player all identify the same archive entry.
+  function shareMediaPath(resource: ExportArtifacts['resources'][number]): string {
+    if (
+      !resource.base64 ||
+      !/^(?:image\/(?:png|jpeg|gif|webp)|font\/(?:ttf|otf|woff2?)|audio\/(?:mpeg|wav|ogg)|video\/(?:mp4|webm))$/.test(
+        resource.mimeType ?? '',
+      ) ||
+      !/^(?:templates|shared)\/\d+\/assets\/[a-z\d_-][a-z\d_.-]*$/i.test(resource.path)
+    )
+      return resource.path;
+    let mediaByContent = mediaByMime.get(resource.mimeType!);
+    if (!mediaByContent) {
+      mediaByContent = new Map();
+      mediaByMime.set(resource.mimeType!, mediaByContent);
+    }
+    const previous = mediaByContent.get(resource.data);
+    if (!previous) mediaByContent.set(resource.data, resource.path);
+    if (!previous || previous === resource.path) return resource.path;
+    duplicateMediaPaths.add(resource.path);
+    return previous;
+  }
   function registerResource(resource: ExportArtifacts['resources'][number], label: string): void {
     const previous = resources.get(resource.path);
     if (
@@ -1151,10 +1133,11 @@ export function buildCoordinatedExportArtifactsWithRuntime(
       composition,
       compileDescriptor(composition),
       namespace,
+      shareMediaPath,
     );
     const availablePaths = new Set(packaged.resources.map((resource) => resource.path));
     for (const value of resourceValues(packaged))
-      if (!availablePaths.has(value) && !/^(https?:|data:)/i.test(value))
+      if (!availablePaths.has(value) && !resources.has(value) && !/^(https?:|data:)/i.test(value))
         projectErrors.push(
           `${label}: resource "${value}" is not packaged or an absolute HTTP(S)/data URL. Import the resource into the template before exporting.`,
         );
@@ -1567,6 +1550,7 @@ export function buildCoordinatedExportArtifactsWithRuntime(
     id: project.id,
     name: input.name,
     main: 'main.js',
+    v_layer: resolveOutputLayer(input.outputLayer),
     v_ografTransitionLogic: { version: 1 },
     ...(authoringPrompts ? { v_ografStudioAuthoringPrompts: authoringPrompts } : {}),
     version: project.version,
@@ -1794,12 +1778,28 @@ export function buildCoordinatedExportArtifactsWithRuntime(
       },
     ],
   };
+  const stateSchemas = Object.fromEntries(
+    definition.slots.map((slot) => [
+      slot.id,
+      Object.fromEntries(
+        definition.states
+          .filter((state) => state.slotId === slot.id)
+          .map((state) => [state.id, publicStateDataSchema(state, packagedTemplates)]),
+      ),
+    ]),
+  );
+  manifest.v_ografDiscovery = {
+    version: 1,
+    kind: 'package',
+    catalog: buildPackageDiscoveryCatalog(transitionDescriptor, manifest, stateSchemas),
+  };
   resources.set('README.md', {
     path: 'README.md',
     data: operatorReadme(transitionDescriptor, commands, manifest.schema?.default),
     base64: false,
     mimeType: 'text/markdown',
   });
+  for (const duplicate of duplicateMediaPaths) resources.delete(duplicate);
   const manifestErrors = validateManifest(manifest).errors;
   const result: ExportArtifacts = {
     nodosInputContract: buildNodosInputContract(
@@ -1810,16 +1810,7 @@ export function buildCoordinatedExportArtifactsWithRuntime(
       [...packagedTemplates.values(), ...packagedShared.values()].map((item) => item.composition),
     ),
     transitionDescriptor,
-    offlinePreviewStateSchemas: Object.fromEntries(
-      definition.slots.map((slot) => [
-        slot.id,
-        Object.fromEntries(
-          definition.states
-            .filter((state) => state.slotId === slot.id)
-            .map((state) => [state.id, publicStateDataSchema(state, packagedTemplates)]),
-        ),
-      ]),
-    ),
+    offlinePreviewStateSchemas: stateSchemas,
     manifest,
     manifestFileName: `${manifest.id}.ograf.json`,
     mainJs: generateCoordinatedMainJs(transitionDescriptor, runtimeSource, [...resources.keys()], {

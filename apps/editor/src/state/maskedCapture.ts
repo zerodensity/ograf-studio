@@ -5,6 +5,8 @@ import { applyStyle } from 'html-to-image/es/apply-style';
 import { nodeToDataURL } from 'html-to-image/es/util';
 import type { Options } from 'html-to-image/es/types';
 
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
 /** Computed styles expand fragment URLs; only definitions actually present in the clone localize. */
 export function localizeSvgReferences(value: string, ids: ReadonlySet<string>): string {
   return value.replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/g, (match, _quote, url: string) => {
@@ -13,6 +15,34 @@ export function localizeSvgReferences(value: string, ids: ReadonlySet<string>): 
     const id = url.slice(hash + 1);
     return ids.has(id) ? `url("#${id}")` : match;
   });
+}
+
+/** Converts layer mask fragments to standalone alpha images after the clone's assets are embedded. */
+export function bakeLayerCaptureMasks(cloned: HTMLElement): void {
+  for (const target of cloned.querySelectorAll<HTMLElement>('[data-ograf-layer-mask-id]')) {
+    const id = target.dataset.ografLayerMaskId!;
+    const mask = [...target.querySelectorAll('mask')].find((node) => node.id === id);
+    const definitions = mask?.closest('svg');
+    if (!mask || !definitions) throw new Error(`Capture mask definition is missing: ${id}`);
+    const width = Number(mask.getAttribute('width')),
+      height = Number(mask.getAttribute('height'));
+    const svg = definitions.cloneNode(true) as SVGSVGElement;
+    svg.removeAttribute('style');
+    svg.setAttribute('xmlns', SVG_NAMESPACE);
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    const rect = cloned.ownerDocument.createElementNS(SVG_NAMESPACE, 'rect');
+    rect.setAttribute('width', String(width));
+    rect.setAttribute('height', String(height));
+    rect.setAttribute('fill', 'white');
+    rect.setAttribute('mask', `url(#${id})`);
+    svg.appendChild(rect);
+    target.style.maskImage = `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}")`;
+    target.style.maskMode = 'alpha';
+    target.style.maskSize = '100% 100%';
+    target.style.maskRepeat = 'no-repeat';
+  }
 }
 
 /** html-to-image tries to fetch SVG fragment masks as images. Keep them local while embedding,
@@ -45,30 +75,7 @@ export async function captureMaskedCanvas(
       }
     }
   }
-  for (const target of cloned.querySelectorAll<HTMLElement>('[data-ograf-layer-mask-id]')) {
-    const id = target.dataset.ografLayerMaskId!;
-    const mask = [...target.querySelectorAll('mask')].find((node) => node.id === id);
-    const definitions = mask?.closest('svg');
-    if (!mask || !definitions) throw new Error(`Capture mask definition is missing: ${id}`);
-    const width = Number(mask.getAttribute('width')),
-      height = Number(mask.getAttribute('height'));
-    const svg = definitions.cloneNode(true) as SVGSVGElement;
-    svg.removeAttribute('style');
-    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    svg.setAttribute('width', String(width));
-    svg.setAttribute('height', String(height));
-    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('width', String(width));
-    rect.setAttribute('height', String(height));
-    rect.setAttribute('fill', 'white');
-    rect.setAttribute('mask', `url(#${id})`);
-    svg.appendChild(rect);
-    target.style.maskImage = `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}")`;
-    target.style.maskMode = 'alpha';
-    target.style.maskSize = '100% 100%';
-    target.style.maskRepeat = 'no-repeat';
-  }
+  bakeLayerCaptureMasks(cloned);
   applyStyle(cloned, options);
   const source = await nodeToDataURL(cloned, options.width!, options.height!);
   const image = new Image();

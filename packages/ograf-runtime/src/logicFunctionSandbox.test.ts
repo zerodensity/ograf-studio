@@ -5,7 +5,17 @@ import type { LogicFunctionContext } from '@ograf-editor/scene-model';
 import {
   createLogicFunctionSandbox,
   isLogicFunctionExecutionTimeout,
+  utf8BytesOver,
 } from './logicFunctionSandbox';
+
+it('enforces exact UTF-8 limits for ASCII, multibyte text, and unpaired surrogates', () => {
+  for (const text of ['', 'a'.repeat(100), 'ş€😀', '\uD800', 'a'.repeat(30) + '€']) {
+    const bytes = new TextEncoder().encode(text).byteLength;
+    for (const limit of new Set([0, Math.max(0, bytes - 1), bytes, bytes + 1, text.length * 3])) {
+      expect(utf8BytesOver(text, limit)).toBe(bytes > limit);
+    }
+  }
+});
 
 const channel = 'ograf-logic-function-v1';
 const context: LogicFunctionContext = {
@@ -143,6 +153,12 @@ describe('isolated function host protocol', () => {
     );
     expect(env.frame.srcdoc).not.toContain("script-src 'unsafe-inline' blob:");
     expect(env.attributes.get('allow')).toContain("camera 'none'");
+    expect(env.frame.hidden).toBe(false);
+    expect(env.frame.tabIndex).toBe(-1);
+    expect(env.attributes.get('aria-hidden')).toBe('true');
+    expect(env.attributes.get('style')).toContain(
+      'width:1px;height:1px;border:0;opacity:0;pointer-events:none;',
+    );
     await env.prepare();
     const probe = env.requests.mock.calls[0]![0];
     expect(probe.kind).toBe('probe');

@@ -6,6 +6,7 @@ import {
   parseChartData,
   rendererPluginKey,
   type ChartElement,
+  type RendererPluginManifest,
 } from '@ograf-editor/scene-model';
 import { ChartPresetGallery } from './ChartPresetGallery';
 import { ChartDataModeEditor } from './ChartDataModeEditor';
@@ -19,6 +20,7 @@ import {
   isInstalledChartPlugin,
   useRendererPluginSettingsStore,
 } from '../state/pluginSettingsStore';
+import { resolveStudioChartRenderer } from '../state/studioRendererResolution';
 import './ChartEditor.css';
 
 function NumericCell({
@@ -74,16 +76,28 @@ export function ChartEditor({
   const providers = settings.installed
     .filter(isInstalledChartPlugin)
     .filter((entry) => entry.enabled && entry.trusted);
-  const providerKey = element.provider ? rendererPluginKey(element.provider) : '';
+  const savedKey = element.provider ? rendererPluginKey(element.provider) : '';
   const pinned = element.provider
     ? (composition.rendererPlugins ?? []).find(
-        (entry) => rendererPluginKey(rendererPluginReference(entry)) === providerKey,
+        (entry) => rendererPluginKey(rendererPluginReference(entry)) === savedKey,
       )
     : undefined;
-  const providerAvailable =
-    Boolean(element.provider) &&
-    providers.some(
-      (entry) => rendererPluginKey(rendererPluginReference(entry.snapshot)) === providerKey,
+  const renderer = resolveStudioChartRenderer(
+    element,
+    composition.rendererPlugins ?? [],
+    providers,
+  );
+  const providerAvailable = Boolean(renderer);
+  const providerKey = renderer ? rendererPluginKey(rendererPluginReference(renderer)) : savedKey;
+  const rendererManifest = renderer?.manifest ?? pinned?.manifest;
+  // A silent preview substitution keeps the saved pin. Edits must remain valid for that pin.
+  const presets = rendererManifest?.presets.filter(
+    (preset) => !pinned || pinned.manifest.presets.includes(preset),
+  );
+  const supportsFeature = (feature: NonNullable<RendererPluginManifest['chartFeatures']>[number]) =>
+    Boolean(
+      rendererManifest?.chartFeatures?.includes(feature) &&
+      (!pinned || pinned.manifest.chartFeatures?.includes(feature)),
     );
   const [dataText, setDataText] = useState(() => JSON.stringify(element.data, null, 2));
   const [error, setError] = useState('');
@@ -212,14 +226,14 @@ export function ChartEditor({
       {!providerAvailable ? (
         <p className="chart-editor-error">
           {element.provider
-            ? 'This pinned renderer is blocked. Open Plugins to review and enable its exact version.'
+            ? 'This chart renderer is blocked. Open Plugins to review and enable a compatible build.'
             : 'Select an installed chart renderer. Install and enable a plugin in Plugins first.'}
         </p>
       ) : null}
       <div className="chart-editor-label">Chart type</div>
       <ChartPresetGallery
         selected={element.preset}
-        presets={pinned?.manifest.presets}
+        presets={presets}
         onSelect={(preset) => onChange({ preset })}
       />
       <label className="chart-editor-option">
@@ -299,7 +313,7 @@ export function ChartEditor({
         composition={composition}
         element={element}
         layerId={layerId}
-        supported={pinned?.manifest.chartFeatures?.includes('mark-animation-v1') ?? false}
+        supported={supportsFeature('mark-animation-v1')}
       />
       <label className="chart-editor-option">
         <span>Text color</span>
@@ -339,48 +353,44 @@ export function ChartEditor({
       <ChartPresentationEditor
         element={{ ...element, animation }}
         onChange={onChange}
-        supported={pinned?.manifest.chartFeatures?.includes('presentation-v1') ?? false}
-        morphSupported={pinned?.manifest.chartFeatures?.includes('morph-update-v1') ?? false}
+        supported={supportsFeature('presentation-v1')}
+        morphSupported={supportsFeature('morph-update-v1')}
       />
       {fillEditor && (
-        <fieldset
-          className="chart-fill-editor"
-          disabled={!pinned?.manifest.chartFeatures?.includes('mark-paint-v1')}
-        >
-          {!pinned?.manifest.chartFeatures?.includes('mark-paint-v1') && (
+        <fieldset className="chart-fill-editor" disabled={!supportsFeature('mark-paint-v1')}>
+          {!supportsFeature('mark-paint-v1') && (
             <p className="chart-editor-label">
               Choose a renderer supporting chart fills to use gradients, shaders or media.
             </p>
           )}
           {fillEditor}
-          {element.presentation?.gradient &&
-            pinned?.manifest.chartFeatures?.includes('mark-paint-v1') && (
-              <button
-                type="button"
-                onClick={() => {
-                  const { gradient, ...presentation } = element.presentation!;
-                  onChange({
-                    fill: {
-                      type: 'linear',
-                      angle: 90,
-                      stops: [
-                        { offset: 0, color: gradient!.from, opacity: 1 },
-                        { offset: 1, color: gradient!.to, opacity: 1 },
-                      ],
-                    },
-                    presentation,
-                  });
-                }}
-              >
-                Convert legacy gradient to Fill
-              </button>
-            )}
+          {element.presentation?.gradient && supportsFeature('mark-paint-v1') && (
+            <button
+              type="button"
+              onClick={() => {
+                const { gradient, ...presentation } = element.presentation!;
+                onChange({
+                  fill: {
+                    type: 'linear',
+                    angle: 90,
+                    stops: [
+                      { offset: 0, color: gradient!.from, opacity: 1 },
+                      { offset: 1, color: gradient!.to, opacity: 1 },
+                    ],
+                  },
+                  presentation,
+                });
+              }}
+            >
+              Convert legacy gradient to Fill
+            </button>
+          )}
         </fieldset>
       )}
       <ChartDataModeEditor
         data={element.data}
         onChange={(data) => onChange({ data })}
-        supported={pinned?.manifest.chartFeatures?.includes('canonical-data-v1') ?? false}
+        supported={supportsFeature('canonical-data-v1')}
       >
         <div className="chart-editor-label">Data series</div>
         <div className="chart-dataset-controls">

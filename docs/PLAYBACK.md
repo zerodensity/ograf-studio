@@ -2,6 +2,57 @@
 
 Studio preview and exported graphics use the same frame player and compiled scene sampler. Animation tracks and easing remain part of the scene model; the player advances the composition position and applies the sampled pose to the DOM.
 
+## Static export discovery
+
+New Studio exports publish `v_ografDiscovery` in the existing `*.ograf.json` manifest. Hosts can
+identify ordinary graphics and coordinated root packages, and build package forms and catalogs,
+without importing or executing the graphic's JavaScript. This vendor extension follows the
+official OGraf v1 `v_` convention. The standard manifest, runtime APIs and coordinated
+`v_ografTransitionLogic` marker retain their existing meanings.
+
+```ts
+type OGrafDiscovery =
+  { version: 1; kind: 'graphic' } | { version: 1; kind: 'package'; catalog: OGrafDiscoveryCatalog };
+```
+
+`graphic` explicitly identifies a standalone graphic, including a template exported individually
+from a set. `package` identifies one coordinated graphic that owns child templates and output
+slots. The declaration is generated automatically for Real-time, Non-real-time and Dual profiles
+through the shared compiler; ZIP, standalone HTML, Nodos and MCP export paths carry that same
+manifest when supported by their existing workflows.
+
+The version 1 package catalog is public JSON data:
+
+- `version`, `id`, `name`: catalog format and exported package identity, including profile suffixes.
+- `templates`: ordered `{ id, name }` child identities. No rendering scenes are copied.
+- `slots`: `{ id, name, stateIds, requireOn, blockWhileActive, layoutWhen? }`. Dependencies reference
+  other slot IDs; `layoutWhen` records nonzero shared layout offsets.
+- `states`: `{ id, name, slotId, templateId, schema, defaults, actions }`. Each state carries its
+  public data form, defaults and executable template action identities. Timer actions respect
+  manual sources and shared-instance lane ownership. Hidden data fields remain outside the catalog.
+- `actions`: the manifest's complete package `customActions`, including conditional command forms.
+- `defaults`: the public package control defaults from the manifest's data schema.
+
+State action entries contain `id`, `name` and an optional `schema`. Packaged resources in data
+defaults remain relative to the `main` module; they are not rewritten to temporary blob URLs or
+an inspection host's origin. Resolve them using the package's normal resource handling.
+
+Studio validates the extension's shape, version, identities and references. Before saving an
+export, the existing browser certification gate checks its declaration and catalog against the
+actual imported module and its coordinated methods. The catalog is a snapshot of the same final
+compilation as `main.js`; it does not become an editable source or replace the runtime descriptor.
+
+Hosts must distinguish these cases:
+
+- A supported, valid declaration supplies the export kind and public catalog directly.
+- A present but malformed declaration or unsupported version is a diagnostic, not an ordinary
+  graphic or an invitation to guess the type.
+- An absent declaration is unknown. Older Studio exports and third-party exports retain their
+  existing behavior and require a legacy discovery path or re-export from a supporting exporter.
+
+Consumers such as RealityHub need a manifest reader update to use this contract. Publishing the
+metadata does not change an older consumer's detection implementation.
+
 ## Time units
 
 - `FramePlayer.frame()`, `durationFrames()`, `seek()` and `animateTo()` use composition frames. Positions may be fractional.
@@ -69,6 +120,16 @@ draw. Explicit content readiness, OGraf `goToTime` and browser capture wait for 
 through asynchronous GPU fences. Compilation and initialization errors still surface, and context
 loss, disposal, failed waits or timeout reject unfinished work. Await these operations before
 reading exact pixels; a faster submission is not permission to capture an incomplete frame.
+
+Coordinated exports share identical generated binary media and fonts across templates. Their
+descriptors, data defaults and offline previews use the same physical resource paths, while
+explicit package paths and licenses stay separate. Embedded images selected by visual property
+Rules are packaged as assets as well.
+
+Rules-only work due at one frame shares a render, with presentation boundaries retained before
+playout actions, frame changes and errors. Text with a held stroke avoids repeated fitting when
+its layout is unchanged. A resize or visibility change still updates fitting synchronously,
+including during exact seeks.
 
 ## Fullscreen playback and visual checks
 

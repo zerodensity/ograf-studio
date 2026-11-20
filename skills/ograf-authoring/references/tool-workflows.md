@@ -1,5 +1,11 @@
 # MCP tool workflows
 
+## Output layer metadata
+
+`outputLayer`: signed safe integer, default 0, exported as `v_layer`. Use `set_project_metadata`
+for standalone templates, set operation `set_output_layer` for the independent coordinated root.
+Higher values stack on top; equal values replace. Preview is unchanged.
+
 ## Discovery and inspection
 
 Canvas artwork has no binding badges. Inspect scene bindings or use Properties → Data Bindings;
@@ -10,30 +16,33 @@ the absence of an on-canvas marker does not mean a layer is unbound.
   connection/responsiveness/latency, certification readiness, browser dependency map, and safety
   policy. Omit `sections` only for the complete backward-compatible payload. Do not guess domains
   that were not requested.
-- `ograf_list_sessions`: session IDs, revisions, project names, validity.
+- `ograf_get_capabilities` with `view: "sessions"`: session IDs, revisions, project names, validity.
 - `ograf_delete_session`: confirmed cleanup of a non-editor in-memory session; never targets the
   live `editor` session or saved files.
 - `ograf_get_project`: editable source, latest revision, validation. No filters preserves the full
   legacy response. Prefer explicit `include` plus `tracks: "animated-only"` for compact routine
   reads; use `tracks: "full"` when compatibility layer keyframes are required.
 - `ograf_inspect_scene`: compact layer and lifecycle outline.
-- `ograf_query_scene`: smallest intent-oriented read. Filter by semantic roles/tags, name fragment,
+- `ograf_inspect_scene` with `mode: "query"` or any filter: smallest intent-oriented read. Filter by semantic roles/tags, name fragment,
   element types, bound field keys, visibility, or animation. Results retain stable layer IDs,
   semantic metadata, frame bounds, bindings, design-token links, component links, relations, and
   animated property names.
-- `ograf_get_timeline`: independent property tracks and stable key IDs.
+- `ograf_get_project` with `view: "timeline"`: independent property tracks and stable key IDs.
 - `ograf_sample_tracks`: browser-free resolved values and derived bounds at requested frames. Use it
   for fixed-edge, containment, opacity, and complementary-track invariants during degraded mode.
   Pass `loopElapsedFrame` to overlay local loop tracks at an absolute elapsed clip frame.
-- `ograf_get_changes`: bounded agent/browser/undo/redo revision history after `sinceRevision`.
+- `ograf_get_project` with `view: "changes"`: bounded agent/browser/undo/redo revision history after `sinceRevision`.
 - `ograf_capture`: authoritative browser-rendered PNG of a composition frame or the visible editor
   viewport. Composition capture supports transparent/checker/solid mattes and temporary data-field
   overrides without changing revision. Omit `frame` for the first Step/on-air state. The five-minute localhost URL is the primary response;
   `enableBase64Response: true` adds an inline `image/png` block for clients that cannot fetch it.
-- `ograf_render_strip`: authoritative browser-rendered PNG contact sheet for up to 12 composition
+  `reference` names a workspace PNG, JPEG or WebP to compare the composition with: the result adds
+  `comparison` with `meanDifference` and `differingFraction` (0 to 1) and the URL of a difference
+  picture, black where the two agree. Use a solid `matte` that matches the reference's background.
+- `ograf_capture` with `mode: "strip"`: authoritative browser-rendered PNG contact sheet for up to 12 composition
   frames. Omit `frames` to sample lifecycle frames and transition midpoints. Use explicit frames to
   diagnose staggers, holds, easing, and premature exits. It is read-only and returns the same
-  five-minute URL plus optional inline `image/png` convention as `ograf_capture`.
+  five-minute URL plus optional inline `image/png` convention as a single capture.
 - `ograf_apply_operations` is the single operation entry point. `mode: "apply"` commits;
   `mode: "dry-run"` performs browser-free validation/lint; `mode: "preview"` renders the projected
   frame or strip without changing project state, revision, or undo history; and `mode: "propose"`
@@ -46,7 +55,7 @@ the absence of an on-canvas marker does not mean a layer is unbound.
   the editor is responsive. Capture omission or failure is reported without failing the mutation or
   QA. Generated dry-run IDs are hypothetical. Proposal acceptance applies the exact batch only when
   the base revision is still current; rejection, expiry, or conflict leaves the project unchanged.
-- `ograf_review_design`: deterministic semantic, layout, typography, palette, spacing, and motion QA
+- `ograf_validate_project` with `check: "design"`: deterministic semantic, layout, typography, palette, spacing, and motion QA
   with stable finding/layer IDs and recommended preview frames. `includeStrip: true` adds an
   authoritative browser contact sheet. Craft findings cover lockstep translation, easing direction,
   missing stagger, headline/subheadline scale, near-miss text edges, sibling-container padding, and
@@ -55,9 +64,9 @@ the absence of an on-canvas marker does not mean a layer is unbound.
   masked/offscreen wrap or rotational cycle, `qa:allow-offcanvas` for deliberately clipped or
   wrapped layers, and `qa:static-text` for fixed punctuation that should not be operator-editable.
   Findings remain advisory and do not replace certification.
-- `ograf_render_frame`: legacy approximate SVG snapshot; use only when the live browser required by
-  `ograf_capture` is unavailable and do not use it to judge final typography.
-- `ograf_measure_text`: browser/runtime measurement of a text layer, optional replacement string,
+- `ograf_capture` with `mode: "svg"`: legacy approximate SVG snapshot; use only when the live
+  browser is unavailable and do not use it to judge final typography.
+- `ograf_validate_project` with `check: "text"`: browser/runtime measurement of a text layer, optional replacement string,
   frame (default first Step), resolved font, shrink ratio/degeneracy, box overflow, and fitting-prefix
   index. `clippedBy: "parent"` identifies intentional ancestor masking and is not an overflow fault;
   `clippedBy: "own-box"` is actionable. `resolvedFont.resolution: "inferred"` is advisory. It is read-only.
@@ -107,48 +116,49 @@ deterministic design assessment belong in the same model turn.
 Supported operation discriminators:
 
 - Project/composition: `set_project_metadata`, `set_composition`, `set_composition_layout`,
-  `apply_style_pack`, `remove_style_pack`, `set_design_system_name`, `upsert_design_token`, `remove_design_token`,
-  `bind_design_token`, `unbind_design_token`,
-  `add_lifecycle_step`, `rename_lifecycle_keyframe`, `move_lifecycle_keyframe`,
-  `remove_lifecycle_step`, `add_canvas_guide`, `update_canvas_guide`, `remove_canvas_guide`,
-  `create_timeline_group`, `rename_timeline_group`, `set_timeline_group_color`,
-  `ungroup_timeline_group`
-- Assets: `add_asset`, `update_asset`, `remove_asset`; use the separate `ograf_import_asset` and
-  `ograf_import_svg_bundle` tools when payloads already exist under the configured workspace
-- Plugin catalog: `remove_renderer_plugin` removes an exact unused provider snapshot; it never
+  `apply_style_pack` (`stylePack: null` removes it), `set_design_system_name`, `upsert_design_token`,
+  `remove_design_token`, `bind_design_token` (`tokenId: null` unbinds),
+  `add_lifecycle_step`, `set_lifecycle_keyframe`, `remove_lifecycle_step`, `set_timeline_group`
+- Assets: `add_asset`, `update_asset`, `remove_asset`; use the separate `ograf_import_asset`
+  tool when payloads already exist under the configured workspace
+- Plugin catalog: `remove_plugin` removes an exact unused renderer or animation-preset snapshot; it never
   installs/uninstalls or trusts code. See [renderer-plugins.md](./renderer-plugins.md).
-- Layers: `add_layer`, `duplicate_group`, `remove_layer`, `rename_layer`, `set_layer_flags`,
-  `set_layer_layout`, `set_layer_semantics`, `create_lower_third`, `create_bug`, `create_ticker`,
-  `create_scoreboard`, `create_clock`, `create_countdown`, `create_repeater`, `group_layers`, `ungroup_layers`,
-  `reorder_layers`
-- Components: `save_component`, `instantiate_component`, `update_component_from_layers`,
+- Layers: `add_layer`, `duplicate_group`, `remove_layer`, `update_layer` (name, flags, semantics),
+  `set_layer_layout`, `create_recipe` (`recipe`: lower-third, bug, ticker, scoreboard, clock,
+  countdown), `create_repeater`, `group_layers`, `ungroup_layers`, `reorder_layers`
+- Components: `save_component` (`componentId` updates one), `instantiate_component`,
   `update_component_layer`, `update_component_field`, `reset_component_overrides`,
   `make_component_unique`, `refresh_component_instances`, `rename_component`, `remove_component`
-- Shared patterns: `set_tiling_pattern`, `remove_tiling_pattern`, `set_layer_lighting`; inspect through
+- Shared patterns: `set_tiling_pattern` (`patch: null` removes one), `set_layer_lighting`; inspect through
   `ograf_get_project include: ["patterns"]` and `ograf_inspect_scene`
 - Content/style: `update_element`, `update_transform`, `update_effects`, `add_effect`,
-  `update_effect`, `duplicate_effect`, `remove_effect`, `reorder_effects`; effect operations accept
+  `update_effect`, `remove_effect`, `reorder_effects`; effect operations accept
   one layer selector or a persistent canvas `groupId`
-- Compositing: `set_layer_mask`; `set_layer_flags.isMaskOnly` controls source-only output
+- Compositing: `set_layer_mask`; `update_layer` `isMaskOnly` controls source-only output
 - Timeline: `set_property_key`, `set_property_track`, `stagger_property_track`,
-  `move_property_key`, `remove_property_key`, `set_property_key_easing`, `set_transition`,
-  `set_layer_loop`, `set_loop_property_track`, `remove_layer_loop`, `set_layer_motion`
-- Data: `add_data_field`, `update_data_field`, `remove_data_field`, `set_layer_bindings`,
-  `set_layer_binding` (legacy single-binding replace), `create_runtime_collection`,
-  `update_runtime_collection`, `remove_runtime_collection`
-- Actions: `add_custom_action`, `update_custom_action`, `remove_custom_action`
+  `remove_property_key`, `set_transition`, `set_layer_loop` (`remove: true` removes the clip),
+  `set_loop_property_track`, `set_layer_motion`
+- Data: `set_data_field`, `remove_data_field`, `set_layer_bindings`, `set_runtime_collection`,
+  `remove_runtime_collection`
+- Actions: `set_custom_action`, `remove_custom_action`
+- Several layers at once: `update_element`, `update_transform`, `update_layer`,
+  `set_property_track` and `set_layer_motion` take `layerIds` or a `layerNamePattern` in place of
+  one layer and apply the same change to each
 
-`add_layer.kind` supports `rectangle`, `ellipse`, `chart`, `text`, `image`, `path`, `pattern`, `image-sequence`, and `lottie`. It returns the generated layer ID in `summary.generatedIds`. For Lottie, pass a complete self-contained Bodymovin JSON object in `element.animationData`, then inspect its warnings. Audio/video/live playback uses composition-level Media Cues, never canvas Audio layers.
+A `set_` operation creates its item, or changes the one its ID or key names.
 
-When `transform` is omitted, rectangle and ellipse layers begin at 200 × 200 as a square/circle.
-Pass explicit width and height for a panel or oval; later edits remain independent.
+`add_layer.kind`: `rectangle`, `ellipse`, `chart`, `text`, `image`, `path`, `pattern`, `image-sequence`,
+`lottie`. IDs: `summary.generatedIds`. Lottie needs self-contained Bodymovin JSON in
+`element.animationData`; inspect warnings. Audio/video/live uses composition Media Cues,
+never canvas Audio layers.
 
-`set_layer_semantics` assigns an authoring role, normalized tags, and intent without changing pixels.
-Built-in broadcast recipes return complete layer/field/group mappings and create linked reusable
-component assets by default; `asComponent:false` keeps independent layers. See
-[broadcast recipes](./broadcast-recipes.md) for current native ticker, clock/timer, countdown,
-material styling, motion and compatibility contracts. Legacy `text.crawl` remains available for
-older graphics; new ticker recipes use the native mixed-content element.
+Omitted `transform` creates 200 × 200 rectangles/ellipses. Set width/height for panels/ovals;
+later edits are independent.
+
+`update_layer` `semantics` sets role, normalized tags and intent without pixel changes. Recipes return
+complete layer/field/group maps and linked components (`asComponent:false` for independent layers).
+See [broadcast recipes](./broadcast-recipes.md) for ticker, clock/timer, countdown, materials, motion
+and compatibility. Legacy `text.crawl` remains; new tickers use native mixed content.
 
 `set_test_rundowns` saves named authoring-only `{id,name,rows:[{id,values}]}` lists keyed by field
 ID. Data → Test data imports and checks rows; Preview & Export plays their Take, Update and Out.
@@ -158,7 +168,7 @@ Rows stay in `.ogs` and never enter the exported schema or runtime.
 It materializes finite grouped copies and independently cloned fields, adds semantic item/index tags,
 and returns complete mappings. It is an authoring recipe, not a runtime collection component.
 
-`create_runtime_collection` is the variable-length counterpart. Supply an object-item array by
+`set_runtime_collection` is the variable-length counterpart. Supply an object-item array by
 `fieldId` or unique `fieldKey`; select one contiguous persistent-group prototype with `groupId`,
 ordered `layerIds`, or exact `layerNames`; and provide `offsetPerItem`, capacity 1..100, and truncate
 overflow. Bind prototype layers to the array field with item-relative `sourcePath` segment arrays.
@@ -185,7 +195,7 @@ Pass `groupId` instead of `layerId`/`layerName` to any effect operation for a pe
 group. One stable effect ID is materialized on every member; member-only effects remain independent,
 and group reorder changes only shared entries.
 
-`set_layer_flags.blendMode` accepts `normal`, `multiply`, `screen`, `overlay`, `darken`, `lighten`,
+`update_layer` `blendMode` accepts `normal`, `multiply`, `screen`, `overlay`, `darken`, `lighten`,
 `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, or `exclusion`. The value is a
 static layer property. It composites only with lower layers inside the isolated OGraf composition,
 not with editor chrome, transparency checkerboards, or an external renderer/video background.
@@ -203,7 +213,7 @@ Step. `durationFrames` is the local ruler length, `phaseOffsetFrames` offsets ph
 `repeatCount: null` repeats indefinitely. `set_loop_property_track` takes the same numeric key
 shape as `set_property_track`, but frames must remain inside the loop's local range. Different
 properties may use different incoming easing while sharing the clip duration. Use
-`remove_layer_loop` to remove the complete clip.
+`set_layer_loop` with `remove: true` to remove the complete clip.
 
 `add_asset` accepts a supported image/font/source MIME type and base64 payload without a data-URI
 prefix. Use its returned ID as `asset:<id>` in image `src`, sequence frames, and image-url defaults.
@@ -214,13 +224,13 @@ removing an in-use font reports fallback risk.
 
 `ograf_import_asset` avoids client-side base64 transport for one workspace-confined image, font,
 CSS, or text file and commits it through the same asset operation. Files are limited to 32 MiB.
-`ograf_import_svg_bundle` accepts up to 64 workspace paths containing exactly one SVG and selected
+With `paths` (`mode: "svg-bundle"`) it accepts up to 64 workspace paths containing exactly one SVG and selected
 companion CSS/images/fonts. It rejects duplicate base names, limits each file to 32 MiB and the
 bundle to 64 MiB, embeds relative dependencies into one SVG asset, registers discovered fonts, and
 commits all assets atomically.
 
-Lifecycle mutation is explicit: use `rename_lifecycle_keyframe` for labels,
-`move_lifecycle_keyframe` for bounded adjacent-transition retiming, and `remove_lifecycle_step` only
+Lifecycle mutation is explicit: use `set_lifecycle_keyframe` with `name` for labels
+and `frame` for bounded adjacent-transition retiming, and `remove_lifecycle_step` only
 for pausable Steps. Start cannot move and Start/End cannot be removed. Treat stranded-key warnings
 as actionable; lifecycle edits never silently move layer property keys.
 
@@ -231,7 +241,7 @@ group. These are transform/selection groups, distinct from UI-only Timeline Grou
 `save_component` links originals; `scope:set` shares the asset. `instantiate_component` defaults
 `linked:true`; false makes copies. `instanceId` shares continuity.
 `update_component_layer componentId,sourceLayerId,patch` and `update_component_field componentId,fieldId,patch`
-edit sources. `update_component_from_layers componentId,layerIds` promotes one instance and adopts
+edit sources. `save_component componentId,layerIds` promotes one instance and adopts
 new children in place. IDs, animation, bindings and overrides survive.
 `reset_component_overrides layerIds,paths?` resumes inheritance (omit paths for all).
 `make_component_unique instanceId,name?` creates a private asset. Refresh keeps overrides.
@@ -261,7 +271,7 @@ source→replacement rewrite with `{n}` expansion across layer names, text conte
 string defaults. `bindings` is `share`, `clone`, or `clear`; cloning requires a collision-free
 literal `fieldKeyRewrite`. Copies do not remain linked to later source edits.
 
-`add_layer`, `add_data_field`, `add_asset`, duplication, and guide creation return stable IDs in top-level `results` and in
+`add_layer`, `set_data_field`, `add_asset` and duplication return stable IDs in top-level `results` and in
 the existing summary. The primary text response also includes them for clients that do not expose
 structured content. Dry-run IDs describe only the projected transaction and are not reserved.
 
@@ -298,12 +308,12 @@ Unlock a layer before attempting content, transform, binding, effect, or timelin
 results persist, optionally after `delayFrames`. State actions take `targetLayerId` or
 `targetGroupId`, and `transitionFrames`. Details: [visual rules](./visual-rules.md).
 
-`create_timeline_group` accepts at least two existing `layerIds`, plus optional `name` and
+`set_timeline_group` without `groupId` accepts at least two existing `layerIds`, plus optional `name` and
 `#RRGGBB` `color` (either case), and returns a stable timeline-group ID. Prefer one named/color-coded group for
 each coherent component when a composition has many related layer rows. A layer belongs to at most
 one timeline group; creating a new one moves its members out of earlier groups and removes groups
-left empty. Use `rename_timeline_group`, `set_timeline_group_color`, and
-`ungroup_timeline_group` for later organization. These operations change only editor/MCP timeline
+left empty. Pass `groupId` with `name` or `color` to change a group, and with
+`layerIds: []` to ungroup it. These operations change only editor/MCP timeline
 organization: they never change layer order, animation tracks, canvas `groupId`, or compiled OGraf
 output. Inspection exposes `layout.timelineGroups`; `layout.timelineFolders` remains a deprecated
 source-storage compatibility field.
@@ -315,9 +325,9 @@ field for `fill.stops[N].color`. Animate an existing stop position through `set_
 `set_property_track`, or `stagger_property_track` with property `fill.stops[N].offset`.
 
 `set_layer_bindings` takes ordered `{fieldId,targetProperty}` or `{fieldKey,targetProperty}` rows;
-use declared targets once each. Legacy `set_layer_binding` replaces all rows. Designer edits
+use declared targets once each. Designer edits
 synchronize bound defaults/mappings while preserving links.
-`update_data_field` addresses `fieldId` or unique `fieldKey`, updating key/label/default/required.
+`set_data_field` addresses `fieldId` or unique `fieldKey`, updating key/label/default/required.
 `exposeToOgraf:false` retains defaults/bindings/Rules internally, excluding public schema/external
 updates. Defaults true; omitted updates preserve it. Works on nested properties/items and
 shader/component fields. Hidden parents/items hide subtrees/arrays; Required is public-only.
@@ -333,11 +343,11 @@ bindings atomically and reports them in `summary.clearedBindings`.
 
 ## Undo and concurrency
 
-- `ograf_undo` and `ograf_redo` each require the current `expectedRevision`.
+- `ograf_undo`, also with `direction: "redo"`, requires the current `expectedRevision`.
 - A committed batch is one undo unit.
 - A dry run does not increment the revision or change the editor.
 - After any other human or agent edit, assume the revision changed and re-read.
-- After a conflict, call `ograf_get_changes` for a compact history before consciously rebasing.
+- After a conflict, call `ograf_get_project` with `view: "changes"` for a compact history before consciously rebasing.
 
 ## Shaders and visual patterns
 
@@ -348,7 +358,7 @@ conveniences. Pattern presets are ordinary `set_tiling_pattern.patch` data.
 
 ## Session reset
 
-`ograf_reset_project` requires `confirm: true` and the current `expectedRevision`. It replaces the
+`ograf_create_project` with `mode: "reset"` requires `confirm: true` and the current `expectedRevision`. It replaces the
 session with a fresh project as one undoable transaction. `keepDataFields: true` preserves field
 definitions only; layers and bindings are removed.
 
@@ -379,13 +389,20 @@ The MCP file tools do not import or reverse-engineer an existing `.ograf.zip`. F
 the visible editor's **Import OGraf** command and preserve its best-effort recovery report. Never
 execute an imported third-party `main.js` merely to make conversion appear more complete.
 
-Use `ograf_export_coordinated_package` with the current set revision, explicit profile/path,
+Use `ograf_export_package` with `scope: "set"`, the current set revision, explicit profile/path,
 `confirm:true`, unique `operationId`, and authorized overwrite choice. Follow the snapshot,
 recovery, and graph-inclusion rules in [template sets](./template-sets-and-crops.md).
 Choose an `.html` path for standalone browser playback or `.ograf.zip` for the playout package.
 Separate standalone imports do not verify Reality Hub host coordination; test the coordinated
 package in the actual host. Do not claim Windows runtime validation from cross-compilation.
 
-`ograf_export_package` and `ograf_export_coordinated_package` emit typed color defaults and
+`ograf_export_video` renders one template as a WebM movie in the connected editor, from Start to
+End, and saves it under a `.webm` workspace path. Pass `confirm: true` and a new `operationId`; a
+call with the same ID waits for a running export or answers again for a saved one. `holdSeconds`
+(default 3) is the wait on each Step, `transparent: false` fills the background, and `maxDimension`
+or `bitrate` make a smaller file. A movie may be at most 64 MiB; longer ones are exported from
+Studio's Export Video window.
+
+`ograf_export_package` emits typed color defaults and
 coordinated state presets as GDD's canonical lowercase hex, including nested object/array values.
 Editable source values retain their original spelling.

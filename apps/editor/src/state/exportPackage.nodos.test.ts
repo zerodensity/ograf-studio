@@ -177,6 +177,7 @@ describe('Nodos packaging on the current Studio export contract', () => {
       await zip.file(packaged.artifacts.manifestFileName)!.async('string'),
     );
     expect(manifest.id).not.toBe(project.id);
+    expect(manifest.v_ografDiscovery).toEqual({ version: 1, kind: 'graphic' });
     expect(manifest.v_ografStudioAuthoringPrompts).toEqual({
       version: 1,
       templates: [{ projectId: project.id, name: project.name, prompts }],
@@ -192,6 +193,7 @@ describe('Nodos packaging on the current Studio export contract', () => {
       /<script type="application\/json" id="ograf-package">([\s\S]*?)<\/script>/,
     );
     expect(JSON.parse(payload![1]!).manifest).toEqual(preview.artifacts.manifest);
+    expect(preview.artifacts.manifest.v_ografDiscovery).toEqual({ version: 1, kind: 'graphic' });
     expect(preview.artifacts.manifest.v_ografStudioAuthoringPrompts).toEqual(
       manifest.v_ografStudioAuthoringPrompts,
     );
@@ -269,6 +271,7 @@ describe('Nodos packaging on the current Studio export contract', () => {
       text(nodos.files.find((entry) => entry.path.endsWith('.ograf.json'))!.base64),
     );
     expect(nodos.files.find((entry) => entry.path === manifest.thumbnails[0].file)).toBeDefined();
+    expect(manifest.v_ografDiscovery).toEqual({ version: 1, kind: 'graphic' });
     expect(gates.certify).toHaveBeenCalledTimes(2);
   });
 

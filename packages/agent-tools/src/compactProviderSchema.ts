@@ -540,8 +540,16 @@ export function compactProviderSchema(schema: Record<string, unknown>): Record<s
     delete compact.definitions;
   }
   compactNamedDefinitions(compact);
-  deduplicateSchemas(compact);
-  // Factoring a repeated parent can turn its child definition into a single-use schema.
-  compactNamedDefinitions(compact);
+  // A pass can expose sharing that only the next pass sees, so repeat until one changes nothing.
+  // The result is then a fixed point: compacting it again returns it unchanged.
+  let settled = '';
+  for (let pass = 0; pass < 16; pass += 1) {
+    deduplicateSchemas(compact);
+    // Factoring a repeated parent can turn its child definition into a single-use schema.
+    compactNamedDefinitions(compact);
+    const serialized = JSON.stringify(compact);
+    if (serialized === settled) break;
+    settled = serialized;
+  }
   return compact;
 }

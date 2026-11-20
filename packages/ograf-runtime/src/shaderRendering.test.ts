@@ -7,6 +7,7 @@ import {
   renderElementContent,
   resolveBoundElement,
   applyAnimatedPaint,
+  waitForElementContentReady,
 } from './renderElement';
 import {
   createShaderRenderer,
@@ -557,6 +558,25 @@ describe('WebGL shader lifecycle', () => {
     await waitForShadersComplete(host);
     expect(gl.fenceSync).toHaveBeenCalledTimes(2);
     disposeShader(host);
+  });
+
+  it('asks the GPU for its word only when a completed frame is waited for', async () => {
+    const { canvas, gl } = mockCanvas();
+    const host = mockHost(canvas);
+    host.querySelectorAll = (() => []) as unknown as typeof host.querySelectorAll;
+    vi.stubGlobal('HTMLElement', class {});
+    try {
+      mountShader(host, element, { width: 16, height: 16 });
+      renderShaderAtTime(host, 600);
+      // What the page's own next paint needs is submitted already; a fence would only delay it.
+      await waitForElementContentReady(host, 'submitted');
+      expect(gl.fenceSync).not.toHaveBeenCalled();
+      await waitForElementContentReady(host);
+      expect(gl.fenceSync).toHaveBeenCalledTimes(1);
+    } finally {
+      disposeShader(host);
+      vi.unstubAllGlobals();
+    }
   });
 
   it('bounds a non-completing GPU fence without using a blocking wait', async () => {

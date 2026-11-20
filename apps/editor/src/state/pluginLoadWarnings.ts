@@ -12,6 +12,7 @@ import {
 import { chartRendererUpgradeOffers } from './chartRendererUpgrade';
 import { isInstalledChartPlugin, type InstalledStudioPlugin } from './pluginSettingsStore';
 import type { ProjectSetDocument } from './projectSet';
+import { createChartRendererResolver } from './studioRendererResolution';
 
 export type PluginLoadWarningReason =
   | 'unconfigured'
@@ -21,7 +22,8 @@ export type PluginLoadWarningReason =
   | 'not-installed'
   | 'disabled'
   | 'untrusted'
-  | 'content-mismatch';
+  | 'content-mismatch'
+  | 'incompatible';
 
 export interface PluginLoadWarning {
   key: string;
@@ -72,20 +74,18 @@ function blockingReason(
   reference: RendererPluginReference,
   saved: RendererPluginSnapshot | undefined,
   installed: readonly InstalledStudioPlugin[],
-): PluginLoadWarningReason | null {
+): PluginLoadWarningReason {
   if (!saved) return 'missing-bundle';
   const key = rendererPluginKey(reference);
   const exact = installed
     .filter(isInstalledChartPlugin)
     .filter((entry) => rendererPluginKey(studioPluginReference(entry.snapshot)) === key);
   const matching = exact.filter((entry) => sameBundle(saved, entry.snapshot));
-  // The installed catalog is verified on initialization. Exact trusted bytes follow the same
-  // fast policy path as rendering, without hashing a multi-megabyte bundle on every text edit.
-  if (matching.some((entry) => entry.enabled && entry.trusted)) return null;
   if (validateRendererPluginSnapshot(saved).length) return 'invalid-bundle';
   if (!exact.length) return 'not-installed';
   if (!matching.length) return 'content-mismatch';
   if (!matching.some((entry) => entry.trusted)) return 'untrusted';
+  if (matching.some((entry) => entry.enabled && entry.trusted)) return 'incompatible';
   return 'disabled';
 }
 
@@ -99,9 +99,10 @@ export function collectPluginLoadWarnings({
   loading,
 }: WarningInput): PluginLoadWarning[] {
   if (!initialized || loading) return [];
+  const resolveChart = createChartRendererResolver(installed);
   // One saved snapshot can serve many chart instances and prototypes. Reuse its policy result
   // only within this scan; a new scan always observes the current installed/trust preferences.
-  const reasons = new Map<RendererPluginSnapshot, Map<string, PluginLoadWarningReason | null>>();
+  const reasons = new Map<RendererPluginSnapshot, Map<string, PluginLoadWarningReason>>();
   const reasonFor = (
     reference: RendererPluginReference,
     saved: RendererPluginSnapshot | undefined,
@@ -137,6 +138,7 @@ export function collectPluginLoadWarnings({
         const provider = element.provider;
         const valid = provider && !validateRendererPluginReference(provider).length;
         const reference = valid ? provider : null;
+        if (reference && resolveChart(element, catalog)) continue;
         const sourceKey = reference ? rendererPluginKey(reference) : '';
         const saved = reference
           ? catalog.find(
@@ -151,7 +153,6 @@ export function collectPluginLoadWarnings({
           : !reference
             ? 'invalid-reference'
             : reasonFor(reference, saved);
-        if (!reason) continue;
         const key = JSON.stringify([template.id ?? template.project.id, sourceKey, reason]);
         let warning = collected.get(key);
         if (!warning) {

@@ -1,5 +1,9 @@
-import type { Element, Paint } from './types';
-import { inspectShaderSource, resolveShaderParameters, getElementShaderPaint } from './shader';
+import type { Element, Paint, ShaderPaint, ShaderPaintSlot, ShaderParameterValue } from './types';
+import {
+  resolveShaderParameters,
+  getElementShaderPaint,
+  shaderParameterDefinition,
+} from './shader';
 import { isGradientPaint, validatePaint } from './paint';
 import {
   normalizeShaderParameterValue,
@@ -22,6 +26,38 @@ const NUMERIC_TEXT_PROPERTIES = new Set([
   'baselineShift',
   'minFontSize',
 ]);
+
+function normalizeBoundShaderValue(
+  shader: ShaderPaint,
+  name: string,
+  value: unknown,
+  resolved: () => Record<string, ShaderParameterValue>,
+): ShaderParameterValue {
+  const definition = shaderParameterDefinition(shader.fragmentSource, name);
+  if (!definition) throw new Error(`Unknown shader parameter "${name}".`);
+  const normalized = normalizeShaderParameterValue(definition, value);
+  const authored = resolved()[name];
+  // GDD hex defaults quantize to 8 bits; retain exact authored channels for that default.
+  return definition.control === 'color' &&
+    Array.isArray(authored) &&
+    typeof value === 'string' &&
+    shaderColorToHex(authored).toLowerCase() === value.toLowerCase()
+    ? authored
+    : normalized;
+}
+
+function replaceShaderPaint(
+  element: Element,
+  slot: ShaderPaintSlot,
+  paint: ShaderPaint,
+  property: string,
+): Element {
+  if (slot === 'stroke' && element.type === 'text') return { ...element, strokePaint: paint };
+  if (element.type === 'shader') return paint;
+  if (!('fill' in element))
+    throw new Error(`Shader parameter binding "${property}" requires a paintable object.`);
+  return { ...element, fill: paint };
+}
 
 /** Immutable data overrides, shared by Studio, diagnostic capture and exported runtime. */
 export function applyElementDataValue(element: Element, property: string, value: unknown): Element {
@@ -138,26 +174,15 @@ export function applyElementDataValue(element: Element, property: string, value:
     throw new Error(`Shader parameter binding "${property}" requires a shader paint.`);
   if (shader && shaderTarget) {
     const name = shaderTarget[2]!;
-    const definition = inspectShaderSource(shader.fragmentSource).parameters.find(
-      (parameter) => parameter.name === name,
+    const normalized = normalizeBoundShaderValue(shader, name, value, () =>
+      resolveShaderParameters(shader),
     );
-    if (!definition) throw new Error(`Unknown shader parameter "${name}".`);
-    let normalized = normalizeShaderParameterValue(definition, value);
-    const authored = resolveShaderParameters(shader)[name];
-    // GDD hex defaults quantize to 8 bits; retain exact authored channels for that default.
-    if (
-      definition.control === 'color' &&
-      Array.isArray(authored) &&
-      typeof value === 'string' &&
-      shaderColorToHex(authored).toLowerCase() === value.toLowerCase()
-    )
-      normalized = authored;
-    const fill = { ...shader, parameters: { ...shader.parameters, [name]: normalized } };
-    if (slot === 'stroke' && element.type === 'text') return { ...element, strokePaint: fill };
-    if (element.type === 'shader') return fill;
-    if (!('fill' in element))
-      throw new Error(`Shader parameter binding "${property}" requires a paintable object.`);
-    return { ...element, fill };
+    return replaceShaderPaint(
+      element,
+      slot,
+      { ...shader, parameters: { ...shader.parameters, [name]: normalized } },
+      property,
+    );
   }
   const stop = /^fill\.stops\[(0|[1-9]\d*)\]\.color$/.exec(property);
   if (stop) {
@@ -194,6 +219,75 @@ export function applyElementDataValue(element: Element, property: string, value:
     ...element,
     [property]: property === 'fill' && value && typeof value === 'object' ? value : String(value),
   } as Element;
+}
+
+/** Apply sequential bindings, validating and copying each consecutive shader slot only once. */
+export function applyElementDataValues(
+  element: Element,
+  entries: Iterable<readonly [property: string, value: unknown]>,
+): Element {
+  let current = element;
+  let pending:
+    | {
+        slot: ShaderPaintSlot;
+        shader: ShaderPaint;
+        parameters: ShaderPaint['parameters'];
+        resolved: Record<string, ShaderParameterValue>;
+        property: string;
+      }
+    | undefined;
+  const flush = () => {
+    if (!pending) return;
+    current = replaceShaderPaint(
+      current,
+      pending.slot,
+      { ...pending.shader, parameters: pending.parameters },
+      pending.property,
+    );
+    pending = undefined;
+  };
+
+  for (const [property, value] of entries) {
+    const target = SHADER_PARAMETER_TARGET.exec(property);
+    const slot = target?.[1] === 'strokePaint' ? 'stroke' : 'fill';
+    if (!target || pending?.slot !== slot) flush();
+    const shader = target && (pending?.shader ?? getElementShaderPaint(current, slot));
+    if (
+      !target ||
+      !shader ||
+      (slot === 'fill' && current.type !== 'shader' && !('fill' in current))
+    ) {
+      current = applyElementDataValue(current, property, value);
+      continue;
+    }
+
+    const name = target[2]!;
+    const normalized = normalizeBoundShaderValue(shader, name, value, () => {
+      // Check the source and all authored siblings after validating the first incoming value,
+      // as a single write would. Later writes cannot invalidate the already checked siblings.
+      pending ??= {
+        slot,
+        shader,
+        resolved: resolveShaderParameters(shader),
+        parameters: { ...shader.parameters },
+        property,
+      };
+      return pending.resolved;
+    });
+    const batch = pending!;
+    // Use own-property semantics as the single write's computed property does.
+    if (name === '__proto__')
+      Object.defineProperty(batch.parameters, name, {
+        value: normalized,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    else batch.parameters[name] = normalized;
+    batch.resolved[name] = normalized;
+  }
+  flush();
+  return current;
 }
 
 /** The value `applyElementDataValue` would replace; `undefined` when the element lacks it. */

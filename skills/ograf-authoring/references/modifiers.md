@@ -19,7 +19,6 @@ Use these inside ordinary revision-checked `ograf_apply_operations` batches:
   Returned results contain the stable modifier ID and numeric property paths.
 - `update_modifier`: modifierId and patch `{name?,enabled?,params?}`. Numeric edits accept authored
   or explicit frame scope. Existing bound numeric defaults remain editable.
-- `duplicate_modifier`: copies its own tracks and bindings under a new ID, initially disabled.
 - `remove_modifier`: removes only that entry and its owned tracks/bindings.
 - `reorder_modifiers`: modifierIds must include the whole owner's stack exactly once.
 

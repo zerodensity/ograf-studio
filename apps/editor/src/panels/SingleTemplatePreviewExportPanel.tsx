@@ -1,30 +1,17 @@
 import { useEditorWindow } from '../layout/EditorWindow';
-import { useDockPaneVisible } from '../layout/PaneVisibilityContext';
-import { usePaneRequestStore } from '../state/paneRequestStore';
 import { PropertyRow } from '../components/PropertyRow';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 import { OgrafLogo } from '../components/OgrafLogo';
-import { TemplateSaveDialog } from '../components/TemplateSaveDialog';
 import { PresentationBackground } from '../components/PresentationBackground';
 import { ProgramGuides } from '../components/ProgramGuides';
 import { PreviewFpsControls, PreviewFpsOverlay } from '../components/PreviewFpsOverlay';
 import { getCompositionOutputRect } from '@ograf-editor/scene-model';
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   assembleManifest,
   BUILT_IN_EXPORT_PROFILES,
   compileDescriptor,
   getExportProfile,
-  getOfflinePreviewFileName,
-  type ExportProfile,
   type ExportProfileMode,
 } from '@ograf-editor/codegen';
 import { registerGraphicElement, type StudioFrameCueDetail } from '@ograf-editor/ograf-runtime';
@@ -41,11 +28,9 @@ import {
   hasElementMediaPaint,
   runBroadcastQa,
   type BroadcastQaIssue,
-  type Project,
 } from '@ograf-editor/scene-model';
 import { useActiveComposition, useProjectStore } from '../state/projectStore';
 import { useProjectSetStore } from '../state/projectSetStore';
-import { normalizeStudioExportDefaults } from '../state/workspaceModel';
 import { useWorkspaceStore } from '../state/workspaceStore';
 import { useTimelineStore } from '../state/timelineStore';
 import { useEditorPreviewSourceStore } from '../state/editorPreviewSourceStore';
@@ -57,18 +42,7 @@ import {
   assertStudioRendererPluginsAllowed,
   useRendererPluginSettingsStore,
 } from '../state/pluginSettingsStore';
-import {
-  exportProjectAsZip,
-  type ExportFileFormat,
-  type ExportZipResult,
-} from '../state/exportPackage';
-import {
-  getCertifiedCoordinatedSaveSnapshot,
-  retryCertifiedCoordinatedSave,
-  subscribeCertifiedCoordinatedSave,
-} from '../state/projectSetExport';
-import { exportSetInStudio } from '../state/studioSetExport';
-import { CoordinatedExportError } from '../state/certifiedArtifactSave';
+import { resolveStudioRendererComposition } from '../state/studioRendererResolution';
 import {
   buildExportArtifacts,
   certifyExportArtifacts,
@@ -132,6 +106,7 @@ import { useTickerUpdateStatuses } from './useTickerUpdateStatuses';
 import { resolveSourceOverlayGeometry } from './sourceOverlay';
 import { mediaCompatibleExportProfile, mediaCompatibleRenderType } from './mediaExportProfile';
 import { defaultTemplateExportProfile, hasEnabledExternalFeed } from './templateExportProfile';
+import { requestStudioExport } from '../state/studioExportDialogStore';
 import './PreviewExportPanel.css';
 
 interface LogEntry {
@@ -140,25 +115,6 @@ interface LogEntry {
   paramsSummary: string;
   resultSummary: string;
   isError: boolean;
-}
-
-function exportActionLabel(format: ExportFileFormat): string {
-  return format === 'html'
-    ? 'Export HTML'
-    : format === 'both'
-      ? 'Export ZIP and HTML'
-      : 'Export OGraf ZIP';
-}
-
-function exportCompletionMessage(result: Pick<ExportZipResult, 'saveResult' | 'files'>): string {
-  if (result.saveResult === 'prepared') return 'Export ready. Choose Save or Download.';
-  const completed = result.files.flatMap(({ fileName, saveResult }) => {
-    if (saveResult === 'saved') return ['Export saved.'];
-    if (saveResult === 'downloaded') return [`Download requested for “${fileName}”.`];
-    return [];
-  });
-  if (result.saveResult === 'cancelled') completed.push('Export cancelled.');
-  return completed.join(' ') || 'Export completed.';
 }
 
 type RetainedPreviewGraphic = HTMLElement &
@@ -196,12 +152,6 @@ function successful(result: unknown): boolean {
 
 export function SingleTemplatePreviewExportPanel() {
   const { window, document: ownerDocument } = useEditorWindow();
-  const paneVisible = useDockPaneVisible();
-  const exportRevealRequest = usePaneRequestStore((state) =>
-    state.request?.pane === 'export' && state.request.section === 'preview.export'
-      ? state.request.id
-      : undefined,
-  );
   const project = useProjectStore((s) => s.project);
   const projectSet = useProjectSetStore((state) => state.projectSet);
   const activeTemplateId = useProjectSetStore((state) => state.activeTemplateId);
@@ -270,6 +220,7 @@ export function SingleTemplatePreviewExportPanel() {
     [behaviorActive, previewFields, behavior.data, sharedLiveEnabled, testValues],
   );
   const pluginPolicyRevision = useRendererPluginSettingsStore((state) => state.revision);
+  const installedPlugins = useRendererPluginSettingsStore((state) => state.installed);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -368,14 +319,18 @@ export function SingleTemplatePreviewExportPanel() {
       : behaviorActive
         ? Boolean(behavior.snapshot?.loaded && !behavior.loading)
         : nativePreviewLoaded;
-  const canControlPreview = isPreviewLoaded && (!behaviorActive || !behavior.busy);
+  const canControlPreview =
+    isPreviewLoaded &&
+    (!behaviorActive || !behavior.busy) &&
+    (!sharedLiveEnabled || Boolean(livePublicationId));
   const selectedSharedSlot =
-    sharedDefinition &&
-    Object.values(sharedLive.snapshot?.slots ?? {}).find(
-      (slot) =>
-        !(slot.transition && !slot.incoming) &&
-        (slot.incoming ?? slot.current)?.templateId === activeTemplateId,
-    );
+    livePublicationId && sharedDefinition
+      ? Object.values(sharedLive.snapshot?.slots ?? {}).find(
+          (slot) =>
+            !(slot.transition && !slot.incoming) &&
+            (slot.incoming ?? slot.current)?.templateId === activeTemplateId,
+        )
+      : undefined;
   const selectedSharedGraphic = selectedSharedSlot
     ? (selectedSharedSlot.incoming ?? selectedSharedSlot.current)
     : undefined;
@@ -391,7 +346,8 @@ export function SingleTemplatePreviewExportPanel() {
     values: Record<string, TestValue>;
   } | null>(null);
   const activeSharedEdits =
-    sharedEdits?.publicationId === sharedLive.publicationId &&
+    livePublicationId &&
+    sharedEdits?.publicationId === livePublicationId &&
     sharedEdits.templateId === activeTemplateId
       ? sharedEdits
       : null;
@@ -408,11 +364,16 @@ export function SingleTemplatePreviewExportPanel() {
     dataSessionKey,
     previewFields,
     previewDefaults,
-    composition,
+    previewComposition,
   );
   // Reset synchronously so the new graphic's initial load cannot receive the old template's data.
   if (resolvedDataSession !== dataSession) setDataSession(resolvedDataSession);
-  const acceptedSharedData = sharedSet ? selectedSharedGraphic?.data : sharedLive.data;
+  // The live receiver and the publisher can update in either order during a document switch.
+  const acceptedSharedData = livePublicationId
+    ? sharedSet
+      ? selectedSharedGraphic?.data
+      : sharedLive.data
+    : undefined;
   const dataForm = useMemo(
     () =>
       sharedLiveEnabled
@@ -445,7 +406,7 @@ export function SingleTemplatePreviewExportPanel() {
   const updateDataField = useCallback(
     (key: string, value: TestValue) => {
       if (sharedLiveEnabled) {
-        const publicationId = sharedLive.publicationId;
+        const publicationId = livePublicationId;
         if (!publicationId) return;
         if (sharedSet && sharedDefinition && selectedSharedState)
           stageSharedPreviewSlotField(sharedSet, sharedDefinition, selectedSharedState, key, value);
@@ -483,7 +444,7 @@ export function SingleTemplatePreviewExportPanel() {
     },
     [
       sharedLiveEnabled,
-      sharedLive.publicationId,
+      livePublicationId,
       sharedSet,
       sharedDefinition,
       selectedSharedState,
@@ -496,42 +457,6 @@ export function SingleTemplatePreviewExportPanel() {
     ],
   );
   const [exportStatus, setExportStatus] = useState('');
-  const [exportAction, setExportAction] = useState<'export' | 'save' | null>(null);
-  const isExporting = exportAction !== null;
-  const certifiedSave = useSyncExternalStore(
-    subscribeCertifiedCoordinatedSave,
-    getCertifiedCoordinatedSaveSnapshot,
-    () => null,
-  );
-  const storedExportDefaults = useWorkspaceStore((state) => state.editorPreferences.exportDefaults);
-  const { scope: defaultExportScope, format: defaultExportFormat } =
-    normalizeStudioExportDefaults(storedExportDefaults);
-  const [exportScope, setExportScope] = useState(defaultExportScope);
-  const [preferredExportFormat, setPreferredExportFormat] = useState(defaultExportFormat);
-  const lastExportDefaults = useRef({
-    defaultExportScope,
-    defaultExportFormat,
-    exportRevealRequest,
-  });
-  useEffect(() => {
-    const previous = lastExportDefaults.current;
-    if (
-      previous.defaultExportScope === defaultExportScope &&
-      previous.defaultExportFormat === defaultExportFormat &&
-      (exportRevealRequest === undefined || previous.exportRevealRequest === exportRevealRequest)
-    ) {
-      return;
-    }
-    lastExportDefaults.current = { defaultExportScope, defaultExportFormat, exportRevealRequest };
-    setExportScope(defaultExportScope);
-    setPreferredExportFormat(defaultExportFormat);
-    setExportStatus('');
-  }, [defaultExportScope, defaultExportFormat, exportRevealRequest]);
-  const [exportDialog, setExportDialog] = useState<{
-    project: Project;
-    format: ExportFileFormat;
-    profile: ExportProfile;
-  } | null>(null);
   const [isCheckingCompatibility, setIsCheckingCompatibility] = useState(false);
   const [compatibility, setCompatibility] = useState<OGrafCompatibilityResult | null>(null);
   const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
@@ -540,9 +465,6 @@ export function SingleTemplatePreviewExportPanel() {
     projectId: string;
     mode: ExportProfileMode;
   } | null>(null);
-  const [templateSetProfileId, setTemplateSetProfileId] = useState<ExportProfileMode | 'authored'>(
-    'authored',
-  );
   const usesMediaPaint = useMemo(
     () =>
       composition.mediaCues.length > 0 ||
@@ -552,25 +474,6 @@ export function SingleTemplatePreviewExportPanel() {
     [composition.layers, composition.mediaCues.length],
   );
   const hasCurrentTemplate = !projectSet || templateIndex >= 0;
-  const exportSet = exportScope === 'set' || !hasCurrentTemplate ? projectSet : null;
-  const independentSetExport = Boolean(exportSet && !exportSet.transitionLogic);
-  const exportFormat = independentSetExport ? 'zip' : preferredExportFormat;
-  const exportSetUsesMedia = useMemo(
-    () =>
-      Boolean(
-        exportSet?.templates.some(({ project: member }) =>
-          member.compositions.some(
-            (item) =>
-              item.mediaCues.length > 0 ||
-              item.layers.some(
-                (layer) => hasElementMediaPaint(layer.element) || layer.element.type === 'audio',
-              ),
-          ),
-        ),
-      ),
-    [exportSet],
-  );
-  const exportUsesMedia = usesMediaPaint || exportSetUsesMedia;
   const hasExternalFeed = hasEnabledExternalFeed(composition);
   const requestedTemplateProfile =
     templateProfileChoice?.projectId === project.id
@@ -579,11 +482,6 @@ export function SingleTemplatePreviewExportPanel() {
   const exportProfile = getExportProfile(
     mediaCompatibleExportProfile(usesMediaPaint, requestedTemplateProfile),
   );
-  const setExportProfile =
-    templateSetProfileId === 'authored'
-      ? undefined
-      : getExportProfile(mediaCompatibleExportProfile(exportUsesMedia, templateSetProfileId));
-  const selectedExportProfile = exportSet ? setExportProfile : exportProfile;
   const playoutWarnings = useMemo(
     () =>
       getPlayoutCompatibilityWarnings(
@@ -631,7 +529,10 @@ export function SingleTemplatePreviewExportPanel() {
 
   useEffect(() => setComparisonNaturalSize(null), [comparisonAssetId]);
 
-  const descriptor = useMemo(() => compileDescriptor(composition), [composition]);
+  const descriptor = useMemo(
+    () => compileDescriptor(resolveStudioRendererComposition(composition, installedPlugins)),
+    [composition, installedPlugins],
+  );
   const previewStepCount = behaviorActive ? 1 : descriptor.stepCount;
   const previewDescriptorRef = useRef({
     latest: descriptor,
@@ -676,8 +577,8 @@ export function SingleTemplatePreviewExportPanel() {
         : previewDescriptor,
   );
   const previewData = useMemo(
-    () => resolvePreviewDataRecord({ ...composition, dataFields: previewFields }, dataForm),
-    [composition, previewFields, dataForm],
+    () => resolvePreviewDataRecord({ ...previewComposition, dataFields: previewFields }, dataForm),
+    [previewComposition, previewFields, dataForm],
   );
   const latestPreviewDataRef = useRef(previewData);
   const lastAttemptedDataSignatureRef = useRef<string | null>(null);
@@ -1562,17 +1463,18 @@ export function SingleTemplatePreviewExportPanel() {
     fields: previewFields,
     values: dataForm,
     customActions: syncEditorPreview ? [] : descriptor.customActions,
-    sharedTransition: sharedSet
-      ? {
-          source: sharedSet,
-          snapshot: sharedLive.snapshot,
-          manifest: sharedLive.manifest,
-          ready: sharedLive.ready,
-          error: sharedError,
-          sendAction: (actionId, payload) =>
-            callShared('customAction', { kind: 'action', actionId, payload }),
-        }
-      : undefined,
+    sharedTransition:
+      sharedSet && livePublicationId
+        ? {
+            source: sharedSet,
+            snapshot: sharedLive.snapshot,
+            manifest: sharedLive.manifest,
+            ready: canControlPreview,
+            error: sharedError,
+            sendAction: (actionId, payload) =>
+              callShared('customAction', { kind: 'action', actionId, payload }),
+          }
+        : undefined,
     changeTemplate,
     play: handlePlayAction,
     out: handleStop,
@@ -1635,90 +1537,6 @@ export function SingleTemplatePreviewExportPanel() {
   const handleGoToTime = () => {
     const params = { timestamp: scrubTimestamp };
     void call('goToTime', params, (g) => g.goToTime(params));
-  };
-
-  const runExport = async (exportTemplate: () => Promise<ExportZipResult>) => {
-    setExportAction('export');
-    setExportStatus('');
-    try {
-      const result = await exportTemplate();
-      setCompatibility(result.compatibility);
-      if (!result.valid) {
-        setExportStatus(`Exported with ${result.errors.length} manifest issue(s) — see below.`);
-      } else {
-        setExportStatus(exportCompletionMessage(result));
-      }
-      return result.saveResult;
-    } catch (err) {
-      setExportStatus(err instanceof Error ? err.message : 'Export failed.');
-      throw err;
-    } finally {
-      setExportAction(null);
-    }
-  };
-
-  const mainCompositionOf = (snapshot: Project) =>
-    snapshot.compositions.find((item) => item.id === snapshot.mainCompositionId)!;
-
-  const handleExport = (snapshot: Project, format: ExportFileFormat, profile: ExportProfile) =>
-    runExport(() =>
-      exportProjectAsZip(snapshot, mainCompositionOf(snapshot), profile, {
-        format,
-        ownerWindow: window,
-      }),
-    );
-
-  const beginExport = async () => {
-    if (!exportSet) {
-      setExportDialog({
-        project: structuredClone({ ...project, mainCompositionId: composition.id }),
-        format: exportFormat,
-        profile: exportProfile,
-      });
-      return;
-    }
-    setExportAction('export');
-    setExportStatus('Preparing the template set…');
-    try {
-      const result = await exportSetInStudio(exportSet, setExportProfile, {
-        format: exportFormat,
-        ownerWindow: window,
-      });
-      if (!result) {
-        setExportStatus('Export cancelled.');
-        return;
-      }
-      setExportStatus(
-        `${exportCompletionMessage(result)}${result.unreferencedTemplates?.length ? ` The coordinated export omits ${result.unreferencedTemplates.map(({ name }) => name).join(', ')}.` : ''}`,
-      );
-    } catch (err) {
-      setExportStatus(err instanceof Error ? err.message : 'Export failed.');
-    } finally {
-      setExportAction(null);
-    }
-  };
-
-  const saveCertifiedExport = async () => {
-    setExportAction('save');
-    setExportStatus('');
-    try {
-      const result = await retryCertifiedCoordinatedSave({ ownerWindow: window });
-      setExportStatus(
-        result.saveResult === 'saved'
-          ? `Saved and verified “${result.fileName}”.`
-          : `Download requested for “${result.fileName}”. Check browser downloads.`,
-      );
-    } catch (error) {
-      setExportStatus(
-        error instanceof CoordinatedExportError && error.outcome === 'user-cancelled'
-          ? 'Export save cancelled. The certified file is still ready to save.'
-          : error instanceof Error
-            ? error.message
-            : 'Could not save the certified export.',
-      );
-    } finally {
-      setExportAction(null);
-    }
   };
 
   const handleCompatibilityCheck = async () => {
@@ -2295,7 +2113,6 @@ export function SingleTemplatePreviewExportPanel() {
 
         <CollapsibleSection
           sectionId="preview.export"
-          revealRequest={paneVisible ? exportRevealRequest : undefined}
           title={
             <span className="preview-export-heading">
               <OgrafLogo section />
@@ -2305,249 +2122,104 @@ export function SingleTemplatePreviewExportPanel() {
           ariaLabel="Export"
           className="data-panel-section"
         >
-          {projectSet && (
-            <PropertyRow
-              help="Export the selected template or the complete open set."
-              className="preview-data-row"
-            >
-              <span>Export scope</span>
-              <select
-                value={exportSet ? 'set' : 'template'}
-                disabled={isExporting || isCheckingCompatibility}
-                onChange={(event) => {
-                  setExportScope(event.target.value as 'template' | 'set');
-                  setExportStatus('');
-                }}
-              >
-                <option value="template" disabled={!hasCurrentTemplate}>
-                  Current template
-                </option>
-                <option value="set">Template set</option>
-              </select>
-            </PropertyRow>
-          )}
-          <PropertyRow
-            help="Choose an OGraf ZIP package, a self-contained HTML preview, or both as separate files."
-            className="preview-data-row"
-          >
-            <span>Export format</span>
-            <select
-              value={exportFormat}
-              disabled={isExporting || isCheckingCompatibility}
-              onChange={(event) => {
-                setPreferredExportFormat(event.target.value as ExportFileFormat);
-                setExportStatus('');
-              }}
-            >
-              <option value="zip">OGraf ZIP</option>
-              <option value="html" disabled={independentSetExport}>
-                Standalone HTML
-              </option>
-              <option value="both" disabled={independentSetExport}>
-                Both files
-              </option>
-            </select>
-          </PropertyRow>
-          {independentSetExport ? (
-            <p className="panel-placeholder">
-              This set exports one OGraf package per template in a single .ograf-set.zip archive.
-              {hasCurrentTemplate
-                ? ' Choose Current template to export a standalone HTML file.'
-                : ''}
-            </p>
-          ) : (
-            <p className="panel-placeholder">
-              {exportSet
-                ? 'This set exports as one coordinated graphic with Transition Logic. '
-                : ''}
-              {exportFormat === 'html'
-                ? 'Open the self-contained HTML file directly in a browser.'
-                : exportFormat === 'both'
-                  ? 'Save the OGraf ZIP and the browser-ready HTML as separate files.'
-                  : 'Use the OGraf ZIP with compatible playout systems.'}
-            </p>
-          )}
-          <PropertyRow
-            help={
-              "Choose the playback modes advertised by the exported package: real-time, non-real-time or both. This output-only choice does not change the editable project's flags."
-            }
-            className="preview-data-row"
-          >
-            <span>Export profile</span>
-            <select
-              value={selectedExportProfile?.id ?? 'authored'}
-              disabled={isExporting || isCheckingCompatibility}
-              onChange={(event) => {
-                if (exportSet)
-                  setTemplateSetProfileId(event.target.value as ExportProfileMode | 'authored');
-                else
-                  setTemplateProfileChoice({
-                    projectId: project.id,
-                    mode: event.target.value as ExportProfileMode,
-                  });
-              }}
-            >
-              {exportSet && <option value="authored">As authored</option>}
-              {BUILT_IN_EXPORT_PROFILES.map((profile) => (
-                <option
-                  key={profile.id}
-                  value={profile.id}
-                  disabled={exportUsesMedia && profile.mode !== 'realtime'}
-                >
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-          </PropertyRow>
-          <p className="panel-placeholder">
-            {selectedExportProfile
-              ? `The ${selectedExportProfile.name} profile applies to the exported files.`
-              : 'The export uses the authored render modes.'}
-            {exportUsesMedia ? ' Media and audio require real-time output.' : ''}
-            {!exportSet && hasExternalFeed && project.supportsRealTime && !usesMediaPaint
-              ? ' Real-time playout is recommended for live data. Dual-mode also certifies offline rendering.'
-              : ''}
-          </p>
-          {!exportSet && playoutWarnings.length > 0 ? (
-            <aside
-              className="preview-playout-warnings"
-              aria-label="Playout compatibility warnings"
-              role="status"
-            >
-              <strong>⚠ Playout compatibility</strong>
-              <ul>
-                {playoutWarnings.map((warning) => (
-                  <li key={warning.id}>{warning.message}</li>
-                ))}
-              </ul>
-            </aside>
-          ) : null}
-          {!exportSet && (
-            <p className={`preview-validation${validation.valid ? '' : ' invalid'}`}>
-              {validation.valid
-                ? '✓ Manifest schema precheck passed.'
-                : `✕ ${validation.errors.length} manifest issue(s):`}
-            </p>
-          )}
-          {!exportSet && !validation.valid && (
-            <ul className="preview-validation-errors">
-              {validation.errors.map((err) => (
-                <li key={err}>{err}</li>
-              ))}
-            </ul>
-          )}
-          {exportSet ? (
-            <p className="panel-placeholder">
-              Studio runs compatibility checks before saving the set export.
-            </p>
-          ) : (
-            <p className={`preview-validation${compatibility?.valid ? '' : ' invalid'}`}>
-              {compatibility?.valid
-                ? `✓ OGraf v1 certified for ${exportProfile.name}: package, module API, and declared lifecycle tests passed.`
-                : compatibility
-                  ? '✕ OGraf compatibility certification failed.'
-                  : 'Not yet certified. Certification always runs again immediately before saving.'}
-            </p>
-          )}
-          {!exportSet && compatibility && (
-            <ul className="preview-validation-errors">
-              {compatibility.checks.map((check) => (
-                <li
-                  key={check.id}
-                  className={check.valid ? 'preview-validation-check-valid' : undefined}
-                >
-                  {check.valid ? '✓' : '✕'} {check.label}
-                  {!check.valid && check.errors.length > 0 ? ` — ${check.errors.join(' ')}` : ''}
-                </li>
-              ))}
-            </ul>
-          )}
           <div className="preview-controls-row">
-            {!exportSet && (
-              <button
-                type="button"
-                onClick={handleCompatibilityCheck}
-                disabled={isCheckingCompatibility || isExporting}
-              >
-                {isCheckingCompatibility ? 'Testing…' : 'Run compatibility test'}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void beginExport()}
-              disabled={isExporting || isCheckingCompatibility || exportSet?.templates.length === 0}
-            >
-              {exportAction === 'export'
-                ? 'Testing & exporting…'
-                : `${exportActionLabel(exportFormat)}…`}
+            <button type="button" onClick={(event) => requestStudioExport(event.currentTarget)}>
+              Export OGraf…
             </button>
-            {certifiedSave && (
-              <button
-                type="button"
-                onClick={() => void saveCertifiedExport()}
-                disabled={isExporting || isCheckingCompatibility}
-                title={`Save the certified file “${certifiedSave.fileName}” without rebuilding it.`}
-              >
-                {exportAction === 'save' ? 'Saving…' : 'Save Certified Export…'}
-              </button>
-            )}
           </div>
-          {exportStatus && (
-            <p className="preview-export-status" role="status">
-              {exportStatus}
-            </p>
+          <p className="panel-placeholder">
+            Choose the scope, files, thumbnail and destination in the Export OGraf dialog.
+          </p>
+          {hasCurrentTemplate && (
+            <>
+              <PropertyRow
+                help="Choose the playout mode for this compatibility test on the current template."
+                className="preview-data-row"
+              >
+                <span>Compatibility profile</span>
+                <select
+                  aria-label="Compatibility profile"
+                  value={exportProfile.id}
+                  disabled={isCheckingCompatibility}
+                  onChange={(event) => {
+                    setTemplateProfileChoice({
+                      projectId: project.id,
+                      mode: event.target.value as ExportProfileMode,
+                    });
+                    setExportStatus('');
+                  }}
+                >
+                  {BUILT_IN_EXPORT_PROFILES.map((profile) => (
+                    <option
+                      key={profile.id}
+                      value={profile.id}
+                      disabled={usesMediaPaint && profile.mode !== 'realtime'}
+                    >
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </PropertyRow>
+              {playoutWarnings.length > 0 && (
+                <aside
+                  className="preview-playout-warnings"
+                  aria-label="Playout compatibility warnings"
+                  role="status"
+                >
+                  <strong>⚠ Playout compatibility</strong>
+                  <ul>
+                    {playoutWarnings.map((warning) => (
+                      <li key={warning.id}>{warning.message}</li>
+                    ))}
+                  </ul>
+                </aside>
+              )}
+              <p className={`preview-validation${validation.valid ? '' : ' invalid'}`}>
+                {validation.valid
+                  ? '✓ Manifest schema precheck passed.'
+                  : `✕ ${validation.errors.length} manifest issue(s):`}
+              </p>
+              {!validation.valid && (
+                <ul className="preview-validation-errors">
+                  {validation.errors.map((error) => (
+                    <li key={error}>{error}</li>
+                  ))}
+                </ul>
+              )}
+              {compatibility && (
+                <ul className="preview-validation-errors">
+                  {compatibility.checks.map((check) => (
+                    <li
+                      key={check.id}
+                      className={check.valid ? 'preview-validation-check-valid' : undefined}
+                    >
+                      {check.valid ? '✓' : '✕'} {check.label}
+                      {!check.valid && check.errors.length > 0
+                        ? ` — ${check.errors.join(' ')}`
+                        : ''}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="preview-controls-row">
+                <button
+                  type="button"
+                  onClick={handleCompatibilityCheck}
+                  disabled={isCheckingCompatibility}
+                >
+                  {isCheckingCompatibility ? 'Testing…' : 'Run compatibility test'}
+                </button>
+              </div>
+              {exportStatus && (
+                <p className="preview-export-status" role="status">
+                  {exportStatus}
+                </p>
+              )}
+            </>
           )}
           <SharedPlayoutLinks />
         </CollapsibleSection>
       </div>
-      {exportDialog && (
-        <TemplateSaveDialog
-          project={exportDialog.project}
-          onClose={() => setExportDialog(null)}
-          exportOptions={{
-            fileNames: [
-              ...(exportDialog.format === 'html'
-                ? []
-                : [
-                    `${exportDialog.project.name || 'untitled'}${exportDialog.profile.fileNameSuffix}.ograf.zip`,
-                  ]),
-              ...(exportDialog.format === 'zip'
-                ? []
-                : [
-                    getOfflinePreviewFileName({
-                      manifest: {
-                        ...manifest,
-                        name: `${exportDialog.project.name}${exportDialog.profile.fileNameSuffix}`,
-                      },
-                    }),
-                  ]),
-            ],
-            actionLabel: exportActionLabel(exportDialog.format),
-            save: (snapshot) => handleExport(snapshot, exportDialog.format, exportDialog.profile),
-            onUseRealTime:
-              exportDialog.profile.mode !== 'realtime' && exportDialog.project.supportsRealTime
-                ? () => {
-                    setTemplateProfileChoice({
-                      projectId: exportDialog.project.id,
-                      mode: 'realtime',
-                    });
-                    setExportDialog({ ...exportDialog, profile: getExportProfile('realtime') });
-                    setExportStatus('');
-                  }
-                : undefined,
-          }}
-          onSaved={(_mode, savedProject) => {
-            const frame = savedProject.thumbnailFrame ?? null;
-            const current = useProjectStore.getState();
-            if (
-              current.project.id === exportDialog.project.id &&
-              (current.project.thumbnailFrame ?? null) !== frame
-            )
-              current.setProjectMeta({ thumbnailFrame: frame });
-            setExportDialog(null);
-          }}
-        />
-      )}
     </Panel>
   );
 }

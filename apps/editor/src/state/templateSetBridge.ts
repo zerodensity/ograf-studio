@@ -9,6 +9,8 @@ import {
   hasElementMediaPaint,
   isMediaPaint,
   normalizeCanvasCrop,
+  requireOutputLayer,
+  resolveOutputLayer,
   type FieldValue,
   type DesignSystem,
   type DesignToken,
@@ -21,16 +23,16 @@ import {
 import {
   createProjectSet,
   DEFAULT_PROJECT_SET_NAME,
-  PROJECT_SET_SCHEMA_VERSION,
+  projectSetArchiveSchemaVersion,
   renameProjectSet,
   renameProjectSetTemplate,
   reorderProjectSetTemplate,
   resolveProjectSetTemplate,
-  saveProjectSetTemplateEdits,
   setProjectSetControlValue,
   bindProjectSetControl,
   bindProjectSetAsset,
   setProjectSetAssetSlotSource,
+  templateBrandKit,
   validateProjectSetDocument,
   type ProjectSetDocument,
 } from './projectSet';
@@ -41,6 +43,7 @@ import { sharedAssetImpact, sharedSourceReferences } from './sharedAssetImpact';
 import { sharedComponentUsage } from './sharedResourceUsage';
 import { createProjectSetArchiveTask } from './projectSetArchiveTask';
 import {
+  LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
   MAX_TEMPLATE_SET_MCP_ARCHIVE_BYTES,
   type TemplateSetArchiveRequest,
   type TemplateSetArchiveResult,
@@ -49,11 +52,13 @@ import { applyProjectSetChange, activateProjectSetTemplate } from './projectSetS
 import {
   duplicateTemplate,
   copyTemplate,
-  pasteTemplate,
+  pasteTemplateWithReport,
   removeTemplate,
   undoRemoveTemplate,
   newTemplate,
   useTemplateClipboardStore,
+  snapshotOpenTemplateSet,
+  type TemplateTransferReport,
 } from './templateCommands';
 import {
   saveTemplateSetSettings,
@@ -112,14 +117,11 @@ if (import.meta.hot)
     unsubscribeClipboard();
   });
 
-function currentSet(): ProjectSetDocument | null {
-  const { projectSet, activeTemplateId } = useProjectSetStore.getState();
-  return projectSet && activeTemplateId
-    ? saveProjectSetTemplateEdits(projectSet, activeTemplateId, useProjectStore.getState().project)
-    : projectSet;
+export function currentTemplateSetRevision(): string {
+  return `${epoch}:${revision}`;
 }
 function requireSet() {
-  const set = currentSet();
+  const set = snapshotOpenTemplateSet();
   if (!set) throw new Error('Create or open a template set first.');
   return set;
 }
@@ -132,7 +134,7 @@ function snapshot(
     resourceUsage?: { slotIds?: string[]; componentIds?: string[] };
   } = {},
 ): Record<string, unknown> {
-  const set = currentSet();
+  const set = snapshotOpenTemplateSet();
   const clipboard = useTemplateClipboardStore.getState();
   const offset = page.offset ?? 0;
   const limit = page.limit ?? 256;
@@ -256,6 +258,7 @@ function snapshot(
         );
     }
   }
+  const archiveSchemaVersion = set && projectSetArchiveSchemaVersion(set);
   const result = {
     revision: `${epoch}:${revision}`,
     activeTemplateId: useProjectSetStore.getState().activeTemplateId,
@@ -272,10 +275,13 @@ function snapshot(
       ? {
           id: set.id,
           name: set.name,
+          outputLayer: resolveOutputLayer(set.outputLayer),
           storage: {
             defaultArchiveMode: 'compact',
-            archiveSchemaVersion: PROJECT_SET_SCHEMA_VERSION,
+            archiveSchemaVersion,
             compatibleSchemaVersion: 5,
+            compatibleArchiveAvailable:
+              archiveSchemaVersion !== LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
             hydratedProjects: true,
             sharedResources: 'once-per-set',
             sharedComponents: 'once-per-set',
@@ -312,7 +318,10 @@ function snapshot(
               id: template.id,
               name: template.name,
               projectId: project.id,
+              outputLayer: resolveOutputLayer(project.outputLayer),
               inheritSettings: template.inheritSettings !== false,
+              inheritBrandKit: template.inheritBrandKit !== false,
+              ...(template.brandKitLinks ? { brandKitLinks: template.brandKitLinks } : {}),
               settingsOverrides: template.settingsOverrides ?? [],
               brandKitOverrides: template.brandKitOverrides ?? [],
               typographyOverrides: template.typographyOverrides ?? [],
@@ -386,7 +395,11 @@ export function handleTemplateSetRequest(request: {
     validateProjectSetDocument(updated);
     applyProjectSetChange(updated, refresh);
   };
+  let transfer: TemplateTransferReport | undefined;
   switch (operation.type) {
+    case 'set_output_layer':
+      change({ ...requireSet(), outputLayer: requireOutputLayer(operation.outputLayer) });
+      break;
     case 'set_transition_logic': {
       const set = requireSet();
       const draft = useTransitionLogicDraftStore.getState().drafts[set.id];
@@ -528,10 +541,12 @@ export function handleTemplateSetRequest(request: {
     case 'set_brand_token_override': {
       const set = requireSet();
       const tokenId = String(operation.tokenId);
-      if (!set.brandKit?.tokens.some((token) => token.id === tokenId))
+      const template = set.templates.find((item) => item.id === templateId);
+      if (!template) throw new Error('Template not found.');
+      if (template.inheritBrandKit === false && !template.brandKitLinks)
+        throw new Error('This template uses local branding. Edit the token in This template.');
+      if (!templateBrandKit(set, template)?.tokens.some((token) => token.id === tokenId))
         throw new Error('Shared token not found.');
-      if (!set.templates.some((template) => template.id === templateId))
-        throw new Error('Template not found.');
       change(
         {
           ...set,
@@ -571,7 +586,7 @@ export function handleTemplateSetRequest(request: {
       copyTemplate(templateId);
       break;
     case 'paste_template':
-      pasteTemplate(target, side, originalPrompt);
+      transfer = pasteTemplateWithReport(target, side, originalPrompt).transfer;
       break;
     case 'remove_template':
       if (!request.confirm) throw new Error('Template removal requires confirm:true.');
@@ -664,7 +679,8 @@ export function handleTemplateSetRequest(request: {
     default:
       throw new Error(`Unknown template-set operation: ${operation.type}`);
   }
-  return snapshot();
+  const result = snapshot();
+  return transfer ? { ...result, transfer } : result;
 }
 
 /** Build a frozen source copy in the archive worker; file writes remain on the MCP host. */
@@ -689,6 +705,7 @@ export async function archiveTemplateSetForBridge(
   if (archiveMode !== 'compact' && archiveMode !== 'compatible')
     throw new Error('Template-set archiveMode must be compact or compatible.');
   const set = structuredClone(requireSet());
+  const schemaVersion = projectSetArchiveSchemaVersion(set, archiveMode);
   const blob = await createProjectSetArchiveTask(set, {
     archiveMode,
     onProgress: (progress) =>
@@ -711,7 +728,7 @@ export async function archiveTemplateSetForBridge(
     revision: expected,
     name: set.name,
     archiveMode,
-    schemaVersion: archiveMode === 'compatible' ? 5 : PROJECT_SET_SCHEMA_VERSION,
+    schemaVersion,
     archiveBase64: chunks.join(''),
     archiveBytes: bytes.byteLength,
     templateCount: set.templates.length,

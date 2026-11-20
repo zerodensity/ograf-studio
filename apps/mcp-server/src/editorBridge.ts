@@ -18,9 +18,17 @@ import { nodosSendMessageSchema, type NodosPresetHost } from './nodos/nodosPrese
 import {
   livePlayoutRequestSchema,
   MAX_PLAYOUT_REQUEST_BYTES,
+  type BrowserVideoRequest,
+  type BrowserVideoResult,
+  type CaptureComparisonResult,
   type LivePlayoutRequest,
   type TemplateSetRequest,
 } from '@ograf-editor/agent-tools';
+import {
+  isTemplateTransferRequest,
+  TEMPLATE_TRANSFER_CAPABILITY,
+  type TemplateTransferCaptures,
+} from '@ograf-editor/agent-tools/template-transfer-review';
 
 export interface CompatibilityResult {
   valid: boolean;
@@ -36,6 +44,7 @@ export interface BrowserCaptureRequest {
   maxDimension: number;
   matte: string;
   dataOverrides?: Record<string, FieldValue>;
+  reference?: { mimeType: string; data: string };
 }
 
 export interface ResolvedFontResult {
@@ -53,6 +62,7 @@ export interface BrowserCaptureResult {
   height: number;
   originalWidth: number;
   originalHeight: number;
+  comparison?: CaptureComparisonResult;
   resolvedFonts: ResolvedFontResult[];
   runtimeCollections?: Array<{
     id: string;
@@ -84,13 +94,14 @@ export interface BrowserStripResult extends BrowserCaptureResult {
   compositionHeight: number;
 }
 
-export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data'> {
+export interface PublishedCapture extends Omit<BrowserCaptureResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;
+  comparison?: Omit<CaptureComparisonResult, 'data' | 'mimeType'> & { url: string };
 }
 
-export interface PublishedStrip extends Omit<BrowserStripResult, 'data'> {
+export interface PublishedStrip extends Omit<BrowserStripResult, 'data' | 'comparison'> {
   data: string;
   url: string;
   expiresAt: string;
@@ -130,6 +141,7 @@ export interface BrowserMeasureTextResult {
 
 export interface EditorBridgeHealth {
   templateSetsReady?: boolean;
+  templateTransfersReady?: boolean;
   playoutReady?: boolean;
   connected: boolean;
   responsive: boolean;
@@ -200,6 +212,7 @@ type EditorInbound =
       type: 'template-set.result';
       requestId: string;
       result?: Record<string, unknown>;
+      captures?: TemplateTransferCaptures;
       project?: Project;
       componentGraphContext?: ComponentGraphContext | null;
       error?: string;
@@ -224,6 +237,8 @@ type EditorInbound =
       result?: BrowserStripResult;
       error?: string;
     }
+  | { type: 'video.progress'; requestId: string; frame: number; frames: number }
+  | { type: 'video.result'; requestId: string; result?: BrowserVideoResult; error?: string }
   | {
       type: 'measure-text.result';
       requestId: string;
@@ -250,6 +265,14 @@ interface PendingCapture {
 interface PendingStrip {
   resolve: (result: BrowserStripResult) => void;
   reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+interface PendingVideo {
+  resolve: (result: BrowserVideoResult) => void;
+  reject: (error: Error) => void;
+  /** Starts the wait for the editor's next sign of life again. */
+  stillWorking: () => void;
   timeout: ReturnType<typeof setTimeout>;
 }
 
@@ -284,6 +307,7 @@ function isLocalRequest(request: IncomingMessage): boolean {
 
 export class EditorBridge {
   #templateSetsReady = false;
+  #templateTransfersReady = false;
   #playoutReady = false;
   #pendingPlayout = new Map<
     string,
@@ -296,6 +320,7 @@ export class EditorBridge {
   #pendingTemplateSets = new Map<
     string,
     {
+      action: TemplateSetRequest['action'];
       resolve: (result: Record<string, unknown>) => void;
       reject: (error: Error) => void;
       timeout: ReturnType<typeof setTimeout>;
@@ -305,6 +330,7 @@ export class EditorBridge {
   #pendingCertifications = new Map<string, PendingCertification>();
   #pendingCaptures = new Map<string, PendingCapture>();
   #pendingStrips = new Map<string, PendingStrip>();
+  #pendingVideos = new Map<string, PendingVideo>();
   #pendingTextMeasurements = new Map<string, PendingMeasureText>();
   #captureAssets = new Map<string, CaptureAsset>();
   #proposals = new Map<string, PendingProposal>();
@@ -416,6 +442,7 @@ export class EditorBridge {
     return {
       connected: true,
       templateSetsReady: this.#templateSetsReady,
+      templateTransfersReady: this.#templateTransfersReady,
       playoutReady: this.#playoutReady,
       responsive,
       latencyMs,
@@ -459,6 +486,7 @@ export class EditorBridge {
     }
     this.#socket = socket;
     this.#templateSetsReady = false;
+    this.#templateTransfersReady = false;
     this.#playoutReady = false;
     this.#editorReady = false;
     this.#componentGraphReady = false;
@@ -521,6 +549,11 @@ export class EditorBridge {
         pending.reject(new Error('The live editor disconnected during frame-strip rendering.'));
       }
       this.#pendingStrips.clear();
+      for (const pending of this.#pendingVideos.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error('The live editor disconnected during video export.'));
+      }
+      this.#pendingVideos.clear();
       for (const pending of this.#pendingTextMeasurements.values()) {
         clearTimeout(pending.timeout);
         pending.reject(new Error('The live editor disconnected during text measurement.'));
@@ -565,6 +598,8 @@ export class EditorBridge {
     }
     if (message.type === 'editor.hello') {
       this.#templateSetsReady = message.capabilities?.includes('template-sets-v1') ?? false;
+      this.#templateTransfersReady =
+        message.capabilities?.includes(TEMPLATE_TRANSFER_CAPABILITY) ?? false;
       this.#playoutReady = message.capabilities?.includes('playout-v1') ?? false;
       const session = this.workspace.get('editor');
       if (!this.#editorBaselineInitialized && session.revision === 0) {
@@ -648,6 +683,19 @@ export class EditorBridge {
       else pending.reject(new Error(message.error || 'Browser frame-strip rendering failed.'));
       return;
     }
+    if (message.type === 'video.progress') {
+      this.#pendingVideos.get(message.requestId)?.stillWorking();
+      return;
+    }
+    if (message.type === 'video.result') {
+      const pending = this.#pendingVideos.get(message.requestId);
+      if (!pending) return;
+      clearTimeout(pending.timeout);
+      this.#pendingVideos.delete(message.requestId);
+      if (message.result) pending.resolve(message.result);
+      else pending.reject(new Error(message.error || 'Browser video export failed.'));
+      return;
+    }
     if (message.type === 'measure-text.result') {
       const pending = this.#pendingTextMeasurements.get(message.requestId);
       if (!pending) return;
@@ -677,6 +725,13 @@ export class EditorBridge {
         return;
       }
       try {
+        if (message.captures && pending.action !== 'transfer-preview')
+          throw new Error('Studio returned images for an unexpected transfer request.');
+        if (
+          message.project &&
+          (pending.action === 'transfer-review' || pending.action === 'transfer-preview')
+        )
+          throw new Error('Studio returned a project change during transfer review.');
         if (Object.hasOwn(message, 'componentGraphContext')) {
           this.#componentGraphContext = message.componentGraphContext ?? null;
           this.#componentGraphReady = true;
@@ -691,6 +746,14 @@ export class EditorBridge {
         }
         pending.resolve({
           ...message.result,
+          ...(message.captures
+            ? {
+                previewImages: {
+                  before: this.#publishTransferImage(message.captures.before),
+                  after: this.#publishTransferImage(message.captures.after),
+                },
+              }
+            : {}),
           projectRevision: this.workspace.get('editor').revision,
         });
       } catch (cause) {
@@ -831,7 +894,14 @@ export class EditorBridge {
       this.#send({ type: 'capture.request', requestId, request });
     });
 
-    return this.#publishPng(result);
+    const { comparison, ...capture } = result;
+    const published = this.#publishPng(capture);
+    if (!comparison) return published;
+    const { data: _data, mimeType: _mimeType, ...scores } = comparison;
+    return {
+      ...published,
+      comparison: { ...scores, url: this.#publishPng({ ...capture, ...comparison }).url },
+    };
   }
 
   async renderStrip(request: BrowserStripRequest, timeoutMs = 60_000): Promise<PublishedStrip> {
@@ -851,6 +921,38 @@ export class EditorBridge {
       this.#send({ type: 'strip.request', requestId, request });
     });
     return this.#publishPng(result);
+  }
+
+  /**
+   * A movie takes as long as it has frames, so no total time is set: the wait ends when the
+   * editor has reported no progress for `idleMs`.
+   */
+  async exportVideo(request: BrowserVideoRequest, idleMs = 120_000): Promise<BrowserVideoResult> {
+    if (!this.connected) {
+      throw new Error(
+        'Video export requires OGraf Studio to be open and connected to the local MCP server.',
+      );
+    }
+    await this.#awaitResponsive('video export', idleMs);
+    const requestId = randomUUID();
+    return new Promise<BrowserVideoResult>((resolve, reject) => {
+      const idle = () =>
+        setTimeout(() => {
+          this.#pendingVideos.delete(requestId);
+          reject(this.#timeoutError('video export', idleMs));
+        }, idleMs);
+      const pending: PendingVideo = {
+        resolve,
+        reject,
+        timeout: idle(),
+        stillWorking: () => {
+          clearTimeout(pending.timeout);
+          pending.timeout = idle();
+        },
+      };
+      this.#pendingVideos.set(requestId, pending);
+      this.#send({ type: 'video.request', requestId, request });
+    });
   }
 
   async measureText(
@@ -882,6 +984,8 @@ export class EditorBridge {
       throw new Error('Template-set tools require the live editor to be connected.');
     if (!this.#templateSetsReady)
       throw new Error('Reload the editor to enable the updated template-set API.');
+    if (isTemplateTransferRequest(request) && !this.#templateTransfersReady)
+      throw new Error('Reload Studio to enable template transfer review.');
     await this.#awaitResponsive('template-set operation', timeoutMs);
     const requestId = randomUUID();
     return new Promise((resolve, reject) => {
@@ -893,7 +997,12 @@ export class EditorBridge {
           ),
         );
       }, timeoutMs);
-      this.#pendingTemplateSets.set(requestId, { resolve, reject, timeout });
+      this.#pendingTemplateSets.set(requestId, {
+        action: request.action,
+        resolve,
+        reject,
+        timeout,
+      });
       this.#send({
         type: 'template-set.request',
         requestId,
@@ -1043,6 +1152,11 @@ export class EditorBridge {
       url: `${this.#origin()}/captures/${token}`,
       expiresAt: new Date(expiresAt).toISOString(),
     };
+  }
+
+  #publishTransferImage(image: TemplateTransferCaptures['before']) {
+    const { url, expiresAt, width, height, frame } = this.#publishPng(image);
+    return { url, expiresAt, width, height, frame };
   }
 
   #origin(): string {

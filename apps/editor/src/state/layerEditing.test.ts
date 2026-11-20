@@ -371,6 +371,22 @@ describe('layer editing commands', () => {
     expect(findLayerKeyframeAtFrame(layer, 12)?.transform).toMatchObject({ x: 200, y: 200 });
   });
 
+  it('preserves animated layer geometry across a one-pixel canvas', () => {
+    const store = useProjectStore.getState();
+    const layerId = store.addLayer('rectangle');
+    store.updateLayerTransform(layerId, 6, { x: -400, y: -200, width: 75, height: 1500 });
+    store.setLayerConstraints(layerId, { horizontal: 'scale', vertical: 'scale' });
+    const layer = () => activeComposition().layers[0]!;
+    const before = getLayerTransformAtFrame(layer(), 6);
+    const xKeys = layer().animationTracks.x?.map(({ id, frame }) => ({ id, frame }));
+
+    store.updateCompositionSettings({ width: 1, height: 1 });
+    expect(getLayerTransformAtFrame(layer(), 6)).toMatchObject({ width: 1, height: 1 });
+    store.updateCompositionSettings({ width: 1920, height: 1080 });
+    expect(getLayerTransformAtFrame(layer(), 6)).toEqual(before);
+    expect(layer().animationTracks.x?.map(({ id, frame }) => ({ id, frame }))).toEqual(xKeys);
+  });
+
   it('aligns and distributes unlocked layers at one frame', () => {
     const ids = ['rectangle', 'ellipse', 'text'].map((kind) =>
       useProjectStore.getState().addLayer(kind as 'rectangle' | 'ellipse' | 'text'),

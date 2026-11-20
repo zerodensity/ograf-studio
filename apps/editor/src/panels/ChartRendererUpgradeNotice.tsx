@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
-import { rendererPluginKey, studioPluginReference } from '@ograf-editor/scene-model';
-import { chartRendererReferences, chartRendererUpgradeOffers } from '../state/chartRendererUpgrade';
+import {
+  rendererPluginKey,
+  studioPluginReference,
+  type RendererPluginReference,
+} from '@ograf-editor/scene-model';
+import { chartRendererUpgradeOffers } from '../state/chartRendererUpgrade';
 import { useConfigurationRequestStore } from '../state/configurationRequestStore';
 import { runDiscreteHistoryStep } from '../state/historyStore';
+import { collectPluginLoadWarnings } from '../state/pluginLoadWarnings';
 import { useProjectSetStore } from '../state/projectSetStore';
 import { useProjectStore } from '../state/projectStore';
 import { useRendererPluginSettingsStore } from '../state/pluginSettingsStore';
@@ -11,66 +16,57 @@ import { useRendererPluginSettingsStore } from '../state/pluginSettingsStore';
 export function ChartRendererUpgradeNotice() {
   const project = useProjectStore((state) => state.project);
   const installed = useRendererPluginSettingsStore((state) => state.installed);
+  const initialized = useRendererPluginSettingsStore((state) => state.initialized);
+  const loading = useRendererPluginSettingsStore((state) => state.loading);
   const projectSet = useProjectSetStore((state) => state.projectSet);
   const activeTemplateId = useProjectSetStore((state) => state.activeTemplateId);
   const [error, setError] = useState('');
-  const offers = useMemo(
-    () => chartRendererUpgradeOffers(project, installed, projectSet, activeTemplateId),
-    [project, installed, projectSet, activeTemplateId],
-  );
-  const missing = useMemo(
-    () =>
-      chartRendererReferences(project).filter(
-        (reference) =>
-          !installed.some(
-            (entry) =>
-              entry.enabled &&
-              entry.trusted &&
-              rendererPluginKey(studioPluginReference(entry.snapshot)) ===
-                rendererPluginKey(reference),
-          ) &&
-          !offers.some((offer) => rendererPluginKey(offer.from) === rendererPluginKey(reference)),
-      ),
-    [project, installed, offers],
-  );
-  const otherMissing = useMemo(
-    () =>
-      (projectSet?.templates ?? [])
-        .filter((template) => template.id !== activeTemplateId)
-        .flatMap((template) =>
-          chartRendererReferences(template.project)
-            .filter(
-              (reference) =>
-                !installed.some(
-                  (entry) =>
-                    entry.enabled &&
-                    entry.trusted &&
-                    rendererPluginKey(studioPluginReference(entry.snapshot)) ===
-                      rendererPluginKey(reference),
-                ),
-            )
-            .map((reference) => ({ template: template.name, templateId: template.id, reference })),
-        ),
-    [projectSet, activeTemplateId, installed],
-  );
+  const { offers, missing, otherMissing, blocked } = useMemo(() => {
+    const blocked = new Map<string, RendererPluginReference>();
+    const otherMissing = new Map<
+      string,
+      { template: string; templateId: string; reference: RendererPluginReference }
+    >();
+    for (const { reference, templateId, templateName } of collectPluginLoadWarnings({
+      project,
+      projectSet,
+      activeTemplateId,
+      installed,
+      initialized,
+      loading,
+    })) {
+      if (!reference) continue;
+      const key = rendererPluginKey(reference);
+      if (templateId === null || templateId === activeTemplateId) blocked.set(key, reference);
+      else
+        otherMissing.set(`${templateId}-${key}`, { template: templateName, templateId, reference });
+    }
+    const offers =
+      initialized && !loading
+        ? chartRendererUpgradeOffers(project, installed, projectSet, activeTemplateId).filter(
+            (offer) =>
+              offer.from.version !== offer.to.manifest.version ||
+              blocked.has(rendererPluginKey(offer.from)),
+          )
+        : [];
+    const offered = new Set(offers.map((offer) => rendererPluginKey(offer.from)));
+    const missing = [...blocked].flatMap(([key, reference]) =>
+      offered.has(key) ? [] : [reference],
+    );
+    return { offers, missing, otherMissing: [...otherMissing.values()], blocked };
+  }, [project, projectSet, activeTemplateId, installed, initialized, loading]);
   if (!offers.length && !missing.length && !otherMissing.length) return null;
   return (
     <section aria-label="Chart renderer updates" className="chart-renderer-upgrade-notices">
       {offers.map((offer) => {
         const to = studioPluginReference(offer.to);
         const targetKey = rendererPluginKey(to);
-        const oldInstalled = installed.some(
-          (entry) =>
-            entry.enabled &&
-            entry.trusted &&
-            rendererPluginKey(studioPluginReference(entry.snapshot)) ===
-              rendererPluginKey(offer.from),
-        );
+        const currentAvailable = !blocked.has(rendererPluginKey(offer.from));
         const sameVersion = offer.from.version === to.version;
         return (
           <details key={`${rendererPluginKey(offer.from)}-${targetKey}`}>
             <summary>
-              {oldInstalled
+              {currentAvailable
                 ? 'Chart renderer update available'
                 : 'Saved chart renderer is unavailable'}
             </summary>
@@ -115,7 +111,7 @@ export function ChartRendererUpgradeNotice() {
             >
               Use this renderer for the template
             </button>
-            {!oldInstalled && (
+            {!currentAvailable && (
               <button
                 type="button"
                 onClick={() =>

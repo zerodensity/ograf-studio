@@ -1012,6 +1012,46 @@ describe('AuthoringSession', () => {
     expect(session.revision).toBe(3);
   });
 
+  it('restores resize precision after reload and respects keys edited on the smaller canvas', () => {
+    const project = createProject();
+    const layer = createLayerOfKind('rectangle');
+    layer.constraints = { horizontal: 'scale', vertical: 'top-bottom' };
+    layer.keyframes = [
+      createLayerKeyframe(0, {
+        ...defaultTransformForRole('rectangle', 'step'),
+        x: -400,
+        width: 75,
+        height: 960,
+      }),
+    ];
+    project.compositions[0]!.layers.push(layer);
+    const session = new AuthoringSession(project);
+    const compressed = session.apply({
+      expectedRevision: 0,
+      operations: [{ type: 'set_composition', width: 1, height: 1 }],
+    });
+    expect(
+      getLayerTransformAtFrame(compressed.project.compositions[0]!.layers[0]!, 0),
+    ).toMatchObject({
+      width: 1,
+      height: 1,
+    });
+
+    const reopened = new AuthoringSession(JSON.parse(JSON.stringify(compressed.project)));
+    const resized = reopened.apply({
+      expectedRevision: 0,
+      operations: [
+        { type: 'update_transform', layerId: layer.id, frame: 0, patch: { x: 2 } },
+        { type: 'set_composition', width: 1080, height: 1920 },
+      ],
+    });
+    expect(getLayerTransformAtFrame(resized.project.compositions[0]!.layers[0]!, 0)).toMatchObject({
+      x: 2160,
+      width: 42,
+      height: 1800,
+    });
+  });
+
   it('returns a dry-run project without changing the session revision', () => {
     const session = new AuthoringSession(createProject(), 'test-session');
     const result = session.apply({

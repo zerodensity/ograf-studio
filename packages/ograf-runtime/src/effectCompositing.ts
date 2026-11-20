@@ -82,6 +82,7 @@ export function applyLayerEffectsFilter(
   host.style.filter = `url("#${entry.filter.id}")`;
 }
 
+export type { GpuWork } from './shaderEffectCompositing';
 export {
   resumeShaderEffectStacks as resumeLayerEffects,
   suspendShaderEffectStacks as suspendLayerEffects,

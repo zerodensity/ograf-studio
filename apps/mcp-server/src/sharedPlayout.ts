@@ -476,7 +476,27 @@ export function createSharedPlayoutHost(
       throw new PlayoutError(404, 'Package file not found.');
     const file = publication.files.get(path);
     if (!file) throw new PlayoutError(404, 'Package file not found.');
-    response.type(extname(path) || 'application/octet-stream').send(file);
+    response.type(extname(path) || 'application/octet-stream').set('Accept-Ranges', 'bytes');
+    // A partial response needs a matching validator for If-Range; otherwise send the full file.
+    const range =
+      request.method === 'GET' &&
+      !request.get('If-Range') &&
+      /^bytes=(\d*)-(\d*)$/i.exec(request.get('Range') ?? '');
+    if (range && (range[1] || range[2])) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, file.length - Number(range[2]));
+      const end =
+        range[1] && range[2] ? Math.min(Number(range[2]), file.length - 1) : file.length - 1;
+      if (start > end || start >= file.length) {
+        response.status(416).set('Content-Range', `bytes */${file.length}`).end();
+        return;
+      }
+      response
+        .status(206)
+        .set('Content-Range', `bytes ${start}-${end}/${file.length}`)
+        .send(file.subarray(start, end + 1));
+      return;
+    }
+    response.send(file);
   }
   app.get('/s/:token/package/*path', servePackage);
   app.post(['/preview/command', '/preview/mode', '/preview/input'], () => {

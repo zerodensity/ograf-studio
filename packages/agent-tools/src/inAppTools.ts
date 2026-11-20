@@ -5,27 +5,31 @@ import { templateSetOperationSchema } from './templateSetSchemas';
 
 export const IN_APP_AGENT_TOOL_NAMES = [
   'ograf_get_capabilities',
-  'ograf_query_scene',
   'ograf_inspect_scene',
   'ograf_get_project',
   'ograf_get_template_set',
   'ograf_update_template_set',
   'ograf_get_playout',
   'ograf_control_playout',
-  'ograf_get_timeline',
   'ograf_sample_tracks',
   'ograf_apply_operations',
   'ograf_capture',
-  'ograf_render_strip',
-  'ograf_measure_text',
-  'ograf_review_design',
   'ograf_validate_project',
   'ograf_undo',
-  'ograf_redo',
   'ograf_read_result_page',
 ] as const;
 
 export type InAppAgentToolName = (typeof IN_APP_AGENT_TOOL_NAMES)[number];
+
+/** Earlier in-app tools that a listed tool now covers. The chat reaches no other merged route. */
+export const IN_APP_MERGED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'ograf_query_scene',
+  'ograf_get_timeline',
+  'ograf_render_strip',
+  'ograf_measure_text',
+  'ograf_review_design',
+  'ograf_redo',
+]);
 
 const IN_APP_AGENT_TOOL_SET = new Set<string>(IN_APP_AGENT_TOOL_NAMES);
 
@@ -49,30 +53,24 @@ export interface ProviderToolDefinition {
 
 /** Compact provider-only wording; canonical MCP records and validation remain unchanged. */
 const IN_APP_DESCRIPTIONS: Record<string, string> = {
-  ograf_get_capabilities: 'Contracts/editor readiness.',
-  ograf_get_project: 'Project/revision.',
-  ograf_inspect_scene: 'Links/motion/warnings/revision.',
-  ograf_query_scene: 'Find scene layers.',
-  ograf_get_timeline: 'Tracks/lifecycle/loops; incoming easing.',
-  ograf_sample_tracks: 'Sample pose; absolute on-air loopElapsedFrame. No browser.',
+  ograf_get_capabilities: 'Contracts/readiness.',
+  ograf_get_project: 'Project/revision. view=timeline: tracks/lifecycle/loops/incoming easing.',
+  ograf_inspect_scene: 'Links/motion/warnings/revision. mode=query or any filter: find layers.',
+  ograf_sample_tracks: 'Pose; absolute on-air loopElapsedFrame; no browser.',
   ograf_capture:
-    'PNG(first Step); composition matte/dataOverrides only. URL5min; base64 opt-in. Not certification.',
-  ograf_render_strip:
-    'PNG strip≤12frames; defaults lifecycle/midpoints. maxDimension/tile; URL5min, base64 opt-in.',
+    'PNG(first Step); composition-only matte/dataOverrides; reference=workspace picture: difference; URL5min; opt-in base64; uncertified. mode=strip: ≤12frames(lifecycle/midpoints default), tile maxDimension≤1024.',
   ograf_apply_operations: 'Atomic apply/dry-run/preview/propose(Accept/Reject).',
-  ograf_validate_project: 'Advisory semantic/field/text/broadcast QA; not certification.',
-  ograf_review_design: 'Advisory QA+IDs; includeStrip adds frames. Not certification.',
-  ograf_measure_text: 'Browser text fit/overflow/clipping at frame.',
-  ograf_undo: 'Undo last agent transaction.',
-  ograf_redo: 'Redo last agent transaction.',
-  ograf_get_template_set: 'Set/revision; projects/usage opt-in; IDs or offset/limit.',
+  ograf_validate_project:
+    'Advisory semantic/field/text/broadcast QA; uncertified. check=design: QA+IDs, includeStrip=frames. check=text: browser fit/overflow/clipping of layerId at frame.',
+  ograf_undo: 'Undo agent transaction. direction=redo: redo it.',
+  ograf_get_template_set: 'Set/revision; opt-in projects/usage; IDs/offset/limit.',
   ograf_update_template_set:
-    'Current set revision; confirm removal/replacement; file pickers via UI.',
-  ograf_read_result_page: 'Retained JSON by resultId/path/offset; Studio supplies owner/budget.',
+    'Set revision; read templateSets capabilities; confirm removal/replacement; UI files.',
+  ograf_read_result_page: 'Retained JSON: resultId/path/offset; Studio owner/budget.',
   ograf_get_playout:
-    'Read revision/readiness/current/pending/errors/tickers. target:preview=Studio; omitted/live=independent.',
+    'Revision/readiness/current/pending/errors/tickers; target:preview=Studio; live(default)=independent.',
   ograf_control_playout:
-    'Revision+unique requestId; poll/retry ID if uncertain. target:preview=Studio(on-air updates); omitted/live=independent. Update in-place/transition; prepared Take. Parent Out/Clear cascade without restore; template-action includes clocks.',
+    'Revision+unique requestId; poll/retry same ID. target:preview=Studio(on-air Update only); live(default)=independent. Out/Clear cascades without restore; read templateSets capabilities.',
 };
 
 export function providerToolDefinition(record: AgentToolRecord): ProviderToolDefinition {
@@ -106,6 +104,7 @@ export function providerToolDefinition(record: AgentToolRecord): ProviderToolDef
       : 'inline',
   }) as Record<string, unknown>;
   delete schema.$schema;
+  const listed = record.listSchema?.(schema) ?? schema;
   if (record.name === 'ograf_read_result_page') schema.required = ['resultId'];
   if (record.name === 'ograf_update_template_set') {
     const operation = (schema.properties as Record<string, Record<string, unknown>>)?.operation;
@@ -116,8 +115,9 @@ export function providerToolDefinition(record: AgentToolRecord): ProviderToolDef
         typeof definition?.description === 'string' &&
         definition.description.startsWith('Definition/null. v6')
       )
-        definition.description =
-          'v1–6/null. v6 updateMode; v5 in/out(template/builtin/plugin)+pinned animationPresetPlugins. Move nonshared/morph shared; keep guards/defaults/precedence. parentSlotId cascades Out/Clear; takeOutSlotIds waits targets/dependents Out, no restore.';
+        // The complete versioned motion/update/dependency contract is returned by capabilities;
+        // avoid repeating it in every provider request. Canonical MCP annotations are untouched.
+        delete definition.description;
     }
   }
   return {
@@ -128,7 +128,7 @@ export function providerToolDefinition(record: AgentToolRecord): ProviderToolDef
       record.config.title ??
       record.name
     ).replace(/\.$/, ''),
-    inputSchema: compactProviderSchema(schema),
+    inputSchema: compactProviderSchema(listed),
   };
 }
 

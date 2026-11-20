@@ -323,6 +323,53 @@ describe('gradient glyph clipping across paint sampling', () => {
     expect(listeners.has('loadingdone')).toBe(false);
   });
 
+  it('avoids layout reads for a held stroke but refits a resized frame before the observer fires', () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    Object.assign(document, {
+      body: document.createElement('div'),
+      createRange: () => {
+        let target: FakeElement;
+        return {
+          selectNodeContents(node: FakeElement) {
+            target = node;
+          },
+          getBoundingClientRect() {
+            const size = Number.parseFloat(target.style.fontSize);
+            return { width: size * 10, height: size };
+          },
+          detach() {},
+        };
+      },
+    });
+    const host = document.createElement('div');
+    let width = 450;
+    const readWidth = vi.fn(() => width);
+    Object.defineProperty(host, 'clientWidth', { get: readWidth });
+    renderElementContent(
+      dom(host),
+      createTextElement({ content: 'Headline', autoFit: 'fit-to-width', fontSize: 40 }),
+    );
+    const firstFont = Number(host.firstElementChild!.dataset.ografAppliedFontSize);
+    readWidth.mockClear();
+    const tracks: LayerAnimationTracks = {
+      strokeWidth: [{ id: 'held', frame: 0, value: 0, easing: 'linear' }],
+    };
+    applyAnimatedPaint(dom(host), tracks, 1, false);
+    expect(readWidth).not.toHaveBeenCalled();
+
+    width = 150;
+    applyAnimatedPaint(dom(host), tracks, 2, true);
+    expect(readWidth).toHaveBeenCalled();
+    expect(Number(host.firstElementChild!.dataset.ografAppliedFontSize)).toBeLessThan(firstFont);
+    disposeElementContent(dom(host));
+  });
+
   it('keeps styled run sizes inherited from the template instead of editor UI span styles', () => {
     const host = document.createElement('div');
     renderElementContent(

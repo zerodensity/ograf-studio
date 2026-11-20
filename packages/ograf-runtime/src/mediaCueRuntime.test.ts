@@ -513,3 +513,152 @@ describe('Media Cue runtime timing', () => {
     expect(created[0]!.play).toHaveBeenCalledTimes(2);
   });
 });
+
+/** Sound effects on the timeline at these frames, at 25 frames a second, and the players made for them. */
+function soundEffects(frames: number[], blocked = false) {
+  class FakeMediaElement {
+    src = '';
+    preload = '';
+    loop = false;
+    muted = false;
+    volume = 1;
+    playbackRate = 1;
+    currentTime = 0;
+    duration = 1;
+    readyState = 1;
+    dataset: Record<string, string> = {};
+    style: Record<string, string> = {};
+    play = blocked
+      ? vi.fn<() => Promise<void>>().mockRejectedValue(new Error('Autoplay blocked'))
+      : vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    pause = vi.fn();
+    removeAttribute = vi.fn();
+    load = vi.fn();
+    remove = vi.fn();
+  }
+  class FakeVideoElement extends FakeMediaElement {
+    playsInline = false;
+  }
+  Object.defineProperty(globalThis, 'HTMLMediaElement', {
+    configurable: true,
+    value: FakeMediaElement,
+  });
+  Object.defineProperty(globalThis, 'HTMLVideoElement', {
+    configurable: true,
+    value: FakeVideoElement,
+  });
+  const created: FakeMediaElement[] = [];
+  const host = {
+    dataset: {} as Record<string, string>,
+    ownerDocument: { createElement: () => new FakeMediaElement() },
+    appendChild: (media: FakeMediaElement) => created.push(media),
+    remove: vi.fn(),
+  };
+  const runtime = new MediaCueRuntime(
+    host as unknown as HTMLElement,
+    {
+      frameRate: 25,
+      keyframes: [],
+      mediaCues: frames.map((startFrame) =>
+        createMediaCue({
+          id: `sound-${startFrame}`,
+          sources: [
+            {
+              id: 'clip',
+              name: 'Effect',
+              kind: 'clip',
+              mediaType: 'audio',
+              src: `data:audio/wav;base64,${startFrame}`,
+            },
+          ],
+          activeSourceId: 'clip',
+          trigger: { type: 'timeline', startFrame },
+        }),
+      ),
+    } as never,
+  );
+  /** The frames whose sound has been started, in the order they started. */
+  const started = () => created.map((media) => Number(media.src.split(',')[1]));
+  return { runtime, created, started };
+}
+
+describe('sound effects and the playhead', () => {
+  it('starts each sound as playback reaches its frame', () => {
+    const { runtime, started } = soundEffects([0, 25, 50]);
+    runtime.renderAtTime(0);
+    expect(started()).toEqual([0]);
+    runtime.renderAtTime(1_200);
+    expect(started()).toEqual([0, 25]);
+    runtime.renderAtTime(2_000);
+    runtime.renderAtTime(3_000);
+    expect(started()).toEqual([0, 25, 50]);
+  });
+
+  it('leaves the sounds a jump has passed silent, and starts one the jump lands on', () => {
+    const { runtime, started } = soundEffects([0, 25, 50, 75]);
+    runtime.renderAtTime(2_000, { jumped: true });
+    expect(started()).toEqual([50]);
+    // Playing on from there starts what comes next, never what was passed.
+    runtime.renderAtTime(2_500);
+    runtime.renderAtTime(3_000);
+    expect(started()).toEqual([50, 75]);
+  });
+
+  it('leaves the sounds silent that playback finds long past, as after its tab was hidden', () => {
+    const { runtime, started } = soundEffects([0, 25, 50, 75, 100, 125]);
+    runtime.renderAtTime(0);
+    // Nothing was drawn for four seconds. The sound a moment ago still starts; the earlier ones do not.
+    runtime.renderAtTime(4_200);
+    expect(started()).toEqual([0, 100]);
+    runtime.renderAtTime(5_000);
+    runtime.renderAtTime(6_000);
+    expect(started()).toEqual([0, 100, 125]);
+  });
+
+  it('starts a sound that playback finds a few frames late', () => {
+    const { runtime, started } = soundEffects([25]);
+    runtime.renderAtTime(900);
+    runtime.renderAtTime(1_200);
+    expect(started()).toEqual([25]);
+  });
+
+  it('plays every sound again once the cues are rearmed for a new playout', () => {
+    const { runtime, started } = soundEffects([0, 25]);
+    runtime.renderAtTime(1_000, { jumped: true });
+    expect(started()).toEqual([25]);
+    runtime.reset();
+    runtime.renderAtTime(0);
+    runtime.renderAtTime(1_000);
+    expect(started()).toEqual([25, 0, 25]);
+  });
+
+  it('keeps a looping bed running when the playhead is put past its start', () => {
+    const { runtime, created } = audioFixture({
+      trigger: { type: 'timeline', startFrame: 0 },
+    });
+    runtime.renderAtTime(4_000, { jumped: true });
+    expect(created).toHaveLength(1);
+  });
+
+  it('retries a blocked sound only while the playhead still stands where it started', async () => {
+    const { runtime, created } = soundEffects([0, 25], true);
+    runtime.renderAtTime(0);
+    await Promise.resolve();
+    await Promise.resolve();
+    // At the first frame the operator's Take in may still bring the opening sound.
+    runtime.resumeBlocked();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(created[0]!.play).toHaveBeenCalledTimes(2);
+
+    runtime.renderAtTime(1_000);
+    runtime.renderAtTime(15_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    // Long after their moments, a Take in must not start both together.
+    runtime.resumeBlocked();
+    await Promise.resolve();
+    expect(created[0]!.play).toHaveBeenCalledTimes(2);
+    expect(created[1]!.play).toHaveBeenCalledTimes(1);
+  });
+});

@@ -15,11 +15,28 @@ import {
   resizeOuterDockGroups,
 } from './dockModel';
 import {
+  createBuiltinWorkspacePresets,
+  DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_SIZES,
   parseWorkspaceSnapshot,
 } from '@ograf-editor/ui-kit/workspace-model';
 
 describe('workspace-edge docking', () => {
+  it('uses a full-height right dock and an inner timeline in the Default preset', () => {
+    const presets = createBuiltinWorkspacePresets();
+    const preset = presets.find(({ id }) => id === DEFAULT_WORKSPACE_ID)!;
+    const standard = createDefaultDockLayout();
+
+    expect(preset.snapshot.layout).toEqual({
+      ...standard,
+      zones: { ...standard.zones, right: [] },
+      outerZones: { left: [], right: standard.zones.right, top: [], bottom: [] },
+    });
+    expect(presets.find(({ id }) => id === 'builtin-dual-monitor')?.snapshot.layout).toEqual(
+      standard,
+    );
+  });
+
   it('persists which outer edge most recently claimed the bottom corners', () => {
     let layout = dockPaneToOuterZone(createDefaultDockLayout(), 'resources', 'right');
     expect(layout.outerBottomFullWidth).toBe(false);

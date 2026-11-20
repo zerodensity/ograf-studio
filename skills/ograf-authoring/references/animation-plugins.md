@@ -53,7 +53,7 @@ actual realtime/non-realtime artifacts before claiming compatibility. Whole-laye
 not add per-letter text animation, arbitrary CSS/JavaScript, property paths, timers, or new layer
 kinds. See `docs/ANIMATION_PLUGINS.md` for the SDK and source example.
 
-Use `remove_animation_preset_plugin` only for requested source-catalog cleanup, with the exact
+Use `remove_plugin` with `kind: "animation-preset"` only for requested source-catalog cleanup, with the exact
 unused reference and a dry run first. It refuses object/component provenance references, preserves
 tracks, and never changes local installation. Local enable/disable controls Studio's choosers;
 MCP can still reapply validated definitions retained in source.

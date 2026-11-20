@@ -1,4 +1,12 @@
 import { coordinatedExportFile } from './coordinatedExportFile';
+import { videoExportFile } from './videoExportFile';
+import { mergeToolRecords } from './mergedTools';
+import {
+  expandMergedOperation,
+  listedOperationsSchema,
+  wildcardNameMatcher,
+} from './mergedOperations';
+import { IN_APP_MERGED_TOOL_NAMES } from './inAppTools';
 import {
   registerToolResultPager,
   toolResultPagerForWorkspace,
@@ -59,6 +67,7 @@ import {
   computeKeyframeFrames,
   createId,
   createProject,
+  resolveOutputLayer,
   fieldDefinitionAtPath,
   getLayerPropertyValueAtFrame,
   getLayerPropertyWithLighting,
@@ -92,6 +101,18 @@ import {
 import JSZip from 'jszip';
 import { writeTemplateFiles } from './projectFiles';
 import { decodeTemplateSetArchive } from './templateSetFiles';
+import { LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION } from './templateSetStorage';
+import {
+  templateTransferOptionsSchema,
+  templateTransferSourceSchema,
+  templateTransferWorkspaceFileSchema,
+  type TemplateTransferRequest,
+  type TemplateTransferWorkspaceFile,
+} from './templateTransferReview';
+import {
+  assertTemplateTransferFileRevision,
+  readTemplateTransferFile,
+} from './templateTransferFiles';
 import {
   projectThumbnailFrame,
   thumbnailRenderProject,
@@ -131,6 +152,10 @@ export interface AgentToolRecord {
   name: string;
   config: AgentToolConfig;
   handler: AgentToolHandler;
+  /** Narrows the JSON Schema an agent is shown; the handler accepts everything in `config`. */
+  listSchema?: (inputSchema: Record<string, unknown>) => Record<string, unknown>;
+  /** An earlier name that a listed tool now covers: still callable, left out of tool lists. */
+  hidden?: boolean;
 }
 
 interface ToolRegistrar {
@@ -263,7 +288,7 @@ const WEBCAM_PREVIEW_CAPABILITIES = {
 const MEDIA_PAINT_CAPABILITIES = {
   type: 'media',
   authoring:
-    'Use add_media_cue/update_media_cue and cue.visual.targetLayerId for cue-driven media. A chart with mark-paint-v1 may also use an ordinary element.fill MediaPaint.',
+    'Use set_media_cue and cue.visual.targetLayerId for cue-driven media. A chart with mark-paint-v1 may also use an ordinary element.fill MediaPaint.',
   semantics:
     'A video/live source is clipped by the target geometry. Chart fills use provider-supplied mark coverage, preserving axes, text, outlines and labels. Audio stays on the nonvisual cue track; paint stays muted.',
   shape:
@@ -433,6 +458,7 @@ function consolidateOperationTools(
       inputSchema: consolidatedOperationInputSchema,
       annotations: mutation,
     },
+    listSchema: listedOperationsSchema,
     async handler(raw) {
       const input = raw as unknown as ConsolidatedOperationInput;
       const common = {
@@ -603,6 +629,17 @@ const IMPORT_MIME_BY_EXTENSION: Record<string, string> = {
 
 function importMimeType(path: string): string {
   return IMPORT_MIME_BY_EXTENSION[extname(path).toLowerCase()] ?? 'application/octet-stream';
+}
+
+/** A workspace picture to compare a capture with, in the form the editor reads. */
+async function readReferencePicture(path: string): Promise<{ mimeType: string; data: string }> {
+  const mimeType = importMimeType(path);
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType))
+    throw new Error('A reference picture must be a PNG, JPEG or WebP file.');
+  const data = await readFile(path);
+  if (data.byteLength > 32 * 1024 * 1024)
+    throw new Error('The reference picture exceeds the 32 MiB workspace limit.');
+  return { mimeType, data: data.toString('base64') };
 }
 
 function dataUriBase64(dataUri: string): string {
@@ -1092,6 +1129,7 @@ function projectSnapshotProjection(
     projectedProject.name = project.name;
     projectedProject.description = project.description;
     projectedProject.version = project.version;
+    projectedProject.outputLayer = resolveOutputLayer(project.outputLayer);
     projectedProject.author = project.author;
   }
 
@@ -1107,6 +1145,12 @@ function projectSnapshotProjection(
     },
   };
 }
+
+/**
+ * Where an applied operation came from in the agent's own batch. One sent operation can become
+ * several applied ones, so results name the sent operation and its position, not the applied one.
+ */
+const sentOperations = new WeakMap<AuthoringOperation, { index: number; type: string }>();
 
 function generatedOperationResults(
   operations: AuthoringOperation[],
@@ -1141,9 +1185,10 @@ function generatedOperationResults(
     }
     const operation = operations[generated.operationIndex];
     if (generated.kind === 'design-token' && operation?.type === 'apply_style_pack') return [];
+    const sent = operation && sentOperations.get(operation);
     const base = {
-      index: generated.operationIndex,
-      type: operation?.type ?? generated.kind,
+      index: sent?.index ?? generated.operationIndex,
+      type: sent?.type ?? operation?.type ?? generated.kind,
       id: generated.id,
     };
     if (generated.kind === 'review-comment' || generated.kind === 'review-version') return [base];
@@ -1339,14 +1384,6 @@ function componentLinkSummary(link: Composition['layers'][number]['componentLink
   };
 }
 
-function wildcardNameMatcher(pattern: string): RegExp {
-  const escaped = pattern
-    .split('*')
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('.*');
-  return new RegExp(`^${escaped}$`);
-}
-
 function reserveComponentInstanceIdentity(definition: Composition['components'][number]) {
   const fieldIds: Record<string, string> = {};
   const reserveField = (field: Composition['dataFields'][number]) => {
@@ -1400,7 +1437,10 @@ function normalizeOperationSelectors(
 ): AuthoringOperation[] {
   let projected = structuredClone(project);
   const normalized: AuthoringOperation[] = [];
-  for (const [index, source] of operations.entries()) {
+  // An operation that covers earlier ones is replaced, at its turn, by those operations.
+  const pending = operations.map((source, index) => ({ index, source }));
+  while (pending.length > 0) {
+    const { index, source } = pending.shift()!;
     const operation = structuredClone(source) as Record<string, unknown>;
     const compositionId =
       typeof operation.compositionId === 'string'
@@ -1409,6 +1449,16 @@ function normalizeOperationSelectors(
     const composition = projected.compositions.find((candidate) => candidate.id === compositionId);
     if (!composition)
       throw new Error(`Operation ${index}: composition not found: ${compositionId}`);
+    let covered: Record<string, unknown>[] | undefined;
+    try {
+      covered = expandMergedOperation(operation, composition);
+    } catch (error) {
+      throw new Error(`Operation ${index}: ${error instanceof Error ? error.message : error}`);
+    }
+    if (covered) {
+      pending.unshift(...covered.map((step) => ({ index, source: step })));
+      continue;
+    }
 
     if (operation.type === 'add_review_comment' || operation.type === 'save_review_version') {
       operation.id ??= createId(operation.type === 'add_review_comment' ? 'comment' : 'version');
@@ -1734,6 +1784,10 @@ function normalizeOperationSelectors(
 
     const typedOperation = operation as unknown as AuthoringOperation;
     normalized.push(typedOperation);
+    sentOperations.set(typedOperation, {
+      index,
+      type: String((operations[index] as { type?: unknown } | undefined)?.type),
+    });
     // Preallocated IDs make ordinary create-then-target sequences deterministic in this projection
     // and in the final atomic apply. Duplicate-group outputs deliberately remain follow-up targets
     // through their returned mappings because each copy creates a variable number of IDs.
@@ -1989,6 +2043,7 @@ export function createOGrafToolRecords(
   }: { inApp?: boolean; bundledAuthoringSkill?: boolean } = {},
 ): AgentToolRecord[] {
   const exportCoordinated = coordinatedExportFile(workspace, bridge);
+  const exportVideo = videoExportFile(workspace, bridge);
   const records: AgentToolRecord[] = [];
   const server: ToolRegistrar = {
     registerTool(name, config, handler) {
@@ -2094,34 +2149,64 @@ export function createOGrafToolRecords(
         requiresBrowser: [
           'ograf_get_template_set',
           'ograf_update_template_set',
-          'ograf_save_template_set',
-          'ograf_export_coordinated_package',
+          'ograf_save_project scope=set',
+          'ograf_export_package scope=set',
           'ograf_get_playout',
           'ograf_control_playout',
           'ograf_capture',
-          'ograf_render_strip',
           'ograf_apply_operations when mode=preview or mode=propose',
-          'ograf_measure_text',
+          'ograf_validate_project check=text',
           'ograf_certify_project',
           'ograf_save_project',
           'ograf_export_package',
+          'ograf_export_video',
           'ograf_validate_project when browserTextOverflow=true',
         ],
         templateSets: {
+          outputLayers: {
+            manifestField: 'v_layer',
+            projectField: 'outputLayer',
+            default: 0,
+            minimum: Number.MIN_SAFE_INTEGER,
+            maximum: Number.MAX_SAFE_INTEGER,
+            standalone:
+              'Set outputLayer with set_project_metadata; each template keeps its own value.',
+            coordinated:
+              'Set the independent package root outputLayer with set_output_layer. Children use the root layer in RealityHub.',
+            playback:
+              'Higher values appear on top; equal values share a replacement target within one RealityHub output channel. Studio preview playback is unchanged.',
+          },
           available: bridge.health.templateSetsReady === true,
           read: 'ograf_get_template_set',
           update: 'ograf_update_template_set',
-          save: 'ograf_save_template_set',
+          save: 'ograf_save_project scope=set',
           format: '.ogs',
           legacyFormat: '.ogp',
           storage: {
             defaultArchiveMode: 'compact',
             archiveSchemaVersion: 6,
+            localBrandingArchiveSchemaVersion: LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
             compatibleArchiveSchemaVersion: 5,
             contract:
-              'Compact set archives store identical font/resource bytes and set component sources once, with validated member references. Opening hydrates ordinary editable projects with original IDs, bindings, animation and overrides. Compatible mode retains the v5 archive layout for older set readers. Readers retain v1–v5 and legacy .ogp support; JSON-only readers cannot open any set ZIP. Single-template saves/exports always embed resolved dependencies and never contain compact archive references.',
+              'Compact archives share identical font/resource bytes and set component sources, then hydrate editable projects with original IDs, bindings, animation and overrides. A set with local Brand Kit inheritance uses schema 7 so older readers cannot reapply shared branding. Other compact sets use schema 6 and can be saved in compatible schema 5. Readers accept schemas 1–7 and legacy .ogp. A standalone project embeds its resolved dependencies.',
             mcpSave:
-              'ograf_save_template_set saves a revision-checked snapshot copy of the connected editor set to a workspace-confined .ogs path. archiveMode compact (default) or compatible; confirm:true and explicit overwrite permission. Compressed MCP transfer limit 64 MiB; larger sets use Studio Save Template Set. Saving preserves open editor names, revisions and unsaved edits.',
+              'ograf_save_project scope=set saves a revision-checked snapshot copy of the connected editor set to a workspace-confined .ogs path. archiveMode compact (default) or compatible; confirm:true and explicit overwrite permission. Compressed MCP transfer limit 64 MiB; larger sets use Studio Save Template Set. Saving preserves open editor names, revisions and unsaved edits.',
+          },
+          transfers: {
+            crossSetPastePolicy: 'keep-appearance',
+            inheritance:
+              'Read inheritBrandKit and inheritSettings independently on each member. A kept transfer uses local branding and canvas settings.',
+            result:
+              'A cross-set paste_template result includes transfer with the created identities, settings differences and warnings. The transfer is validated before publishing and can be undone in Studio.',
+            ...(!inApp && {
+              available: bridge.health.templateTransfersReady === true,
+              review: 'ograf_review_template_transfer',
+              preview: 'ograf_review_template_transfer step=preview',
+              commit: 'ograf_commit_template_transfer',
+              policies: ['keep-appearance', 'adopt-destination', 'bring-source-branding'],
+              workflow:
+                'Review the clipboard or a workspace file with the destination set revision. For select-source-template, choose an ID from sourceTemplates and review again with source.templateId. Preview the frozen plan, then use the same planId, expectedRevision and sourceRevision to commit with confirm:true. Workspace file previews and commits recheck the selected file and member by hash. Re-review if the project changes.',
+            }),
           },
           sharedResources: {
             ui: 'Resources offers Template and Template Set views in a set. Template Set shows shared components, asset slots, per-template usage and inheritance/local override indicators; the existing Scene Outliner shared controls and asset slots editor remains available. Replacing a shared asset is reviewed in Studio before applying, including other slots using the same source.',
@@ -2150,7 +2235,7 @@ export function createOGrafToolRecords(
             authoring:
               'ograf_update_template_set operation set_transition_logic accepts a complete definition object or null. Uses the opaque set revision, validates graph/template/component references, and applies one undoable edit. JSON payload is bounded to 1 MiB, 32768 values and 32 levels. Unapplied UI drafts must be Applied or Reverted first. Removing the graph or replacing its ID requires confirm:true; editing the same ID does not. Loaded playout is unchanged until explicitly reloaded.',
             source:
-              'Optional transitionLogic in the template-set snapshot. Definition v6 adds slot.updateMode; v5 adds independent incoming/outgoing content animations; v4 adds Take admission and named-state data presets. Definitions v1–v5 remain readable. New selectors require v5 so older runtimes reject unsupported motion. Source archive schema 6 and compatible schema 5 preserve the graph; archive compatibility does not down-convert graph features.',
+              'Optional transitionLogic in the template-set snapshot. Definition v6 adds slot.updateMode; v5 adds independent incoming/outgoing content animations; v4 adds Take admission and named-state data presets. Definitions v1–v5 remain readable. New selectors require v5 so older runtimes reject unsupported motion. Compact and compatible set archives preserve the graph. Archive compatibility does not down-convert graph features.',
             contentAnimations: {
               minimumDefinitionVersion: 5,
               fields: ['recipe.incomingAnimation', 'recipe.outgoingAnimation'],
@@ -2189,6 +2274,10 @@ export function createOGrafToolRecords(
                 'Skips authored transition waits, while finite resource/render/GPU readiness still applies. Measure both the Devtool detached-element check sequence (Load, unchanged full Update, empty Update, first skipped Play) and the complete visibly mounted multilane export. Await success, capture ready output after timing, and report first Play separately from warm replay. A response-time warning alone is not a frame-drop measurement; no template- or hardware-independent latency bound.',
               textFittingPerformance:
                 'Shrink-to-fit retains its minimum-size/degenerate check. When authored size already fits, the fast path avoids repeated DOM layout probes while reproducing the original 16-step numeric result; overflowing text still searches and fit-to-width is unchanged. Preserve font-ready invalidation, glyph coverage/shader masks, Rules, transition/dependency timing and exact-frame readiness. Never bypass readiness or alter checker thresholds to improve a benchmark.',
+              frameWork:
+                'Rules-only work due at one frame shares a render, with a flush before playout actions, frame changes, and errors. Held text strokes avoid a repeated fit when the sampled layout is unchanged; changed dimensions and visibility refit synchronously. Keyframe sampling observes edits to existing arrays and retains incoming easing and duplicate-frame ID ordering.',
+              resourcePackaging:
+                'Coordinated exports share generated identical binary media and fonts using physical archive paths across their descriptors and schemas. Explicit paths and license files stay separate. Supported embedded image values in visual property Rules are packaged as resources. The embedded runtime removes whitespace while retaining the identifiers used by isolated Function kernels.',
               skipStageReadiness: 'coherent-frame-per-dependency-stage',
               skipStageOrdering:
                 'Realtime skip batch Play shares final presentation for prepared independent lanes in one stage, outside nested Rules dispatch. Preserve each request/ready/advance event; release ordered Rules after stage readiness and check cancellation before the next stage. Direct Take, animated and non-real-time paths are unchanged.',
@@ -2223,7 +2312,7 @@ export function createOGrafToolRecords(
             behavior:
               'The active transition finishes before the latest pending ready request; Clear is immediate. Preparation failures keep current output. Editor selection is separate from playout state.',
             limits:
-              'Rules can issue Take/Update/Out/Clear; transition definitions remain in Transitions or set_transition_logic. Coordinated Rules supports data/change, pointer/entry hover, key-down/key-up, play/first-step/stop/custom-action, local set-data, animated properties and delayed commands. Shader/media Rule side effects and later-step behavior remain unsupported. Playout rules require coordinated set output; standalone exports reject them. Preview snapshots unsaved edits; failed replacement preparation preserves working output and details remain expandable. Only older unapplied drafts need Apply/Discard. Save Template Set writes .ogs; coordinated export certifies exact artifacts. MCP live output loads the applied set separately. ograf_export_coordinated_package exports a certified revision-checked set with operationId recovery; ograf_export_package exports the active composition. Legacy .ogp cannot preserve the coordinator.',
+              'Rules can issue Take/Update/Out/Clear; transition definitions remain in Transitions or set_transition_logic. Coordinated Rules supports data/change, pointer/entry hover, key-down/key-up, play/first-step/stop/custom-action, local set-data, animated properties and delayed commands. Shader/media Rule side effects and later-step behavior remain unsupported. Playout rules require coordinated set output; standalone exports reject them. Preview snapshots unsaved edits; failed replacement preparation preserves working output and details remain expandable. Only older unapplied drafts need Apply/Discard. Save Template Set writes .ogs; coordinated export certifies exact artifacts. MCP live output loads the applied set separately. ograf_export_package scope=set exports a certified revision-checked set with operationId recovery; ograf_export_package exports the active composition. Legacy .ogp cannot preserve the coordinator.',
             livePlayout: {
               available: editor.playoutReady === true,
               read: 'ograf_get_playout',
@@ -2258,7 +2347,7 @@ export function createOGrafToolRecords(
           defaults:
             'Main canvas size/rate/background, render modes, data transitions, guides display, snapping and bounds. Each property can inherit or be explicitly overridden; set_setting_override pins/resets a property independently. Editing inherited controls creates a local override. set_inheritance retains whole-template opt-out. Media/audio retain real-time-only support.',
           brandKit:
-            'Optional set-owned master Brand Kit: typed palette/font/number/text tokens with stable IDs and per-template token overrides. set_brand_kit adopts a kit, upsert_brand_token/remove_brand_token manage tokens, set_brand_token_override pins/resets a token. Compatible semantic keys map on explicit adoption, never display names. Object token bindings retain overridden flags for local edits/reset. Shared font files and resolved values are embedded in standalone children; generated CSS is a safe custom-property view, not an external stylesheet runtime dependency.',
+            'The optional set-owned master Brand Kit applies to members with inheritBrandKit enabled. set_brand_kit replaces the master for those members, upsert_brand_token/remove_brand_token manage typed tokens with stable IDs, and set_brand_token_override pins or resets a token. Adoption matches compatible semantic keys. Object token bindings retain their override flags. Standalone children embed shared font files and resolved values. Generated CSS safely exposes custom properties for inspection.',
           typography: {
             shape:
               'TypographyPreset {id,name,properties:{fontFamily,fontSize,fontWeight,lineHeight,letterSpacing,textAlign,textTransform}}',
@@ -2278,7 +2367,7 @@ export function createOGrafToolRecords(
           copies:
             'Independent template/project/composition identities. Same-set copies preserve parent control and shared-asset bindings. Cross-set paste materializes resolved local values.',
           files:
-            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact schema 6 .ogs; compatible mode writes schema 5. Export Legacy Template Set (.ogp) flattens component links in a copy. Newer features are not down-converted. MCP project open/save remain standalone JSON; ograf_save_template_set writes a whole-set snapshot copy without file dialogs.',
+            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact .ogs with schema 7 when local branding needs it, otherwise schema 6. Eligible sets can use schema 5 compatibility. Export Legacy Template Set (.ogp) flattens component links in eligible copies. MCP project open/save use standalone JSON; ograf_save_project scope=set writes whole-set snapshots.',
         },
         cropping: {
           layer:
@@ -2307,7 +2396,7 @@ export function createOGrafToolRecords(
         elementSchemas: {
           ticker: {
             authoring:
-              'Native mixed-content ticker. add_layer kind:"ticker" and create_ticker use the same ticker element; update_element.patch edits its feed, direction, edge fades and update policy.',
+              'Native mixed-content ticker. add_layer kind:"ticker" and create_recipe recipe:"ticker" use the same ticker element; update_element.patch edits its feed, direction, edge fades and update policy.',
             speedPixelsPerSecond:
               '0..2000; absolute elapsed-time movement, independent of composition FPS; fractional positions preserved.',
             direction:
@@ -2553,6 +2642,13 @@ export function createOGrafToolRecords(
             fontFamily: { type: 'string', default: 'system-ui, sans-serif' },
             fontSize: { type: 'number', default: 48, exclusiveMinimum: 0 },
             fontWeight: { type: 'number', default: 600 },
+            direction: {
+              type: 'enum',
+              values: ['auto', 'ltr', 'rtl'],
+              default: 'auto',
+              description:
+                'Unicode text layout direction for text and clock layers. Set direction in add_layer.element or update_element.patch. textDirection is an accepted input alias; direction takes precedence if both are supplied.',
+            },
             textAlign: {
               type: 'enum',
               values: ['left', 'center', 'right'],
@@ -2753,6 +2849,8 @@ export function createOGrafToolRecords(
         },
         animatableProperties: [...ANIMATABLE_LAYER_PROPERTIES],
         animatablePropertyPatterns: {
+          'scale / clipLeft / clipRight / clipTop / clipBottom':
+            'Track-only display channels with no static layer field; keyframe operations accept them. scale is non-negative and 1 is full size. Each wipe inset runs from 0 (nothing hidden) to 1.',
           'fill.parameters.NAME / strokePaint.parameters.NAME':
             'Exposed float/int/bool scalar; int/bool hold outgoing values until next key. Bool keys are0/1.',
           'fill.parameters.NAME.CHANNEL / strokePaint.parameters.NAME.CHANNEL':
@@ -2824,17 +2922,10 @@ export function createOGrafToolRecords(
             'score',
             'custom',
           ],
-          operations: [
-            'set_layer_semantics',
-            'create_lower_third',
-            'create_bug',
-            'create_ticker',
-            'create_scoreboard',
-            'create_clock',
-            'create_countdown',
-            'create_repeater',
-          ],
+          operations: ['update_layer semantics', 'create_recipe', 'create_repeater'],
           recipes: {
+            kinds:
+              'create_recipe recipe: lower-third | bug | ticker | scoreboard | clock | countdown. Each kind takes the arguments described below.',
             layout:
               'Default starters reserve separate areas: scoreboard top-left; bug, clock and countdown down the right; lower third above the bottom ticker. Explicit placements and Brand Kit values win. Compact labels/scores use fixed shrink-to-fit boxes rather than geometry-hugging Max Text Width. Editable child tracks follow panel translation while retaining wipe clipping, independent motion, Text FX and Rules.',
             materials:
@@ -2860,12 +2951,12 @@ export function createOGrafToolRecords(
         designSystem: {
           operations: [
             'apply_style_pack',
-            'remove_style_pack',
+            'apply_style_pack stylePack=null',
             'set_design_system_name',
             'upsert_design_token',
             'remove_design_token',
             'bind_design_token',
-            'unbind_design_token',
+            'bind_design_token tokenId=null',
           ],
           targetProperties: [
             'fill',
@@ -2903,10 +2994,10 @@ export function createOGrafToolRecords(
             motion: pack.motion,
           })),
           stylePackSemantics:
-            'apply_style_pack maps colors through existing Brand Kit tokens and root color-field bindings, including gradients and shared lights. Gradient topology, alpha, tonal ratios and motion survive. Parent palette edits propagate through stylePackColors links. Shared color fields use one consistent palette role, preferring accents over surfaces. remove_style_pack restores recorded fonts, colors, bindings/tokens/defaults and timing; pack switches retain the original baseline. Legacy sources without a baseline can only detach. Runtime data still overrides defaults.',
+            'apply_style_pack maps colors through existing Brand Kit tokens and root color-field bindings, including gradients and shared lights. Gradient topology, alpha, tonal ratios and motion survive. Parent palette edits propagate through stylePackColors links. Shared color fields use one consistent palette role, preferring accents over surfaces. apply_style_pack stylePack:null restores recorded fonts, colors, bindings/tokens/defaults and timing; pack switches retain the original baseline. Legacy sources without a baseline can only detach. Runtime data still overrides defaults.',
         },
         loopAnimation: {
-          operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
+          operations: ['set_layer_loop', 'set_loop_property_track', 'set_layer_loop remove=true'],
           activations: ['lifecycle', 'step'],
           repeatCount: 'null means infinite; positive integers play a finite number of cycles',
           transport:
@@ -2945,7 +3036,7 @@ export function createOGrafToolRecords(
           selection:
             'Chart element.provider must be {id,version,sha256} for a renderer snapshot already pinned in composition.rendererPlugins. Missing providers are unconfigured, never a built-in fallback. add_layer and update_element use explicit existing pins; they cannot install or trust code.',
           catalogRemoval:
-            'remove_renderer_plugin removes an exact unused composition snapshot by reference {id,version,sha256}. Layers, guides, prototypes and saved component definitions cannot still reference it. This never changes local installation or trust.',
+            'remove_plugin kind:"renderer" removes an exact unused composition snapshot by reference {id,version,sha256}. Layers, guides, prototypes and saved component definitions cannot still reference it. This never changes local installation or trust.',
           portability:
             'Templates pin manifest, source and license bytes. Exports keep the selected exact versions; installed updates do not alter prior packages. Studio blocks disabled or untrusted providers before preview, capture and certification.',
           clock:
@@ -2957,7 +3048,7 @@ export function createOGrafToolRecords(
           packageFiles: ['manifest.json', 'presets.json', 'LICENSE.txt'],
           operation: 'apply_animation_preset',
           catalogRemoval:
-            'remove_animation_preset_plugin removes an exact unused source snapshot by reference; refuses references from layers, guides, prototypes and saved components. It never changes local installation or baked tracks.',
+            'remove_plugin kind:"animation-preset" removes an exact unused source snapshot by reference; refuses references from layers, guides, prototypes and saved components. It never changes local installation or baked tracks.',
           selection:
             'Requires an exact {id,version,sha256} pack already in composition.animationPresetPlugins, presetId, side in/out, durationFrames and optional numeric parameters/offsetFrames. MCP cannot install plugins.',
           behavior:
@@ -2983,9 +3074,9 @@ export function createOGrafToolRecords(
             'Explicit selected-shader preview only after local review/enable; one preview renderer at a time. GPU load and compiler failures remain possible; a source/hash declaration is not a safety guarantee.',
         },
         bindings: {
-          operations: ['set_layer_bindings', 'set_layer_binding (legacy single-binding replace)'],
+          operations: ['set_layer_bindings'],
           dataConnections: {
-            operations: ['add_data_connection', 'update_data_connection', 'remove_data_connection'],
+            operations: ['set_data_connection', 'remove_data_connection'],
             read: 'ograf_get_project include:["dataConnections","dataFields"]',
             configuration:
               'Connections belong to a composition and persist in standalone/set .ogs. Map sourcePath strings to existing local field IDs. URL and embedded JSON/CSV remain supported; public-markets uses Coinbase USD spot products plus dated ECB FX references without an API key.',
@@ -3116,11 +3207,11 @@ export function createOGrafToolRecords(
           testRundowns:
             'set_test_rundowns stores named authoring-only rows keyed by stable field ID. They are saved in editable sources and excluded from OGraf manifests and exported runtime packages.',
           review:
-            'Local-only review supports add_review_comment, set_review_comment_resolved, save_review_version and set_review_approval. Read include:["review"] for comments and version metadata. Only record an explicitly authorized human approval; review does not imply multi-user sync or cryptographic signing.',
+            'Local-only review supports add_review_comment, set_review_comment_resolved and save_review_version. Read include:["review"] for comments and version metadata. Approval is given by a person in Studio; review does not imply multi-user sync or cryptographic signing.',
           playoutExposure: {
             property: 'exposeToOgraf',
             default: true,
-            operations: ['add_data_field', 'update_data_field', 'update_component_field'],
+            operations: ['set_data_field', 'update_component_field'],
             ui: 'Data > Expose: searchable tree of current-template controls grouped by scene objects, with nested object properties/array items and exposure checkboxes. Object/group checkboxes show all, none or mixed exposure; clicking mixed exposes all. Bulk changes include collapsed/filtered-out descendants and recursively update properties/items. Effective status accounts for internal parents/items; Data > Fields edits definitions and values.',
             semantics:
               'New and legacy fields are public unless explicitly disabled. true exposes a field; false keeps its default, local authoring controls, bindings and Rules available inside the graphic, but removes it from public OGraf schema and external playout updates. Omitting the flag in an update preserves its current value. Applies recursively to object properties; an internal parent hides its subtree and an explicitly internal item schema makes its array internal. Required only affects publicly exposed schema; it never forces an internal field into playout.',
@@ -3132,11 +3223,7 @@ export function createOGrafToolRecords(
               'After save/reopen, check standalone and coordinated public schemas, defaults and README examples omit internal keys while internal descriptor defaults remain. Test public updates, blocked external writes to internal fields, internal Rule/custom-action writes, shader animation and replay in the actual renderer. Partial object updates must preserve omitted internal descendants; vector object-key ordering must not change shader validation, and merged color schemas must retain their GDD pattern.',
           },
           runtimeCollections: {
-            operations: [
-              'create_runtime_collection',
-              'update_runtime_collection',
-              'remove_runtime_collection',
-            ],
+            operations: ['set_runtime_collection', 'remove_runtime_collection'],
             itemType: 'array field with object items',
             capacity: '1..100; default 12; emitted as maxItems',
             overflow: ['truncate'],
@@ -3286,9 +3373,9 @@ export function createOGrafToolRecords(
             fieldTypes:
               'Scalars retain their native type; object/gradient use nos.Dict, select-multiple [string], arrays [T]. Arrays of arrays use Dict items wrappers decoded before graphic updates. Data offers eligible engine structs/tables/enums from the current connected engine; saved ordinary field schemas and nodosType remain usable offline. Oversized, recursive, resource, union and dynamic shapes are unavailable. Invalid numeric ranges are rejected, not wrapped; 64-bit integers use the JavaScript safe range.',
             authoringMetadata:
-              'add_data_field, nested field inputs and update_data_field preserve known nodosType names with an explicit ordinary schema. Values belong at operation top level. update_data_field nodosType:null clears the assignment; a plain fieldType change clears it unless replaced. These tools do not connect to or discover engine types. nodosType is source metadata, not an OGraf manifest extension or an exposed value.',
+              'set_data_field and nested field inputs preserve known nodosType names with an explicit ordinary schema. Values belong at operation top level. set_data_field nodosType:null clears the assignment; a plain fieldType change clears it unless replaced. These tools do not connect to or discover engine types. nodosType is source metadata, not an OGraf manifest extension or an exposed value.',
             pinSelection:
-              'Set exposeToNodos:true on add_data_field or update_data_field to select a public top-level field, or false to deselect it. Omitting it preserves the selection. ograf_get_project with include:["dataFields"] shows nodosInputFieldIds when an explicit selection exists, including an empty array when no data pins are selected.',
+              'Set exposeToNodos:true on set_data_field to select a public top-level field, or false to deselect it. Omitting it preserves the selection. ograf_get_project with include:["dataFields"] shows nodosInputFieldIds when an explicit selection exists, including an empty array when no data pins are selected.',
             synchronization:
               'Stable template IDs determine new preset classes; existing unique names survive renames and re-selection. Shared controls/assets invalidate selected inactive templates too. Configuration, selection, document or connection changes cancel stale preparation before publication; already dispatched registrations may finish.',
             publication:
@@ -3335,7 +3422,12 @@ export function createOGrafToolRecords(
                   'Output, render modes, data transitions, canvas aids/snapping and inheritance edit shared defaults. Apply updates the open set and keeps the window open; OK applies and closes. Save the .ogs file to persist them. Per-property overrides and whole-template inheritance choices remain explicit; local guides and animation identities stay with each template.',
                 mcp: {
                   tool: 'ograf_update_template_set',
-                  operations: ['set_defaults', 'set_inheritance', 'set_setting_override'],
+                  operations: [
+                    'set_defaults',
+                    'set_inheritance',
+                    'set_setting_override',
+                    'set_output_layer',
+                  ],
                   concurrency:
                     'Use the current opaque set revision; re-read after conflicts or uncertain responses.',
                 },
@@ -3349,14 +3441,7 @@ export function createOGrafToolRecords(
                   'Uses the same composition controls as Properties. Template edits apply immediately and are undoable; save the template or set to persist them. Editing an inherited supported property creates a local override for that property; Reset restores inheritance. Standalone source and graphic exports contain resolved ordinary values and resources.',
                 mcp: {
                   tool: 'ograf_apply_operations',
-                  operations: [
-                    'set_composition',
-                    'set_composition_layout',
-                    'set_project_metadata',
-                    'add_canvas_guide',
-                    'update_canvas_guide',
-                    'remove_canvas_guide',
-                  ],
+                  operations: ['set_composition', 'set_composition_layout', 'set_project_metadata'],
                   inheritance:
                     'Use the existing template-set set_setting_override operation to pin/reset independent setting keys; preserve canonical background/style operations and numeric project revisions for authoring batches.',
                 },
@@ -3404,17 +3489,12 @@ export function createOGrafToolRecords(
             informationalOnly: true,
             exported: false,
           },
-          lifecycle: [
-            'add_lifecycle_step',
-            'rename_lifecycle_keyframe',
-            'move_lifecycle_keyframe',
-            'remove_lifecycle_step',
-          ],
+          lifecycle: ['add_lifecycle_step', 'set_lifecycle_keyframe', 'remove_lifecycle_step'],
           canvasGroups: ['group_layers', 'ungroup_layers'],
           reusableComponents: [
             'save_component',
             'instantiate_component',
-            'update_component_from_layers',
+            'save_component componentId',
             'update_component_layer',
             'update_component_field',
             'reset_component_overrides',
@@ -3423,9 +3503,9 @@ export function createOGrafToolRecords(
             'rename_component',
             'remove_component',
           ],
-          customActions: ['add_custom_action', 'update_custom_action', 'remove_custom_action'],
-          assets: ['add_asset', 'remove_asset', 'ograf_import_asset', 'ograf_import_svg_bundle'],
-          mediaCues: ['add_media_cue', 'update_media_cue', 'remove_media_cue'],
+          customActions: ['set_custom_action', 'remove_custom_action'],
+          assets: ['add_asset', 'remove_asset', 'ograf_import_asset'],
+          mediaCues: ['set_media_cue', 'remove_media_cue'],
           detail:
             'Lifecycle retiming and component inheritance share the browser editor mutation rules. Live component assets retain stable instance IDs and per-property overrides; exports contain ordinary materialized layers.',
         },
@@ -3482,13 +3562,7 @@ export function createOGrafToolRecords(
             animation:
               'Animate motionPathProgress on lifecycle or local-loop tracks. Progress is not an element-data binding target. Source, orientation, offsets and rotationOffset are static layout controls. Set motionPath:null to detach.',
           },
-          operations: [
-            'add_modifier',
-            'update_modifier',
-            'duplicate_modifier',
-            'remove_modifier',
-            'reorder_modifiers',
-          ],
+          operations: ['add_modifier', 'update_modifier', 'remove_modifier', 'reorder_modifiers'],
           owner:
             "One layer. Auto Size/Follow/Look At references and Hide on Empty targets also accept groups. Grid Arrange, Radial Arrange and Justify arrange the owner's visible direct children (parentId); descendants move with each child. Spline Path is the layer motionPath (set_layer_layout) with optional rotationOffset.",
           references:
@@ -3502,13 +3576,7 @@ export function createOGrafToolRecords(
           blendModes: EFFECT_BLEND_MODES,
           blending:
             'Normal preserves legacy foreground filtering. Other modes combine each foreground effect with its input; glow/shadow blend their generated contribution only. blendOpacity mixes the foreground result with its input. Blend settings are static; numeric effect params retain their tracks. All bypassed skips filters; normal/full-strength uses CSS, mixed foreground effects use an sRGB SVG filter graph shared with masks and captures.',
-          operations: [
-            'add_effect',
-            'update_effect',
-            'duplicate_effect',
-            'remove_effect',
-            'reorder_effects',
-          ],
+          operations: ['add_effect', 'update_effect', 'remove_effect', 'reorder_effects'],
           order:
             'Top to bottom. Repeated types are allowed; each effect has a stable ID. Reorder supplies every ID exactly once. Maximum 16 effects including compatibility slots.',
           editing:
@@ -3563,7 +3631,7 @@ export function createOGrafToolRecords(
         tiling: {
           operations: [
             'set_tiling_pattern',
-            'remove_tiling_pattern',
+            'set_tiling_pattern patch=null',
             'set_layer_lighting',
             'add_layer kind=pattern',
           ],
@@ -3635,7 +3703,7 @@ export function createOGrafToolRecords(
           },
           inverted: 'true reveals the complement inside the target bounds.',
           sourceVisibility:
-            'hideSource defaults true and sets source.isMaskOnly. This suppresses source output without disabling masks; isVisible:false disables the source. set_layer_flags isMaskOnly:false shows the source again. Detaching does not change source visibility.',
+            'hideSource defaults true and sets source.isMaskOnly. This suppresses source output without disabling masks; isVisible:false disables the source. update_layer isMaskOnly:false shows the source again. Detaching does not change source visibility.',
           dependencies:
             'Same composition. No self/cycles, guide sources or cross-runtime-collection references. Source tracks/loops are sampled independently. Include sources when saving components; duplication remaps internal references. Detach consumers before deleting a source.',
           unsupportedSources: ['text', 'image-sequence', 'lottie', 'shader'],
@@ -3691,12 +3759,7 @@ export function createOGrafToolRecords(
             exported: false,
           },
           timelineGroups: {
-            operations: [
-              'create_timeline_group',
-              'rename_timeline_group',
-              'set_timeline_group_color',
-              'ungroup_timeline_group',
-            ],
+            operations: ['set_timeline_group'],
             semantics:
               'Timeline-only organization for independent layer rows. It does not change paint order, animation tracks, canvas object groups, stable layer IDs, or compiled OGraf output. Prefer grouping related multi-layer components and repeated forecast/day cells.',
             persistedCompatibilityField: 'composition.layout.timelineFolders',
@@ -3717,13 +3780,13 @@ export function createOGrafToolRecords(
         },
         assets: {
           operations: ['add_asset', 'remove_asset'],
-          importTools: ['ograf_import_asset', 'ograf_import_svg_bundle'],
+          importTools: ['ograf_import_asset', 'ograf_import_asset mode=svg-bundle'],
           referenceSyntax: 'asset:<id>',
           semantics:
             'Assets persist once in composition.assets; editor/capture resolve references and certified package export writes each registry entry once. remove_asset refuses referenced image sources unless force=true, which clears those references; removing an in-use font reports a fallback warning.',
         },
         mediaCues: {
-          operations: ['add_media_cue', 'update_media_cue', 'remove_media_cue'],
+          operations: ['set_media_cue', 'remove_media_cue'],
           sources: ['audio clip', 'video clip', 'renderer live input'],
           triggers: ['timeline frame', 'lifecycle state', 'customAction', 'manual preview'],
           retrigger: ['restart', 'resume', 'ignore'],
@@ -3733,7 +3796,7 @@ export function createOGrafToolRecords(
           semantics:
             'Media Cues are composition-level Timeline tracks, not canvas objects. Audio is nonvisual. Video/live cues optionally paint one target layer while sharing trim, speed, loop, volume, mute, trigger and source-transition controls.',
           audioCustomAction:
-            'For action-triggered sound, add_media_cue with an audio clip source and trigger:{type:"customAction",actionId}. In Studio, Audio -> Create Playback Cue creates a Manual advanced cue; Add at Playhead creates a timeline Sound Event.',
+            'For action-triggered sound, set_media_cue with an audio clip source and trigger:{type:"customAction",actionId}. In Studio, Audio -> Create Playback Cue creates a Manual advanced cue; Add at Playhead creates a timeline Sound Event.',
           runtime:
             'Initial profile is real-time-only. Crossfade double-buffers audio/video sources; live inputs require the zd-ograf-media renderer hook and target readiness verification.',
         },
@@ -3741,7 +3804,7 @@ export function createOGrafToolRecords(
           operations: [
             'save_component',
             'instantiate_component',
-            'update_component_from_layers',
+            'save_component componentId',
             'update_component_layer',
             'update_component_field',
             'reset_component_overrides',
@@ -3756,7 +3819,7 @@ export function createOGrafToolRecords(
             'Optional instanceId selects linked continuity across templates; duplicates within a composition fail. Use 1–256 ASCII letters/digits/._:-, starting alphanumeric; prototype keys are reserved. Other identities remain generated.',
           editing: {
             selection:
-              'update_component_from_layers componentId,layerIds promotes members of one linked instance plus new independent layers. New layers join that source instance in place; canonical layer/field IDs, bindings and animation remain stable. Other instances receive one corresponding child while retaining overrides. An independent-only selection becomes a new linked source instance. Locked selected layers, foreign component members and multiple source instances are rejected atomically. Query the updated project for child mappings; this operation does not return an insertion result for the existing source instance.',
+              'save_component componentId,layerIds promotes members of one linked instance plus new independent layers. New layers join that source instance in place; canonical layer/field IDs, bindings and animation remain stable. Other instances receive one corresponding child while retaining overrides. An independent-only selection becomes a new linked source instance. Locked selected layers, foreign component members and multiple source instances are rejected atomically. Query the updated project for child mappings; this operation does not return an insertion result for the existing source instance.',
             asset:
               'update_component_layer componentId,sourceLayerId,patch edits canonical authored fields (not id/componentLink). Element/effects patches merge; animationTracks merges channels. update_component_field componentId,fieldId,patch uses type/defaultValue and the ordinary field schema inputs.',
             instance:
@@ -3768,9 +3831,9 @@ export function createOGrafToolRecords(
           },
         },
         aiReview: {
-          query: 'ograf_query_scene',
+          query: 'ograf_inspect_scene mode=query',
           visualDryRun: 'ograf_apply_operations mode=preview',
-          deterministicQa: 'ograf_review_design',
+          deterministicQa: 'ograf_validate_project check=design',
           humanProposal: 'ograf_apply_operations mode=propose',
           semantics:
             'Use semantic query for compact selection, visual dry-run for model inspection, and proposals when a human should approve visually consequential edits.',
@@ -4258,7 +4321,7 @@ export function createOGrafToolRecords(
     {
       title: 'Capture browser-rendered OGraf PNG',
       description:
-        'PNG; first Step default. Matte/dataOverrides: composition only. URL 5 min; base64 opt-in. Not certification.',
+        'PNG; first Step default. Matte/dataOverrides: composition only. reference: workspace PNG/JPEG/WebP to compare with; returns difference scores and a difference picture. URL 5 min; base64 opt-in. Not certification.',
       inputSchema: {
         sessionId: z.string().default('editor'),
         target: z.enum(['composition', 'viewport']).default('composition'),
@@ -4267,6 +4330,7 @@ export function createOGrafToolRecords(
         maxDimension: z.number().int().min(64).max(4096).default(900),
         matte: captureMatteSchema,
         dataOverrides: z.record(z.string(), fieldValueSchema).optional(),
+        reference: z.string().min(1).optional(),
         enableBase64Response: z.boolean().default(false),
       },
       annotations: readOnly,
@@ -4279,6 +4343,7 @@ export function createOGrafToolRecords(
       maxDimension,
       matte,
       dataOverrides,
+      reference,
       enableBase64Response,
     }) => {
       if (target === 'viewport' && sessionId !== 'editor') {
@@ -4287,6 +4352,12 @@ export function createOGrafToolRecords(
       if (target === 'viewport' && dataOverrides) {
         throw new Error('dataOverrides is available only for target=composition.');
       }
+      if (target === 'viewport' && reference) {
+        throw new Error('reference is available only for target=composition.');
+      }
+      const referencePicture = reference
+        ? await readReferencePicture(workspace.resolveAllowedPath(reference))
+        : undefined;
       const snapshot = workspace.get(sessionId).snapshot();
       const composition = snapshot.project.compositions.find(
         (item) => item.id === (compositionId ?? snapshot.project.mainCompositionId),
@@ -4307,6 +4378,7 @@ export function createOGrafToolRecords(
         maxDimension,
         matte,
         ...(dataOverrides ? { dataOverrides } : {}),
+        ...(referencePicture ? { reference: referencePicture } : {}),
       });
       const { data, ...metadata } = capture;
       const structuredContent = {
@@ -4326,6 +4398,13 @@ export function createOGrafToolRecords(
           text: `PNG capture ready (${capture.width}×${capture.height}, natural ${capture.originalWidth}×${capture.originalHeight}). Fetch within five minutes: ${capture.url}\n${structuredContent.fetchCommand}`,
         },
       ];
+      if (capture.comparison) {
+        const { meanDifference, differingFraction, url } = capture.comparison;
+        content.push({
+          type: 'text',
+          text: `Against the reference: mean difference ${(meanDifference * 100).toFixed(1)}%, ${(differingFraction * 100).toFixed(1)}% of pixels differ. Difference picture, brighter where they differ: ${url}`,
+        });
+      }
       if (enableBase64Response) content.push({ type: 'image', data, mimeType: 'image/png' });
       return { content, structuredContent };
     },
@@ -5290,8 +5369,18 @@ export function createOGrafToolRecords(
           result.summary.generatedIds,
           result.project,
         );
+        // The summary counts applied operations; results answer the batch as it was sent.
+        const sent = (operationIndex: number) => {
+          const operation = typedOperations[operationIndex];
+          return (
+            (operation && sentOperations.get(operation)) ?? {
+              index: operationIndex,
+              type: operation?.type,
+            }
+          );
+        };
         const duplicateResults = result.summary.duplicateGroups.map((group) => ({
-          index: group.operationIndex,
+          index: sent(group.operationIndex).index,
           type: 'duplicate_group',
           copies: group.copies,
         }));
@@ -5301,8 +5390,8 @@ export function createOGrafToolRecords(
         const componentResults = result.summary.componentInstances
           .filter((instance) => !recipeOperationIndices.has(instance.operationIndex))
           .map((instance) => ({
-            index: instance.operationIndex,
-            type: typedOperations[instance.operationIndex]?.type ?? 'instantiate_component',
+            index: sent(instance.operationIndex).index,
+            type: sent(instance.operationIndex).type ?? 'instantiate_component',
             componentId: instance.componentId,
             instanceId: instance.instanceId,
             groupId: instance.groupId,
@@ -5311,7 +5400,7 @@ export function createOGrafToolRecords(
             fields: instance.fields,
           }));
         const repeaterResults = result.summary.repeaters.map((repeater) => ({
-          index: repeater.operationIndex,
+          index: sent(repeater.operationIndex).index,
           type: 'create_repeater',
           name: repeater.name,
           direction: repeater.direction,
@@ -5319,8 +5408,8 @@ export function createOGrafToolRecords(
           items: repeater.items,
         }));
         const recipeResults = result.summary.semanticBlocks.map((block) => ({
-          index: block.operationIndex,
-          type: typedOperations[block.operationIndex]?.type ?? `create_${block.recipe}`,
+          index: sent(block.operationIndex).index,
+          type: sent(block.operationIndex).type ?? `create_${block.recipe}`,
           recipe: block.recipe,
           name: block.name,
           groupId: block.groupId,
@@ -5332,7 +5421,7 @@ export function createOGrafToolRecords(
           ...(block.instanceId ? { instanceId: block.instanceId } : {}),
         }));
         const stylePackResults = result.summary.stylePacks.map((pack) => ({
-          index: pack.operationIndex,
+          index: sent(pack.operationIndex).index,
           type: 'apply_style_pack',
           stylePack: pack.packId,
           name: pack.name,
@@ -5352,11 +5441,13 @@ export function createOGrafToolRecords(
         const response = {
           ...result,
           results,
-          operationSummaries: typedOperations.map((operation, index) => ({
-            index,
-            type: operation.type,
-            generated: results.filter((entry) => entry.index === index),
-          })),
+          operationSummaries: (operations as ReadonlyArray<{ type: string }>).map(
+            (operation, index) => ({
+              index,
+              type: operation.type,
+              generated: results.filter((entry) => entry.index === index),
+            }),
+          ),
           ...(dryRun
             ? {
                 projectedDiagnostics: {
@@ -5554,6 +5645,48 @@ export function createOGrafToolRecords(
   );
 
   server.registerTool(
+    'ograf_export_video',
+    {
+      title: 'Export a WebM video',
+      description:
+        'Render one template as a WebM movie in the connected editor and save it in the workspace: Start to End, waiting holdSeconds on each Step, transparent unless transparent:false. At most 64 MiB; lower bitrate, maxDimension or holdSeconds for a longer movie. A call with the same operationId waits for a running export or answers again for a saved one.',
+      inputSchema: {
+        sessionId: z.string().default('editor'),
+        path: z.string().min(1),
+        operationId: z.string().min(1).max(128),
+        confirm: z.literal(true),
+        overwrite: z.boolean().default(false),
+        compositionId: z.string().optional(),
+        transparent: z.boolean().default(true),
+        holdSeconds: z.number().min(0).max(600).default(3),
+        bitrate: z.number().int().min(2).optional(),
+        maxDimension: z.number().int().min(64).max(4096).optional(),
+        blackFrameAtStart: z.boolean().default(false),
+        blackFrameAtEnd: z.boolean().default(false),
+      },
+      annotations: { ...mutation, idempotentHint: true },
+    },
+    async ({ sessionId, path, operationId, overwrite, compositionId, ...settings }) => {
+      const snapshot = workspace.get(sessionId).snapshot();
+      const wanted = compositionId ?? snapshot.project.mainCompositionId;
+      if (!snapshot.project.compositions.some((item) => item.id === wanted))
+        throw new Error(`Composition not found: ${wanted}`);
+      const { confirm: _confirm, ...request } = settings;
+      const saved = await exportVideo({
+        path,
+        operationId,
+        overwrite,
+        revision: snapshot.revision,
+        request: { ...request, project: snapshot.project, compositionId: wanted },
+      });
+      return textResult(
+        { sessionId, revision: snapshot.revision, ...saved },
+        `Saved ${saved.path}: ${saved.width}×${saved.height}, ${saved.frames} frames, ${Number(saved.durationSeconds).toFixed(2)} s, ${(Number(saved.bytes) / 1024 / 1024).toFixed(2)} MiB`,
+      );
+    },
+  );
+
+  server.registerTool(
     'ograf_export_coordinated_package',
     {
       title: 'Export certified coordinated OGraf or standalone HTML',
@@ -5686,6 +5819,98 @@ export function createOGrafToolRecords(
       );
     },
   );
+  if (!inApp) {
+    const revision = z.string().min(1).max(256);
+    const planReference = {
+      expectedRevision: revision,
+      planId: z.string().min(1).max(128),
+      sourceRevision: revision,
+      workspaceFile: templateTransferWorkspaceFileSchema.optional(),
+    };
+    const requestTransfer = async (request: TemplateTransferRequest, timeoutMs?: number) => {
+      if (!bridge.requestTemplateSet)
+        throw new Error('Template transfer review requires a connected Studio editor.');
+      return textResult(await bridge.requestTemplateSet(request, timeoutMs));
+    };
+    const useReviewedPlan = async (
+      action: 'transfer-preview' | 'transfer-commit',
+      {
+        workspaceFile,
+        ...reference
+      }: {
+        expectedRevision: string;
+        planId: string;
+        sourceRevision: string;
+        workspaceFile?: TemplateTransferWorkspaceFile;
+      },
+    ) => {
+      await assertTemplateTransferFileRevision(workspace, reference.sourceRevision, workspaceFile);
+      return requestTransfer(
+        { action, ...reference },
+        action === 'transfer-preview' ? 60_000 : undefined,
+      );
+    };
+    server.registerTool(
+      'ograf_review_template_transfer',
+      {
+        title: 'Review template branding transfer',
+        description:
+          'Review branding and settings, or list members of a workspace set. Select source.templateId when requested. Returns bounded rows and a frozen plan ID. Files up to 64 MiB.',
+        inputSchema: {
+          expectedRevision: revision,
+          source: templateTransferSourceSchema,
+          options: templateTransferOptionsSchema.default({ policy: 'keep-appearance' }),
+          targetTemplateId: z.string().min(1).max(256).nullable().optional(),
+          side: z.enum(['before', 'after']).optional(),
+          originalPrompt: originalPromptSchema.optional(),
+          offset: z.number().int().nonnegative().default(0),
+          limit: z.number().int().min(1).max(50).default(25),
+        },
+        annotations: { ...readOnly, idempotentHint: false },
+      },
+      async ({ source, ...options }) => {
+        if (source.kind === 'clipboard')
+          return requestTransfer({ action: 'transfer-review', source, ...options }, 60_000);
+        const file = await readTemplateTransferFile(workspace, source);
+        return requestTransfer(
+          {
+            action: 'transfer-review',
+            source: {
+              kind: 'workspace-file',
+              filename: file.filename,
+              bytesBase64: file.data.toString('base64'),
+              sourceRevision: file.sourceRevision,
+              templateId: source.templateId,
+            },
+            ...options,
+          },
+          60_000,
+        );
+      },
+    );
+    server.registerTool(
+      'ograf_preview_template_transfer',
+      {
+        title: 'Preview a reviewed template transfer',
+        description:
+          'Render before and after images for the exact reviewed plan. Returns expiring image URLs. Recheck a file with the same workspaceFile path and member.',
+        inputSchema: planReference,
+        annotations: readOnly,
+      },
+      async (input) => useReviewedPlan('transfer-preview', input),
+    );
+    server.registerTool(
+      'ograf_commit_template_transfer',
+      {
+        title: 'Apply a reviewed template transfer',
+        description:
+          'Apply one undoable transfer from a reviewed plan and exact revisions. Requires confirm:true. Supply the same workspaceFile path and member for file sources.',
+        inputSchema: { ...planReference, confirm: z.literal(true) },
+        annotations: mutation,
+      },
+      async ({ confirm: _confirm, ...input }) => useReviewedPlan('transfer-commit', input),
+    );
+  }
   server.registerTool(
     'ograf_get_playout',
     {
@@ -5758,6 +5983,8 @@ export function createOGrafToolRecords(
     'ograf_inspect_scene',
     'ograf_get_project',
     'ograf_get_template_set',
+    'ograf_review_template_transfer',
+    'ograf_preview_template_transfer',
     'ograf_get_changes',
     'ograf_get_playout',
     'ograf_get_timeline',
@@ -5830,6 +6057,7 @@ export function createOGrafToolRecords(
       }
     },
   });
+  mergeToolRecords(consolidated, inApp ? IN_APP_MERGED_TOOL_NAMES : undefined);
   registerToolResultPager(consolidated, pager);
   return consolidated;
 }

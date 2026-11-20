@@ -87,15 +87,19 @@ describe('standalone static editor hosting', () => {
     const indexPath = join(root, 'embedded-index');
     const scriptPath = join(root, 'embedded-script');
     const newsPath = join(root, 'embedded-news');
+    const previewPath = join(root, 'embedded-preview');
     await writeFile(indexPath, '<!doctype html><title>Embedded Studio</title>');
     await writeFile(scriptPath, 'globalThis.embeddedStudio = true;');
     await writeFile(newsPath, '<!doctype html><title>Embedded News</title>');
+    const previewBytes = new Uint8Array([0, 0, 0, 8, 102, 116, 121, 112]);
+    await writeFile(previewPath, previewBytes);
 
     const host = createOGrafAuthoringHost({
       embeddedEditorAssets: {
         '/index.html': indexPath,
         '/assets/editor.js': scriptPath,
         '/transition-logic-news.html': newsPath,
+        '/explorer/recipes/lower-third.mp4': previewPath,
       },
       workspaceRoot: root,
     });
@@ -116,6 +120,10 @@ describe('standalone static editor hosting', () => {
       expect(script.headers.get('content-type')).toContain('text/javascript');
       expect(await script.text()).toContain('embeddedStudio');
       expect(script.headers.get('cache-control')).toContain('immutable');
+
+      const preview = await fetch(`http://127.0.0.1:${port}/explorer/recipes/lower-third.mp4`);
+      expect(preview.headers.get('content-type')).toBe('video/mp4');
+      expect(new Uint8Array(await preview.arrayBuffer())).toEqual(previewBytes);
     } finally {
       await new Promise<void>((resolve, reject) =>
         host.httpServer.close((error) => (error ? reject(error) : resolve())),

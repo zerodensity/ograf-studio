@@ -1,6 +1,7 @@
 import { getExportProfile, type ExportArtifacts } from '@ograf-editor/codegen';
 import type { Composition, FieldValue, Project } from '@ograf-editor/scene-model';
 import { buildCoordinatedProjectSetArtifactsTask } from './coordinatedCompileTask';
+import { awaitExportOperation } from './exportAbort';
 import { buildExportArtifacts } from './ografCompatibility';
 import {
   assertStudioRendererPluginsAllowed,
@@ -83,6 +84,9 @@ export async function buildSharedPlayoutPreview(
     signal.throwIfAborted();
     assertStudioRendererPluginsAllowed(plugins);
   } else {
+    if (source.composition.rendererPlugins?.length) {
+      await awaitExportOperation(useRendererPluginSettingsStore.getState().initialize(), signal);
+    }
     const project = {
       ...source.project,
       mainCompositionId: source.composition.id,

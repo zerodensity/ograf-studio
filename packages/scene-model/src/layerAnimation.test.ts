@@ -16,6 +16,7 @@ import {
   getLayerPropertyValueAtFrame,
   getPaintAtFrame,
   getResolvedLayerAnimationTracks,
+  getTrackValueAtFrame,
   isLayerPropertyAnimated,
   findLayerPropertyKeyframeAtFrame,
   TRANSFORM_ANIMATION_PROPERTIES,
@@ -33,6 +34,31 @@ const transform = (x: number) => ({
 });
 
 describe('independent layer animation', () => {
+  it('samples a track after a same-length replacement or retime without retaining stale order', () => {
+    const keys = [createLayerPropertyKeyframe(0, 0), createLayerPropertyKeyframe(10, 100)];
+    expect(getTrackValueAtFrame(keys, 5, -1)).toBe(50);
+
+    keys[0] = { ...keys[0]!, value: 40 };
+    expect(getTrackValueAtFrame(keys, 5, -1)).toBe(70);
+
+    keys[0]!.frame = 20;
+    expect(getTrackValueAtFrame(keys, 10, -1)).toBe(100);
+    expect(getTrackValueAtFrame(keys, 15, -1)).toBe(70);
+    expect(keys.map((key) => key.frame)).toEqual([20, 10]);
+  });
+
+  it('keeps the existing tie order when imported keys share a frame', () => {
+    const keys = [
+      createLayerPropertyKeyframe(0, 0),
+      createLayerPropertyKeyframe(10, 60, { id: 'last' }),
+      createLayerPropertyKeyframe(10, 20, { id: 'first' }),
+      createLayerPropertyKeyframe(20, 100),
+    ];
+    expect(getTrackValueAtFrame(keys, 5, -1)).toBe(10);
+    expect(getTrackValueAtFrame(keys, 10, -1)).toBe(20);
+    expect(getTrackValueAtFrame(keys, 15, -1)).toBe(80);
+  });
+
   it('recognizes legacy pose animation without treating static effect fallbacks as authored keys', () => {
     const layer = createLayerOfKind('rectangle');
     expect(isLayerPropertyAnimated(layer, 'x')).toBe(false);

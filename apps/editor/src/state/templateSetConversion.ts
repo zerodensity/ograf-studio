@@ -1,39 +1,27 @@
-import { migrateProject, type Project } from '@ograf-editor/scene-model';
-import { validateProject } from '@ograf-editor/validation';
-import { runAtomicHistoryStep, runDiscreteHistoryStep } from './historyStore';
-import {
-  addProjectSetTemplate,
-  createProjectSet,
-  DEFAULT_PROJECT_SET_NAME,
-  resolveProjectSetTemplate,
-  validateProjectSetDocument,
-} from './projectSet';
+import type { Project } from '@ograf-editor/scene-model';
+import { addProjectSetTemplate, createProjectSet, DEFAULT_PROJECT_SET_NAME } from './projectSet';
 import { useProjectSetStore } from './projectSetStore';
 import { useProjectStore } from './projectStore';
 import { createUiProject, setNewCompositionTiming } from './newTemplateTiming';
-import { syncProjectSetPreviewControls } from './projectSetSession';
-import { useSelectionStore } from './selectionStore';
-import { useTimelineStore } from './timelineStore';
-import { useTestDataStore } from './testDataStore';
-import { useLayerClipboardStore } from './layerClipboardStore';
+import {
+  commitTemplateSetInsertion,
+  commitTemplateTransfer,
+  prepareTemplateTransfer,
+  validatedTemplateInsertion,
+} from './templateTransfer';
 
 /** Convert only after the second template has been chosen and validated. */
 export function addSecondTemplateToNewSet(opened: Project, expectedProjectId: string): string {
+  return addSecondTemplateToNewSetWithReport(opened, expectedProjectId).name;
+}
+
+export function addSecondTemplateToNewSetWithReport(opened: Project, expectedProjectId: string) {
   const session = useProjectSetStore.getState();
   const current = useProjectStore.getState().project;
   if (session.projectSet || current.id !== expectedProjectId)
     throw new Error('The open document changed. Choose the template again.');
   const created = createProjectSet(DEFAULT_PROJECT_SET_NAME, current);
-  const originalName = created.templates[0]!.name.trim().toLocaleLowerCase();
-  const base = opened.name.trim() || 'Untitled Template';
-  const name = base.toLocaleLowerCase() === originalName ? `${base} 2` : base;
-  const updated = addProjectSetTemplate(created, { ...opened, name }, name);
-  validateProjectSetDocument(updated);
-  runDiscreteHistoryStep(() => {
-    session.setProjectSet(updated);
-    session.setActiveTemplateId(created.templates[0]!.id);
-  }, 'Create template set');
-  return name;
+  return commitTemplateTransfer(prepareTemplateTransfer(created, opened, 'resolved-file'), true);
 }
 
 /** Promote a standalone document only after the second-template wizard is committed. */
@@ -63,42 +51,11 @@ export function createSecondTemplateInNewSet(
     added.settingsOverrides = (['width', 'height', 'frameRate'] as const).filter(
       (key) => settings[key] !== updated.settings![key],
     );
-  validateProjectSetDocument(updated);
-  const resolved = migrateProject(resolveProjectSetTemplate(updated, added.id));
-  const validation = validateProject(resolved);
-  if (!validation.valid)
-    throw new Error(`Cannot open this template. ${validation.errors.slice(0, 3).join(' ')}`);
-  const oldProject = useProjectStore.getState();
-  const restoreFreshSession = oldProject.captureFreshTemplateSession();
-  const oldSession = useProjectSetStore.getState();
-  const oldSelection = useSelectionStore.getState();
-  const oldTimeline = useTimelineStore.getState();
-  const oldTestData = useTestDataStore.getState();
-  const oldClipboard = useLayerClipboardStore.getState();
-  runAtomicHistoryStep(
-    () => {
-      useProjectStore.getState().loadProject(resolved, { freshUiTemplate: true });
-      session.setProjectSet({ ...updated, activeTemplateId: added.id });
-      session.setActiveTemplateId(added.id);
-      useTestDataStore.getState().resetAll();
-      syncProjectSetPreviewControls(updated, added.id, resolved);
-      useSelectionStore.getState().select(null);
-    },
-    () => {
-      useProjectSetStore.setState(oldSession, true);
-      useProjectStore.setState(oldProject, true);
-      useSelectionStore.setState(oldSelection, true);
-      useTimelineStore.setState(oldTimeline, true);
-      useTestDataStore.setState(oldTestData, true);
-      useLayerClipboardStore.setState(oldClipboard, true);
-      restoreFreshSession();
-      try {
-        oldTimeline.controller?.seek(oldTimeline.currentFrame);
-        if (oldTimeline.isPlaying) oldTimeline.controller?.play();
-      } catch {
-        // Keep the original load error and restored document even if a stopped player is unavailable.
-      }
-    },
+  commitTemplateSetInsertion(
+    updated,
+    added.id,
+    validatedTemplateInsertion(updated, added.id),
     'Create template set',
+    true,
   );
 }

@@ -182,6 +182,7 @@ const reasonText: Record<PluginLoadWarning['reason'], string> = {
   disabled: 'The saved renderer is disabled in Studio.',
   untrusted: 'The saved renderer has not been trusted in Studio.',
   'content-mismatch': 'The saved renderer code differs from the installed build.',
+  incompatible: 'The installed renderer does not support the saved chart settings.',
 };
 
 interface WarningDialogProps {

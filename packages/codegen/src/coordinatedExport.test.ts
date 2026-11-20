@@ -31,7 +31,8 @@ import {
   type CoordinatedExportInput,
 } from './buildCoordinatedExportArtifacts';
 import { EXPORTED_RESOURCE_URLS_KEY, validatePackageLayout } from './buildExportArtifacts';
-import { BUILT_IN_EXPORT_PROFILES } from './exportProfiles';
+import { BUILT_IN_EXPORT_PROFILES, NLE_EXPORT_PROFILE } from './exportProfiles';
+import { buildPackageDiscoveryCatalog, discoveryModuleErrors } from './discovery';
 import {
   STUDIO_RUNTIME_LICENSE_PATH,
   STUDIO_RUNTIME_LICENSE_TEXT,
@@ -43,6 +44,8 @@ const runtime = readFileSync(
   'utf8',
 );
 const runtimeStub = 'class CoordinatedGraphicElement {}';
+const discoveryRuntimeStub =
+  'class Base { getPlayoutSnapshot() {} subscribePlayout() {} } class CoordinatedGraphicElement extends Base {}';
 const schema = (name: string) =>
   JSON.parse(
     readFileSync(new URL(`../../../fixtures/ograf-schema/${name}`, import.meta.url), 'utf8'),
@@ -145,6 +148,232 @@ function evaluateResourceWrapper(mainJs: string, moduleUrl: string) {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('static manifest discovery', () => {
+  it('publishes a detached public catalog without copying rendering scenes or private values', () => {
+    const input = newsInput();
+    const composition = firstComposition(input);
+    composition.dataFields.push(
+      createFieldDefinition('text', { key: 'publicValue', defaultValue: 'Visible value' }),
+      createFieldDefinition('text', {
+        key: 'privateValue',
+        defaultValue: 'PRIVATE-DISCOVERY-VALUE',
+        exposeToOgraf: false,
+      }),
+      createFieldDefinition('object', {
+        key: 'nested',
+        properties: [
+          createFieldDefinition('text', { key: 'visible' }),
+          createFieldDefinition('text', { key: 'hidden', exposeToOgraf: false }),
+        ],
+        defaultValue: { visible: 'Public nested value', hidden: 'PRIVATE-NESTED-VALUE' },
+      }),
+    );
+    const before = structuredClone(input);
+    const result = buildCoordinatedExportArtifactsWithRuntime(input, runtimeStub);
+    expect(result.valid, result.errors.join('\n')).toBe(true);
+    const discovery = result.manifest.v_ografDiscovery;
+    if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+    expect(JSON.parse(JSON.stringify(result.manifest)).v_ografDiscovery).toEqual(discovery);
+    expect(result.manifest).toHaveProperty('v_ografTransitionLogic', { version: 1 });
+    expect(discovery.catalog.templates.map((template) => template.id)).toEqual(
+      input.templates.map((template) => template.id),
+    );
+    expect(discovery.catalog.slots).toContainEqual({
+      id: 'lower-third',
+      name: 'Lower third',
+      stateIds: ['name', 'headline', 'breaking'],
+      requireOn: [],
+      blockWhileActive: [],
+      layoutWhen: ['ticker'],
+    });
+    const state = discovery.catalog.states.find(
+      (entry) => entry.templateId === input.templates[0]!.id,
+    )!;
+    expect(state.defaults).toMatchObject({
+      publicValue: 'Visible value',
+      nested: { visible: 'Public nested value' },
+    });
+    expect(state.schema.default).toEqual(state.defaults);
+    expect(state.schema.title).toBe('Changed values');
+    expect(state.schema).not.toHaveProperty('required');
+    expect(state.schema.properties).toHaveProperty('publicValue');
+    expect(
+      (state.schema.properties as Record<string, Record<string, unknown>>).publicValue,
+    ).not.toHaveProperty('default');
+    expect(discovery.catalog.actions).toEqual(result.manifest.customActions);
+    expect(discovery.catalog.defaults).toEqual(result.manifest.schema!.default);
+    expect(JSON.stringify(discovery)).not.toMatch(/PRIVATE-DISCOVERY-VALUE|PRIVATE-NESTED-VALUE/);
+    expect(discovery.catalog.templates[0]).not.toHaveProperty('descriptor');
+    expect(discovery.catalog).not.toHaveProperty('sharedInstances');
+    expect(result.mainJs).toContain('PRIVATE-DISCOVERY-VALUE');
+    const descriptorBefore = structuredClone(result.transitionDescriptor);
+    discovery.catalog.templates[0]!.name = 'Metadata edit';
+    state.defaults.publicValue = 'Metadata edit';
+    expect(result.transitionDescriptor).toEqual(descriptorBefore);
+    expect(input).toEqual(before);
+  });
+
+  it('keeps asset defaults package-relative when the runtime resolves its resource URLs', () => {
+    const { input, path } = resourcesInput();
+    const result = buildCoordinatedExportArtifactsWithRuntime(input, discoveryRuntimeStub);
+    expect(result.valid, result.errors.join('\n')).toBe(true);
+    const discovery = result.manifest.v_ografDiscovery;
+    if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+    expect(discovery.catalog.states.find((state) => state.id === 'name')!.defaults.items).toEqual([
+      { icon: path, caption: 'images/logo.svg' },
+    ]);
+    const Graphic = evaluateResourceWrapper(result.mainJs, 'https://graphics.example/news/main.js');
+    expect(
+      discoveryModuleErrors(result.manifest, Graphic, result.offlinePreviewStateSchemas),
+    ).toEqual([]);
+    expect(JSON.stringify(discovery)).not.toContain('https://graphics.example');
+  });
+
+  it('certifies inherited coordinated capabilities and rejects missing methods or conflicting metadata', () => {
+    const result = buildCoordinatedExportArtifactsWithRuntime(newsInput(), discoveryRuntimeStub);
+    const Graphic = evaluateResourceWrapper(result.mainJs, 'https://graphics.example/main.js');
+    expect(
+      discoveryModuleErrors(result.manifest, Graphic, result.offlinePreviewStateSchemas),
+    ).toEqual([]);
+    expect(
+      discoveryModuleErrors(
+        result.manifest,
+        { transitionDescriptor: Graphic.transitionDescriptor },
+        result.offlinePreviewStateSchemas,
+      ).join(' '),
+    ).toContain('methods');
+    const discovery = result.manifest.v_ografDiscovery;
+    if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+    discovery.catalog.states[0]!.defaults.tampered = true;
+    expect(
+      discoveryModuleErrors(result.manifest, Graphic, result.offlinePreviewStateSchemas).join(' '),
+    ).toContain('does not match');
+    result.manifest.v_ografDiscovery = { version: 1, kind: 'graphic' };
+    expect(discoveryModuleErrors(result.manifest, Graphic).join(' ')).toContain('ordinary graphic');
+    delete result.manifest.v_ografDiscovery;
+    expect(discoveryModuleErrors(result.manifest, Graphic)).toEqual([]);
+  });
+
+  it('retains admission dependencies and detects changes in the exported template catalog', () => {
+    const result = buildCoordinatedExportArtifactsWithRuntime(newsInput(), discoveryRuntimeStub);
+    const descriptor = structuredClone(result.transitionDescriptor!);
+    descriptor.definition.slots[1]!.admission = {
+      requireOnSlotIds: ['lower-third'],
+      blockWhileActiveSlotIds: [],
+    };
+    const catalog = buildPackageDiscoveryCatalog(
+      descriptor,
+      result.manifest,
+      result.offlinePreviewStateSchemas!,
+    );
+    expect(catalog.slots.find((slot) => slot.id === 'ticker')!.requireOn).toEqual(['lower-third']);
+    const Graphic = evaluateResourceWrapper(result.mainJs, 'https://graphics.example/main.js');
+    Graphic.transitionDescriptor.templates[0]!.name = 'Changed export';
+    expect(
+      discoveryModuleErrors(result.manifest, Graphic, result.offlinePreviewStateSchemas).join(' '),
+    ).toContain('does not match');
+  });
+
+  it('clears effective set backgrounds for an NLE without changing shared graphics', () => {
+    const input = newsInput();
+    for (const { project } of input.templates) {
+      const composition = project.compositions.find(({ id }) => id === project.mainCompositionId)!;
+      composition.backgroundColor = '#112233';
+      composition.backgroundPaint = '#445566';
+    }
+    const source = structuredClone(input);
+    const regular = buildCoordinatedExportArtifactsWithRuntime(input, runtimeStub);
+    const exported = buildCoordinatedExportArtifactsWithRuntime(
+      input,
+      runtimeStub,
+      NLE_EXPORT_PROFILE,
+    );
+    expect(exported.valid, exported.errors.join('\n')).toBe(true);
+    expect(exported.manifest).toMatchObject({ supportsNonRealTime: true, supportsRealTime: false });
+    expect(exported.transitionDescriptor!.sharedInstances).toEqual(
+      regular.transitionDescriptor!.sharedInstances,
+    );
+    const regularTemplates = regular.transitionDescriptor!.templates;
+    expect(exported.transitionDescriptor!.templates).toHaveLength(regularTemplates.length);
+    for (const [index, template] of exported.transitionDescriptor!.templates.entries()) {
+      expect(template.descriptor.backgroundColor).toBe('transparent');
+      expect(template.descriptor.layers.map(({ id }) => id)).toEqual(
+        regularTemplates[index]!.descriptor.layers.filter(
+          ({ id }) => !id.startsWith('ograf-background-'),
+        ).map(({ id }) => id),
+      );
+    }
+    expect(input).toEqual(source);
+  });
+
+  it.each(BUILT_IN_EXPORT_PROFILES)(
+    "uses each state's public defaults in its form for $mode exports",
+    (profile) => {
+      const input = newsInput();
+      input.definition.version = 4;
+      firstComposition(input).dataFields.push(
+        createFieldDefinition('text', { key: 'first_only', defaultValue: 'First default' }),
+      );
+      const secondProject = input.templates[1]!.project;
+      secondProject.compositions
+        .find((composition) => composition.id === secondProject.mainCompositionId)!
+        .dataFields.push(
+          createFieldDefinition('text', { key: 'second_only', defaultValue: 'Second default' }),
+        );
+      input.definition.states[1]!.dataDefaults = { headline: 'Second state preset' };
+      const result = buildCoordinatedExportArtifactsWithRuntime(input, runtimeStub, profile);
+      expect(result.valid, result.errors.join('\n')).toBe(true);
+      const discovery = result.manifest.v_ografDiscovery;
+      if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+      for (const state of discovery.catalog.states) {
+        const validateData = ajv.compile(state.schema);
+        expect(validateData(state.schema.default), JSON.stringify(validateData.errors)).toBe(true);
+        expect(state.schema.default).toEqual(state.defaults);
+      }
+      const second = discovery.catalog.states.find((state) => state.id === 'headline')!;
+      expect(second.schema.default).toMatchObject({
+        second_only: 'Second default',
+        headline: 'Second state preset',
+      });
+      expect(second.schema.default).not.toHaveProperty('first_only');
+      expect(discovery.catalog.defaults).toEqual(result.manifest.schema!.default);
+    },
+  );
+
+  it('replaces nested template defaults when a state supplies an object preset', () => {
+    const input = newsInput();
+    input.definition.version = 4;
+    firstComposition(input).dataFields.push(
+      createFieldDefinition('object', {
+        key: 'settings',
+        properties: [
+          createFieldDefinition('text', { key: 'first' }),
+          createFieldDefinition('text', { key: 'second' }),
+        ],
+        defaultValue: { first: 'A', second: 'B' },
+      }),
+    );
+    input.definition.states[0]!.dataDefaults = { settings: { first: 'Overridden' } };
+    const result = buildCoordinatedExportArtifactsWithRuntime(input, discoveryRuntimeStub);
+    expect(result.valid, result.errors.join('\n')).toBe(true);
+    const discovery = result.manifest.v_ografDiscovery;
+    if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+    expect(discovery.catalog.states[0]!.defaults.settings).toEqual({
+      first: 'Overridden',
+    });
+    expect(discovery.catalog.states[0]!.schema.default).toEqual(
+      discovery.catalog.states[0]!.defaults,
+    );
+    expect(
+      discoveryModuleErrors(
+        result.manifest,
+        evaluateResourceWrapper(result.mainJs, 'https://graphics.example/main.js'),
+        result.offlinePreviewStateSchemas,
+      ),
+    ).toEqual([]);
+  });
+});
 
 describe('coordinated news export', () => {
   it('declares root controls and live textures in ordinary coordinated HTML exports', () => {
@@ -261,6 +490,11 @@ describe('coordinated news export', () => {
         supportsNonRealTime: profile.mode !== 'realtime',
         main: 'main.js',
         stepCount: 1,
+        v_ografDiscovery: {
+          version: 1,
+          kind: 'package',
+          catalog: { id: `${input.id}${profile.graphicIdSuffix}` },
+        },
       });
       expect(artifacts.transitionDescriptor).toMatchObject({
         id: artifacts.manifest.id,
@@ -819,6 +1053,17 @@ describe('coordinated news export', () => {
     }
     for (const command of ['start', 'pause'] as const)
       expect(lowerThird.enum).not.toContain(clockTimerActionId('manual-feed', command));
+    const discovery = result.manifest.v_ografDiscovery;
+    if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+    const discoveredActions = discovery.catalog.states
+      .find((state) => state.id === 'name')!
+      .actions.map((entry) => entry.id);
+    expect(discoveredActions).toContain(clockTimerActionId('program:elapsed', 'start'));
+    expect(discoveredActions).toContain(clockTimerActionId('manual-feed', 'reset'));
+    expect(discoveredActions).toContain(clockTimerActionId('manual-feed', 'restart'));
+    expect(discoveredActions).not.toContain(clockTimerActionId('manual-feed', 'start'));
+    expect(discoveredActions).not.toContain(clockTimerActionId('manual-feed', 'pause'));
+    expect(discoveredActions.join(' ')).not.toMatch(/wall-clock|guide-timer|ticker-remaining/);
     expect(lowerThird.enum.join(' ')).not.toMatch(/wall-clock|guide-timer/);
     const guide = result.resources.find((resource) => resource.path === 'README.md')!.data;
     expect(guide).toContain('Reset returns to the initial value and stops');
@@ -868,16 +1113,27 @@ describe('coordinated news export', () => {
       (action) => action.id === 'template.action',
     )!;
     const validateAction = ajv.compile(action.schema!);
+    const discovery = result.manifest.v_ografDiscovery;
+    if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+    const actionsFor = (stateId: string) =>
+      discovery.catalog.states
+        .find((state) => state.id === stateId)!
+        .actions.map((action) => action.id);
     for (const command of ['start', 'pause', 'reset', 'restart'] as const) {
+      const fallback = clockTimerActionId(
+        JSON.stringify(['news-clock-asset-on-air', 'news-clock']),
+        command,
+      );
       expect(
         validateAction({
           slotId: 'lower-third',
-          actionId: clockTimerActionId(
-            JSON.stringify(['news-clock-asset-on-air', 'news-clock']),
-            command,
-          ),
+          actionId: fallback,
         }),
       ).toBe(true);
+      expect(actionsFor('name')).toContain(fallback);
+      expect(actionsFor('headline')).not.toContain(fallback);
+      expect(actionsFor('headline')).toContain(clockTimerActionId('headline-news-clock', command));
+      expect(actionsFor('ticker')).not.toContain(fallback);
       expect(
         validateAction({
           slotId: 'lower-third',

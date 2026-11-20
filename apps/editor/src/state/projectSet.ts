@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION } from '@ograf-editor/agent-tools/template-set-storage';
 import {
   SetResourcePool,
   assertCompleteCompactProject,
@@ -20,11 +21,13 @@ import {
 } from './componentSetLibrary';
 import {
   isMediaPaint,
+  isShaderPaint,
   mediaPaintAssetReferences,
   transitionLogicErrors,
   compositionPlayoutActionErrors,
   validatePresenterDefinition,
   validateAuthoringPrompts,
+  requireOutputLayer,
 } from '@ograf-editor/scene-model';
 import type {
   Asset,
@@ -72,11 +75,53 @@ export interface ProjectSetTemplate {
   name: string;
   project: Project;
   inheritSettings?: boolean;
+  /** A transferred member can keep its resolved Brand Kit independently of the set. */
+  inheritBrandKit?: boolean;
+  brandKitLinks?: ProjectSetBrandKitLinks;
   settingsOverrides?: TemplateSetSettingKey[];
   brandKitOverrides?: string[];
   typographyOverrides?: string[];
   backgroundOverrides?: string[];
   backgroundOverridden?: boolean;
+}
+
+export interface ProjectSetBrandKitLinks {
+  tokenIds: string[];
+  typographyIds: string[];
+  backgroundIds: string[];
+}
+
+export function templateBrandKit(
+  set: ProjectSetDocument | null | undefined,
+  template: Pick<ProjectSetTemplate, 'inheritBrandKit' | 'brandKitLinks'> | null | undefined,
+): DesignSystem | undefined {
+  const kit = set?.brandKit;
+  if (!template || !kit) return undefined;
+  const links = template.brandKitLinks;
+  if (!links) return template.inheritBrandKit !== false ? kit : undefined;
+  return {
+    name: kit.name,
+    tokens: kit.tokens.filter(({ id }) => links.tokenIds.includes(id)),
+    typography: kit.typography?.filter(({ id }) => links.typographyIds.includes(id)),
+    backgrounds: kit.backgrounds?.filter(({ id }) => links.backgroundIds.includes(id)),
+  };
+}
+
+export function projectSetArchiveSchemaVersion(
+  set: Pick<ProjectSetDocument, 'templates'>,
+  archiveMode: 'compact' | 'compatible' = 'compact',
+): 5 | 6 | 7 {
+  const hasLocalBrandKits = set.templates.some((template) => template.inheritBrandKit === false);
+  if (archiveMode === 'compatible') {
+    if (hasLocalBrandKits)
+      throw new Error(
+        'Local Brand Kits require the current .ogs template-set format. Save a current .ogs set, or save a standalone template for an older editor.',
+      );
+    return 5;
+  }
+  return hasLocalBrandKits
+    ? LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION
+    : PROJECT_SET_SCHEMA_VERSION;
 }
 
 export interface ProjectSetControlBinding {
@@ -114,6 +159,8 @@ export interface ProjectSetAssetSlot {
 }
 
 export interface ProjectSetDocument {
+  /** Independent root layer for coordinated export; never inherited by templates. */
+  outputLayer?: number;
   id: string;
   name: string;
   nameOrigin?: 'default' | 'custom';
@@ -188,6 +235,7 @@ export function createProjectSet(name: string, project: Project): ProjectSetDocu
   const defaults = templateSetSettingsFromProject(project);
   return {
     id: newId('set'),
+    outputLayer: 0,
     name: name.trim() || DEFAULT_PROJECT_SET_NAME,
     nameOrigin: !name.trim() || name.trim() === DEFAULT_PROJECT_SET_NAME ? 'default' : 'custom',
     activeTemplateId: template.id,
@@ -225,6 +273,7 @@ export function migrateProjectSetDocument(set: ProjectSetDocument): ProjectSetDo
   return {
     ...set,
     name: defaultName && set.name === 'Untitled Template' ? DEFAULT_PROJECT_SET_NAME : set.name,
+    outputLayer: requireOutputLayer(set.outputLayer === undefined ? 0 : set.outputLayer),
     nameOrigin: set.nameOrigin ?? (defaultName ? 'default' : 'custom'),
     activeTemplateId,
     controls: (Array.isArray(set.controls) ? set.controls : []).map((control) => ({
@@ -262,7 +311,10 @@ export function addProjectSetTemplate(
   project: Project,
   name = project.name,
   inheritSettings = true,
+  options: Pick<ProjectSetTemplate, 'inheritBrandKit' | 'brandKitLinks'> = {},
 ): ProjectSetDocument {
+  // Selected links are applied when the prepared transfer has supplied its explicit overrides.
+  const kit = options.brandKitLinks ? undefined : templateBrandKit(set, options);
   return {
     ...set,
     templates: [
@@ -271,12 +323,16 @@ export function addProjectSetTemplate(
         id: newId('template'),
         name,
         inheritSettings,
-        project: set.brandKit
+        ...(options.inheritBrandKit !== undefined
+          ? { inheritBrandKit: options.inheritBrandKit }
+          : {}),
+        ...(options.brandKitLinks ? { brandKitLinks: structuredClone(options.brandKitLinks) } : {}),
+        project: kit
           ? resolveTemplateSetBrandKit(
               set.settings && inheritSettings
                 ? applyTemplateSetSettings(project, set.settings)
                 : project,
-              set.brandKit,
+              kit,
             )
           : set.settings && inheritSettings
             ? applyTemplateSetSettings(project, set.settings)
@@ -425,6 +481,7 @@ export function saveProjectSetTemplateEdits(
   // must never adopt a different document merely because a snapshot or autosave was requested.
   if (source.project.id !== editedProject.id) return set;
   const before = resolveProjectSetTemplate(set, templateId);
+  const kit = templateBrandKit(set, source);
   const settingsOverrides = [
     ...new Set([
       ...(source.settingsOverrides ?? []),
@@ -436,23 +493,19 @@ export function saveProjectSetTemplateEdits(
   const brandKitOverrides = [
     ...new Set([
       ...(source.brandKitOverrides ?? []),
-      ...(set.brandKit ? changedSharedBrandTokenIds(before, editedProject, set.brandKit) : []),
+      ...(kit ? changedSharedBrandTokenIds(before, editedProject, kit) : []),
     ]),
   ];
   const typographyOverrides = [
     ...new Set([
       ...(source.typographyOverrides ?? []),
-      ...(set.brandKit
-        ? changedSharedStyleIds(before, editedProject, set.brandKit, 'typography')
-        : []),
+      ...(kit ? changedSharedStyleIds(before, editedProject, kit, 'typography') : []),
     ]),
   ];
   const backgroundOverrides = [
     ...new Set([
       ...(source.backgroundOverrides ?? []),
-      ...(set.brandKit
-        ? changedSharedStyleIds(before, editedProject, set.brandKit, 'backgrounds')
-        : []),
+      ...(kit ? changedSharedStyleIds(before, editedProject, kit, 'backgrounds') : []),
     ]),
   ];
   const oldMain = before.compositions.find((item) => item.id === before.mainCompositionId)!;
@@ -473,11 +526,12 @@ export function saveProjectSetTemplateEdits(
           effectiveTemplateSetSettings(editedProject, set.settings, settingsOverrides),
         )
       : structuredClone(editedProject);
-  if (set.brandKit)
-    project = resolveTemplateSetBrandKit(project, set.brandKit, brandKitOverrides, {
+  if (kit)
+    project = resolveTemplateSetBrandKit(project, kit, brandKitOverrides, {
       typography: typographyOverrides,
       backgrounds: backgroundOverrides,
       background: backgroundOverridden,
+      selective: source.brandKitLinks !== undefined,
     });
 
   for (const control of set.controls) {
@@ -1432,6 +1486,7 @@ export function buildProjectSetSceneTree(set: ProjectSetDocument): ProjectSetSce
 }
 
 interface ProjectSetArchiveManifest {
+  outputLayer?: number;
   format: typeof PROJECT_SET_FORMAT;
   schemaVersion: number;
   id: string;
@@ -1452,6 +1507,8 @@ interface ProjectSetArchiveManifest {
     projectId: string;
     sha256: string;
     inheritSettings?: boolean;
+    inheritBrandKit?: boolean;
+    brandKitLinks?: ProjectSetBrandKitLinks;
     settingsOverrides?: TemplateSetSettingKey[];
     brandKitOverrides?: string[];
     typographyOverrides?: string[];
@@ -1544,6 +1601,7 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 function validateSet(set: ProjectSetDocument): void {
+  if (set.outputLayer !== undefined) requireOutputLayer(set.outputLayer);
   if (set.presenter !== undefined) validatePresenterDefinition(set.presenter);
   if (set.settings !== undefined) {
     const errors = templateSetSettingsErrors(set.settings);
@@ -1562,26 +1620,49 @@ function validateSet(set: ProjectSetDocument): void {
 
   const templateById = new Map<string, ProjectSetTemplate>();
   for (const template of set.templates) {
+    if (template.project.outputLayer !== undefined)
+      requireOutputLayer(template.project.outputLayer);
     if (!safeId(template.id)) throw new Error(`Template ID is invalid: ${template.id}`);
     if (templateById.has(template.id)) throw new Error(`Duplicate template ID: ${template.id}`);
     if (!template.name.trim()) throw new Error(`Template ${template.id} needs a name.`);
     if (template.inheritSettings !== undefined && typeof template.inheritSettings !== 'boolean')
       throw new Error(`Template ${template.name} has invalid settings inheritance.`);
+    if (template.inheritBrandKit !== undefined && typeof template.inheritBrandKit !== 'boolean')
+      throw new Error(`Template ${template.name} has invalid Brand Kit inheritance.`);
+    const links = template.brandKitLinks;
+    if (
+      links !== undefined &&
+      (template.inheritBrandKit !== false ||
+        !links ||
+        typeof links !== 'object' ||
+        Object.keys(links).length !== 3 ||
+        !(
+          [
+            [links.tokenIds, set.brandKit?.tokens ?? []],
+            [links.typographyIds, set.brandKit?.typography ?? []],
+            [links.backgroundIds, set.brandKit?.backgrounds ?? []],
+          ] as const
+        ).every(
+          ([ids, definitions]) =>
+            Array.isArray(ids) &&
+            ids.length <= definitions.length &&
+            new Set(ids).size === ids.length &&
+            ids.every((id) => definitions.some((definition) => definition.id === id)),
+        ))
+    )
+      throw new Error(`Template ${template.name} has invalid Brand Kit links.`);
+    const memberKit = links ? templateBrandKit(set, template) : set.brandKit;
     for (const [keys, allowed, label] of [
       [template.settingsOverrides, TEMPLATE_SET_SETTING_KEYS, 'settings'],
-      [
-        template.brandKitOverrides,
-        set.brandKit?.tokens.map((token) => token.id) ?? [],
-        'Brand Kit',
-      ],
+      [template.brandKitOverrides, memberKit?.tokens.map((token) => token.id) ?? [], 'Brand Kit'],
       [
         template.typographyOverrides,
-        set.brandKit?.typography?.map((style) => style.id) ?? [],
+        memberKit?.typography?.map((style) => style.id) ?? [],
         'typography',
       ],
       [
         template.backgroundOverrides,
-        set.brandKit?.backgrounds?.map((style) => style.id) ?? [],
+        memberKit?.backgrounds?.map((style) => style.id) ?? [],
         'background style',
       ],
     ] as const) {
@@ -1784,6 +1865,7 @@ export function resolveProjectSetTemplate(set: ProjectSetDocument, templateId: s
   validateSet(set);
   const template = set.templates.find((candidate) => candidate.id === templateId);
   if (!template) throw new Error(`Template not found: ${templateId}`);
+  const kit = templateBrandKit(set, template);
   let project =
     set.settings && template.inheritSettings !== false
       ? applyTemplateSetSettings(
@@ -1791,25 +1873,26 @@ export function resolveProjectSetTemplate(set: ProjectSetDocument, templateId: s
           effectiveTemplateSetSettings(template.project, set.settings, template.settingsOverrides),
         )
       : structuredClone(template.project);
-  if (set.brandKit)
-    project = resolveTemplateSetBrandKit(project, set.brandKit, template.brandKitOverrides, {
+  if (kit)
+    project = resolveTemplateSetBrandKit(project, kit, template.brandKitOverrides, {
       typography: template.typographyOverrides,
       backgrounds: template.backgroundOverrides,
       background: template.backgroundOverridden,
+      selective: template.brandKitLinks !== undefined,
     });
-  // Font files referenced by the master palette/type tokens travel with every child.
+  // Font files referenced by the master palette/type tokens travel with inheriting children.
   for (const composition of project.compositions) {
     for (const font of set.assets.filter(
       (asset) =>
         asset.kind === 'font' &&
-        (set.brandKit?.tokens.some(
+        (kit?.tokens.some(
           (token) =>
             token.type === 'font-family' &&
             String(token.value)
               .split(',')
               .some((family) => family.trim().replace(/^['"]|['"]$/g, '') === asset.fontFamily),
         ) ||
-          set.brandKit?.typography?.some((style) =>
+          kit?.typography?.some((style) =>
             style.properties.fontFamily
               .split(',')
               .some((family) => family.trim().replace(/^['"]|['"]$/g, '') === asset.fontFamily),
@@ -1824,13 +1907,16 @@ export function resolveProjectSetTemplate(set: ProjectSetDocument, templateId: s
   }
 
   const backgroundAssetIds = new Set(
-    (set.brandKit?.backgrounds ?? []).flatMap((style) =>
-      isMediaPaint(style.paint)
-        ? mediaPaintAssetReferences(style.paint)
-            .filter((ref) => ref.startsWith('asset:'))
-            .map((ref) => ref.slice(6))
-        : [],
-    ),
+    (kit?.backgrounds ?? [])
+      .flatMap(({ paint }) =>
+        isMediaPaint(paint)
+          ? mediaPaintAssetReferences(paint)
+          : isShaderPaint(paint) && paint.inputImage
+            ? [paint.inputImage.source]
+            : [],
+      )
+      .filter((ref) => ref.startsWith('asset:'))
+      .map((ref) => ref.slice(6)),
   );
   for (const composition of project.compositions)
     for (const asset of set.assets.filter((item) => backgroundAssetIds.has(item.id))) {
@@ -1930,6 +2016,10 @@ export async function createProjectSetArchive(
   if (options.archiveMode !== undefined && !['compact', 'compatible'].includes(options.archiveMode))
     throw new Error('Invalid template-set archive mode.');
   const compactMode = !options.legacyFormat && options.archiveMode !== 'compatible';
+  const archiveVersion = projectSetArchiveSchemaVersion(
+    set,
+    compactMode ? 'compact' : 'compatible',
+  );
   if (options.legacyFormat && set.presenter !== undefined)
     throw new Error(
       'Legacy .ogp export does not preserve Presenter settings. Save as .ogs instead.',
@@ -1961,7 +2051,8 @@ export async function createProjectSetArchive(
     throw new Error('Shared component library count or identities are invalid.');
   const manifest: ProjectSetArchiveManifest = {
     format: PROJECT_SET_FORMAT,
-    schemaVersion: options.legacyFormat ? 4 : compactMode ? PROJECT_SET_SCHEMA_VERSION : 5,
+    schemaVersion: options.legacyFormat ? 4 : archiveVersion,
+    outputLayer: requireOutputLayer(set.outputLayer === undefined ? 0 : set.outputLayer),
     id: set.id,
     name: set.name,
     ...(set.nameOrigin ? { nameOrigin: set.nameOrigin } : {}),
@@ -2041,6 +2132,10 @@ export async function createProjectSetArchive(
       ...(template.inheritSettings !== undefined
         ? { inheritSettings: template.inheritSettings }
         : {}),
+      ...(template.inheritBrandKit !== undefined
+        ? { inheritBrandKit: template.inheritBrandKit }
+        : {}),
+      ...(template.brandKitLinks ? { brandKitLinks: template.brandKitLinks } : {}),
       ...(template.settingsOverrides ? { settingsOverrides: template.settingsOverrides } : {}),
       ...(template.brandKitOverrides ? { brandKitOverrides: template.brandKitOverrides } : {}),
       ...(template.typographyOverrides
@@ -2150,7 +2245,17 @@ export async function openProjectSetArchive(
   const manifest = unknownManifest as ProjectSetArchiveManifest;
   if (manifest.format !== PROJECT_SET_FORMAT)
     throw new Error('This archive is not an OGraf template set.');
-  if (![1, 2, 3, 4, 5, PROJECT_SET_SCHEMA_VERSION].includes(manifest.schemaVersion))
+  if (
+    ![
+      1,
+      2,
+      3,
+      4,
+      5,
+      PROJECT_SET_SCHEMA_VERSION,
+      LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
+    ].includes(manifest.schemaVersion)
+  )
     throw new Error(`Unsupported template-set version: ${String(manifest.schemaVersion)}`);
   if (manifest.transitionLogic !== undefined && manifest.schemaVersion < 5)
     throw new Error('Playout transitions require template-set version 5 or later.');
@@ -2169,6 +2274,14 @@ export async function openProjectSetArchive(
     throw new Error('Template-set manifest is missing templates or assets.');
   if (manifest.templates.length > MAX_PROJECT_SET_TEMPLATES)
     throw new Error(`A template set can contain at most ${MAX_PROJECT_SET_TEMPLATES} templates.`);
+  const hasLocalBrandKits = manifest.templates.some(
+    (template) => template?.inheritBrandKit === false,
+  );
+  if (
+    hasLocalBrandKits !==
+    (manifest.schemaVersion === LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION)
+  )
+    throw new Error('Template-set archive schema does not match its local Brand Kit settings.');
 
   const templates: ProjectSetTemplate[] = [];
   let totalContentBytes = 0;
@@ -2424,6 +2537,8 @@ export async function openProjectSetArchive(
       name: item.name,
       project,
       ...(item.inheritSettings !== undefined ? { inheritSettings: item.inheritSettings } : {}),
+      ...(item.inheritBrandKit !== undefined ? { inheritBrandKit: item.inheritBrandKit } : {}),
+      ...(item.brandKitLinks !== undefined ? { brandKitLinks: item.brandKitLinks } : {}),
       ...(item.settingsOverrides !== undefined
         ? { settingsOverrides: item.settingsOverrides }
         : {}),
@@ -2485,6 +2600,7 @@ export async function openProjectSetArchive(
   }
 
   const set = migrateProjectSetDocument({
+    outputLayer: manifest.outputLayer,
     id: manifest.id,
     name: manifest.name,
     ...(manifest.nameOrigin ? { nameOrigin: manifest.nameOrigin } : {}),

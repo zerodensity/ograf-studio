@@ -9,12 +9,23 @@ import type {
 import {
   clockTimerActionId,
   createDefaultTransform,
+  createFieldDefinition,
+  createLayerKeyframe,
   createLayerEffects,
+  createLayerOfKind,
+  createProject,
   createRectangleLayer,
   createTextElement,
+  defaultTransformFor,
+  instantiateComponentDefinition,
   normalizeClockTimerSettings,
+  type ComponentDefinition,
   type TransitionLogicSharedValue,
 } from '@ograf-editor/scene-model';
+import {
+  buildCoordinatedExportArtifactsWithRuntime,
+  type CoordinatedExportInput,
+} from '@ograf-editor/codegen';
 import type { TransitionLogicRuleWork } from './transitionLogicRendering';
 
 const mock = vi.hoisted(() => {
@@ -628,6 +639,159 @@ describe('in-place coordinated live data patches', () => {
     expect(run).toHaveBeenCalledTimes(1);
     expect(graphic.getPlayoutSnapshot().slots.main!.current!.data.headline).toBe('Rule input');
     expect(local.disposed).toBe(false);
+  });
+
+  it('presents same-frame rule-only state once, then drains work queued by that render', async () => {
+    const graphic = await create();
+    await take(graphic, 'headline', {}, true);
+    await tick(5);
+    const local = visible()[0]!;
+    const rendered: number[] = [];
+    let ruleValue = 0;
+    let queued = false;
+    local.render.mockImplementation(() => {
+      rendered.push(ruleValue);
+      if (ruleValue !== 24 || queued) return;
+      queued = true;
+      local.scheduleRule!({
+        id: 'queued-by-render',
+        frame: 5,
+        data: {},
+        run: () => {
+          ruleValue += 1;
+          return [];
+        },
+      });
+    });
+    for (let index = 0; index < 24; index++)
+      local.scheduleRule!({
+        id: `apply-${index}`,
+        frame: 5,
+        data: {},
+        run: () => {
+          ruleValue += 1;
+          return [];
+        },
+      });
+
+    await flush();
+
+    expect(rendered).toEqual([24, 25]);
+    expect(graphic.getPlayoutSnapshot().error).toBeNull();
+  });
+
+  it.each(['rule', 'playout action'] as const)(
+    'presents preceding rule-only work when a later %s fails',
+    async (failure) => {
+      const graphic = await create();
+      await take(graphic, 'headline', {}, true);
+      await tick(5);
+      const local = visible()[0]!;
+      const rendered: string[] = [];
+      let label = 'Before';
+      local.render.mockImplementation(() => rendered.push(label));
+      local.scheduleRule!({
+        id: 'change-label',
+        frame: 5,
+        data: {},
+        run: () => {
+          label = 'Changed by rule';
+          return [];
+        },
+      });
+      local.scheduleRule!({
+        id: 'fail',
+        frame: 5,
+        data: {},
+        run: () => {
+          if (failure === 'rule') throw new Error('Rule failed');
+          return [{ type: 'playout', operation: 'clear', slotId: 'missing' }];
+        },
+      });
+
+      await flush();
+
+      expect(rendered).toEqual(['Changed by rule']);
+      expect(graphic.getPlayoutSnapshot().error).toContain(
+        failure === 'rule' ? 'Rule failed' : 'Unknown slot missing',
+      );
+    },
+  );
+
+  it('drains Rules queued by the last render at the seek boundary on forward and backward replay', async () => {
+    const graphic = await create('non-realtime');
+    expect(
+      await graphic.setActionsSchedule({
+        schedule: [
+          {
+            timestamp: 0,
+            action: {
+              type: 'customAction',
+              params: {
+                id: 'transition.take',
+                payload: {
+                  slotId: 'main',
+                  stateId: 'headline',
+                  data: { resource: 'replay' },
+                },
+                skipAnimation: true,
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual({ statusCode: 200 });
+
+    const seek = async (timestamp: number) => {
+      const ready = pending();
+      mock.readiness.set('replay', ready.promise);
+      const result = graphic.goToTime({ timestamp });
+      await flush();
+      const mount = mock.mounts.find(
+        (entry) => !entry.disposed && entry.data.resource === 'replay',
+      );
+      if (!mount) {
+        ready.resolve();
+        await result;
+        throw new Error('The replay mount was not prepared.');
+      }
+      const executed: string[] = [];
+      let firstQueued = false;
+      let secondQueued = false;
+      mount.render.mockImplementation((frame: number) => {
+        if (frame !== 10) return;
+        if (!firstQueued) {
+          firstQueued = true;
+          mount.scheduleRule!({
+            id: 'first',
+            frame,
+            data: {},
+            run: () => {
+              executed.push('first');
+              return [];
+            },
+          });
+        } else if (executed.length === 1 && !secondQueued) {
+          secondQueued = true;
+          mount.scheduleRule!({
+            id: 'second',
+            frame,
+            data: {},
+            run: () => {
+              executed.push('second');
+              return [];
+            },
+          });
+        }
+      });
+      ready.resolve();
+      expect(await result).toEqual({ statusCode: 200 });
+      return executed;
+    };
+
+    expect(await seek(200)).toEqual(['first', 'second']);
+    expect(await seek(100)).toEqual([]);
+    expect(await seek(200)).toEqual(['first', 'second']);
   });
 
   it('records sparse patches and replays them identically across backward seeks', async () => {
@@ -1377,6 +1541,208 @@ describe('coordinated template custom actions', () => {
     expect(graphic.getPlayoutSnapshot().slots.main!.current).toBeNull();
     expect(graphic.getPlayoutSnapshot().slots.main!.desired).toBeNull();
   });
+});
+
+describe('coordinated discovery matches runtime behavior', () => {
+  function discoveryInput(): CoordinatedExportInput {
+    const definition = descriptor().definition;
+    definition.version = 4;
+    definition.sharedInstances = [];
+    definition.initialSharedValues = [];
+    for (const state of definition.states) delete state.sharedValues;
+    const templates = definition.states.map((state) => {
+      const project = createProject({ name: state.name });
+      project.compositions[0]!.dataFields = [
+        createFieldDefinition('text', { key: 'headline', defaultValue: state.name }),
+        createFieldDefinition('text', { key: `${state.id}_only`, defaultValue: state.id }),
+        createFieldDefinition('object', {
+          key: 'settings',
+          properties: [
+            createFieldDefinition('text', { key: 'first' }),
+            createFieldDefinition('text', { key: 'second' }),
+          ],
+          defaultValue: { first: 'A', second: 'B' },
+        }),
+      ];
+      return { id: state.templateId, name: state.name, project };
+    });
+    definition.states[0]!.dataDefaults = { settings: { first: 'Overridden' } };
+    definition.states.push({
+      id: 'headline-variant',
+      name: 'Headline variant',
+      slotId: 'main',
+      templateId: 'headline',
+      dataDefaults: { headline: 'State preset' },
+    });
+    return { id: 'discovery', name: 'Discovery', definition, templates, componentAssets: [] };
+  }
+
+  it.each(['realtime', 'non-realtime'] as const)(
+    'publishes state form defaults equal to Prepare and Take data in %s',
+    async (renderType) => {
+      const artifacts = buildCoordinatedExportArtifactsWithRuntime(
+        discoveryInput(),
+        'class CoordinatedGraphicElement {}',
+      );
+      expect(artifacts.valid, artifacts.errors.join('\n')).toBe(true);
+      const discovery = artifacts.manifest.v_ografDiscovery;
+      if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+      const graphic = await create(renderType, artifacts.transitionDescriptor!);
+      for (const state of discovery.catalog.states) {
+        expect(await graphic.prepareSlot({ slotId: state.slotId, stateId: state.id })).toEqual({
+          statusCode: 200,
+        });
+        const prepared = graphic.getPlayoutSnapshot().prepared[state.slotId]!;
+        expect(prepared.status).toBe('ready');
+        expect(state.defaults).toEqual(prepared.data);
+        expect(state.schema.default).toEqual(prepared.data);
+        expect(
+          await graphic.customAction({
+            id: 'transition.take',
+            payload: { slotId: state.slotId, stateId: state.id },
+            skipAnimation: true,
+          }),
+        ).toEqual({ statusCode: 200 });
+        expect(graphic.getPlayoutSnapshot().slots[state.slotId]!.current?.data).toEqual(
+          state.defaults,
+        );
+      }
+      expect(discovery.catalog.states[0]!.defaults.settings).toEqual({ first: 'Overridden' });
+    },
+  );
+
+  it.each(['automatic', 'manual'] as const)(
+    'discovers shared timer fallbacks and aliases that route to the correct instance (%s)',
+    async (source) => {
+      const input = discoveryInput();
+      const timer = createLayerOfKind('text');
+      timer.id = 'source-clock';
+      timer.keyframes = [createLayerKeyframe(0, defaultTransformFor('text'))];
+      if (timer.element.type !== 'text') throw new Error('Expected text');
+      timer.element.clock = normalizeClockTimerSettings({
+        mode: 'count-up',
+        source,
+        autoStart: false,
+      });
+      const label = createLayerOfKind('text');
+      label.id = 'source-label';
+      label.keyframes = [createLayerKeyframe(0, defaultTransformFor('text'))];
+      const asset: ComponentDefinition = {
+        id: 'timer-asset',
+        name: 'Timer',
+        scope: 'set',
+        layers: [timer, label],
+        dataFields: [],
+      };
+      input.componentAssets = [asset];
+      const instanceIds = ['timer-one', 'timer-two'];
+      for (const id of instanceIds) {
+        input.definition.sharedInstances.push({
+          id,
+          name: id,
+          slotId: 'main',
+          componentAssetId: asset.id,
+          continuityKey: id,
+        });
+        for (const layer of asset.layers)
+          input.definition.initialSharedValues.push({
+            instanceId: id,
+            sourceLayerId: layer.id,
+            property: 'opacity',
+            value: 0,
+          });
+        for (const template of input.templates.filter(
+          (entry) => entry.id === 'correspondent' || entry.id === 'headline',
+        )) {
+          const composition = template.project.compositions[0]!;
+          composition.components = [asset];
+          const placement = instantiateComponentDefinition(
+            composition,
+            asset,
+            { x: 0, y: 0 },
+            true,
+            {
+              instanceId: id,
+              groupId: `${template.id}-${id}`,
+              layerIds: {
+                [timer.id]: `${template.id}-${id}-clock`,
+                [label.id]: `${template.id}-${id}-label`,
+              },
+              fieldIds: {},
+              keyIds: {},
+            },
+          );
+          composition.layers.push(
+            ...placement.layers.filter(
+              (layer) =>
+                template.id === 'headline' || layer.componentLink?.sourceLayerId !== timer.id,
+            ),
+          );
+          for (const state of input.definition.states.filter(
+            (entry) => entry.templateId === template.id,
+          ))
+            (state.sharedValues ??= []).push(
+              ...asset.layers.map((layer) => ({
+                instanceId: id,
+                sourceLayerId: layer.id,
+                property: 'opacity',
+                value: 1,
+              })),
+            );
+        }
+      }
+      const artifacts = buildCoordinatedExportArtifactsWithRuntime(
+        input,
+        'class CoordinatedGraphicElement {}',
+      );
+      expect(artifacts.valid, artifacts.errors.join('\n')).toBe(true);
+      const discovery = artifacts.manifest.v_ografDiscovery;
+      if (discovery?.kind !== 'package') throw new Error('Expected package discovery');
+      const graphic = await create('non-realtime', artifacts.transitionDescriptor!);
+      for (const stateId of ['correspondent', 'headline']) {
+        expect(await take(graphic, stateId, {}, true)).toEqual({ statusCode: 200 });
+        const state = discovery.catalog.states.find((entry) => entry.id === stateId)!;
+        const commands =
+          source === 'manual'
+            ? (['reset', 'restart'] as const)
+            : (['start', 'pause', 'reset', 'restart'] as const);
+        expect(state.actions).toHaveLength(instanceIds.length * commands.length);
+        expect(new Set(state.actions.map((action) => action.id)).size).toBe(state.actions.length);
+        for (const id of instanceIds)
+          for (const command of commands) {
+            const qualified = clockTimerActionId(JSON.stringify([id, timer.id]), command);
+            const actionId =
+              stateId === 'headline'
+                ? clockTimerActionId(`${stateId}-${id}-clock`, command)
+                : qualified;
+            expect(state.actions.map((action) => action.id)).toContain(actionId);
+            if (stateId === 'headline')
+              expect(state.actions.map((action) => action.id)).not.toContain(qualified);
+            for (const mount of mock.mounts) mount.customAction.mockClear();
+            expect(
+              await graphic.customAction({
+                id: 'template.action',
+                payload: { slotId: state.slotId, actionId },
+              }),
+            ).toEqual({ statusCode: 200 });
+            const retained = mock.mounts.filter(
+              (mount) => mount.host.dataset.ografTransitionShared,
+            );
+            expect(
+              retained.find((mount) => mount.host.dataset.ografTransitionShared === id)!
+                .customAction,
+            ).toHaveBeenCalledWith(clockTimerActionId(timer.id, command), 0, false);
+            // Other retained mounts receive the Rules event with timer dispatch disabled.
+            for (const mount of retained.filter(
+              (mount) => mount.host.dataset.ografTransitionShared !== id,
+            ))
+              expect(mount.customAction.mock.calls).toEqual([[actionId, 0, false, false]]);
+          }
+      }
+      for (const stateId of ['breaking', 'ticker'])
+        expect(discovery.catalog.states.find((state) => state.id === stateId)!.actions).toEqual([]);
+    },
+  );
 });
 
 describe('coordinated timer action routing', () => {

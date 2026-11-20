@@ -1,0 +1,277 @@
+.template-transfer-review {
+  width: min(820px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  margin: auto;
+  padding: 20px;
+  box-sizing: border-box;
+  overflow: auto;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.template-transfer-review::backdrop {
+  background: rgb(0 0 0 / 58%);
+}
+
+.template-transfer-review h2,
+.template-transfer-review h3,
+.template-transfer-review p {
+  margin: 0;
+}
+
+.template-transfer-review h2 {
+  font-size: 1.25em;
+}
+
+.template-transfer-review h3 {
+  font-size: 1.05em;
+  margin-bottom: 8px;
+}
+
+.template-transfer-review fieldset {
+  min-width: 0;
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.template-transfer-review legend {
+  font-weight: 600;
+  padding: 0 0 6px;
+}
+
+.template-transfer-review select,
+.template-transfer-review input:not([type='radio']):not([type='checkbox']) {
+  max-width: 100%;
+  min-height: 29px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  color: var(--text);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: inherit;
+}
+
+.template-transfer-review :is(select, input, button, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.template-transfer-member,
+.template-transfer-settings,
+.template-transfer-reset {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.template-transfer-member {
+  margin-top: 12px;
+}
+
+.template-transfer-settings {
+  margin: 14px 0 0;
+}
+
+.template-transfer-document-pair,
+.template-transfer-preview-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.template-transfer-document-pair {
+  margin-top: 12px;
+}
+
+.template-transfer-document-pair > div {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+
+.template-transfer-review small {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.92em;
+}
+
+.template-transfer-policies {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.template-transfer-policies > label {
+  display: flex;
+  align-items: start;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.template-transfer-policies > label:has(input:checked) {
+  border-color: var(--accent);
+}
+
+.template-transfer-policies input,
+.template-transfer-settings input,
+.template-transfer-reset input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.template-transfer-details,
+.template-transfer-mappings,
+.template-transfer-preview {
+  margin-top: 14px;
+}
+
+.template-transfer-review details summary {
+  cursor: pointer;
+}
+
+.template-transfer-details table {
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+  text-align: start;
+}
+
+.template-transfer-details th,
+.template-transfer-details td {
+  padding: 5px;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+}
+
+.template-transfer-mappings > article {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.template-transfer-mappings article:first-of-type {
+  border-top: 1px solid var(--border);
+}
+
+.template-transfer-review .template-transfer-mapping-totals {
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.template-transfer-mapping-heading {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+  overflow-wrap: anywhere;
+}
+
+.template-transfer-value {
+  display: flex;
+  align-items: start;
+  gap: 5px;
+}
+
+.template-transfer-value i {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  margin-top: 1px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+}
+
+.template-transfer-mapping-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 12px;
+  margin-top: 6px;
+}
+
+.template-transfer-mapping-controls label:not(.template-transfer-reset) {
+  display: grid;
+  gap: 4px;
+}
+
+.template-transfer-mappings details {
+  margin-top: 5px;
+}
+
+.template-transfer-review ul {
+  padding-inline-start: 20px;
+}
+
+.template-transfer-preview figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.template-transfer-preview img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+}
+
+.template-transfer-preview figcaption {
+  padding-bottom: 4px;
+  color: var(--text-dim);
+}
+
+.template-transfer-warnings {
+  color: #ffd479;
+}
+
+.template-transfer-alert {
+  padding: 8px 0;
+  color: var(--danger, #ff9da7);
+}
+
+.template-transfer-review footer {
+  position: sticky;
+  bottom: -20px;
+  display: flex;
+  justify-content: end;
+  gap: 8px;
+  padding: 14px 0 20px;
+  margin-bottom: -20px;
+  background: var(--bg-panel);
+}
+
+.template-transfer-review footer button {
+  min-height: 30px;
+  padding: 4px 12px;
+  color: var(--text);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: inherit;
+}
+
+.template-transfer-review footer button.primary {
+  color: var(--text-inverse, #101216);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.template-transfer-review footer button:disabled {
+  opacity: 0.55;
+}
+
+@media (max-width: 620px) {
+  .template-transfer-policies {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

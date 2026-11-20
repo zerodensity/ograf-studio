@@ -17,8 +17,12 @@ describe('adding a second template', () => {
   it('creates one undoable set without changing the open project', () => {
     const original = useProjectStore.getState().project;
     const incoming = createProject({ name: 'Another' });
+    incoming.compositions[0]!.width = original.compositions[0]!.width - 100;
     expect(addSecondTemplateToNewSet(incoming, original.id)).toBe('Another');
-    expect(useProjectSetStore.getState().projectSet?.templates).toHaveLength(2);
+    const templates = useProjectSetStore.getState().projectSet?.templates;
+    expect(templates).toHaveLength(2);
+    expect(templates?.[1]).toMatchObject({ inheritSettings: false, inheritBrandKit: false });
+    expect(templates?.[1]?.project.compositions[0]?.width).toBe(incoming.compositions[0]!.width);
     expect(useProjectStore.getState().project.id).toBe(original.id);
     expect(getHistorySnapshot().past).toHaveLength(1);
     expect(getHistorySnapshot().past[0]?.label).toBe('Create template set');

@@ -83,35 +83,45 @@ describe('startup settings', () => {
     },
   );
 
+  it('renders new-set as the template set settings dialog, without the explorer', () => {
+    fixture.kind = 'new-set';
+    const markup = renderToStaticMarkup(createElement(StartupScreen));
+    expect(markup).toContain('<h1 id="startup-title">New template set</h1>');
+    expect(markup).toContain('class="startup-screen-header"');
+    expect(markup).toContain('class="startup-screen-grip"');
+    expect(markup).toContain('aria-label="Close without creating"');
+    expect(markup).toContain('>Cancel</button>');
+    expect(markup).toContain('Create set from current template');
+    expect(markup).not.toContain('project-explorer');
+  });
+
   it.each([
-    ['startup', 'Start creating', false, true, true],
-    ['new-template', 'New template', true, false, true],
-    ['new-set', 'New template set', true, false, false],
-    ['set-template', 'New template', true, false, true],
-    ['second-template', 'New template', true, false, true],
+    ['startup', 'Start creating', true],
+    ['new-template', 'New template', true],
+    ['set-template', 'New template', false],
+    ['second-template', 'New template', false],
   ] as const)(
-    'renders %s with the appropriate creation, cancel and open choices',
-    (kind, title, cancellable, canOpen, hasRecipes) => {
+    'renders %s as the project explorer with the choices that request allows',
+    (kind, title, offersExamples) => {
       fixture.kind = kind;
       const markup = renderToStaticMarkup(createElement(StartupScreen));
-      expect(markup).toContain(`<h1 id="startup-title">${title}</h1>`);
-      expect(markup).toContain('class="startup-screen-header"');
-      expect(markup).toContain('class="startup-screen-grip"');
-      expect(markup).not.toContain('startup-screen-drag-label');
+      expect(markup).toContain(`<h1 id="project-explorer-title">${title}</h1>`);
       expect(markup).toContain(
         kind === 'startup'
           ? 'aria-label="Close welcome screen"'
           : 'aria-label="Close without creating"',
       );
-      expect(markup).toContain('>×</span> Close</button>');
-      expect(markup.includes('>Cancel</button>')).toBe(cancellable);
-      expect(markup.includes('Open .ogs or template set…')).toBe(canOpen);
-      expect(markup.includes('Import .ograf.zip…')).toBe(canOpen);
-      expect(markup.includes('New from a recipe')).toBe(hasRecipes);
-      expect(markup.includes('Don’t show on startup')).toBe(kind === 'startup');
-      expect(markup).toContain(
-        kind === 'new-set' ? 'Create set from current template' : 'Blank template',
-      );
+      // Opening another document belongs to the first window only; the rest create in place.
+      for (const choice of ['Open file…', 'Import .ograf.zip…', 'Recent', 'Don’t show on startup'])
+        expect(markup.includes(choice)).toBe(kind === 'startup');
+      expect(markup).toContain('Create blank project');
+      expect(markup).toContain('data-explorer-card="blank"');
+      for (const recipe of ['lower-third', 'bug', 'ticker', 'scoreboard', 'clock', 'countdown'])
+        expect(markup).toContain(`data-explorer-card="recipe-${recipe}"`);
+      // Adding a template to an open set starts from a blank or a recipe, never an example.
+      expect(markup.includes('Search recipes and examples…')).toBe(offersExamples);
+      expect(markup.includes('<span>Examples</span>')).toBe(offersExamples);
+      expect(markup.includes('<span>Online</span>')).toBe(offersExamples);
     },
   );
 

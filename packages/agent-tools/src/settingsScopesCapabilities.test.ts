@@ -44,6 +44,20 @@ function fixture() {
 }
 
 describe('unified settings scope capability guidance', () => {
+  it('describes independent standalone and coordinated output layers', async () => {
+    const { capabilities } = fixture();
+    const result = await capabilities(['templateSets']);
+    expect(result.templateSets).toMatchObject({
+      outputLayers: {
+        manifestField: 'v_layer',
+        projectField: 'outputLayer',
+        default: 0,
+        minimum: Number.MIN_SAFE_INTEGER,
+        maximum: Number.MAX_SAFE_INTEGER,
+        coordinated: expect.stringContaining('independent package root'),
+      },
+    });
+  });
   it('discovers one window with explicit Studio, set and template entry points', async () => {
     const { capabilities } = fixture();
     const result = await capabilities(['editor']);
@@ -83,7 +97,12 @@ describe('unified settings scope capability guidance', () => {
             storage: 'template-set-.ogs',
             mcp: {
               tool: 'ograf_update_template_set',
-              operations: ['set_defaults', 'set_inheritance', 'set_setting_override'],
+              operations: [
+                'set_defaults',
+                'set_inheritance',
+                'set_setting_override',
+                'set_output_layer',
+              ],
             },
           },
           template: {
@@ -96,7 +115,6 @@ describe('unified settings scope capability guidance', () => {
                 'set_composition',
                 'set_composition_layout',
                 'set_project_metadata',
-                'add_canvas_guide',
               ]),
             },
           },

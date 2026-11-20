@@ -2,8 +2,8 @@
 
 Create the text-based component with `add_layer` and `kind:"clock"`. It remains `element.type:"text"`
 with normal typography, fill, outline and effects. Read `elements` capabilities for the current
-`text.clock` contract. `create_clock` creates a styled live clock/timer, and `create_countdown`
-adds a countdown starter with editable alarm Rules. Explicit legacy hour/minute content or field
+`text.clock` contract. `create_recipe` with `recipe: "clock"` creates a styled live clock/timer, and
+`recipe: "countdown"` adds a countdown starter with editable alarm Rules. Explicit legacy hour/minute content or field
 keys still select the old two-field recipe. See [broadcast recipes](./broadcast-recipes.md).
 
 Configure `element.clock` at creation or `update_element.patch.clock` afterward. Partial settings

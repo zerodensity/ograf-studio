@@ -23,7 +23,7 @@ describe('in-app agent tool surface', () => {
     const admitted = IN_APP_AGENT_TOOL_NAMES.map(record);
     const dropped = record('ograf_save_project');
     const filtered = filterInAppToolRecords([...admitted, dropped]);
-    expect(filtered).toHaveLength(19);
+    expect(filtered).toHaveLength(13);
     expect(filtered.map((tool) => tool.name)).toEqual(IN_APP_AGENT_TOOL_NAMES);
     expect(filtered[0]?.handler).toBe(admitted[0]?.handler);
     expect(filtered).not.toContain(dropped);
@@ -49,12 +49,19 @@ describe('in-app agent tool surface', () => {
   });
 
   it('keeps external creation prompt fields out of the in-app template commands', () => {
-    const definition = providerToolDefinition({
+    const canonical = {
       ...record('ograf_update_template_set'),
       config: { inputSchema: { operation: mcpTemplateSetOperationSchema } },
-    });
+    };
+    const before = z.toJSONSchema(z.object(canonical.config.inputSchema));
+    const definition = providerToolDefinition(canonical);
     const schema = JSON.stringify(definition.inputSchema);
     expect(schema).toContain('new_template');
+    expect(schema).toContain('set_output_layer');
+    expect(schema).toContain('outputLayer');
     expect(schema).not.toContain('originalPrompt');
+    expect(definition.description).toContain('templateSets capabilities');
+    expect(JSON.stringify(before)).toContain('Definition/null. v6');
+    expect(z.toJSONSchema(z.object(canonical.config.inputSchema))).toEqual(before);
   });
 });

@@ -1,5 +1,11 @@
 import { HTML_FILE_TYPES, type ExportFile } from './offlinePreviewPackage';
 
+const EXPORT_FILE_TYPES: Record<ExportFile['format'], FilePickerAcceptType[]> = {
+  zip: [{ description: 'OGraf package', accept: { 'application/zip': ['.ograf.zip'] } }],
+  html: HTML_FILE_TYPES,
+  webm: [{ description: 'WebM video', accept: { 'video/webm': ['.webm'] } }],
+};
+
 export class CoordinatedExportError extends Error {
   readonly outcome: string;
   readonly stage: string;
@@ -109,6 +115,31 @@ export function completeCertifiedArtifactSave(file: ExportFile, fileName: string
   publishSaveSnapshot(moreFiles);
 }
 
+export async function verifySavedExportFile(
+  handle: FileSystemFileHandle,
+  blob: Blob,
+): Promise<void> {
+  const saved = await handle.getFile();
+  const chunkSize = 8 * 1024 * 1024;
+  let matches = saved.size === blob.size;
+  // Image sequences can be large. Keep the readback bounded while checking every byte.
+  for (let offset = 0; matches && offset < blob.size; offset += chunkSize) {
+    const end = offset + chunkSize;
+    const [expected, actual] = await Promise.all([
+      blob
+        .slice(offset, end)
+        .arrayBuffer()
+        .then((bytes) => crypto.subtle.digest('SHA-256', bytes)),
+      saved
+        .slice(offset, end)
+        .arrayBuffer()
+        .then((bytes) => crypto.subtle.digest('SHA-256', bytes)),
+    ]);
+    matches = String(new Uint8Array(expected)) === String(new Uint8Array(actual));
+  }
+  if (!matches) throw new Error('Saved file checksum differs from the prepared export.');
+}
+
 /** Invoke only for complete artifact bytes; callers must preserve fresh picker activation. */
 export async function chooseCertifiedArtifactWriter(
   fileName: string,
@@ -125,16 +156,7 @@ export async function chooseCertifiedArtifactWriter(
     try {
       handle = await owner.showSaveFilePicker({
         suggestedName: fileName,
-        types:
-          options.fileTypes ??
-          (options.format === 'html'
-            ? HTML_FILE_TYPES
-            : [
-                {
-                  description: 'OGraf package',
-                  accept: { 'application/zip': ['.ograf.zip'] },
-                },
-              ]),
+        types: options.fileTypes ?? EXPORT_FILE_TYPES[options.format ?? 'zip'],
       });
     } catch (error) {
       throw exportFailure(error, 'picker');
@@ -145,13 +167,7 @@ export async function chooseCertifiedArtifactWriter(
         writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
-        const saved = await handle.getFile();
-        const [expected, actual] = await Promise.all([
-          crypto.subtle.digest('SHA-256', await blob.arrayBuffer()),
-          crypto.subtle.digest('SHA-256', await saved.arrayBuffer()),
-        ]);
-        if (String(new Uint8Array(expected)) !== String(new Uint8Array(actual)))
-          throw new Error('Saved package checksum differs from the certified artifact.');
+        await verifySavedExportFile(handle, blob);
         return 'saved';
       } catch (error) {
         await writable?.abort().catch(() => undefined);

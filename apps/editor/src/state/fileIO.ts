@@ -476,7 +476,8 @@ function requireHttpUrl(value: string, label: string): URL {
   return url;
 }
 
-async function readRemoteDocumentBytes(response: Response): Promise<Uint8Array> {
+/** Read a downloaded document, refusing one larger than Studio opens. */
+export async function readRemoteDocumentBytes(response: Response): Promise<Uint8Array> {
   const contentLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(contentLength) && contentLength > MAX_REMOTE_PROJECT_BYTES) {
     throw new Error('Remote project exceeds the 32 MiB download limit.');

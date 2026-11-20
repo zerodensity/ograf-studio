@@ -499,6 +499,22 @@ describe('shader effect compositing', () => {
     disposeLayerEffects(host as unknown as HTMLElement);
   });
 
+  it('tells a submitted effect frame from one the GPU has completed', async () => {
+    const { host } = fixture();
+    const layer = createLayerOfKind('rectangle');
+    layer.effects.stack = [];
+    addEffect(layer, 'shader', { blendMode: 'screen' });
+    applyLayerEffectsFilter(host as unknown as HTMLElement, layer.effects, 0);
+    await vi.waitFor(() => expect(mocks.createRenderer).toHaveBeenCalledOnce());
+    const renderer = mocks.createRenderer.mock.results[0]!.value;
+    // The page's own next paint needs the committed output only, so no fence is asked for.
+    await waitForLayerEffectsReady(host as unknown as HTMLElement, 'submitted');
+    expect(renderer.completeFrame).not.toHaveBeenCalled();
+    await waitForLayerEffectsReady(host as unknown as HTMLElement, 'completed');
+    expect(renderer.completeFrame).toHaveBeenCalledOnce();
+    disposeLayerEffects(host as unknown as HTMLElement);
+  });
+
   it('rejects explicit effect readiness when the GPU completion fails', async () => {
     const { host } = fixture();
     const layer = createLayerOfKind('rectangle');

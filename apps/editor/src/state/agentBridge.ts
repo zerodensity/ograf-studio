@@ -1,3 +1,4 @@
+import { exportAgentVideo, type AgentVideoRequest } from './agentVideoExport';
 import { useAgentReviewStore, type AgentAuthoringProposal } from './agentReviewStore';
 export { useAgentReviewStore, type AgentAuthoringProposal } from './agentReviewStore';
 import { useEffect } from 'react';
@@ -45,6 +46,12 @@ import type {
   TemplateSetArchiveRequest,
   CoordinatedExportRequest,
 } from '@ograf-editor/agent-tools/template-set-storage';
+import {
+  isTemplateTransferRequest,
+  TEMPLATE_TRANSFER_CAPABILITY,
+  type TemplateTransferRequest,
+} from '@ograf-editor/agent-tools/template-transfer-review';
+import { handleTemplateTransferRequest } from './templateTransferReview';
 import { handleLivePlayoutRequest } from './livePlayoutStore';
 import { handlePreviewPlayoutRequest } from './previewPlayoutBridge';
 
@@ -457,7 +464,8 @@ type BridgeMessage =
       request:
         | Parameters<typeof handleTemplateSetRequest>[0]
         | TemplateSetArchiveRequest
-        | CoordinatedExportRequest;
+        | CoordinatedExportRequest
+        | TemplateTransferRequest;
     }
   | { type: 'editor.ack'; revision: number }
   | { type: 'editor.error'; message: string }
@@ -474,6 +482,7 @@ type BridgeMessage =
   | { type: 'certification.request'; requestId: string; artifacts: ExportArtifacts }
   | { type: 'capture.request'; requestId: string; request: AgentCaptureRequest }
   | { type: 'strip.request'; requestId: string; request: AgentStripRequest }
+  | { type: 'video.request'; requestId: string; request: AgentVideoRequest }
   | { type: 'measure-text.request'; requestId: string; request: AgentMeasureTextRequest }
   | { type: 'proposal.present'; proposal: AgentAuthoringProposal }
   | {
@@ -621,7 +630,12 @@ export function useAgentBridge(): void {
           type: 'editor.hello',
           project: useProjectStore.getState().project,
           componentGraphContext: componentGraphContext(),
-          capabilities: ['template-sets-v1', 'playout-v1', 'component-graph-v1'],
+          capabilities: [
+            'template-sets-v1',
+            TEMPLATE_TRANSFER_CAPABILITY,
+            'playout-v1',
+            'component-graph-v1',
+          ],
         });
       });
       socket.addEventListener('message', async (event) => {
@@ -922,6 +936,26 @@ export function useAgentBridge(): void {
                   throw new Error(
                     'Template-set request expired before execution; no change was made.',
                   );
+                if (isTemplateTransferRequest(message.request)) {
+                  const { result, captures } = await handleTemplateTransferRequest(
+                    message.request,
+                    { expiresAt: message.expiresAt },
+                  );
+                  send({
+                    type: 'template-set.result',
+                    requestId: message.requestId,
+                    result,
+                    ...(captures ? { captures } : {}),
+                    ...(message.request.action === 'transfer-commit'
+                      ? {
+                          project: useProjectStore.getState().project,
+                          componentGraphContext: componentGraphContext(),
+                        }
+                      : {}),
+                  });
+                  status({ activity: 'Template transfer request completed' });
+                  return;
+                }
                 const result =
                   message.request.action === 'archive'
                     ? await archiveTemplateSetForBridge(message.request, {
@@ -987,6 +1021,35 @@ export function useAgentBridge(): void {
                 const detail = error instanceof Error ? error.message : String(error);
                 send({ type: 'strip.result', requestId: message.requestId, error: detail });
                 status({ activity: 'Agent PNG frame strip failed' });
+              }
+            });
+          return;
+        }
+        if (message.type === 'video.request') {
+          browserWorkQueue = browserWorkQueue
+            .catch(() => undefined)
+            .then(async () => {
+              status({ activity: 'Agent requested a video export…' });
+              const { requestId } = message;
+              let reported = 0;
+              try {
+                const result = await exportAgentVideo(
+                  message.request,
+                  new AbortController().signal,
+                  (frame, frames) => {
+                    // Often enough to show the export is alive, without a message a frame.
+                    if (performance.now() - reported < 500) return;
+                    reported = performance.now();
+                    send({ type: 'video.progress', requestId, frame, frames });
+                    status({ activity: `Agent video export: frame ${frame} of ${frames}` });
+                  },
+                );
+                send({ type: 'video.result', requestId, result });
+                status({ activity: 'Agent video export ready' });
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                send({ type: 'video.result', requestId, error: detail });
+                status({ activity: 'Agent video export failed' });
               }
             });
           return;

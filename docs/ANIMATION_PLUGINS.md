@@ -155,7 +155,7 @@ undo, backward seeking and OGraf Preview. For MCP use, discover `sections:["plug
 MCP cannot install a pack or grant trust. General runtime animation engines, per-letter plugin
 effects, importers and other plugin kinds are not part of this API.
 
-For source-catalog cleanup, `remove_animation_preset_plugin` accepts the exact unused reference.
+For source-catalog cleanup, `remove_plugin` with `kind: "animation-preset"` accepts the exact unused reference.
 Dry-run first; it refuses references from objects and saved components. It does not remove local
 installations or change baked tracks. Local enable/disable controls Studio's choosers; MCP may
 reapply validated definitions already retained in the source.

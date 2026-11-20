@@ -13,6 +13,7 @@ import {
   STUDIO_RUNTIME_LICENSE_TEXT,
   type ExportProfile,
 } from '@ograf-editor/codegen';
+import type { Project } from '@ograf-editor/scene-model';
 import { createCertifiedProjectPackage } from './exportPackage';
 import { generateExportZip } from './exportZip';
 import type { OGrafCompatibilityResult } from './ografCompatibility';
@@ -62,6 +63,13 @@ interface SetExportOptions {
   prepareOnly?: boolean;
 }
 
+type SetPreparationOptions = Pick<SetExportOptions, 'format' | 'onProgress' | 'signal'>;
+
+interface PreparedSetExport {
+  files: ExportFile[];
+  result: ProjectSetExportResult;
+}
+
 function fileSlug(value: string): string {
   return (
     value
@@ -75,17 +83,65 @@ function fileSlug(value: string): string {
   );
 }
 
+export function getProjectSetExportZipName(
+  set: Pick<ProjectSetDocument, 'name' | 'transitionLogic'>,
+  profile?: ExportProfile,
+): string {
+  const extension = set.transitionLogic ? '.ograf.zip' : '.ograf-set.zip';
+  return `${fileSlug(set.name)}${profile?.fileNameSuffix ?? ''}${extension}`;
+}
+
 let exportInProgress = false;
 
-export function snapshotProjectSetForExport(set: ProjectSetDocument): ProjectSetDocument {
+export function snapshotProjectSetForExport(
+  set: ProjectSetDocument,
+  project?: Project,
+): ProjectSetDocument {
   const draft = useTransitionLogicDraftStore.getState().drafts[set.id];
   if (draft && transitionLogicDraftChanged(draft))
     throw new Error(
       'Playout transitions have unapplied edits. Apply or Revert the draft in Transitions before exporting.',
     );
-  const snapshot = structuredClone(transitionLogicEditorSetSnapshot(set));
+  const snapshot = structuredClone(transitionLogicEditorSetSnapshot(set, project));
   if (!snapshot.templates.length) throw new Error('Insert a template before exporting this set.');
   return snapshot;
+}
+
+async function runSetExport<T>(signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {
+  signal?.throwIfAborted();
+  if (exportInProgress)
+    throw new Error('A template-set export is already in progress. Wait for it to finish.');
+  exportInProgress = true;
+  try {
+    return await run();
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw error;
+  } finally {
+    exportInProgress = false;
+  }
+}
+
+function validateSetExportFormat(set: ProjectSetDocument, format?: ExportFileFormat): void {
+  if (!set.transitionLogic && format && format !== 'zip')
+    throw new Error('Choose Current template to export standalone HTML from an independent set.');
+}
+
+/** Prepare certified files for a snapshot captured using snapshotProjectSetForExport. */
+export async function prepareProjectSetExportFiles(
+  snapshot: ProjectSetDocument,
+  profile: ExportProfile | undefined,
+  options: SetPreparationOptions & { format: ExportFileFormat },
+): Promise<ExportFile[]> {
+  return runSetExport(options.signal, async () => {
+    if (!snapshot.templates.length) throw new Error('Insert a template before exporting this set.');
+    validateSetExportFormat(snapshot, options.format);
+    const prepared = snapshot.transitionLogic
+      ? await prepareCoordinatedSetExport(snapshot, profile, options)
+      : await prepareIndependentSetExport(snapshot, profile, options);
+    options.signal?.throwIfAborted();
+    return prepared.files;
+  });
 }
 
 /** Exports the current set snapshot as one coordinated graphic or independent certified packages. */
@@ -94,23 +150,13 @@ export async function exportProjectSetAsZip(
   profile?: ExportProfile,
   options: SetExportOptions = {},
 ): Promise<ProjectSetExportResult> {
-  options.signal?.throwIfAborted();
-  if (exportInProgress)
-    throw new Error('A template-set export is already in progress. Wait for it to finish.');
-  const snapshot = snapshotProjectSetForExport(set);
-  if (!snapshot.transitionLogic && options.format && options.format !== 'zip')
-    throw new Error('Choose Current template to export standalone HTML from an independent set.');
-  exportInProgress = true;
-  try {
+  return runSetExport(options.signal, () => {
+    const snapshot = snapshotProjectSetForExport(set);
+    validateSetExportFormat(snapshot, options.format);
     return snapshot.transitionLogic
-      ? await exportCoordinatedSet(snapshot, profile, options)
-      : await exportIndependentSet(snapshot, profile, options);
-  } catch (error) {
-    options.signal?.throwIfAborted();
-    throw error;
-  } finally {
-    exportInProgress = false;
-  }
+      ? exportCoordinatedSet(snapshot, profile, options)
+      : exportIndependentSet(snapshot, profile, options);
+  });
 }
 
 /** Retry exact certified bytes, including when the editor has since changed. */
@@ -137,12 +183,11 @@ export async function retryCertifiedCoordinatedSave(
     exportInProgress = false;
   }
 }
-async function exportCoordinatedSet(
+async function prepareCoordinatedSetExport(
   set: ProjectSetDocument,
-  profile?: ExportProfile,
-  options: SetExportOptions = {},
-): Promise<ProjectSetExportResult> {
-  const { format = 'zip', onProgress, prepareOnly, signal, ...saveOptions } = options;
+  profile: ExportProfile | undefined,
+  { format = 'zip', onProgress, signal }: SetPreparationOptions,
+): Promise<PreparedSetExport> {
   const buildOptions = onProgress || signal ? { onProgress, signal } : undefined;
   const suffix = profile?.fileNameSuffix ?? '';
   let files: ExportFile[];
@@ -160,7 +205,7 @@ async function exportCoordinatedSet(
       : await createCertifiedCoordinatedPackage(set, profile);
     signal?.throwIfAborted();
     files = [
-      { format: 'zip', fileName: `${fileSlug(set.name)}${suffix}.ograf.zip`, blob: packaged.blob },
+      { format: 'zip', fileName: getProjectSetExportZipName(set, profile), blob: packaged.blob },
     ];
     if (format === 'both') {
       if (signal) await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -197,6 +242,22 @@ async function exportCoordinatedSet(
       .map(({ id, name }) => ({ id, name })),
   };
   signal?.throwIfAborted();
+  return { files, result };
+}
+
+async function exportCoordinatedSet(
+  set: ProjectSetDocument,
+  profile: ExportProfile | undefined,
+  options: SetExportOptions,
+): Promise<ProjectSetExportResult> {
+  const { format, onProgress, prepareOnly, signal, ...saveOptions } = options;
+  const { files, result } = await prepareCoordinatedSetExport(set, profile, {
+    format,
+    onProgress,
+    signal,
+  });
+  signal?.throwIfAborted();
+  const file = files[0]!;
   const owner = saveOptions.ownerWindow ?? (typeof window === 'undefined' ? undefined : window);
   // A Chromium save picker creates a placeholder immediately. Only offer it after the
   // complete certified package exists, and require a fresh click if preparation took
@@ -260,12 +321,11 @@ const SET_ZIP_FILE_TYPES = [
   { description: 'OGraf template set export', accept: { 'application/zip': ['.ograf-set.zip'] } },
 ];
 
-async function exportIndependentSet(
+async function prepareIndependentSetExport(
   set: ProjectSetDocument,
-  profile?: ExportProfile,
-  options: SetExportOptions = {},
-): Promise<ProjectSetExportResult> {
-  const { format: _format, onProgress, prepareOnly, signal, ...saveOptions } = options;
+  profile: ExportProfile | undefined,
+  { onProgress, signal }: SetPreparationOptions,
+): Promise<PreparedSetExport> {
   const zip = new JSZip();
   zip.file(STUDIO_RUNTIME_LICENSE_PATH, STUDIO_RUNTIME_LICENSE_TEXT);
   const templates: ProjectSetExportResult['templates'] = [];
@@ -299,6 +359,7 @@ async function exportIndependentSet(
 
     signal?.throwIfAborted();
     const packagePath = `templates/${String(index + 1).padStart(2, '0')}-${fileSlug(template.name)}-${fileSlug(template.id)}.ograf.zip`;
+    if (!packaged.blob.size) throw new Error(`Template "${template.name}" produced an empty ZIP.`);
     const bytes = await packaged.blob.arrayBuffer();
     signal?.throwIfAborted();
     zip.file(packagePath, bytes);
@@ -326,12 +387,34 @@ async function exportIndependentSet(
   signal?.throwIfAborted();
   const blob = await generateExportZip(zip, signal);
   signal?.throwIfAborted();
-  const fileName = `${fileSlug(set.name)}${profile?.fileNameSuffix ?? ''}.ograf-set.zip`;
+  const fileName = getProjectSetExportZipName(set, profile);
+  return {
+    files: [{ format: 'zip', fileName, blob }],
+    result: {
+      mode: 'independent',
+      fileName,
+      saveResult: 'prepared',
+      templates,
+      certifications,
+      files: [{ format: 'zip', fileName, saveResult: 'prepared' }],
+    },
+  };
+}
+
+async function exportIndependentSet(
+  set: ProjectSetDocument,
+  profile: ExportProfile | undefined,
+  options: SetExportOptions,
+): Promise<ProjectSetExportResult> {
+  const { format: _format, onProgress, prepareOnly, signal, ...saveOptions } = options;
+  const { files, result } = await prepareIndependentSetExport(set, profile, { onProgress, signal });
+  signal?.throwIfAborted();
+  const file = files[0]!;
   let saveResult: ExportFileSaveStatus;
   if (prepareOnly) {
     stageCertifiedArtifacts(
-      [{ format: 'zip', fileName, blob, fileTypes: SET_ZIP_FILE_TYPES }],
-      templates.length,
+      [{ ...file, fileTypes: SET_ZIP_FILE_TYPES }],
+      result.templates.length,
       saveOptions.ownerWindow,
       true,
     );
@@ -339,18 +422,15 @@ async function exportIndependentSet(
     onProgress?.('ready');
   } else {
     saveResult = await saveBlobToFile(
-      blob,
-      fileName,
+      file.blob,
+      file.fileName,
       [{ description: 'OGraf template set export', accept: { 'application/zip': ['.zip'] } }],
       ...(Object.keys(saveOptions).length ? [saveOptions] : []),
     );
   }
   return {
-    mode: 'independent',
-    fileName,
+    ...result,
     saveResult,
-    templates,
-    certifications,
-    files: [{ format: 'zip', fileName, saveResult }],
+    files: [{ format: 'zip', fileName: file.fileName, saveResult }],
   };
 }

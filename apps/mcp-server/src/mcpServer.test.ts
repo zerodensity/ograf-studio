@@ -115,6 +115,82 @@ describe('OGraf MCP authoring host', () => {
     });
   });
 
+  it('stores ordinary text direction through MCP and preserves ticker travel direction', async () => {
+    const sessionId = 'mcp-text-direction';
+    const project = createProject({
+      authoringPrompts: [{ id: 'test-original-prompt', text: testPrompt }],
+    });
+    const legacy = createLayerOfKind('text');
+    legacy.name = 'Old headline';
+    Object.assign(legacy.element, { textDirection: 'rtl' });
+    project.compositions[0]!.layers.push(legacy);
+    const session = host.workspace.create(sessionId, project);
+    const apply = (expectedRevision: number, operations: Array<Record<string, unknown>>) =>
+      client.callTool({
+        name: 'ograf_apply_operations',
+        arguments: { sessionId, expectedRevision, operations },
+      });
+    const element = (name: string) =>
+      session.snapshot().project.compositions[0]!.layers.find((layer) => layer.name === name)!
+        .element;
+
+    const created = await apply(0, [
+      {
+        type: 'add_layer',
+        kind: 'text',
+        name: 'Canonical headline',
+        element: { content: 'پاکستان ABC 123', language: 'ur', direction: 'rtl' },
+      },
+      {
+        type: 'add_layer',
+        kind: 'text',
+        name: 'Alias headline',
+        element: { textDirection: 'rtl' },
+      },
+      {
+        type: 'add_layer',
+        kind: 'ticker',
+        name: 'Market crawl',
+        element: { direction: 'right', textDirection: 'rtl' },
+      },
+    ]);
+    expect(created.isError, JSON.stringify(created.content)).not.toBe(true);
+    expect(element('Canonical headline')).toMatchObject({ direction: 'rtl', language: 'ur' });
+    expect(element('Alias headline')).toMatchObject({ direction: 'rtl' });
+    expect(element('Alias headline')).not.toHaveProperty('textDirection');
+    expect(element('Market crawl')).toMatchObject({ direction: 'right', textDirection: 'rtl' });
+
+    const updated = await apply(1, [
+      { type: 'update_element', layerName: 'Canonical headline', patch: { textDirection: 'ltr' } },
+      {
+        type: 'update_element',
+        layerName: 'Alias headline',
+        patch: { direction: 'auto', textDirection: 'rtl' },
+      },
+      { type: 'update_element', layerName: 'Old headline', patch: { direction: 'rtl' } },
+      { type: 'update_element', layerName: 'Market crawl', patch: { direction: 'left' } },
+    ]);
+    expect(updated.isError, JSON.stringify(updated.content)).not.toBe(true);
+    expect(element('Canonical headline')).toMatchObject({ direction: 'ltr' });
+    expect(element('Alias headline')).toMatchObject({ direction: 'auto' });
+    expect(element('Old headline')).toMatchObject({ direction: 'rtl' });
+    expect(element('Old headline')).not.toHaveProperty('textDirection');
+    expect(element('Market crawl')).toMatchObject({ direction: 'left', textDirection: 'rtl' });
+
+    const before = session.snapshot();
+    for (const [layerName, direction, message] of [
+      ['Canonical headline', 'left', 'Text direction must be auto, ltr or rtl.'],
+      ['Market crawl', 'rtl', 'Ticker direction must be left or right.'],
+    ]) {
+      const rejected = await apply(2, [
+        { type: 'update_element', layerName, patch: { direction } },
+      ]);
+      expect(rejected.isError).toBe(true);
+      expect(JSON.stringify(rejected.content)).toContain(message);
+      expect(session.snapshot()).toEqual(before);
+    }
+  });
+
   it('authors seeded text animators and experimental motion blur through existing operations', async () => {
     const sessionId = 'mcp-text-animators';
     const session = createPromptedFixture(sessionId);
@@ -1437,28 +1513,31 @@ describe('OGraf MCP authoring host', () => {
 
   it('advertises the safe authoring and certification surface', async () => {
     const tools = await client.listTools();
-    expect(tools.tools.map((tool) => tool.name)).toEqual(
-      expect.arrayContaining([
-        'ograf_get_project',
-        'ograf_apply_operations',
-        'ograf_render_frame',
-        'ograf_capture',
-        'ograf_render_strip',
-        'ograf_query_scene',
-        'ograf_review_design',
-        'ograf_import_asset',
-        'ograf_import_svg_bundle',
-        'ograf_measure_text',
-        'ograf_sample_tracks',
-        'ograf_get_changes',
-        'ograf_reset_project',
-        'ograf_delete_session',
-        'ograf_certify_project',
-        'ograf_save_project',
-        'ograf_save_template_set',
-        'ograf_export_package',
-      ]),
-    );
+    expect(tools.tools.map((tool) => tool.name)).toEqual([
+      'ograf_get_capabilities',
+      'ograf_get_project',
+      'ograf_inspect_scene',
+      'ograf_sample_tracks',
+      'ograf_capture',
+      'ograf_apply_operations',
+      'ograf_validate_project',
+      'ograf_create_project',
+      'ograf_delete_session',
+      'ograf_open_project',
+      'ograf_import_asset',
+      'ograf_undo',
+      'ograf_certify_project',
+      'ograf_save_project',
+      'ograf_export_package',
+      'ograf_export_video',
+      'ograf_get_template_set',
+      'ograf_update_template_set',
+      'ograf_review_template_transfer',
+      'ograf_commit_template_transfer',
+      'ograf_get_playout',
+      'ograf_control_playout',
+      'ograf_read_result_page',
+    ]);
     expect(tools.tools.map((tool) => tool.name)).not.toContain('ograf_preview_operations');
     expect(tools.tools.map((tool) => tool.name)).not.toContain('ograf_propose_operations');
     expect(
@@ -1468,10 +1547,10 @@ describe('OGraf MCP authoring host', () => {
     ).toContain('iChannel0=input');
   });
 
-  it('renders a bounded nineteen-tool in-app surface from the same canonical records', () => {
+  it('renders a bounded thirteen-tool in-app surface from the same canonical records', () => {
     const records = createOGrafToolRecords(host.workspace, host.bridge);
     const inApp = filterInAppToolRecords(records);
-    expect(inApp).toHaveLength(19);
+    expect(inApp).toHaveLength(13);
     expect(inApp.map((tool) => tool.name)).not.toEqual(
       expect.arrayContaining([
         'ograf_certify_project',
@@ -1479,7 +1558,7 @@ describe('OGraf MCP authoring host', () => {
         'ograf_export_package',
       ]),
     );
-    expect(providerToolWireBytes(records)).toBeLessThanOrEqual(75_000);
+    expect(providerToolWireBytes(records)).toBeLessThanOrEqual(68_500);
   });
 
   it('requires and preserves the original user prompt when creating a template through MCP', async () => {
@@ -1586,15 +1665,12 @@ describe('OGraf MCP authoring host', () => {
         layerBlending: expect.any(String),
       },
       semanticAuthoring: {
-        operations: expect.arrayContaining([
-          'set_layer_semantics',
-          'create_lower_third',
-          'create_bug',
-          'create_ticker',
-          'create_scoreboard',
-          'create_clock',
-          'create_repeater',
-        ]),
+        operations: ['update_layer semantics', 'create_recipe', 'create_repeater'],
+        recipes: expect.objectContaining({
+          kinds: expect.stringContaining(
+            'lower-third | bug | ticker | scoreboard | clock | countdown',
+          ),
+        }),
         roles: expect.arrayContaining(['headline', 'container', 'logo']),
         motionPresets: ['wipe-reveal', 'stagger-cascade', 'directional-slide'],
       },
@@ -1613,12 +1689,12 @@ describe('OGraf MCP authoring host', () => {
         ]),
       },
       aiReview: {
-        query: 'ograf_query_scene',
+        query: 'ograf_inspect_scene mode=query',
         visualDryRun: 'ograf_apply_operations mode=preview',
         humanProposal: 'ograf_apply_operations mode=propose',
       },
       loopAnimation: {
-        operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
+        operations: ['set_layer_loop', 'set_loop_property_track', 'set_layer_loop remove=true'],
         activations: ['lifecycle', 'step'],
       },
       bindings: {
@@ -3784,11 +3860,14 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
 
   it('exposes revision-checked compact and compatible set saves over MCP', async () => {
     const listed = await client.listTools();
-    const tool = listed.tools.find((item) => item.name === 'ograf_save_template_set');
-    expect(tool).toBeDefined();
+    const tool = listed.tools.find((item) => item.name === 'ograf_save_project');
     expect(tool?.inputSchema).toMatchObject({
-      required: expect.arrayContaining(['expectedRevision', 'path', 'confirm']),
-      properties: { archiveMode: { default: 'compact', enum: ['compact', 'compatible'] } },
+      required: expect.arrayContaining(['path', 'confirm']),
+      properties: {
+        scope: { enum: ['template', 'set'] },
+        expectedRevision: { type: 'string' },
+        archiveMode: { default: 'compact', enum: ['compact', 'compatible'] },
+      },
     });
     const capabilities = await client.callTool({
       name: 'ograf_get_capabilities',
@@ -3796,7 +3875,7 @@ void mainImage(out vec4 color, in vec2 coord) { color = vec4(amount); }`,
     });
     expect(capabilities.structuredContent).toMatchObject({
       templateSets: {
-        save: 'ograf_save_template_set',
+        save: 'ograf_save_project scope=set',
         storage: { archiveSchemaVersion: 6, compatibleArchiveSchemaVersion: 5 },
         transitionLogic: {
           definitionVersion: 6,

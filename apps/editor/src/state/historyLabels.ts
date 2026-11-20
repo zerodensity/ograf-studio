@@ -133,6 +133,7 @@ function describeCompositionChange(before: Composition, after: Composition): str
 }
 
 export function describeProjectChange(before: Project, after: Project): string {
+  if (before.outputLayer !== after.outputLayer) return 'Change output layer';
   if (before.name !== after.name) return `Rename project to ${quoted(after.name)}`;
   if (!same(before.author, after.author)) return 'Edit project metadata';
   if (

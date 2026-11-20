@@ -6,6 +6,7 @@ import {
   createLayerOfKind,
   createMediaPaint,
   createProject,
+  getLayerTransformAtFrame,
 } from '@ograf-editor/scene-model';
 import {
   applyTemplateSetSettings,
@@ -151,6 +152,65 @@ describe('per-setting template set resolution', () => {
       { id: 'x-end', frame: 25, value: 160, easing: 'linear' },
     ]);
     expect(project).toEqual(source);
+  });
+
+  it('keeps animated geometry and inset margins when inherited dimensions pass through one pixel', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const slash = createLayerOfKind('rectangle');
+    slash.animationTrackMode = 'independent';
+    slash.constraints = { horizontal: 'scale', vertical: 'scale' };
+    slash.keyframes = [
+      createLayerKeyframe(0, createDefaultTransform({ x: 2201, y: -200, width: 75, height: 1500 })),
+    ];
+    slash.animationTracks.x = [
+      { id: 'start', frame: 0, value: 2201, easing: 'linear' },
+      {
+        id: 'hold',
+        frame: 20,
+        value: -400,
+        easing: 'ease-in-out',
+        curve: { x1: 0.2, y1: 0.4, x2: 0.8, y2: 0.6 },
+      },
+    ];
+    const divider = createLayerOfKind('rectangle');
+    divider.constraints = { horizontal: 'left-right', vertical: 'top-bottom' };
+    divider.keyframes = [
+      createLayerKeyframe(0, createDefaultTransform({ x: 60, y: 20, width: 1800, height: 1040 })),
+    ];
+    composition.layers.push(slash, divider);
+    const settings = templateSetSettingsFromProject(project);
+    const direct = applyTemplateSetSettings(project, { ...settings, width: 1080, height: 1920 });
+    const stepped = [
+      { width: 1, height: 1080 },
+      { width: 1080, height: 1080 },
+      { width: 1080, height: 1 },
+      { width: 1080, height: 1920 },
+    ].reduce((source, size) => applyTemplateSetSettings(source, { ...settings, ...size }), project);
+    const [resizedSlash, resizedDivider] = stepped.compositions[0]!.layers;
+    const directSlash = direct.compositions[0]!.layers[0]!;
+    expect(getLayerTransformAtFrame(resizedSlash!, 20)).toMatchObject({
+      x: -225,
+      y: -356,
+      width: 42,
+      height: 2667,
+    });
+    expect(getLayerTransformAtFrame(resizedSlash!, 10)).toEqual(
+      getLayerTransformAtFrame(directSlash, 10),
+    );
+    expect(resizedSlash!.animationTracks.x).toEqual(
+      slash.animationTracks.x!.map((key) => ({
+        ...key,
+        value: Math.round((key.value * 1080) / 1920),
+      })),
+    );
+    expect(resizedSlash!.animationTracks.width).toBeUndefined();
+    expect(getLayerTransformAtFrame(resizedDivider!, 0)).toMatchObject({
+      x: 60,
+      y: 20,
+      width: 960,
+      height: 1880,
+    });
   });
 
   it('preserves mandatory real-time rendering after resolving per-setting overrides', () => {

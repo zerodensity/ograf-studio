@@ -39,7 +39,6 @@ through `ograf_inspect_scene`; it includes enabled state, params and legacy prop
 `update_effect` accepts an effect ID and `patch: {name?,enabled?,blendMode?,blendOpacity?,params?,shader?}`. Numeric params use
 authored lifecycle frames by default; use `scope: "frame"` plus `frame` for one key. Full tracks
 can be supplied independently. A bypass only changes `enabled` and preserves keys/bindings.
-`duplicate_effect` copies the selected effect's tracks and bindings with fresh effect/key IDs.
 `remove_effect` removes its keys and links, retaining data fields and unrelated animation.
 `reorder_effects` requires all current IDs exactly once, in the desired top-to-bottom order.
 

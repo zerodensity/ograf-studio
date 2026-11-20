@@ -20,6 +20,143 @@ import {
 } from '@ograf-editor/scene-model';
 import { validateManifest } from './validateManifest';
 import { validateProject } from './validateProject';
+import type { OGrafDiscoveryCatalog } from '@ograf-editor/ograf-types';
+
+const DISCOVERY_ACTIONS = [
+  { id: 'transition.take', name: 'Take' },
+  { id: 'transition.patch', name: 'Patch' },
+  { id: 'transition.out', name: 'Out' },
+];
+
+function discoveryCatalog(): OGrafDiscoveryCatalog {
+  return {
+    version: 1,
+    id: 'discovery-test',
+    name: 'Discovery test',
+    templates: [{ id: 'template', name: 'Template' }],
+    slots: [
+      { id: 'program', name: 'Program', stateIds: ['on'], requireOn: [], blockWhileActive: [] },
+    ],
+    states: [
+      {
+        id: 'on',
+        name: 'On',
+        slotId: 'program',
+        templateId: 'template',
+        schema: { type: 'object', properties: {} },
+        defaults: {},
+        actions: [],
+      },
+    ],
+    actions: structuredClone(DISCOVERY_ACTIONS),
+    defaults: {},
+  };
+}
+
+function discoveryManifest(discovery: unknown) {
+  const project = createProject({ id: 'discovery-test' });
+  const composition = project.compositions[0]!;
+  return {
+    ...assembleManifest(project, composition, compileDescriptor(composition)),
+    customActions: structuredClone(DISCOVERY_ACTIONS),
+    v_ografDiscovery: discovery,
+  };
+}
+
+describe('OGraf discovery contract validation', () => {
+  it('accepts both declarations and preserves compatibility with untagged manifests', () => {
+    expect(validateManifest(discoveryManifest({ version: 1, kind: 'graphic' })).valid).toBe(true);
+    const manifest = discoveryManifest({
+      version: 1,
+      kind: 'package',
+      catalog: discoveryCatalog(),
+    });
+    expect(validateManifest(JSON.parse(JSON.stringify(manifest))).errors).toEqual([]);
+    const { v_ografDiscovery: _discovery, ...legacy } = manifest;
+    expect(validateManifest({ ...legacy, v_ografTransitionLogic: { version: 1 } }).valid).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    null,
+    [],
+    { version: 2, kind: 'graphic' },
+    { version: 1, kind: 'unknown' },
+    { version: 1, kind: 'package' },
+    { version: 1, kind: 'graphic', catalog: {} },
+  ])('rejects malformed or unsupported discovery metadata: %j', (discovery) => {
+    const result = validateManifest(discoveryManifest(discovery));
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toContain('/v_ografDiscovery');
+  });
+
+  const invalidCatalogs: Array<[string, (catalog: OGrafDiscoveryCatalog) => void, string]> = [
+    [
+      'identity mismatch',
+      (catalog) => {
+        catalog.id = 'another-export';
+      },
+      'id must match',
+    ],
+    [
+      'duplicate template',
+      (catalog) => {
+        catalog.templates.push({ ...catalog.templates[0]! });
+      },
+      'unique ids',
+    ],
+    [
+      'unknown template',
+      (catalog) => {
+        catalog.states[0]!.templateId = 'missing';
+      },
+      'unknown template',
+    ],
+    [
+      'unknown slot',
+      (catalog) => {
+        catalog.states[0]!.slotId = 'missing';
+      },
+      'unknown template or slot',
+    ],
+    [
+      'omitted state',
+      (catalog) => {
+        catalog.slots[0]!.stateIds = [];
+      },
+      'exactly its own states',
+    ],
+    [
+      'unknown state',
+      (catalog) => {
+        catalog.slots[0]!.stateIds = ['missing'];
+      },
+      'exactly its own states',
+    ],
+    [
+      'unknown dependency',
+      (catalog) => {
+        catalog.slots[0]!.requireOn = ['missing'];
+      },
+      'unknown dependency',
+    ],
+    [
+      'missing action',
+      (catalog) => {
+        catalog.actions.pop();
+      },
+      'actions must match',
+    ],
+  ];
+  it.each(invalidCatalogs)('rejects catalog %s', (_name, mutate, message) => {
+    const catalog = discoveryCatalog();
+    mutate(catalog);
+    const result = validateManifest(discoveryManifest({ version: 1, kind: 'package', catalog }));
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toContain(message);
+  });
+});
 
 describe('canonical OGraf validation', () => {
   it('validates optional clipping margins and carries valid text margins into exports', () => {

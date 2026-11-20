@@ -1,4 +1,6 @@
 import { ColorInput } from '../components/ColorInput';
+import { OutputLayerInput } from '../components/OutputLayerInput';
+import { resolveOutputLayer } from '@ograf-editor/scene-model';
 import { CANVAS_LAYOUT_HELP } from './propertyHelp';
 import { WithWarning } from '../components/WarningBadge';
 import { PropertyRow } from '../components/PropertyRow';
@@ -33,6 +35,40 @@ import {
   type TemplateSetSettingKey,
 } from '../state/templateSetSettings';
 
+function CanvasDimensionInput({
+  value,
+  onCommit,
+}: {
+  value: number;
+  onCommit: (value: number) => void;
+}) {
+  return (
+    <input
+      key={value}
+      type="number"
+      min={1}
+      step={1}
+      defaultValue={value}
+      onBlur={(event) => {
+        const input = event.currentTarget;
+        const next = input.valueAsNumber;
+        if (Number.isSafeInteger(next) && next >= 1 && next !== value) {
+          onCommit(next);
+        } else {
+          input.value = String(value);
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === 'Escape') event.currentTarget.value = String(value);
+        event.currentTarget.blur();
+      }}
+    />
+  );
+}
+
 export function CompositionSettings({
   filter,
   onFilterChange,
@@ -49,6 +85,7 @@ export function CompositionSettings({
   const [backgroundError, setBackgroundError] = useState('');
   const composition = useActiveComposition();
   const project = useProjectStore((s) => s.project);
+  const documentLoadRevision = useProjectStore((s) => s.documentLoadRevision);
   const setActiveComposition = useProjectStore((s) => s.setActiveComposition);
   const projectSet = useProjectSetStore((state) => state.projectSet);
   const activeTemplateId = useProjectSetStore((state) => state.activeTemplateId);
@@ -172,6 +209,19 @@ export function CompositionSettings({
 
       {showSection('output') && (
         <>
+          <CollapsibleSection sectionId={sectionId('output-layer')} title="Output layer">
+            <PropertyRow
+              className="inspector-row"
+              help="Standalone export output layer. In RealityHub, higher values appear on top and equal values share a replacement target. Coordinated children use the package output layer."
+            >
+              <span>Output layer</span>
+              <OutputLayerInput
+                label="Output layer"
+                value={resolveOutputLayer(project.outputLayer)}
+                onChange={(outputLayer) => setProjectMeta({ outputLayer })}
+              />
+            </PropertyRow>
+          </CollapsibleSection>
           <CollapsibleSection sectionId={sectionId('composition')} title="Composition">
             <PropertyRow
               help={
@@ -216,7 +266,10 @@ export function CompositionSettings({
                 </select>
               </PropertyRow>
 
-              <div className="inspector-grid">
+              <div
+                className="inspector-grid"
+                key={JSON.stringify([documentLoadRevision, activeTemplateId, composition.id])}
+              >
                 <PropertyRow
                   help={
                     'Width of the output canvas in pixels. Layer constraints determine how layers respond when the canvas size changes.'
@@ -225,11 +278,9 @@ export function CompositionSettings({
                 >
                   <span>Width</span>
                   <TemplateSettingValue setting="width">
-                    <input
-                      type="number"
-                      min={1}
+                    <CanvasDimensionInput
                       value={composition.width}
-                      onChange={(e) => updateCanvas({ width: Number(e.target.value) })}
+                      onCommit={(width) => updateCanvas({ width })}
                     />
                   </TemplateSettingValue>
                 </PropertyRow>
@@ -241,11 +292,9 @@ export function CompositionSettings({
                 >
                   <span>Height</span>
                   <TemplateSettingValue setting="height">
-                    <input
-                      type="number"
-                      min={1}
+                    <CanvasDimensionInput
                       value={composition.height}
-                      onChange={(e) => updateCanvas({ height: Number(e.target.value) })}
+                      onCommit={(height) => updateCanvas({ height })}
                     />
                   </TemplateSettingValue>
                 </PropertyRow>

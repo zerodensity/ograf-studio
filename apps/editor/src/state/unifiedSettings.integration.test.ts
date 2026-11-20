@@ -143,6 +143,28 @@ function editScopes() {
 }
 
 describe('unified settings scopes and saved documents', () => {
+  it('applies package layer and defaults together without overwriting template layers', () => {
+    fixture();
+    useProjectStore.getState().setProjectMeta({ outputLayer: -5 });
+    history.resetHistory();
+    const before = snapshotDocument();
+    const defaults = { ...currentSet().settings!, frameRate: 30 };
+    saveTemplateSetSettings(defaults, {}, 100);
+    expect(currentSet().outputLayer).toBe(100);
+    expect(useProjectStore.getState().project.outputLayer).toBe(-5);
+    expect(useProjectStore.getState().project.compositions[0]!.frameRate).toBe(30);
+    expect(history.getHistorySnapshot().past).toHaveLength(1);
+    history.undo();
+    expect(snapshotDocument()).toEqual(before);
+    history.redo();
+    expect(currentSet().outputLayer).toBe(100);
+    const saved = snapshotDocument();
+    expect(() => saveTemplateSetSettings(defaults, {}, 1.5)).toThrow(/safe integer/);
+    expect(() =>
+      useProjectStore.getState().setProjectMeta({ name: 'Rejected', outputLayer: 1.5 }),
+    ).toThrow(/safe integer/);
+    expect(snapshotDocument()).toEqual(saved);
+  });
   beforeEach(() => {
     useTemplateSetSettingsStore.getState().close();
     useProjectSetStore.getState().clearProjectSet();

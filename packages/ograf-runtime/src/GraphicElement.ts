@@ -427,6 +427,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #functionGeneration = 0;
   #timeline: ReturnType<typeof buildRuntimeTimeline> | null = null;
   #activeTransition: { cancel(): void } | null = null;
+  /** The Take in or Step change that is animating now, which a Take out cuts short. */
+  #animatingPlay: { cutShort: boolean } | null = null;
+  /** Take outs that have been asked for and have not begun. A Take in or Step change gives way to one. */
+  #takeOutsWaiting = 0;
   /** Index into `descriptor.stepKeyframeIds` — the OGraf "current step", not a keyframe index. */
   #currentStep: number | undefined;
   #lastData: Record<string, unknown> = {};
@@ -465,7 +469,13 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #chartAnimationFrame: number | null = null;
   #chartAnimationEpochs = new Map<string, number>();
   #contentPlaybackError: Error | null = null;
+  /** Everything asked of the graphic, in the order it was asked. */
   #operationQueue: Promise<void> = Promise.resolve();
+  /**
+   * What a data update waits for: loading, seeking and the updates before it. Not a Take in, a Take
+   * out or a custom action, whose animation can run for as long as its author made it.
+   */
+  #updateQueue: Promise<void> = Promise.resolve();
   #renderType: LoadParams['renderType'] = 'realtime';
   /** Absolute clock epochs for active layer-local loops. Values use performance.now() in realtime
    * and the scheduled OGraf timestamp in non-realtime; sampling always derives phase absolutely. */
@@ -635,13 +645,38 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     );
   }
 
-  async #serializeOperation<T>(operation: () => Promise<T>): Promise<T> {
+  /** Runs an operation after everything asked before it. `animation` marks one updates don't wait for. */
+  async #serializeOperation<T>(operation: () => Promise<T>, animation = false): Promise<T> {
     const previous = this.#operationQueue;
     let release = () => {};
-    this.#operationQueue = new Promise<void>((resolve) => {
+    const done = new Promise<void>((resolve) => {
       release = resolve;
     });
+    this.#operationQueue = done;
+    if (!animation) this.#updateQueue = done;
     await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Runs a data update after the updates before it, so each fade finishes first, but beside a Take
+   * in, Take out or custom action that is still animating: new data shows at once, however long the
+   * animation runs. Whatever is asked next waits for the update and for all that was asked before it.
+   */
+  async #serializeUpdate<T>(operation: () => Promise<T>): Promise<T> {
+    const previousUpdate = this.#updateQueue;
+    const previousOperation = this.#operationQueue;
+    let release = () => {};
+    const done = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.#updateQueue = done;
+    this.#operationQueue = Promise.all([previousOperation, done]).then(() => undefined);
+    await previousUpdate;
     try {
       return await operation();
     } finally {
@@ -2358,7 +2393,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#loopExitCorrection = null;
       this.#directLifecycleTransition = null;
       tl.seek(keyframe.frame, true);
-      if (includeAudio) this.#mediaCueRuntime?.renderAtTime(targetSeconds * 1000);
+      if (includeAudio) this.#mediaCueRuntime?.renderAtTime(targetSeconds * 1000, { jumped: true });
     } else {
       const fromFrame = tl.frame();
       const directOut =
@@ -2381,6 +2416,19 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
               .sort((a, b) => a.frame - b.frame)
           : [];
       let nextCue = 0;
+      const frameRate = this.activeDescriptor.frameRate;
+      /** Where cues and sounds stand: a direct Out passes only the Out's own stretch of the timeline. */
+      const cueFrameAt = (frame: number) =>
+        directOut && keyframe.frame !== fromFrame
+          ? cueStart +
+            ((frame - fromFrame) / (keyframe.frame - fromFrame)) * (keyframe.frame - cueStart)
+          : frame;
+      // The sounds a direct Out skips have missed their moment. So has one on the frame its stretch
+      // begins at, which belongs to arriving at the last Step: the playhead is put just past it.
+      if (includeAudio && directOut)
+        this.#mediaCueRuntime?.renderAtTime(((cueStart + 0.5) / frameRate) * 1000, {
+          jumped: true,
+        });
       await new Promise<void>((resolve, reject) => {
         let settled = false;
         const finish = () => {
@@ -2394,9 +2442,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
               typeof performance !== 'undefined' ? performance.now() : Date.now(),
             );
             if (includeAudio)
-              this.#mediaCueRuntime?.renderAtTime(
-                (tl.frame() / this.activeDescriptor.frameRate) * 1000,
-              );
+              this.#mediaCueRuntime?.renderAtTime((cueFrameAt(tl.frame()) / frameRate) * 1000);
             resolve();
           } catch (cause) {
             reject(cause);
@@ -2408,20 +2454,11 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
             this.#renderLoopSnapshot(
               typeof performance !== 'undefined' ? performance.now() : Date.now(),
             );
-            if (includeAudio)
-              this.#mediaCueRuntime?.renderAtTime(
-                (tl.frame() / this.activeDescriptor.frameRate) * 1000,
-              );
-            if (nextCue < cues.length) {
-              const frame = tl.frame();
-              const cueFrame = directOut
-                ? cueStart +
-                  ((frame - fromFrame) / (keyframe.frame - fromFrame)) * (keyframe.frame - cueStart)
-                : frame;
-              while (nextCue < cues.length && cues[nextCue]!.frame <= cueFrame) {
-                const cue = cues[nextCue++]!;
-                dispatchStudioFrameCue(this, cue, { instanceId: SINGLE_INSTANCE_ID });
-              }
+            const cueFrame = cueFrameAt(tl.frame());
+            if (includeAudio) this.#mediaCueRuntime?.renderAtTime((cueFrame / frameRate) * 1000);
+            while (nextCue < cues.length && cues[nextCue]!.frame <= cueFrame) {
+              const cue = cues[nextCue++]!;
+              dispatchStudioFrameCue(this, cue, { instanceId: SINGLE_INSTANCE_ID });
             }
           },
           onComplete: finish,
@@ -2550,7 +2587,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     if ((this.descriptor.updateInterruption ?? 'queue') === 'replace') {
       return this.#replaceRunningUpdate(params);
     }
-    return this.#serializeOperation(() =>
+    return this.#serializeUpdate(() =>
       this.#updateActionUnlocked(params, ++this.#updateGeneration),
     );
   }
@@ -2680,13 +2717,23 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   async playAction(params: PlayActionParams): Promise<PlayActionReturnPayload> {
     this.#mediaCueRuntime?.resumeBlocked();
-    return this.#serializeOperation(() => this.#playActionUnlocked(params));
+    return this.#serializeOperation(() => this.#playActionUnlocked(params), true);
   }
 
   async #playActionUnlocked(params: PlayActionParams): Promise<PlayActionReturnPayload> {
     try {
       await this.#awaitContentReady();
       const previousStep = this.#currentStep;
+      const target = this.#resolvePlayTarget(previousStep, params);
+      const arrives = target.currentStep !== undefined;
+      /** What a Take in or Step change answers when a Take out kept it from arriving. */
+      const cutShort = (): PlayActionReturnPayload => ({
+        statusCode: 200,
+        statusMessage: 'A Take out cut this short.',
+        ...(previousStep !== undefined ? { currentStep: previousStep } : {}),
+      });
+      // A Take out that is already waiting leaves it nothing to show.
+      if (arrives && this.#takeOutsWaiting > 0) return cutShort();
       if (
         previousStep === undefined &&
         this.#timeline &&
@@ -2694,8 +2741,11 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       ) {
         // A new IN after completing OUT is a new playout cycle, so one-shot sounds may arm again.
         this.#mediaCueRuntime?.reset();
+        // It starts where the first one did. The timeline stands at its end, and from there the In
+        // would run the Out backwards and pass every sound of the In at once.
+        if (target.currentStep !== undefined)
+          await this.#seekToKeyframeId(this.descriptor.startKeyframeId, true, undefined, false);
       }
-      const target = this.#resolvePlayTarget(this.#currentStep, params);
       this.#keyboardOnAir = target.currentStep !== undefined;
       void this.#logicFunctions
         ?.setOnAir(target.currentStep !== undefined)
@@ -2727,7 +2777,15 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       const exitDurationSeconds = exitsToEnd
         ? exitDurationFrames(this.descriptor) / this.descriptor.frameRate
         : undefined;
-      await this.#seekToKeyframeId(target.keyframeId, params.skipAnimation, exitDurationSeconds);
+      const animating = { cutShort: false };
+      if (arrives) this.#animatingPlay = animating;
+      try {
+        await this.#seekToKeyframeId(target.keyframeId, params.skipAnimation, exitDurationSeconds);
+      } finally {
+        if (this.#animatingPlay === animating) this.#animatingPlay = null;
+      }
+      // The graphic never arrived, so no loop starts and no rule fires. The Take out goes on from here.
+      if (animating.cutShort) return cutShort();
       await this.#awaitContentReady();
       this.#currentStep = target.currentStep;
       if (this.#currentStep !== undefined) {
@@ -2752,7 +2810,18 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async stopAction(params: StopActionParams): Promise<ReturnPayload | undefined> {
-    return this.#serializeOperation(() => this.#stopActionUnlocked(params));
+    // A Take out does not wait for a Take in or a Step change to finish animating: it cuts that short
+    // and goes out from the picture it stopped at. It still waits for whatever else was asked first.
+    this.#takeOutsWaiting++;
+    const animating = this.#animatingPlay;
+    if (animating && this.#activeTransition) {
+      animating.cutShort = true;
+      this.#activeTransition.cancel();
+    }
+    return this.#serializeOperation(() => {
+      this.#takeOutsWaiting--;
+      return this.#stopActionUnlocked(params);
+    }, true);
   }
 
   async #stopActionUnlocked(params: StopActionParams): Promise<ReturnPayload | undefined> {
@@ -3800,7 +3869,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#loopExitCorrection = null;
       this.#timeline?.seek((params.timestamp / 1000) * this.activeDescriptor.frameRate, true);
       this.#mediaCueRuntime?.reset();
-      this.#mediaCueRuntime?.renderAtTime(params.timestamp);
+      this.#mediaCueRuntime?.renderAtTime(params.timestamp, { jumped: true });
       let chartMarkFrame: number | undefined;
       if (this.#schedule.length > 0) chartMarkFrame = this.#applySchedule(params.timestamp);
       else {

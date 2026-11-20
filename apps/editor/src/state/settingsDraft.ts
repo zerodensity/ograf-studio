@@ -1,6 +1,8 @@
 import { TEMPLATE_SET_SETTING_KEYS, type TemplateSetSettings } from './templateSetSettings';
 
 export interface SettingsDialogDraft {
+  outputLayer: number;
+  baselineOutputLayer: number;
   settings: TemplateSetSettings;
   inheritance: Record<string, boolean>;
   baselineSettings: TemplateSetSettings;
@@ -10,8 +12,11 @@ export interface SettingsDialogDraft {
 export function createSettingsDialogDraft(
   settings: TemplateSetSettings,
   inheritance: Record<string, boolean>,
+  outputLayer = 0,
 ): SettingsDialogDraft {
   return {
+    outputLayer,
+    baselineOutputLayer: outputLayer,
     settings: structuredClone(settings),
     inheritance: { ...inheritance },
     baselineSettings: structuredClone(settings),
@@ -45,14 +50,18 @@ export function rebaseSettingsDialogDraft(
   draft: SettingsDialogDraft,
   settings: TemplateSetSettings,
   inheritance: Record<string, boolean>,
+  outputLayer = draft.baselineOutputLayer,
 ): SettingsDialogDraft {
   if (
+    draft.baselineOutputLayer === outputLayer &&
     JSON.stringify(draft.baselineSettings) === JSON.stringify(settings) &&
     JSON.stringify(draft.baselineInheritance) === JSON.stringify(inheritance)
   )
     return draft;
 
   return {
+    outputLayer: draft.outputLayer !== draft.baselineOutputLayer ? draft.outputLayer : outputLayer,
+    baselineOutputLayer: outputLayer,
     settings: mergeSettingsDraft(settings, draft.baselineSettings, draft.settings),
     inheritance: Object.fromEntries(
       Object.entries(inheritance).map(([id, inherit]) => [

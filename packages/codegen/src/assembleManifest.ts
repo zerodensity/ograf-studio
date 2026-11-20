@@ -8,6 +8,7 @@ import {
   isMediaPaint,
   walkElementContents,
   elementAssetReferences,
+  resolveOutputLayer,
 } from '@ograf-editor/scene-model';
 import { compileCustomActions, compileDataSchema } from './compileDataSchema';
 import type { CompiledGraphicDescriptor } from './compileDescriptor';
@@ -145,10 +146,12 @@ export function assembleManifest(
     });
 
   const manifest: OGrafManifest = {
+    v_ografDiscovery: { version: 1, kind: 'graphic' },
     $schema: OGRAF_MANIFEST_SCHEMA_URL,
     id: project.id,
     name: project.name,
     main: 'main.js',
+    v_layer: resolveOutputLayer(project.outputLayer),
     supportsRealTime: project.supportsRealTime,
     supportsNonRealTime: project.supportsNonRealTime,
     version: project.version,

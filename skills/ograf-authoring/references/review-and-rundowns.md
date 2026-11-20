@@ -12,8 +12,7 @@ read the full project if a snapshot is needed. Use revision-checked `ograf_apply
   `text`; the returned result includes its ID. An optional ID supports references within the batch.
 - `set_review_comment_resolved` takes `commentId` and `resolved:true` or `false`.
 - `save_review_version` takes `name`; it captures the current project without recursive review data.
-- `set_review_approval` takes the actual approver's `author`, or `null` to clear. Only record an
-  approval when the named human has explicitly approved; never invent or imply their endorsement.
+- Approval is given by a person in Studio's Review pane. Never record or imply one for them.
 - `set_test_rundowns` takes `compositionId` and `rundowns:[{id,name,rows:[{id,values}]}]`; `values`
   maps stable field IDs to test values. The Data → Test data pane imports CSV/TSV/JSON and checks
   overflow; Preview & Export runs rows through the authored Take, Update and Out transitions.

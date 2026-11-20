@@ -1,5 +1,27 @@
 # Template sets and crops
 
+## Output layer metadata
+
+Set a standalone template's layer with `set_project_metadata` and `outputLayer` in a numeric
+revision-checked authoring batch. Set the independent coordinated package root with
+`ograf_update_template_set`, its opaque set revision, and
+`operation:{type:"set_output_layer",outputLayer:100}`. Read resolved `outputLayer` values from
+project metadata, `templateSet.outputLayer`, and `templateSet.templates[].outputLayer`.
+
+Values are signed JavaScript safe integers (`-9007199254740991` through `9007199254740991`),
+defaulting to zero. Fractions, strings, null and unsafe integers are rejected for authoring.
+The value is not part of `set_defaults` or per-property inheritance. Duplicated/pasted templates
+retain their standalone layer. Every export profile writes numeric top-level `v_layer`, including
+zero. Coordinated children use the package root in RealityHub; their standalone values do not
+override it. Higher layers appear on top, and equal layers share a replacement target within an
+output channel. Studio preview playback and the internal scene layer order stay unchanged.
+
+Studio controls are **Template → Output & timing → Output layer** (immediate, undoable) and
+**Template Set → Output & timing → Package output layer** (staged until Apply/OK). Save the `.ogs`
+document to persist edits. OGraf import takes the manifest's `v_layer` as authoritative even when
+embedded editable source has a different value. Missing values resolve to zero; invalid manifest
+values resolve to zero with a `/v_layer` warning. Capabilities: `templateSets.outputLayers`.
+
 ## Retained components in coordinated output
 
 A retained component keeps one live instance across template changes. Bindings on each
@@ -275,7 +297,7 @@ project/set/history publication, including connected MCP edits and Undo/Redo. Re
 those references in Transitions before changing the component's child selection; stable source IDs
 are preserved when promoting an existing instance.
 
-`update_component_from_layers componentId,layerIds` promotes one linked instance together with
+`save_component componentId,layerIds` promotes one linked instance together with
 selected new independent layers. New children join that source instance with their existing IDs;
 other linked instances receive one corresponding child while retaining local overrides. Source
 layer/field IDs, animation, bindings, masks and placement remain stable. An independent-only
@@ -409,7 +431,7 @@ real-time only. Audio/media cues, shader/media Rule side effects, custom-action 
 and loops activated at later steps remain unsupported.
 Runtime packages cannot be reverse-imported
 as complete template sets; preserve the original `.ogs`.
-Use `ograf_export_coordinated_package` for coordinated file output. First read
+Use `ograf_export_package` with `scope: "set"` for coordinated file output. First read
 `ograf_get_template_set` and pass its `expectedRevision`, an explicit `profile`
 (`realtime`, `non-realtime`, or `dual`), workspace `.ograf.zip` or `.html` path,
 `confirm:true`, and a unique `operationId`. Request `overwrite:true` only after
@@ -591,8 +613,37 @@ The update tool accepts one `operation` with these `type` values:
 - `set_asset_slot_source`: `slotId`, `assetId` (null clears).
 
 Removal needs `confirm:true` and user authorization. Copy/duplicate preserve same-set inherited
-links and create independent template/project/composition identities. Cross-set paste keeps resolved
-content/assets locally. Names are made unique; IDs remain stable through rename and reorder.
+links and create independent template/project/composition identities. Cross-set paste uses
+`keep-appearance`: it adds the resolved template with local branding, canvas settings and
+dependencies. Studio applies the same policy when adding an existing source from a file.
+`ograf_update_template_set` returns a `transfer` report for cross-set paste with its new identities,
+settings differences, and warnings. Check the result before reporting the transferred appearance.
+The transfer can be undone as one operation in Studio. Names are made unique; IDs remain stable
+through rename and reorder.
+
+For a reviewed transfer, read the destination revision with `ograf_get_template_set`, then call
+`ograf_review_template_transfer` using the user's selected policy. Use
+`source:{kind:"clipboard"}` for a copied template or
+`source:{kind:"workspace-file",path,templateId?}` for an editable file in the MCP workspace.
+If the review lists `sourceTemplates`, select one and review the file again with its `templateId`.
+Preserve source canvas settings by default. Set `inheritSettings:true` only when the user wants
+destination canvas settings. The review reports the source, destination, available policies,
+settings differences, and mapping rows. Page the mapping and dependency inventories with `offset`
+and `limit`. The report includes metadata for inspection and excludes project and font bytes.
+
+Policy values are `keep-appearance`, `adopt-destination`, and `bring-source-branding`.
+Mapping choices use `kind`, `sourceId`, and `action:"link"|"keep-local"|"import"`, with
+`destinationId` or `destinationKey` where applicable. Apply `resetOverrides:true` only to a
+specifically approved mapping. Exact source kit import requires shared-kit provenance. A resolved
+standalone template still supports keeping its appearance or mapping eligible local definitions to
+the destination. Never infer a shared-kit identity from similar names or color values.
+
+Use `ograf_review_template_transfer` with `step: "preview"` and the review's `planId`, `expectedRevision`, and
+`sourceRevision` to compare representative frames. Then call `ograf_commit_template_transfer`
+with the same identifiers and `confirm:true` when the user approves the reviewed choices. Preview
+and commit for a workspace source also take its `workspaceFile:{path,templateId?}` so the host can
+check that the bytes are still current. Re-review after a stale revision error. Apply the reviewed
+plan once. Saving a source or certifying playout remains a separate operation.
 
 Defaults cover the main canvas size, frame rate, background, render modes, data fades/interruption,
 rulers, safe-area display, snapping, grid/snap distance, and canvas bounds. Existing, new, and inserted
@@ -609,6 +660,11 @@ values. Object `designTokenBindings[].overridden:true` retains the reset source 
 designer's locally authored value; `bind_design_token` restores a live binding. `update_element`
 and Properties edits mark affected token bindings as overridden. Runtime data/animation precedence
 is unchanged. Token creation alone does not bind every object.
+
+Read member `inheritBrandKit` independently of `inheritSettings`. A member with
+`inheritBrandKit:false` uses local branding and any definitions explicitly listed in
+`brandKitLinks`. Inspect those approved token, typography, and background IDs before changing a
+master definition. Use **This template** to edit local definitions.
 
 The UI offers Brand Kit scopes **Template Set** and **This template**, origin badges and Reset.
 Shared font assets are embedded in resolved child projects. Generated CSS is a safe custom-property
@@ -643,7 +699,8 @@ other newer features are not down-converted. Set file dialogs remain UI actions,
 
 ## Portable set storage
 
-Compact `.ogs` sets use archive schema **6**. A set stores identical font/resource bytes and its set
+Ordinary compact `.ogs` sets use archive schema **6**. Sets with a member using local or selectively
+linked branding use **7**. A set stores identical font/resource bytes and its set
 component sources once, with per-template references. Studio validates references and hydrates normal
 editable projects on open; layer/component/asset IDs, instance overrides, bindings and animation remain
 unchanged. This is storage deduplication, not implicit component linking or editorial data sharing.
@@ -658,14 +715,15 @@ hydrated MCP project snapshot. To export the entire set, choose **Template set**
 Sets with Transition Logic export as one coordinated graphic. Independent sets export one OGraf
 package per template inside a `.ograf-set.zip`.
 
-For older set readers, compatible storage retains the schema **5** archive layout.
-This preserves set metadata and component links; it can be larger and does not down-convert newer
-features. Current Studio opens schemas 1–6. An older reader that does not support Transition Logic
+For older set readers, compatible storage retains the schema **5** archive layout for sets without
+local member branding. Use compact storage for schema **7**, or save an individual standalone
+template to carry its resolved appearance. Current Studio opens schemas 1–7. An older reader that
+does not support Transition Logic
 v4 cannot play guarded/preset definitions even inside a compatible schema 5 archive. JSON-only `.ogs`
 readers cannot open a set ZIP; existing legacy `.ogp` files can still be opened, but cannot preserve
 coordinated transitions.
 
-MCP `ograf_save_template_set` takes `expectedRevision` from `ograf_get_template_set`, a
+MCP `ograf_save_project` with `scope: "set"` takes `expectedRevision` from `ograf_get_template_set`, a
 workspace-confined `.ogs` `path`, `confirm:true`, optional `archiveMode:"compact"|"compatible"`
 (default compact), and optional `overwrite:true` only when replacement is authorized. It serializes an
 immutable complete set snapshot through Studio's save worker. An edit during generation rejects the
@@ -740,7 +798,7 @@ request as `originalPrompt`. Studio requires a nonblank prompt and stores it as 
 }
 ```
 
-Pass the same `originalPrompt` field to `ograf_reset_project` or in a `new_template`,
+Pass the same `originalPrompt` field to `ograf_create_project` `mode: "reset"` or in a `new_template`,
 `duplicate_template`, or `paste_template` operation sent to `ograf_update_template_set`.
 Duplicate and paste preserve the source's prompt history and append the request that created
 the copy. Opening or importing an existing template preserves its saved provenance.

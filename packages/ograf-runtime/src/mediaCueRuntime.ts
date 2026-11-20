@@ -18,6 +18,8 @@ interface MountedCue {
   playRevision: number;
   pausedAtMs: number | null;
   stopped: boolean;
+  /** A sound effect the playhead was found past its moment: it stays silent until rearmed. */
+  missed: boolean;
   gain: number;
   muted: boolean;
 }
@@ -41,6 +43,13 @@ export function mediaCueAutomaticStartMs(
         : undefined;
   return frame === undefined ? null : (frame / descriptor.frameRate) * 1000;
 }
+
+/**
+ * How late a sound effect may still start, in timeline time. Playback finds a marker within a frame or
+ * two of its moment. A graphic that drew nothing for a while, as in a hidden tab, finds its playhead
+ * past every marker in between.
+ */
+const SOUND_EFFECT_LATE_LIMIT_MS = 500;
 
 function isOneShotAudio(cue: MediaCue, source: MediaCueSource | undefined): boolean {
   return source?.kind === 'clip' && source.mediaType === 'audio' && !cue.loop;
@@ -86,6 +95,7 @@ export class MediaCueRuntime {
         playRevision: 0,
         pausedAtMs: null,
         stopped: false,
+        missed: false,
         gain: 1,
         muted: false,
       });
@@ -108,6 +118,7 @@ export class MediaCueRuntime {
       mounted.playRevision++;
       mounted.pausedAtMs = null;
       mounted.stopped = false;
+      mounted.missed = false;
     }
   }
 
@@ -218,7 +229,11 @@ export class MediaCueRuntime {
     return mounted.cue.muted || mounted.muted ? 0 : mounted.cue.volume * mounted.gain;
   }
 
-  /** Retry audio that the browser blocked before the operator's first playback gesture. */
+  /**
+   * Retry audio that the browser blocked before the operator's first playback gesture. A sound effect
+   * is retried only while the playhead still stands where it started: later it would play out of
+   * place, and every blocked sound of a timeline at once.
+   */
   resumeBlocked(): void {
     for (const mounted of this.#mounted.values()) {
       if (
@@ -229,6 +244,15 @@ export class MediaCueRuntime {
       )
         continue;
       mounted.playbackBlocked = false;
+      const source = mounted.cue.sources.find(
+        (candidate) => candidate.id === mounted.activeSourceId,
+      );
+      if (
+        isOneShotAudio(mounted.cue, source) &&
+        mounted.activationMs !== null &&
+        this.#timestampMs > mounted.activationMs
+      )
+        continue;
       this.#attemptPlay(mounted, mounted.media);
     }
   }
@@ -285,6 +309,7 @@ export class MediaCueRuntime {
     mounted.playRevision++;
     mounted.pausedAtMs = null;
     mounted.stopped = false;
+    mounted.missed = false;
     this.#disposeMedia(mounted.outgoing);
     mounted.outgoing = mounted.transitionStartMs === null ? null : previous;
     if (!mounted.outgoing) this.#disposeMedia(previous);
@@ -300,7 +325,17 @@ export class MediaCueRuntime {
     await this.#visualSwitch?.(mounted.cue, source, timestampMs);
   }
 
-  renderAtTime(timestampMs: number, options: { includeAudio?: boolean } = {}): void {
+  /**
+   * Starts the cues the playhead has reached and keeps running ones in step with it. A sound effect
+   * starts only near its moment. `jumped` says the playhead was put at this time, not played up to it:
+   * every sound effect before it has missed its moment. Played up to it, one found more than
+   * `SOUND_EFFECT_LATE_LIMIT_MS` late has missed it too. A missed one stays silent, where otherwise all
+   * of them would start together.
+   */
+  renderAtTime(
+    timestampMs: number,
+    options: { includeAudio?: boolean; jumped?: boolean } = {},
+  ): void {
     this.#timestampMs = timestampMs;
     for (const mounted of this.#mounted.values()) {
       if (mounted.stopped || mounted.pausedAtMs !== null) continue;
@@ -316,9 +351,14 @@ export class MediaCueRuntime {
       }
       if (mounted.activationMs === null) {
         const startMs = mediaCueAutomaticStartMs(mounted.cue, this.#descriptor);
-        if (startMs !== null && timestampMs >= startMs) {
-          void this.take(mounted.cue.id, mounted.cue.activeSourceId, startMs);
-        }
+        if (startMs === null || timestampMs < startMs || mounted.missed) continue;
+        const lateMs = timestampMs - startMs;
+        if (
+          isOneShotAudio(mounted.cue, authoredSource) &&
+          lateMs > (options.jumped ? 0 : SOUND_EFFECT_LATE_LIMIT_MS)
+        )
+          mounted.missed = true;
+        else void this.take(mounted.cue.id, mounted.cue.activeSourceId, startMs);
         continue;
       }
       const media = mounted.media;

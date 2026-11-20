@@ -399,6 +399,85 @@ describe('shared playout host', () => {
     expect((await post(viewerUrl + 'command', { command: { kind: 'play' } })).status).toBe(403);
   });
 
+  it.each(['Studio', 'shared viewer'] as const)(
+    'serves seekable package media to the %s',
+    async (audience) => {
+      const bytes = Buffer.from(Array.from({ length: 32 }, (_, index) => index));
+      const { editor } = await setup();
+      const { viewerUrl } = await publish(editor, {
+        ...pkg,
+        resources: [{ path: 'assets/clip.webm', data: bytes.toString('base64'), base64: true }],
+      });
+      const stateUrl =
+        audience === 'Studio' ? `${editor}api/shared-playout/state` : `${viewerUrl}state`;
+      const state = await (await fetch(stateUrl)).json();
+      const url = new URL('assets/clip.webm', new URL(state.manifestUrl, editor));
+
+      const whole = await fetch(url);
+      expect(whole.status).toBe(200);
+      expect(whole.headers.get('accept-ranges')).toBe('bytes');
+      expect(whole.headers.get('content-type')).toBe('video/webm');
+      expect(whole.headers.get('content-length')).toBe(String(bytes.length));
+      expect(whole.headers.get('content-range')).toBeNull();
+      expect(Buffer.from(await whole.arrayBuffer())).toEqual(bytes);
+
+      for (const range of [undefined, 'bytes=4-7']) {
+        const head = await fetch(url, {
+          method: 'HEAD',
+          headers: range ? { Range: range } : {},
+        });
+        expect(head.status).toBe(200);
+        expect(head.headers.get('accept-ranges')).toBe('bytes');
+        expect(head.headers.get('content-type')).toBe('video/webm');
+        expect(head.headers.get('content-length')).toBe(String(bytes.length));
+        expect(head.headers.get('content-range')).toBeNull();
+        expect((await head.arrayBuffer()).byteLength).toBe(0);
+      }
+
+      for (const { range, start, end } of [
+        { range: 'bytes=0-', start: 0, end: 31 },
+        { range: 'bytes=4-7', start: 4, end: 7 },
+        { range: 'bytes=24-', start: 24, end: 31 },
+        { range: 'bytes=-5', start: 27, end: 31 },
+        { range: 'bytes=-100', start: 0, end: 31 },
+        { range: 'bytes=28-99', start: 28, end: 31 },
+      ]) {
+        const partial = await fetch(url, { headers: { Range: range } });
+        expect(partial.status, range).toBe(206);
+        expect(partial.headers.get('accept-ranges'), range).toBe('bytes');
+        expect(partial.headers.get('content-type'), range).toBe('video/webm');
+        expect(partial.headers.get('content-length'), range).toBe(String(end - start + 1));
+        expect(partial.headers.get('content-range'), range).toBe(`bytes ${start}-${end}/32`);
+        expect(Buffer.from(await partial.arrayBuffer()), range).toEqual(
+          bytes.subarray(start, end + 1),
+        );
+      }
+
+      for (const range of ['bytes=32-', 'bytes=20-10', 'bytes=-0']) {
+        const unsatisfiable = await fetch(url, { headers: { Range: range } });
+        expect(unsatisfiable.status, range).toBe(416);
+        expect(unsatisfiable.headers.get('accept-ranges'), range).toBe('bytes');
+        expect(unsatisfiable.headers.get('content-range'), range).toBe('bytes */32');
+        expect((await unsatisfiable.arrayBuffer()).byteLength, range).toBe(0);
+      }
+
+      for (const range of ['bytes=bad', 'items=0-3', 'items=100-200', 'bytes=0-1,5-6']) {
+        const fallback = await fetch(url, { headers: { Range: range } });
+        expect(fallback.status, range).toBe(200);
+        expect(fallback.headers.get('accept-ranges'), range).toBe('bytes');
+        expect(fallback.headers.get('content-length'), range).toBe(String(bytes.length));
+        expect(fallback.headers.get('content-range'), range).toBeNull();
+        expect(Buffer.from(await fallback.arrayBuffer()), range).toEqual(bytes);
+      }
+      const staleRange = await fetch(url, {
+        headers: { Range: 'bytes=4-7', 'If-Range': '"older-file"' },
+      });
+      expect(staleRange.status).toBe(200);
+      expect(staleRange.headers.get('content-range')).toBeNull();
+      expect(Buffer.from(await staleRange.arrayBuffer())).toEqual(bytes);
+    },
+  );
+
   it('streams live patches and retains only their latest fields outside the command journal', async () => {
     const { editor, lan } = await setup({ maxCommands: 2, maxFeedBytes: 300 });
     const api = editor + 'api/shared-playout/';

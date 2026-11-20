@@ -1,3 +1,5 @@
+import type { PixelTransformKey } from './authoredTransform';
+
 export interface LayerTransform {
   x: number;
   y: number;
@@ -978,6 +980,19 @@ export interface LayerConstraints {
   vertical: VerticalConstraint;
 }
 
+/** Original authored values retained when a resize rounds or clamps the baked geometry. */
+export type LayerResizeBasis = Partial<
+  Record<
+    PixelTransformKey,
+    {
+      constraint: HorizontalConstraint | VerticalConstraint;
+      canvasSize: number;
+      poses: Record<string, { canvasSize: number; value: number }>;
+      keys: Record<string, { canvasSize: number; value: number }>;
+    }
+  >
+>;
+
 export type AutoLayoutDirection = 'none' | 'horizontal' | 'vertical';
 export type AutoLayoutAlignment = 'start' | 'center' | 'end' | 'stretch';
 
@@ -1522,6 +1537,8 @@ export interface Layer {
   mask: LayerMask | null;
   /** Rules applied when the composition dimensions change; results are baked into layer tracks. */
   constraints: LayerConstraints;
+  /** Authoring only. Keeps successive resizes independent of pixel quantization. */
+  resizeBasis?: LayerResizeBasis;
   /** Optional runtime flow for direct children; ordinary parent constraints remain independent. */
   autoLayout: LayerAutoLayout;
   updateTransition: LayerUpdateTransition;
@@ -2054,6 +2071,8 @@ export interface AuthoringPrompt {
 }
 
 export interface Project {
+  /** Standalone output routing metadata, exported as v_layer. Absent means layer 0. */
+  outputLayer?: number;
   /** User prompts in submission order, shared as project and export metadata. */
   authoringPrompts?: AuthoringPrompt[];
   /** Editor-only review, omitted when generating OGraf output. */
