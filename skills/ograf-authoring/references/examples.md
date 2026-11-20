@@ -83,7 +83,7 @@ from scene queries before changing or deleting a shared source.
 
 # Example: animated lower third
 
-1. Read capabilities and the current revision, then call `create_lower_third` with the intended
+1. Read capabilities and the current revision, then call `create_recipe` with `recipe: "lower-third"` and the intended
    placement, initial headline/subheadline, field keys, and theme. Keep the default `wipe` for a
    professional mask reveal, or explicitly choose `stagger`, `slide`, or `none` when required.
 2. Capture the returned layer, field, canvas-group, and timeline-group IDs. Refine the ordinary
@@ -117,7 +117,7 @@ the same batch by `fieldKey`; use `fieldId` after its creation result has been r
    - `namePattern: "D{n} "`;
    - `fieldKeyRewrite: {from: "d1", to: "d{n}"}`;
    - `labelRewrite: {from: "Day 1", to: "Day {n}"}`.
-5. Retarget cloned defaults with `update_data_field` by `fieldKey`; no project read is needed solely
+5. Retarget cloned defaults with `set_data_field` by `fieldKey`; no project read is needed solely
    to recover copied field IDs.
 6. Create a named, color-coded timeline group for each completed day cell using its returned layer
    IDs. This keeps the repeated animation rows navigable without changing the canvas groups or
@@ -138,7 +138,7 @@ custom frame offsets, rewrite rules, or explicit binding share/clone/clear contr
 For a variable leaderboard supplied by Reality Hub, add an `array` field whose `items` is an
 `object` with scalar properties such as `name` and `score`. Group one row prototype, bind its text
 layers to the array field with `sourcePath: ["name"]` and `["score"]`, then call
-`create_runtime_collection` with that group, `{x:0,y:72}`, capacity 12, and truncate overflow. Use
+`set_runtime_collection` with that group, `{x:0,y:72}`, capacity 12, and truncate overflow. Use
 `ograf_capture` with array `dataOverrides` to verify 0, 1, capacity, and over-capacity cases before
 certification.
 
@@ -149,7 +149,7 @@ certification.
 2. Save the reviewed layer selection as a component. Insert linked instances for automatic source
    updates, or independent copies for graphics that will diverge.
 3. Revise canonical source layers with `update_component_layer`, or promote one edited instance
-   and new independent children using `update_component_from_layers`. Preview the operation or use
+   and new independent children using `save_component` with its `componentId`. Preview the operation or use
    `mode: "propose"` for visual review. New children keep their IDs; other instances retain overrides.
    Retarget any Transitions references before removing a referenced source child.
 4. Accept only after the editor preview is correct; then query semantic roles/tags and rerun design

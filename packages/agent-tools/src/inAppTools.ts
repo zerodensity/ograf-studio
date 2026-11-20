@@ -104,6 +104,7 @@ export function providerToolDefinition(record: AgentToolRecord): ProviderToolDef
       : 'inline',
   }) as Record<string, unknown>;
   delete schema.$schema;
+  const listed = record.listSchema?.(schema) ?? schema;
   if (record.name === 'ograf_read_result_page') schema.required = ['resultId'];
   if (record.name === 'ograf_update_template_set') {
     const operation = (schema.properties as Record<string, Record<string, unknown>>)?.operation;
@@ -127,7 +128,7 @@ export function providerToolDefinition(record: AgentToolRecord): ProviderToolDef
       record.config.title ??
       record.name
     ).replace(/\.$/, ''),
-    inputSchema: compactProviderSchema(schema),
+    inputSchema: compactProviderSchema(listed),
   };
 }
 

@@ -297,7 +297,7 @@ project/set/history publication, including connected MCP edits and Undo/Redo. Re
 those references in Transitions before changing the component's child selection; stable source IDs
 are preserved when promoting an existing instance.
 
-`update_component_from_layers componentId,layerIds` promotes one linked instance together with
+`save_component componentId,layerIds` promotes one linked instance together with
 selected new independent layers. New children join that source instance with their existing IDs;
 other linked instances receive one corresponding child while retaining local overrides. Source
 layer/field IDs, animation, bindings, masks and placement remain stable. An independent-only

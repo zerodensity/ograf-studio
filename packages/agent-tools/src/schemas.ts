@@ -659,7 +659,7 @@ const layerMotionSpecSchema = z
       context.addIssue({ code: 'custom', path: ['easing'], message: 'Unknown easing preset.' });
   });
 
-export const authoringOperationSchema = z.discriminatedUnion('type', [
+const engineOperationVariants = [
   z.object({
     type: z.literal('add_review_comment'),
     compositionId: z.string(),
@@ -805,7 +805,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     compositionId,
     patternId: z.string().optional(),
     patternName: z.string().optional(),
-    patch: tilingPatch,
+    patch: tilingPatch.nullable(),
     createLayer: z.boolean().default(true),
   }),
   z.object({ type: z.literal('remove_tiling_pattern'), compositionId, patternId: z.string() }),
@@ -900,7 +900,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     compositionId,
     layerId,
     layerName,
-    tokenId: z.string().min(1).optional(),
+    tokenId: z.string().min(1).nullable().optional(),
     tokenKey: z.string().min(1).optional(),
     targetProperty: designTokenTargetPropertySchema,
   }),
@@ -993,9 +993,10 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('save_component'),
     compositionId,
+    componentId: z.string().min(1).optional(),
     scope: z.enum(['local', 'set']).default('local'),
     layerIds: z.array(z.string()).min(1),
-    name: z.string().min(1),
+    name: z.string().min(1).optional(),
   }),
   z.object({
     type: z.literal('instantiate_component'),
@@ -1193,7 +1194,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('apply_style_pack'),
     compositionId,
-    stylePack: stylePackSchema,
+    stylePack: stylePackSchema.nullable(),
     bindLayers: z.boolean().default(true),
   }),
   z.object({ type: z.literal('remove_style_pack'), compositionId }),
@@ -1747,6 +1748,7 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     compositionId,
     layerId,
     layerName,
+    remove: z.literal(true).optional(),
     name: z.string().min(1).optional(),
     activation: z
       .union([
@@ -2063,4 +2065,103 @@ export const authoringOperationSchema = z.discriminatedUnion('type', [
     durationFrames: z.number().int().nonnegative().optional(),
     easing: easingSchema.optional(),
   }),
+] as const;
+
+type OperationShape = Record<string, z.ZodType>;
+
+/** The arguments of an existing operation, without its name. */
+function argumentsOf(type: string): OperationShape {
+  const variant = engineOperationVariants.find(
+    (candidate) => candidate.shape.type.safeParse(type).success,
+  );
+  if (!variant) throw new Error(`Unknown operation: ${type}`);
+  const { type: _type, ...shape } = variant.shape as OperationShape;
+  return shape;
+}
+
+/** Arguments of two operations as one optional set; a shared name keeps both operations' rules. */
+function eitherArguments(first: OperationShape, second: OperationShape): OperationShape {
+  return Object.fromEntries(
+    [...new Set([...Object.keys(first), ...Object.keys(second)])].map((key) => {
+      const [a, b] = [first[key], second[key]];
+      return [key, (a && b && a !== b ? z.union([a, b]) : (a ?? b)!).optional()];
+    }),
+  );
+}
+
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+/**
+ * Operations that cover several earlier ones. Each expands into the earlier operations before
+ * anything is applied, so those keep the only implementation.
+ */
+const mergedOperationVariants = [
+  z.object({ type: z.literal('set_data_field'), ...argumentsOf('update_data_field') }),
+  z.object({
+    type: z.literal('set_data_connection'),
+    compositionId,
+    connectionId: z.string().min(1).optional(),
+    connection: dataConnectionPatchSchema,
+  }),
+  z.object({
+    type: z.literal('set_custom_action'),
+    ...argumentsOf('update_custom_action'),
+    actionId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('set_media_cue'),
+    compositionId,
+    cueId: z.string().min(1).optional(),
+    cue: z.union([mediaCueSchema, mediaCuePatchSchema]),
+  }),
+  z.object({
+    type: z.literal('set_runtime_collection'),
+    ...argumentsOf('update_runtime_collection'),
+    collectionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('create_recipe'),
+    recipe: z.enum(['lower-third', 'bug', 'ticker', 'scoreboard', 'clock', 'countdown']),
+    ...eitherArguments(argumentsOf('create_lower_third'), argumentsOf('create_bug')),
+  }),
+  z.object({
+    type: z.literal('set_timeline_group'),
+    compositionId,
+    groupId: z.string().min(1).optional(),
+    layerIds: z.array(z.string()).optional(),
+    name: z.string().min(1).optional(),
+    color: hexColor.optional(),
+  }),
+  z.object({
+    type: z.literal('set_lifecycle_keyframe'),
+    compositionId,
+    keyframeId: z.string(),
+    frame: frame.optional(),
+    name: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('update_layer'),
+    ...argumentsOf('set_layer_flags'),
+    name: z.string().optional(),
+    semantics: argumentsOf('set_layer_semantics').patch!.optional(),
+  }),
+  z.object({
+    type: z.literal('remove_plugin'),
+    compositionId,
+    kind: z.enum(['renderer', 'animation-preset']),
+    reference: z.object({
+      id: z.string().min(1),
+      version: z.string().min(1),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    }),
+  }),
+] as const;
+
+/** Every operation the engine applies as written. */
+export const engineOperationSchema = z.discriminatedUnion('type', [...engineOperationVariants]);
+
+/** Every operation an agent may send: the engine's own and the ones that cover several of them. */
+export const authoringOperationSchema = z.discriminatedUnion('type', [
+  ...engineOperationVariants,
+  ...mergedOperationVariants,
 ]);

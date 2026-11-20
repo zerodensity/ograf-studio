@@ -59,7 +59,7 @@ Taking the lane Out or clearing it ends activation; a later Take starts a fresh 
 
 ## Continuous tickers
 
-New `create_ticker` recipes use the [native mixed-content ticker](./native-ticker.md). Existing
+New ticker recipes use the [native mixed-content ticker](./native-ticker.md). Existing
 text crawls remain supported. For an existing text layer, use
 `update_element.patch.crawl`:
 

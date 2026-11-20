@@ -113,36 +113,33 @@ deterministic design assessment belong in the same model turn.
 Supported operation discriminators:
 
 - Project/composition: `set_project_metadata`, `set_composition`, `set_composition_layout`,
-  `apply_style_pack`, `remove_style_pack`, `set_design_system_name`, `upsert_design_token`, `remove_design_token`,
-  `bind_design_token`, `unbind_design_token`,
-  `add_lifecycle_step`, `rename_lifecycle_keyframe`, `move_lifecycle_keyframe`,
-  `remove_lifecycle_step`, `add_canvas_guide`, `update_canvas_guide`, `remove_canvas_guide`,
-  `create_timeline_group`, `rename_timeline_group`, `set_timeline_group_color`,
-  `ungroup_timeline_group`
+  `apply_style_pack` (`stylePack: null` removes it), `set_design_system_name`, `upsert_design_token`,
+  `remove_design_token`, `bind_design_token` (`tokenId: null` unbinds),
+  `add_lifecycle_step`, `set_lifecycle_keyframe`, `remove_lifecycle_step`, `set_timeline_group`
 - Assets: `add_asset`, `update_asset`, `remove_asset`; use the separate `ograf_import_asset`
   tool when payloads already exist under the configured workspace
-- Plugin catalog: `remove_renderer_plugin` removes an exact unused provider snapshot; it never
+- Plugin catalog: `remove_plugin` removes an exact unused renderer or animation-preset snapshot; it never
   installs/uninstalls or trusts code. See [renderer-plugins.md](./renderer-plugins.md).
-- Layers: `add_layer`, `duplicate_group`, `remove_layer`, `rename_layer`, `set_layer_flags`,
-  `set_layer_layout`, `set_layer_semantics`, `create_lower_third`, `create_bug`, `create_ticker`,
-  `create_scoreboard`, `create_clock`, `create_countdown`, `create_repeater`, `group_layers`, `ungroup_layers`,
-  `reorder_layers`
-- Components: `save_component`, `instantiate_component`, `update_component_from_layers`,
+- Layers: `add_layer`, `duplicate_group`, `remove_layer`, `update_layer` (name, flags, semantics),
+  `set_layer_layout`, `create_recipe` (`recipe`: lower-third, bug, ticker, scoreboard, clock,
+  countdown), `create_repeater`, `group_layers`, `ungroup_layers`, `reorder_layers`
+- Components: `save_component` (`componentId` updates one), `instantiate_component`,
   `update_component_layer`, `update_component_field`, `reset_component_overrides`,
   `make_component_unique`, `refresh_component_instances`, `rename_component`, `remove_component`
-- Shared patterns: `set_tiling_pattern`, `remove_tiling_pattern`, `set_layer_lighting`; inspect through
+- Shared patterns: `set_tiling_pattern` (`patch: null` removes one), `set_layer_lighting`; inspect through
   `ograf_get_project include: ["patterns"]` and `ograf_inspect_scene`
 - Content/style: `update_element`, `update_transform`, `update_effects`, `add_effect`,
-  `update_effect`, `duplicate_effect`, `remove_effect`, `reorder_effects`; effect operations accept
+  `update_effect`, `remove_effect`, `reorder_effects`; effect operations accept
   one layer selector or a persistent canvas `groupId`
-- Compositing: `set_layer_mask`; `set_layer_flags.isMaskOnly` controls source-only output
+- Compositing: `set_layer_mask`; `update_layer` `isMaskOnly` controls source-only output
 - Timeline: `set_property_key`, `set_property_track`, `stagger_property_track`,
-  `move_property_key`, `remove_property_key`, `set_property_key_easing`, `set_transition`,
-  `set_layer_loop`, `set_loop_property_track`, `remove_layer_loop`, `set_layer_motion`
-- Data: `add_data_field`, `update_data_field`, `remove_data_field`, `set_layer_bindings`,
-  `set_layer_binding` (legacy single-binding replace), `create_runtime_collection`,
-  `update_runtime_collection`, `remove_runtime_collection`
-- Actions: `add_custom_action`, `update_custom_action`, `remove_custom_action`
+  `remove_property_key`, `set_transition`, `set_layer_loop` (`remove: true` removes the clip),
+  `set_loop_property_track`, `set_layer_motion`
+- Data: `set_data_field`, `remove_data_field`, `set_layer_bindings`, `set_runtime_collection`,
+  `remove_runtime_collection`
+- Actions: `set_custom_action`, `remove_custom_action`
+
+A `set_` operation creates its item, or changes the one its ID or key names.
 
 `add_layer.kind`: `rectangle`, `ellipse`, `chart`, `text`, `image`, `path`, `pattern`, `image-sequence`,
 `lottie`. IDs: `summary.generatedIds`. Lottie needs self-contained Bodymovin JSON in
@@ -152,7 +149,7 @@ never canvas Audio layers.
 Omitted `transform` creates 200 × 200 rectangles/ellipses. Set width/height for panels/ovals;
 later edits are independent.
 
-`set_layer_semantics` sets role, normalized tags and intent without pixel changes. Recipes return
+`update_layer` `semantics` sets role, normalized tags and intent without pixel changes. Recipes return
 complete layer/field/group maps and linked components (`asComponent:false` for independent layers).
 See [broadcast recipes](./broadcast-recipes.md) for ticker, clock/timer, countdown, materials, motion
 and compatibility. Legacy `text.crawl` remains; new tickers use native mixed content.
@@ -165,7 +162,7 @@ Rows stay in `.ogs` and never enter the exported schema or runtime.
 It materializes finite grouped copies and independently cloned fields, adds semantic item/index tags,
 and returns complete mappings. It is an authoring recipe, not a runtime collection component.
 
-`create_runtime_collection` is the variable-length counterpart. Supply an object-item array by
+`set_runtime_collection` is the variable-length counterpart. Supply an object-item array by
 `fieldId` or unique `fieldKey`; select one contiguous persistent-group prototype with `groupId`,
 ordered `layerIds`, or exact `layerNames`; and provide `offsetPerItem`, capacity 1..100, and truncate
 overflow. Bind prototype layers to the array field with item-relative `sourcePath` segment arrays.
@@ -192,7 +189,7 @@ Pass `groupId` instead of `layerId`/`layerName` to any effect operation for a pe
 group. One stable effect ID is materialized on every member; member-only effects remain independent,
 and group reorder changes only shared entries.
 
-`set_layer_flags.blendMode` accepts `normal`, `multiply`, `screen`, `overlay`, `darken`, `lighten`,
+`update_layer` `blendMode` accepts `normal`, `multiply`, `screen`, `overlay`, `darken`, `lighten`,
 `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, or `exclusion`. The value is a
 static layer property. It composites only with lower layers inside the isolated OGraf composition,
 not with editor chrome, transparency checkerboards, or an external renderer/video background.
@@ -210,7 +207,7 @@ Step. `durationFrames` is the local ruler length, `phaseOffsetFrames` offsets ph
 `repeatCount: null` repeats indefinitely. `set_loop_property_track` takes the same numeric key
 shape as `set_property_track`, but frames must remain inside the loop's local range. Different
 properties may use different incoming easing while sharing the clip duration. Use
-`remove_layer_loop` to remove the complete clip.
+`set_layer_loop` with `remove: true` to remove the complete clip.
 
 `add_asset` accepts a supported image/font/source MIME type and base64 payload without a data-URI
 prefix. Use its returned ID as `asset:<id>` in image `src`, sequence frames, and image-url defaults.
@@ -226,8 +223,8 @@ companion CSS/images/fonts. It rejects duplicate base names, limits each file to
 bundle to 64 MiB, embeds relative dependencies into one SVG asset, registers discovered fonts, and
 commits all assets atomically.
 
-Lifecycle mutation is explicit: use `rename_lifecycle_keyframe` for labels,
-`move_lifecycle_keyframe` for bounded adjacent-transition retiming, and `remove_lifecycle_step` only
+Lifecycle mutation is explicit: use `set_lifecycle_keyframe` with `name` for labels
+and `frame` for bounded adjacent-transition retiming, and `remove_lifecycle_step` only
 for pausable Steps. Start cannot move and Start/End cannot be removed. Treat stranded-key warnings
 as actionable; lifecycle edits never silently move layer property keys.
 
@@ -238,7 +235,7 @@ group. These are transform/selection groups, distinct from UI-only Timeline Grou
 `save_component` links originals; `scope:set` shares the asset. `instantiate_component` defaults
 `linked:true`; false makes copies. `instanceId` shares continuity.
 `update_component_layer componentId,sourceLayerId,patch` and `update_component_field componentId,fieldId,patch`
-edit sources. `update_component_from_layers componentId,layerIds` promotes one instance and adopts
+edit sources. `save_component componentId,layerIds` promotes one instance and adopts
 new children in place. IDs, animation, bindings and overrides survive.
 `reset_component_overrides layerIds,paths?` resumes inheritance (omit paths for all).
 `make_component_unique instanceId,name?` creates a private asset. Refresh keeps overrides.
@@ -268,7 +265,7 @@ source→replacement rewrite with `{n}` expansion across layer names, text conte
 string defaults. `bindings` is `share`, `clone`, or `clear`; cloning requires a collision-free
 literal `fieldKeyRewrite`. Copies do not remain linked to later source edits.
 
-`add_layer`, `add_data_field`, `add_asset`, duplication, and guide creation return stable IDs in top-level `results` and in
+`add_layer`, `set_data_field`, `add_asset` and duplication return stable IDs in top-level `results` and in
 the existing summary. The primary text response also includes them for clients that do not expose
 structured content. Dry-run IDs describe only the projected transaction and are not reserved.
 
@@ -305,12 +302,12 @@ Unlock a layer before attempting content, transform, binding, effect, or timelin
 results persist, optionally after `delayFrames`. State actions take `targetLayerId` or
 `targetGroupId`, and `transitionFrames`. Details: [visual rules](./visual-rules.md).
 
-`create_timeline_group` accepts at least two existing `layerIds`, plus optional `name` and
+`set_timeline_group` without `groupId` accepts at least two existing `layerIds`, plus optional `name` and
 `#RRGGBB` `color` (either case), and returns a stable timeline-group ID. Prefer one named/color-coded group for
 each coherent component when a composition has many related layer rows. A layer belongs to at most
 one timeline group; creating a new one moves its members out of earlier groups and removes groups
-left empty. Use `rename_timeline_group`, `set_timeline_group_color`, and
-`ungroup_timeline_group` for later organization. These operations change only editor/MCP timeline
+left empty. Pass `groupId` with `name` or `color` to change a group, and with
+`layerIds: []` to ungroup it. These operations change only editor/MCP timeline
 organization: they never change layer order, animation tracks, canvas `groupId`, or compiled OGraf
 output. Inspection exposes `layout.timelineGroups`; `layout.timelineFolders` remains a deprecated
 source-storage compatibility field.
@@ -322,9 +319,9 @@ field for `fill.stops[N].color`. Animate an existing stop position through `set_
 `set_property_track`, or `stagger_property_track` with property `fill.stops[N].offset`.
 
 `set_layer_bindings` takes ordered `{fieldId,targetProperty}` or `{fieldKey,targetProperty}` rows;
-use declared targets once each. Legacy `set_layer_binding` replaces all rows. Designer edits
+use declared targets once each. Designer edits
 synchronize bound defaults/mappings while preserving links.
-`update_data_field` addresses `fieldId` or unique `fieldKey`, updating key/label/default/required.
+`set_data_field` addresses `fieldId` or unique `fieldKey`, updating key/label/default/required.
 `exposeToOgraf:false` retains defaults/bindings/Rules internally, excluding public schema/external
 updates. Defaults true; omitted updates preserve it. Works on nested properties/items and
 shader/component fields. Hidden parents/items hide subtrees/arrays; Required is public-only.

@@ -19,7 +19,7 @@ live sources. It is not a canvas object or Audio/Video Timeline row. Audio stays
 may select one paintable target layer; compilation materializes the active cue source as that
 layer's moving-image fill while keeping playback controls on the cue.
 
-Create a cue with `add_media_cue`, edit it with `update_media_cue`, and delete it with
+Create a cue with `set_media_cue`, edit it by passing its `cueId` with the changed `cue` fields, and delete it with
 `remove_media_cue`. Import audio/video files once with `ograf_import_asset` and reference them as
 `asset:<id>` clip sources.
 

@@ -5,6 +5,7 @@ export * from './schemas';
 export * from './toolRecords';
 export * from './inAppTools';
 export * from './mergedTools';
+export * from './mergedOperations';
 export * from './generatedInAppPrompt';
 export * from './resultPaging';
 export * from './ografSetup';

@@ -169,14 +169,14 @@ dynamic/recursive or oversized shapes. Integer values must be integral and withi
 Changing engine, disabling Nodos or disconnecting clears the live catalog; late replies from an
 old engine must not restore it. Existing saved type metadata remains intact.
 
-MCP `add_data_field` and nested field inputs accept a known `nodosType` together with its explicit
-ordinary field schema. `update_data_field` takes these values at the operation's top level;
+MCP `set_data_field` and nested field inputs accept a known `nodosType` together with its explicit
+ordinary field schema. It takes these values at the operation's top level;
 `nodosType: null` clears the native assignment, and selecting a plain `fieldType` also clears it
 unless a replacement is supplied. These authoring operations do not fetch engine types or connect
 to Nodos. Preserve metadata through components, sets and standalone `.ogs`; it is not an OGraf
 manifest schema extension or an extra playout field.
 
-Set `exposeToNodos: true` on `add_data_field` or `update_data_field` to select a public top-level
+Set `exposeToNodos: true` on `set_data_field` to select a public top-level
 field as a Nodos input. Set it to `false` to deselect the pin. Omit it to leave the selection alone.
 `nodosType` sets the value type independently. Read `ograf_get_project` with `include: ["dataFields"]`
 to see `nodosInputFieldIds`. An empty array selects no data pins. An absent selection uses the

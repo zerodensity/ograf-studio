@@ -4,14 +4,14 @@ Use **+ Recipe…** above the canvas or the matching `ograf_apply_operations` op
 editable starting graphic. Read `semantics`, `designSystem`, `elements`, `loops` and `bindings`
 capabilities as needed before changing its advanced features.
 
-| Starter       | Operation            | Primary features                                                                                 |
-| ------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
-| Lower Third   | `create_lower_third` | Headline/subheadline fields, Brand Kit styling, clipped reveal, editable lifecycle motion        |
-| Bug / DOG     | `create_bug`         | Compact identity field, material styling and lifecycle motion                                    |
-| Ticker        | `create_ticker`      | Native mixed-content feed, transparent edge fades, Next appearance updates, bidirectional travel |
-| Scoreboard    | `create_scoreboard`  | Team/score fields, constrained scores and rolling text updates                                   |
-| Clock / Timer | `create_clock`       | Live system clock, count up/down, automatic/manual source, formats and time zones                |
-| Countdown     | `create_countdown`   | Timer controls and editable five-second/zero alarm Rules                                         |
+| Starter       | Operation                               | Primary features                                                                                 |
+| ------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Lower Third   | `create_recipe` `recipe: "lower-third"` | Headline/subheadline fields, Brand Kit styling, clipped reveal, editable lifecycle motion        |
+| Bug / DOG     | `create_recipe` `recipe: "bug"`         | Compact identity field, material styling and lifecycle motion                                    |
+| Ticker        | `create_recipe` `recipe: "ticker"`      | Native mixed-content feed, transparent edge fades, Next appearance updates, bidirectional travel |
+| Scoreboard    | `create_recipe` `recipe: "scoreboard"`  | Team/score fields, constrained scores and rolling text updates                                   |
+| Clock / Timer | `create_recipe` `recipe: "clock"`       | Live system clock, count up/down, automatic/manual source, formats and time zones                |
+| Countdown     | `create_recipe` `recipe: "countdown"`   | Timer controls and editable five-second/zero alarm Rules                                         |
 
 Recipes require a pausable OGraf Step. Shared `motion` overrides use `wipe`, `stagger`, `slide` or
 `none` with editable entrance/exit keys. Durations must fit their lifecycle windows. Material
@@ -78,7 +78,7 @@ packages do not reconstruct component sources.
 
 ## Native ticker
 
-`create_ticker` retains `content.label`, `content.text`, `fieldKeys.label` and `fieldKeys.text`.
+The ticker recipe retains `content.label`, `content.text`, `fieldKeys.label` and `fieldKeys.text`.
 `result.layers.crawl` remains an ID alias for the native ticker layer. The headline binding is
 `items.headline.content`; it is no longer a `text.crawl` binding.
 
@@ -97,12 +97,12 @@ headline starter exposes only label/text controls, avoiding a structural feed co
 
 ## Clock, timer and alarm Rules
 
-`create_clock` defaults to a live system clock. Configure `mode:"clock"|"count-up"|"count-down"`,
+The clock recipe defaults to a live system clock. Configure `mode:"clock"|"count-up"|"count-down"`,
 `source:"automatic"|"manual"`, `format`, `timeZone`, `hourCycle:"12"|"24"` and `durationSeconds`.
 Use `fieldKeys.value` for the manual-value field. Explicit `content.hours`/`content.minutes` or
 `fieldKeys.hours`/`fieldKeys.minutes` preserves the legacy static two-field recipe.
 
-`create_countdown` defaults to a countdown with `alarms:true`; `alarms:false` omits its starter
+The countdown recipe defaults to a countdown with `alarms:true`; `alarms:false` omits its starter
 alarm Rules. Alarm Rules are ordinary editable Rules targeting the timer. Change their actions
 there; do not invent a second alarm execution mechanism. Start/Pause/Reset/Restart use the existing
 generated clock custom actions, and Reset/Restart rearm alarm crossings. Manual data stays externally
@@ -143,7 +143,8 @@ changes, and a glint every five seconds.
 [
   { "type": "apply_style_pack", "stylePack": "news" },
   {
-    "type": "create_lower_third",
+    "type": "create_recipe",
+    "recipe": "lower-third",
     "stylePack": "news",
     "name": "Guest",
     "theme": { "background": "#071523" },
@@ -156,14 +157,14 @@ changes, and a glint every five seconds.
 ```json
 [
   {
-    "type": "update_data_field",
+    "type": "set_data_field",
     "fieldKey": "guest_name",
     "label": "Guest name",
     "description": "Name as it should appear on air.",
     "constraints": { "maxLength": 32 }
   },
   {
-    "type": "update_data_field",
+    "type": "set_data_field",
     "fieldKey": "guest_title",
     "label": "Guest title",
     "description": "Role and organisation, one line.",
@@ -193,11 +194,11 @@ changes, and a glint every five seconds.
       }
     }
   },
-  { "type": "set_layer_flags", "layerName": "Guest · Sheen", "blendMode": "screen" },
+  { "type": "update_layer", "layerName": "Guest · Sheen", "blendMode": "screen" },
   {
-    "type": "set_layer_semantics",
+    "type": "update_layer",
     "layerName": "Guest · Sheen",
-    "patch": {
+    "semantics": {
       "role": "decorative",
       "tags": ["lower-third", "sheen"],
       "description": "Periodic glint across the panel while on air."
@@ -275,7 +276,7 @@ headline that shrinks to fit.
 [
   { "type": "apply_style_pack", "stylePack": "news" },
   {
-    "type": "add_data_field",
+    "type": "set_data_field",
     "key": "headline",
     "label": "Headline",
     "fieldType": "text",
@@ -334,24 +335,24 @@ headline that shrinks to fit.
     "bindings": [{ "fieldKey": "headline", "targetProperty": "content" }]
   },
   {
-    "type": "set_layer_semantics",
+    "type": "update_layer",
     "layerName": "Strap · Bar",
-    "patch": { "role": "container", "tags": ["strap"] }
+    "semantics": { "role": "container", "tags": ["strap"] }
   },
   {
-    "type": "set_layer_semantics",
+    "type": "update_layer",
     "layerName": "Strap · Label",
-    "patch": { "role": "accent", "tags": ["strap", "label"] }
+    "semantics": { "role": "accent", "tags": ["strap", "label"] }
   },
   {
-    "type": "set_layer_semantics",
+    "type": "update_layer",
     "layerName": "Strap · Label Text",
-    "patch": { "role": "label", "tags": ["strap", "qa:static-text"] }
+    "semantics": { "role": "label", "tags": ["strap", "qa:static-text"] }
   },
   {
-    "type": "set_layer_semantics",
+    "type": "update_layer",
     "layerName": "Strap · Headline",
-    "patch": { "role": "headline", "tags": ["strap", "editable"] }
+    "semantics": { "role": "headline", "tags": ["strap", "editable"] }
   },
   {
     "type": "set_layer_motion",
@@ -462,7 +463,8 @@ composition crossfade unless the layer sets its own `updateTransition` style or 
 ```json
 [
   {
-    "type": "create_scoreboard",
+    "type": "create_recipe",
+    "recipe": "scoreboard",
     "stylePack": "sports",
     "asComponent": false,
     "name": "Score",
@@ -470,7 +472,7 @@ composition crossfade unless the layer sets its own `updateTransition` style or 
   },
   { "type": "update_element", "layerName": "Score · Panel", "patch": { "fill": "#071523" } },
   {
-    "type": "add_custom_action",
+    "type": "set_custom_action",
     "actionId": "goal",
     "name": "Goal",
     "description": "Flash the scoreboard after a goal."
@@ -488,11 +490,11 @@ composition crossfade unless the layer sets its own `updateTransition` style or 
     "property": "opacity",
     "keys": [{ "frame": 0, "value": 0 }]
   },
-  { "type": "set_layer_flags", "layerName": "Score · Goal Flash", "blendMode": "screen" },
+  { "type": "update_layer", "layerName": "Score · Goal Flash", "blendMode": "screen" },
   {
-    "type": "set_layer_semantics",
+    "type": "update_layer",
     "layerName": "Score · Goal Flash",
-    "patch": { "role": "decorative", "tags": ["scoreboard", "goal-flash"] }
+    "semantics": { "role": "decorative", "tags": ["scoreboard", "goal-flash"] }
   }
 ]
 ```

@@ -115,7 +115,6 @@ describe('unified settings scope capability guidance', () => {
                 'set_composition',
                 'set_composition_layout',
                 'set_project_metadata',
-                'add_canvas_guide',
               ]),
             },
           },

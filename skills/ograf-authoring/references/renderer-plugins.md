@@ -61,7 +61,7 @@ For `add_layer.kind:"chart"`, provide `element.provider` explicitly from the com
 Never manufacture snapshots to bypass installation/trust. Unconfigured legacy charts are editable
 but fail export until repaired. Local bundles use `.ogsplugin.zip`.
 
-Use `remove_renderer_plugin` only for explicitly requested catalog cleanup, with an exact
+Use `remove_plugin` with `kind: "renderer"` only for explicitly requested catalog cleanup, with an exact
 `reference:{id,version,sha256}`. Dry-run first. It refuses pins used by any layer, guide, collection
 prototype, or saved component; retarget those consumers explicitly before removal. It changes
 template source only, not machine installation, trust, or previously exported packages.

@@ -1557,7 +1557,7 @@ describe('OGraf MCP authoring host', () => {
         'ograf_export_package',
       ]),
     );
-    expect(providerToolWireBytes(records)).toBeLessThanOrEqual(74_000);
+    expect(providerToolWireBytes(records)).toBeLessThanOrEqual(68_000);
   });
 
   it('requires and preserves the original user prompt when creating a template through MCP', async () => {
@@ -1664,15 +1664,12 @@ describe('OGraf MCP authoring host', () => {
         layerBlending: expect.any(String),
       },
       semanticAuthoring: {
-        operations: expect.arrayContaining([
-          'set_layer_semantics',
-          'create_lower_third',
-          'create_bug',
-          'create_ticker',
-          'create_scoreboard',
-          'create_clock',
-          'create_repeater',
-        ]),
+        operations: ['update_layer semantics', 'create_recipe', 'create_repeater'],
+        recipes: expect.objectContaining({
+          kinds: expect.stringContaining(
+            'lower-third | bug | ticker | scoreboard | clock | countdown',
+          ),
+        }),
         roles: expect.arrayContaining(['headline', 'container', 'logo']),
         motionPresets: ['wipe-reveal', 'stagger-cascade', 'directional-slide'],
       },
@@ -1696,7 +1693,7 @@ describe('OGraf MCP authoring host', () => {
         humanProposal: 'ograf_apply_operations mode=propose',
       },
       loopAnimation: {
-        operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
+        operations: ['set_layer_loop', 'set_loop_property_track', 'set_layer_loop remove=true'],
         activations: ['lifecycle', 'step'],
       },
       bindings: {

@@ -289,6 +289,6 @@ exact inputs. Exports additionally include readable copies under
 MCP exposes the contract through `get_capabilities` with `sections: ["plugins"]` and project
 metadata through `get_project` with `include: ["plugins"]`. Plugin installation and trust remain
 human Plugins pane actions; MCP does not silently install or approve code.
-For explicitly requested source cleanup, `remove_renderer_plugin` removes one exact unused
+For explicitly requested source cleanup, `remove_plugin` with `kind: "renderer"` removes one exact unused
 composition snapshot. It refuses references still used by layers, guides, prototypes, or saved
 components, and never changes installed plugins or trust.

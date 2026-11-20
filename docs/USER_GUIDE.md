@@ -639,7 +639,7 @@ until you change the Nodos selection. Internal fields remain available to bindin
 Rules. Object and array defaults omit internal descendants. Changing a matched value updates the
 graphic through `updateAction` and its configured data transition.
 
-MCP clients can set `exposeToNodos` on `add_data_field` and `update_data_field` to select or
+MCP clients can set `exposeToNodos` on `set_data_field` to select or
 deselect a public field. The field's `nodosType` controls its native value type separately.
 
 A live-media source's tag supplies a texture slot name, such as `TextureInput1`. The Nodos page

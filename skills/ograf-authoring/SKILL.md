@@ -180,7 +180,7 @@ For installed GLSL packs and copied shader attribution, read [shader-plugins.md]
 Smart layout: [Modifiers](./references/modifiers.md) covers fit, size, follow, hide,
 arrange, look-at and spline paths.
 
-Use `add_effect`, `update_effect`, `duplicate_effect`, `remove_effect`, and `reorder_effects` inside
+Use `add_effect`, `update_effect`, `remove_effect`, and `reorder_effects` inside
 revision-checked batches; discover the `elements` parameter catalog. New effects start bypassed;
 `blendMode` enables them and `blendOpacity` mixes 0..1. Effects run top-to-bottom, repeated types
 are allowed, and returned IDs remain stable. Animate `effects.ID.PARAM` paths; runtime data
@@ -263,7 +263,7 @@ Design for air: align edges, protect readable text over video, use easing-out on
 easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-only data.
 
 - Prefer `sessionId: "editor"` when collaborating in the visible application.
-- Assign meaningful `set_layer_semantics` roles, tags, and descriptions. For built-in lower third,
+- Assign meaningful `update_layer` `semantics` roles, tags, and descriptions. For built-in lower third,
   bug, native ticker, scoreboard, live clock/timer or countdown starters, read
   [broadcast recipes](./references/broadcast-recipes.md). Recipes create editable linked assets by
   default; `asComponent:false` keeps independent layers. Query stable returned IDs for later edits.
@@ -275,7 +275,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   exported graphics have no style-pack runtime dependency. A recipe `stylePack` option applies the
   same vocabulary while explicit recipe theme/motion values remain deliberate overrides.
 - Packs recolor existing controls and GDD defaults while retaining gradient alpha/shading and motion.
-  Parent swatch edits propagate. `remove_style_pack` restores recorded fonts, colors, bindings,
+  Parent swatch edits propagate. `apply_style_pack` with `stylePack: null` restores recorded fonts, colors, bindings,
   tokens/defaults and timing; content/layout edits survive. The baseline persists across pack
   switches and `.ogs` reloads. Legacy packs without a baseline only detach. See
   [style-packs.md](./references/style-packs.md) for color routing and restoration limits.
@@ -298,7 +298,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
 - Use `create_repeater` when a finite horizontal or vertical collection should be materialized from
   selected source layers. It creates ordinary grouped layers and cloned fields with semantic item
   tags; use runtime data fields normally afterward. It is not a live array-binding primitive.
-- Use `create_runtime_collection` when Reality Hub supplies a variable-length object-item array.
+- Use `set_runtime_collection` when Reality Hub supplies a variable-length object-item array.
   Author one contiguous persistent group as the item prototype, bind its properties to scalar item
   leaves with `sourcePath: ["segment", ...]`, then register explicit `offsetPerItem`, capacity 1..100,
   and `overflow: "truncate"`. Every instance shares the prototype lifecycle and absolute loop phase;
@@ -316,7 +316,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   wraps offscreen. Use `repeatCount: null` for infinite motion. Loops must never invoke OGraf actions.
 - For a one-shot trigger, use `activation: {type:"customAction",customActionId}` and finite repeats.
   Its payload updates data before matching clips play and settle; the manifest publishes duration.
-- Use `add_media_cue` with an audio clip source and `trigger:{type:"customAction",actionId}` for
+- Use `set_media_cue` with an audio clip source and `trigger:{type:"customAction",actionId}` for
   action-triggered sound. In Studio choose Audio → Create Playback Cue, then select the Custom
   Action under Resources → Media. Add at Playhead remains the simpler timeline Sound Event path.
 - Use `update_transform`/`update_effects` with their default `scope: "authored"` for base layout;
@@ -331,13 +331,12 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   are deduplicated. Do not remove a resource until its reported layer/field/font uses are retargeted.
 - Use `set_layer_bindings` when one layer exposes more than one data-driven property. Each binding
   accepts a stable `fieldId` or unique `fieldKey`, and each target property may appear only once.
-  `set_layer_binding` remains a legacy single-binding replacement and clears any additional rows.
   In the Studio Properties UI, **+ Add Binding** creates a field seeded from the next unbound
   property's current value and connects it in one undoable edit; the Field menu can then retarget
   that binding to an existing field. MCP operations still require explicit field creation.
 - Treat the data schema as the operator contract. Author meaningful field `description`, select
-  `options`, file extensions, and JSON Schema constraints through `add_data_field` or
-  `update_data_field`; every compiled field emits `gddType`. Give bound on-air text a realistic
+  `options`, file extensions, and JSON Schema constraints through `set_data_field`;
+  every compiled field emits `gddType`. Give bound on-air text a realistic
   `maxLength` so Reality Hub/Form Builder can prevent unusable values before playout. Object
   `properties` and array `items` use the same recursive field shape; keep property keys unique and
   defaults valid. A runtime collection requires array `items.fieldType: "object"`, and its capacity
@@ -411,10 +410,10 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   per axis and title/graphics safe is inset 5% per axis, with pixel margins rounded to the nearest
   integer. At 1920x1080 this is 67/38 px and 96/54 px; at 3840x2160 it is 134/76 px and 192/108 px.
   Use the bounds returned by scene inspection rather than reviving legacy 5%/10% assumptions.
-- Use `create_timeline_group` to organize two or more related timeline rows after their stable layer
+- Use `set_timeline_group` to organize two or more related timeline rows after their stable layer
   IDs are known. This is recommended for multi-part lower thirds, repeated forecast/day cells, and
   other compositions with many independently animated layers. Rename and color groups for legible
-  agent/human handoff; use `ungroup_timeline_group` to remove the organization. Timeline groups are
+  agent/human handoff; pass `layerIds: []` with its `groupId` to remove the organization. Timeline groups are
   UI-only metadata: they do not change paint order, transforms, animation, canvas `groupId`, or
   compiled OGraf output. The source document retains the legacy `timelineFolders` storage field for
   compatibility, while MCP inspection exposes the canonical `timelineGroups` alias.
@@ -422,7 +421,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   masking with synchronized opacity fades on every child. `duplicate_group` preserves and remaps the
   clipping relationship. The mask follows animated parent rotation and transform origin as well as
   position/size, so rotate the parent to create a diagonal wipe; children retain their own rotation.
-- Use `set_layer_flags.blendMode` for static composition-local compositing. Blend modes operate only
+- Use `update_layer` `blendMode` for static composition-local compositing. Blend modes operate only
   against lower layers inside OGraf Studio's isolated transparent composition; they never blend
   against a controller's external video bed. Do not rely on the editor checkerboard as source
   imagery, and keep a normal-mode fallback when a target renderer has not been smoke-tested.
@@ -443,7 +442,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
   Lottie are not mask sources; use a vector path or alpha image for those mattes.
 - `hideSource` defaults to true and sets source `isMaskOnly`; it remains selectable in Layers and
   usable by multiple targets. Do not hide it with `isVisible: false`, which disables its mask
-  contribution. `set_layer_flags isMaskOnly: false` shows its normal output again. Detach with
+  contribution. `update_layer` with `isMaskOnly: false` shows its normal output again. Detach with
   `sourceLayerId: null`; detaching does not unhide a shared source. Animate the source's own tracks
   or local loop; do not duplicate its movement onto the target. Mask chains must be acyclic and
   stay within one composition/runtime-collection prototype. Include mask sources in component

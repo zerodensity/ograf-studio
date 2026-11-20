@@ -65,7 +65,7 @@ the [modifier data and lifecycle cases](../skills/ograf-authoring/references/mod
 Continuous ticker text uses `update_element.patch.crawl:{speedPixelsPerSecond,gap,direction}`;
 `crawl:null` removes it. The runtime repeats measured bound text, with a composition-pixel gap and
 graphic-clock motion, so updates do not retain a fixed empty travel distance. Existing crawls retain
-this behavior. New `create_ticker` recipes use the native mixed-content ticker, with safe Next
+this behavior. New ticker recipes use the native mixed-content ticker, with safe Next
 appearance updates, transparent edge fades, RTL text, images, animations and shaders. See
 [broadcast recipes](../skills/ograf-authoring/references/broadcast-recipes.md) for all six updated
 starters and linked asset behavior, and [ticker controls](../skills/ograf-authoring/references/loop-controls.md#continuous-tickers)
@@ -73,7 +73,7 @@ for legacy limits and migration from an authored single-copy x-loop.
 
 ## Component source updates
 
-`update_component_from_layers` takes `componentId` and `layerIds`. Select members of one linked
+`save_component` with a `componentId` takes that component's `layerIds`. Select members of one linked
 instance plus any new independent layers to promote the edited content. New layers join that
 instance without changing their IDs; other instances receive one corresponding child. Canonical
 source/field IDs remain stable, and local bindings, animation, placement and overrides survive.
@@ -564,6 +564,40 @@ selects the SVG bundle import and `sinceRevision` selects the change history. An
 belongs to a different choice is refused with the choice it belongs to. No read is merged into a
 write, so a client that approves reads automatically keeps doing so. The built-in AI Assistant
 gets the same merged tools, limited to the choices it already had.
+
+## Merged operations
+
+`ograf_apply_operations` lists 79 operation types. Forty-one earlier names are no longer listed.
+The server still accepts each of them, so an older skill or script keeps working, and it carries
+them out exactly as before.
+
+| Earlier operations                                                                                           | Send instead                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `add_data_field`, `update_data_field`                                                                        | `set_data_field`: it finds a field by `fieldId`, `fieldKey` or `key`, and creates one when a new `key` comes with a `fieldType`         |
+| `add_data_connection`, `update_data_connection`                                                              | `set_data_connection`: with `connectionId` it changes that connection by the `connection` fields given                                  |
+| `add_custom_action`, `update_custom_action`                                                                  | `set_custom_action`, by `actionId`                                                                                                      |
+| `add_media_cue`, `update_media_cue`                                                                          | `set_media_cue`: with `cueId` it changes that cue by the `cue` fields given                                                             |
+| `create_runtime_collection`, `update_runtime_collection`                                                     | `set_runtime_collection`: with `collectionId` it changes that collection                                                                |
+| `create_lower_third`, `create_bug`, `create_ticker`, `create_scoreboard`, `create_clock`, `create_countdown` | `create_recipe` with `recipe`: `lower-third`, `bug`, `ticker`, `scoreboard`, `clock` or `countdown`                                     |
+| `create_timeline_group`, `rename_timeline_group`, `set_timeline_group_color`, `ungroup_timeline_group`       | `set_timeline_group`: without `groupId` it creates a group; with it, `name` and `color` change the group and `layerIds: []` ungroups it |
+| `rename_lifecycle_keyframe`, `move_lifecycle_keyframe`                                                       | `set_lifecycle_keyframe` with `name`, `frame` or both                                                                                   |
+| `rename_layer`, `set_layer_flags`, `set_layer_semantics`                                                     | `update_layer` with `name`, the flags, or `semantics`                                                                                   |
+| `set_layer_binding`                                                                                          | `set_layer_bindings` with one row, or none to clear                                                                                     |
+| `move_property_key`, `set_property_key_easing`                                                               | `set_property_key` at the key's frame, or `remove_property_key` and a new key                                                           |
+| `duplicate_effect`, `duplicate_modifier`                                                                     | `add_effect` or `add_modifier` with the same settings                                                                                   |
+| `remove_layer_loop`                                                                                          | `set_layer_loop` with `remove: true`                                                                                                    |
+| `remove_tiling_pattern`                                                                                      | `set_tiling_pattern` with `patch: null`                                                                                                 |
+| `unbind_design_token`                                                                                        | `bind_design_token` with `tokenId: null`                                                                                                |
+| `remove_style_pack`                                                                                          | `apply_style_pack` with `stylePack: null`                                                                                               |
+| `update_component_from_layers`                                                                               | `save_component` with the `componentId`                                                                                                 |
+| `remove_renderer_plugin`, `remove_animation_preset_plugin`                                                   | `remove_plugin` with `kind`: `renderer` or `animation-preset`                                                                           |
+
+Four operations left the list without a replacement: `add_canvas_guide`, `update_canvas_guide`
+and `remove_canvas_guide` place guides that help a person's eye in the editor, and
+`set_review_approval` records an approval that is a person's to give in Studio.
+
+One sent operation can stand for several applied ones. The result of a batch names the operation
+that was sent and its position in the sent batch.
 
 ## Using the `ograf-authoring` skill
 

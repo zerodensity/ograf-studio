@@ -1,5 +1,6 @@
 import { coordinatedExportFile } from './coordinatedExportFile';
 import { mergeToolRecords } from './mergedTools';
+import { expandMergedOperation, listedOperationsSchema } from './mergedOperations';
 import { IN_APP_MERGED_TOOL_NAMES } from './inAppTools';
 import {
   registerToolResultPager,
@@ -146,6 +147,8 @@ export interface AgentToolRecord {
   name: string;
   config: AgentToolConfig;
   handler: AgentToolHandler;
+  /** Narrows the JSON Schema an agent is shown; the handler accepts everything in `config`. */
+  listSchema?: (inputSchema: Record<string, unknown>) => Record<string, unknown>;
   /** An earlier name that a listed tool now covers: still callable, left out of tool lists. */
   hidden?: boolean;
 }
@@ -280,7 +283,7 @@ const WEBCAM_PREVIEW_CAPABILITIES = {
 const MEDIA_PAINT_CAPABILITIES = {
   type: 'media',
   authoring:
-    'Use add_media_cue/update_media_cue and cue.visual.targetLayerId for cue-driven media. A chart with mark-paint-v1 may also use an ordinary element.fill MediaPaint.',
+    'Use set_media_cue and cue.visual.targetLayerId for cue-driven media. A chart with mark-paint-v1 may also use an ordinary element.fill MediaPaint.',
   semantics:
     'A video/live source is clipped by the target geometry. Chart fills use provider-supplied mark coverage, preserving axes, text, outlines and labels. Audio stays on the nonvisual cue track; paint stays muted.',
   shape:
@@ -450,6 +453,7 @@ function consolidateOperationTools(
       inputSchema: consolidatedOperationInputSchema,
       annotations: mutation,
     },
+    listSchema: listedOperationsSchema,
     async handler(raw) {
       const input = raw as unknown as ConsolidatedOperationInput;
       const common = {
@@ -1126,6 +1130,12 @@ function projectSnapshotProjection(
   };
 }
 
+/**
+ * Where an applied operation came from in the agent's own batch. One sent operation can become
+ * several applied ones, so results name the sent operation and its position, not the applied one.
+ */
+const sentOperations = new WeakMap<AuthoringOperation, { index: number; type: string }>();
+
 function generatedOperationResults(
   operations: AuthoringOperation[],
   generatedIds: Array<{ operationIndex: number; kind: string; id: string }>,
@@ -1159,9 +1169,10 @@ function generatedOperationResults(
     }
     const operation = operations[generated.operationIndex];
     if (generated.kind === 'design-token' && operation?.type === 'apply_style_pack') return [];
+    const sent = operation && sentOperations.get(operation);
     const base = {
-      index: generated.operationIndex,
-      type: operation?.type ?? generated.kind,
+      index: sent?.index ?? generated.operationIndex,
+      type: sent?.type ?? operation?.type ?? generated.kind,
       id: generated.id,
     };
     if (generated.kind === 'review-comment' || generated.kind === 'review-version') return [base];
@@ -1418,7 +1429,10 @@ function normalizeOperationSelectors(
 ): AuthoringOperation[] {
   let projected = structuredClone(project);
   const normalized: AuthoringOperation[] = [];
-  for (const [index, source] of operations.entries()) {
+  // An operation that covers earlier ones is replaced, at its turn, by those operations.
+  const pending = operations.map((source, index) => ({ index, source }));
+  while (pending.length > 0) {
+    const { index, source } = pending.shift()!;
     const operation = structuredClone(source) as Record<string, unknown>;
     const compositionId =
       typeof operation.compositionId === 'string'
@@ -1427,6 +1441,16 @@ function normalizeOperationSelectors(
     const composition = projected.compositions.find((candidate) => candidate.id === compositionId);
     if (!composition)
       throw new Error(`Operation ${index}: composition not found: ${compositionId}`);
+    let covered: Record<string, unknown>[] | undefined;
+    try {
+      covered = expandMergedOperation(operation, composition);
+    } catch (error) {
+      throw new Error(`Operation ${index}: ${error instanceof Error ? error.message : error}`);
+    }
+    if (covered) {
+      pending.unshift(...covered.map((step) => ({ index, source: step })));
+      continue;
+    }
 
     if (operation.type === 'add_review_comment' || operation.type === 'save_review_version') {
       operation.id ??= createId(operation.type === 'add_review_comment' ? 'comment' : 'version');
@@ -1752,6 +1776,10 @@ function normalizeOperationSelectors(
 
     const typedOperation = operation as unknown as AuthoringOperation;
     normalized.push(typedOperation);
+    sentOperations.set(typedOperation, {
+      index,
+      type: String((operations[index] as { type?: unknown } | undefined)?.type),
+    });
     // Preallocated IDs make ordinary create-then-target sequences deterministic in this projection
     // and in the final atomic apply. Duplicate-group outputs deliberately remain follow-up targets
     // through their returned mappings because each copy creates a variable number of IDs.
@@ -2359,7 +2387,7 @@ export function createOGrafToolRecords(
         elementSchemas: {
           ticker: {
             authoring:
-              'Native mixed-content ticker. add_layer kind:"ticker" and create_ticker use the same ticker element; update_element.patch edits its feed, direction, edge fades and update policy.',
+              'Native mixed-content ticker. add_layer kind:"ticker" and create_recipe recipe:"ticker" use the same ticker element; update_element.patch edits its feed, direction, edge fades and update policy.',
             speedPixelsPerSecond:
               '0..2000; absolute elapsed-time movement, independent of composition FPS; fractional positions preserved.',
             direction:
@@ -2885,17 +2913,10 @@ export function createOGrafToolRecords(
             'score',
             'custom',
           ],
-          operations: [
-            'set_layer_semantics',
-            'create_lower_third',
-            'create_bug',
-            'create_ticker',
-            'create_scoreboard',
-            'create_clock',
-            'create_countdown',
-            'create_repeater',
-          ],
+          operations: ['update_layer semantics', 'create_recipe', 'create_repeater'],
           recipes: {
+            kinds:
+              'create_recipe recipe: lower-third | bug | ticker | scoreboard | clock | countdown. Each kind takes the arguments described below.',
             layout:
               'Default starters reserve separate areas: scoreboard top-left; bug, clock and countdown down the right; lower third above the bottom ticker. Explicit placements and Brand Kit values win. Compact labels/scores use fixed shrink-to-fit boxes rather than geometry-hugging Max Text Width. Editable child tracks follow panel translation while retaining wipe clipping, independent motion, Text FX and Rules.',
             materials:
@@ -2921,12 +2942,12 @@ export function createOGrafToolRecords(
         designSystem: {
           operations: [
             'apply_style_pack',
-            'remove_style_pack',
+            'apply_style_pack stylePack=null',
             'set_design_system_name',
             'upsert_design_token',
             'remove_design_token',
             'bind_design_token',
-            'unbind_design_token',
+            'bind_design_token tokenId=null',
           ],
           targetProperties: [
             'fill',
@@ -2964,10 +2985,10 @@ export function createOGrafToolRecords(
             motion: pack.motion,
           })),
           stylePackSemantics:
-            'apply_style_pack maps colors through existing Brand Kit tokens and root color-field bindings, including gradients and shared lights. Gradient topology, alpha, tonal ratios and motion survive. Parent palette edits propagate through stylePackColors links. Shared color fields use one consistent palette role, preferring accents over surfaces. remove_style_pack restores recorded fonts, colors, bindings/tokens/defaults and timing; pack switches retain the original baseline. Legacy sources without a baseline can only detach. Runtime data still overrides defaults.',
+            'apply_style_pack maps colors through existing Brand Kit tokens and root color-field bindings, including gradients and shared lights. Gradient topology, alpha, tonal ratios and motion survive. Parent palette edits propagate through stylePackColors links. Shared color fields use one consistent palette role, preferring accents over surfaces. apply_style_pack stylePack:null restores recorded fonts, colors, bindings/tokens/defaults and timing; pack switches retain the original baseline. Legacy sources without a baseline can only detach. Runtime data still overrides defaults.',
         },
         loopAnimation: {
-          operations: ['set_layer_loop', 'set_loop_property_track', 'remove_layer_loop'],
+          operations: ['set_layer_loop', 'set_loop_property_track', 'set_layer_loop remove=true'],
           activations: ['lifecycle', 'step'],
           repeatCount: 'null means infinite; positive integers play a finite number of cycles',
           transport:
@@ -3006,7 +3027,7 @@ export function createOGrafToolRecords(
           selection:
             'Chart element.provider must be {id,version,sha256} for a renderer snapshot already pinned in composition.rendererPlugins. Missing providers are unconfigured, never a built-in fallback. add_layer and update_element use explicit existing pins; they cannot install or trust code.',
           catalogRemoval:
-            'remove_renderer_plugin removes an exact unused composition snapshot by reference {id,version,sha256}. Layers, guides, prototypes and saved component definitions cannot still reference it. This never changes local installation or trust.',
+            'remove_plugin kind:"renderer" removes an exact unused composition snapshot by reference {id,version,sha256}. Layers, guides, prototypes and saved component definitions cannot still reference it. This never changes local installation or trust.',
           portability:
             'Templates pin manifest, source and license bytes. Exports keep the selected exact versions; installed updates do not alter prior packages. Studio blocks disabled or untrusted providers before preview, capture and certification.',
           clock:
@@ -3018,7 +3039,7 @@ export function createOGrafToolRecords(
           packageFiles: ['manifest.json', 'presets.json', 'LICENSE.txt'],
           operation: 'apply_animation_preset',
           catalogRemoval:
-            'remove_animation_preset_plugin removes an exact unused source snapshot by reference; refuses references from layers, guides, prototypes and saved components. It never changes local installation or baked tracks.',
+            'remove_plugin kind:"animation-preset" removes an exact unused source snapshot by reference; refuses references from layers, guides, prototypes and saved components. It never changes local installation or baked tracks.',
           selection:
             'Requires an exact {id,version,sha256} pack already in composition.animationPresetPlugins, presetId, side in/out, durationFrames and optional numeric parameters/offsetFrames. MCP cannot install plugins.',
           behavior:
@@ -3044,9 +3065,9 @@ export function createOGrafToolRecords(
             'Explicit selected-shader preview only after local review/enable; one preview renderer at a time. GPU load and compiler failures remain possible; a source/hash declaration is not a safety guarantee.',
         },
         bindings: {
-          operations: ['set_layer_bindings', 'set_layer_binding (legacy single-binding replace)'],
+          operations: ['set_layer_bindings'],
           dataConnections: {
-            operations: ['add_data_connection', 'update_data_connection', 'remove_data_connection'],
+            operations: ['set_data_connection', 'remove_data_connection'],
             read: 'ograf_get_project include:["dataConnections","dataFields"]',
             configuration:
               'Connections belong to a composition and persist in standalone/set .ogs. Map sourcePath strings to existing local field IDs. URL and embedded JSON/CSV remain supported; public-markets uses Coinbase USD spot products plus dated ECB FX references without an API key.',
@@ -3177,11 +3198,11 @@ export function createOGrafToolRecords(
           testRundowns:
             'set_test_rundowns stores named authoring-only rows keyed by stable field ID. They are saved in editable sources and excluded from OGraf manifests and exported runtime packages.',
           review:
-            'Local-only review supports add_review_comment, set_review_comment_resolved, save_review_version and set_review_approval. Read include:["review"] for comments and version metadata. Only record an explicitly authorized human approval; review does not imply multi-user sync or cryptographic signing.',
+            'Local-only review supports add_review_comment, set_review_comment_resolved and save_review_version. Read include:["review"] for comments and version metadata. Approval is given by a person in Studio; review does not imply multi-user sync or cryptographic signing.',
           playoutExposure: {
             property: 'exposeToOgraf',
             default: true,
-            operations: ['add_data_field', 'update_data_field', 'update_component_field'],
+            operations: ['set_data_field', 'update_component_field'],
             ui: 'Data > Expose: searchable tree of current-template controls grouped by scene objects, with nested object properties/array items and exposure checkboxes. Object/group checkboxes show all, none or mixed exposure; clicking mixed exposes all. Bulk changes include collapsed/filtered-out descendants and recursively update properties/items. Effective status accounts for internal parents/items; Data > Fields edits definitions and values.',
             semantics:
               'New and legacy fields are public unless explicitly disabled. true exposes a field; false keeps its default, local authoring controls, bindings and Rules available inside the graphic, but removes it from public OGraf schema and external playout updates. Omitting the flag in an update preserves its current value. Applies recursively to object properties; an internal parent hides its subtree and an explicitly internal item schema makes its array internal. Required only affects publicly exposed schema; it never forces an internal field into playout.',
@@ -3347,9 +3368,9 @@ export function createOGrafToolRecords(
             fieldTypes:
               'Scalars retain their native type; object/gradient use nos.Dict, select-multiple [string], arrays [T]. Arrays of arrays use Dict items wrappers decoded before graphic updates. Data offers eligible engine structs/tables/enums from the current connected engine; saved ordinary field schemas and nodosType remain usable offline. Oversized, recursive, resource, union and dynamic shapes are unavailable. Invalid numeric ranges are rejected, not wrapped; 64-bit integers use the JavaScript safe range.',
             authoringMetadata:
-              'add_data_field, nested field inputs and update_data_field preserve known nodosType names with an explicit ordinary schema. Values belong at operation top level. update_data_field nodosType:null clears the assignment; a plain fieldType change clears it unless replaced. These tools do not connect to or discover engine types. nodosType is source metadata, not an OGraf manifest extension or an exposed value.',
+              'set_data_field and nested field inputs preserve known nodosType names with an explicit ordinary schema. Values belong at operation top level. set_data_field nodosType:null clears the assignment; a plain fieldType change clears it unless replaced. These tools do not connect to or discover engine types. nodosType is source metadata, not an OGraf manifest extension or an exposed value.',
             pinSelection:
-              'Set exposeToNodos:true on add_data_field or update_data_field to select a public top-level field, or false to deselect it. Omitting it preserves the selection. ograf_get_project with include:["dataFields"] shows nodosInputFieldIds when an explicit selection exists, including an empty array when no data pins are selected.',
+              'Set exposeToNodos:true on set_data_field to select a public top-level field, or false to deselect it. Omitting it preserves the selection. ograf_get_project with include:["dataFields"] shows nodosInputFieldIds when an explicit selection exists, including an empty array when no data pins are selected.',
             synchronization:
               'Stable template IDs determine new preset classes; existing unique names survive renames and re-selection. Shared controls/assets invalidate selected inactive templates too. Configuration, selection, document or connection changes cancel stale preparation before publication; already dispatched registrations may finish.',
             publication:
@@ -3415,14 +3436,7 @@ export function createOGrafToolRecords(
                   'Uses the same composition controls as Properties. Template edits apply immediately and are undoable; save the template or set to persist them. Editing an inherited supported property creates a local override for that property; Reset restores inheritance. Standalone source and graphic exports contain resolved ordinary values and resources.',
                 mcp: {
                   tool: 'ograf_apply_operations',
-                  operations: [
-                    'set_composition',
-                    'set_composition_layout',
-                    'set_project_metadata',
-                    'add_canvas_guide',
-                    'update_canvas_guide',
-                    'remove_canvas_guide',
-                  ],
+                  operations: ['set_composition', 'set_composition_layout', 'set_project_metadata'],
                   inheritance:
                     'Use the existing template-set set_setting_override operation to pin/reset independent setting keys; preserve canonical background/style operations and numeric project revisions for authoring batches.',
                 },
@@ -3470,17 +3484,12 @@ export function createOGrafToolRecords(
             informationalOnly: true,
             exported: false,
           },
-          lifecycle: [
-            'add_lifecycle_step',
-            'rename_lifecycle_keyframe',
-            'move_lifecycle_keyframe',
-            'remove_lifecycle_step',
-          ],
+          lifecycle: ['add_lifecycle_step', 'set_lifecycle_keyframe', 'remove_lifecycle_step'],
           canvasGroups: ['group_layers', 'ungroup_layers'],
           reusableComponents: [
             'save_component',
             'instantiate_component',
-            'update_component_from_layers',
+            'save_component componentId',
             'update_component_layer',
             'update_component_field',
             'reset_component_overrides',
@@ -3489,9 +3498,9 @@ export function createOGrafToolRecords(
             'rename_component',
             'remove_component',
           ],
-          customActions: ['add_custom_action', 'update_custom_action', 'remove_custom_action'],
+          customActions: ['set_custom_action', 'remove_custom_action'],
           assets: ['add_asset', 'remove_asset', 'ograf_import_asset'],
-          mediaCues: ['add_media_cue', 'update_media_cue', 'remove_media_cue'],
+          mediaCues: ['set_media_cue', 'remove_media_cue'],
           detail:
             'Lifecycle retiming and component inheritance share the browser editor mutation rules. Live component assets retain stable instance IDs and per-property overrides; exports contain ordinary materialized layers.',
         },
@@ -3548,13 +3557,7 @@ export function createOGrafToolRecords(
             animation:
               'Animate motionPathProgress on lifecycle or local-loop tracks. Progress is not an element-data binding target. Source, orientation, offsets and rotationOffset are static layout controls. Set motionPath:null to detach.',
           },
-          operations: [
-            'add_modifier',
-            'update_modifier',
-            'duplicate_modifier',
-            'remove_modifier',
-            'reorder_modifiers',
-          ],
+          operations: ['add_modifier', 'update_modifier', 'remove_modifier', 'reorder_modifiers'],
           owner:
             "One layer. Auto Size/Follow/Look At references and Hide on Empty targets also accept groups. Grid Arrange, Radial Arrange and Justify arrange the owner's visible direct children (parentId); descendants move with each child. Spline Path is the layer motionPath (set_layer_layout) with optional rotationOffset.",
           references:
@@ -3568,13 +3571,7 @@ export function createOGrafToolRecords(
           blendModes: EFFECT_BLEND_MODES,
           blending:
             'Normal preserves legacy foreground filtering. Other modes combine each foreground effect with its input; glow/shadow blend their generated contribution only. blendOpacity mixes the foreground result with its input. Blend settings are static; numeric effect params retain their tracks. All bypassed skips filters; normal/full-strength uses CSS, mixed foreground effects use an sRGB SVG filter graph shared with masks and captures.',
-          operations: [
-            'add_effect',
-            'update_effect',
-            'duplicate_effect',
-            'remove_effect',
-            'reorder_effects',
-          ],
+          operations: ['add_effect', 'update_effect', 'remove_effect', 'reorder_effects'],
           order:
             'Top to bottom. Repeated types are allowed; each effect has a stable ID. Reorder supplies every ID exactly once. Maximum 16 effects including compatibility slots.',
           editing:
@@ -3629,7 +3626,7 @@ export function createOGrafToolRecords(
         tiling: {
           operations: [
             'set_tiling_pattern',
-            'remove_tiling_pattern',
+            'set_tiling_pattern patch=null',
             'set_layer_lighting',
             'add_layer kind=pattern',
           ],
@@ -3701,7 +3698,7 @@ export function createOGrafToolRecords(
           },
           inverted: 'true reveals the complement inside the target bounds.',
           sourceVisibility:
-            'hideSource defaults true and sets source.isMaskOnly. This suppresses source output without disabling masks; isVisible:false disables the source. set_layer_flags isMaskOnly:false shows the source again. Detaching does not change source visibility.',
+            'hideSource defaults true and sets source.isMaskOnly. This suppresses source output without disabling masks; isVisible:false disables the source. update_layer isMaskOnly:false shows the source again. Detaching does not change source visibility.',
           dependencies:
             'Same composition. No self/cycles, guide sources or cross-runtime-collection references. Source tracks/loops are sampled independently. Include sources when saving components; duplication remaps internal references. Detach consumers before deleting a source.',
           unsupportedSources: ['text', 'image-sequence', 'lottie', 'shader'],
@@ -3757,12 +3754,7 @@ export function createOGrafToolRecords(
             exported: false,
           },
           timelineGroups: {
-            operations: [
-              'create_timeline_group',
-              'rename_timeline_group',
-              'set_timeline_group_color',
-              'ungroup_timeline_group',
-            ],
+            operations: ['set_timeline_group'],
             semantics:
               'Timeline-only organization for independent layer rows. It does not change paint order, animation tracks, canvas object groups, stable layer IDs, or compiled OGraf output. Prefer grouping related multi-layer components and repeated forecast/day cells.',
             persistedCompatibilityField: 'composition.layout.timelineFolders',
@@ -3789,7 +3781,7 @@ export function createOGrafToolRecords(
             'Assets persist once in composition.assets; editor/capture resolve references and certified package export writes each registry entry once. remove_asset refuses referenced image sources unless force=true, which clears those references; removing an in-use font reports a fallback warning.',
         },
         mediaCues: {
-          operations: ['add_media_cue', 'update_media_cue', 'remove_media_cue'],
+          operations: ['set_media_cue', 'remove_media_cue'],
           sources: ['audio clip', 'video clip', 'renderer live input'],
           triggers: ['timeline frame', 'lifecycle state', 'customAction', 'manual preview'],
           retrigger: ['restart', 'resume', 'ignore'],
@@ -3799,7 +3791,7 @@ export function createOGrafToolRecords(
           semantics:
             'Media Cues are composition-level Timeline tracks, not canvas objects. Audio is nonvisual. Video/live cues optionally paint one target layer while sharing trim, speed, loop, volume, mute, trigger and source-transition controls.',
           audioCustomAction:
-            'For action-triggered sound, add_media_cue with an audio clip source and trigger:{type:"customAction",actionId}. In Studio, Audio -> Create Playback Cue creates a Manual advanced cue; Add at Playhead creates a timeline Sound Event.',
+            'For action-triggered sound, set_media_cue with an audio clip source and trigger:{type:"customAction",actionId}. In Studio, Audio -> Create Playback Cue creates a Manual advanced cue; Add at Playhead creates a timeline Sound Event.',
           runtime:
             'Initial profile is real-time-only. Crossfade double-buffers audio/video sources; live inputs require the zd-ograf-media renderer hook and target readiness verification.',
         },
@@ -3807,7 +3799,7 @@ export function createOGrafToolRecords(
           operations: [
             'save_component',
             'instantiate_component',
-            'update_component_from_layers',
+            'save_component componentId',
             'update_component_layer',
             'update_component_field',
             'reset_component_overrides',
@@ -3822,7 +3814,7 @@ export function createOGrafToolRecords(
             'Optional instanceId selects linked continuity across templates; duplicates within a composition fail. Use 1–256 ASCII letters/digits/._:-, starting alphanumeric; prototype keys are reserved. Other identities remain generated.',
           editing: {
             selection:
-              'update_component_from_layers componentId,layerIds promotes members of one linked instance plus new independent layers. New layers join that source instance in place; canonical layer/field IDs, bindings and animation remain stable. Other instances receive one corresponding child while retaining overrides. An independent-only selection becomes a new linked source instance. Locked selected layers, foreign component members and multiple source instances are rejected atomically. Query the updated project for child mappings; this operation does not return an insertion result for the existing source instance.',
+              'save_component componentId,layerIds promotes members of one linked instance plus new independent layers. New layers join that source instance in place; canonical layer/field IDs, bindings and animation remain stable. Other instances receive one corresponding child while retaining overrides. An independent-only selection becomes a new linked source instance. Locked selected layers, foreign component members and multiple source instances are rejected atomically. Query the updated project for child mappings; this operation does not return an insertion result for the existing source instance.',
             asset:
               'update_component_layer componentId,sourceLayerId,patch edits canonical authored fields (not id/componentLink). Element/effects patches merge; animationTracks merges channels. update_component_field componentId,fieldId,patch uses type/defaultValue and the ordinary field schema inputs.',
             instance:
