@@ -28,7 +28,7 @@ export function createOGrafMcpServer(
   bridge: EditorBridge,
   { usage, ...options }: { bundledAuthoringSkill?: boolean; usage?: AgentToolUsage } = {},
 ): McpServer {
-  const server = new McpServer({ name: OGRAF_CLIENT_SETUP.mcpServerName, version: '0.34.0' });
+  const server = new McpServer({ name: OGRAF_CLIENT_SETUP.mcpServerName, version: '0.40.0' });
   const records = createOGrafToolRecords(workspace, bridge, options);
   const listed = listedToolRecords(records);
   wrapToolRequests(server, {
