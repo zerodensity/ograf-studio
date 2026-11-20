@@ -5344,8 +5344,18 @@ export function createOGrafToolRecords(
           result.summary.generatedIds,
           result.project,
         );
+        // The summary counts applied operations; results answer the batch as it was sent.
+        const sent = (operationIndex: number) => {
+          const operation = typedOperations[operationIndex];
+          return (
+            (operation && sentOperations.get(operation)) ?? {
+              index: operationIndex,
+              type: operation?.type,
+            }
+          );
+        };
         const duplicateResults = result.summary.duplicateGroups.map((group) => ({
-          index: group.operationIndex,
+          index: sent(group.operationIndex).index,
           type: 'duplicate_group',
           copies: group.copies,
         }));
@@ -5355,8 +5365,8 @@ export function createOGrafToolRecords(
         const componentResults = result.summary.componentInstances
           .filter((instance) => !recipeOperationIndices.has(instance.operationIndex))
           .map((instance) => ({
-            index: instance.operationIndex,
-            type: typedOperations[instance.operationIndex]?.type ?? 'instantiate_component',
+            index: sent(instance.operationIndex).index,
+            type: sent(instance.operationIndex).type ?? 'instantiate_component',
             componentId: instance.componentId,
             instanceId: instance.instanceId,
             groupId: instance.groupId,
@@ -5365,7 +5375,7 @@ export function createOGrafToolRecords(
             fields: instance.fields,
           }));
         const repeaterResults = result.summary.repeaters.map((repeater) => ({
-          index: repeater.operationIndex,
+          index: sent(repeater.operationIndex).index,
           type: 'create_repeater',
           name: repeater.name,
           direction: repeater.direction,
@@ -5373,8 +5383,8 @@ export function createOGrafToolRecords(
           items: repeater.items,
         }));
         const recipeResults = result.summary.semanticBlocks.map((block) => ({
-          index: block.operationIndex,
-          type: typedOperations[block.operationIndex]?.type ?? `create_${block.recipe}`,
+          index: sent(block.operationIndex).index,
+          type: sent(block.operationIndex).type ?? `create_${block.recipe}`,
           recipe: block.recipe,
           name: block.name,
           groupId: block.groupId,
@@ -5386,7 +5396,7 @@ export function createOGrafToolRecords(
           ...(block.instanceId ? { instanceId: block.instanceId } : {}),
         }));
         const stylePackResults = result.summary.stylePacks.map((pack) => ({
-          index: pack.operationIndex,
+          index: sent(pack.operationIndex).index,
           type: 'apply_style_pack',
           stylePack: pack.packId,
           name: pack.name,
@@ -5406,11 +5416,13 @@ export function createOGrafToolRecords(
         const response = {
           ...result,
           results,
-          operationSummaries: typedOperations.map((operation, index) => ({
-            index,
-            type: operation.type,
-            generated: results.filter((entry) => entry.index === index),
-          })),
+          operationSummaries: (operations as ReadonlyArray<{ type: string }>).map(
+            (operation, index) => ({
+              index,
+              type: operation.type,
+              generated: results.filter((entry) => entry.index === index),
+            }),
+          ),
           ...(dryRun
             ? {
                 projectedDiagnostics: {

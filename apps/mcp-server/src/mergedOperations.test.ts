@@ -318,6 +318,41 @@ describe('merged agent operations', () => {
     expect(text(renamed)).toContain('a name applies to one layer');
   });
 
+  it('answers the batch as it was sent, whatever each operation expands into', async () => {
+    const { applied } = await session();
+    const result = (await applied([
+      { type: 'add_layer', kind: 'rectangle', name: 'Row 1' },
+      { type: 'add_layer', kind: 'rectangle', name: 'Row 2' },
+      {
+        type: 'update_layer',
+        layerNamePattern: 'Row *',
+        isVisible: true,
+        semantics: { tags: ['row'] },
+      },
+      { type: 'create_recipe', recipe: 'bug', name: 'Channel' },
+      { type: 'add_layer', kind: 'text', name: 'Last' },
+    ])) as unknown as {
+      results: Array<{ index: number; type: string; recipe?: string; name?: string }>;
+      operationSummaries: Array<{ index: number; type: string; generated: unknown[] }>;
+    };
+    expect(result.operationSummaries.map((summary) => summary.type)).toEqual([
+      'add_layer',
+      'add_layer',
+      'update_layer',
+      'create_recipe',
+      'add_layer',
+    ]);
+    expect(result.results.find((entry) => entry.recipe === 'bug')).toMatchObject({
+      index: 3,
+      type: 'create_recipe',
+    });
+    expect(
+      result.results.filter((entry) => entry.type === 'add_layer').map((e) => e.index),
+    ).toEqual([0, 1, 4]);
+    expect(result.results.every((entry) => entry.index !== 2)).toBe(true);
+    expect(result.operationSummaries[4]!.generated).toHaveLength(1);
+  });
+
   it('adds and patches a data connection through one operation', async () => {
     const { composition, applied } = await session();
     const created = await applied([
