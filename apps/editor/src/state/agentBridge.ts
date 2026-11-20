@@ -1,3 +1,4 @@
+import { exportAgentVideo, type AgentVideoRequest } from './agentVideoExport';
 import { useAgentReviewStore, type AgentAuthoringProposal } from './agentReviewStore';
 export { useAgentReviewStore, type AgentAuthoringProposal } from './agentReviewStore';
 import { useEffect } from 'react';
@@ -481,6 +482,7 @@ type BridgeMessage =
   | { type: 'certification.request'; requestId: string; artifacts: ExportArtifacts }
   | { type: 'capture.request'; requestId: string; request: AgentCaptureRequest }
   | { type: 'strip.request'; requestId: string; request: AgentStripRequest }
+  | { type: 'video.request'; requestId: string; request: AgentVideoRequest }
   | { type: 'measure-text.request'; requestId: string; request: AgentMeasureTextRequest }
   | { type: 'proposal.present'; proposal: AgentAuthoringProposal }
   | {
@@ -1019,6 +1021,35 @@ export function useAgentBridge(): void {
                 const detail = error instanceof Error ? error.message : String(error);
                 send({ type: 'strip.result', requestId: message.requestId, error: detail });
                 status({ activity: 'Agent PNG frame strip failed' });
+              }
+            });
+          return;
+        }
+        if (message.type === 'video.request') {
+          browserWorkQueue = browserWorkQueue
+            .catch(() => undefined)
+            .then(async () => {
+              status({ activity: 'Agent requested a video export…' });
+              const { requestId } = message;
+              let reported = 0;
+              try {
+                const result = await exportAgentVideo(
+                  message.request,
+                  new AbortController().signal,
+                  (frame, frames) => {
+                    // Often enough to show the export is alive, without a message a frame.
+                    if (performance.now() - reported < 500) return;
+                    reported = performance.now();
+                    send({ type: 'video.progress', requestId, frame, frames });
+                    status({ activity: `Agent video export: frame ${frame} of ${frames}` });
+                  },
+                );
+                send({ type: 'video.result', requestId, result });
+                status({ activity: 'Agent video export ready' });
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                send({ type: 'video.result', requestId, error: detail });
+                status({ activity: 'Agent video export failed' });
               }
             });
           return;

@@ -1529,6 +1529,7 @@ describe('OGraf MCP authoring host', () => {
       'ograf_certify_project',
       'ograf_save_project',
       'ograf_export_package',
+      'ograf_export_video',
       'ograf_get_template_set',
       'ograf_update_template_set',
       'ograf_review_template_transfer',

@@ -25,6 +25,7 @@ export const STRIPPED_IN_APP_GUIDANCE = [
   'ograf_certify_project',
   'ograf_save_project',
   'ograf_export_package',
+  'ograf_export_video',
   'ograf_create_project',
   'ograf_open_project',
   'ograf_import_asset',

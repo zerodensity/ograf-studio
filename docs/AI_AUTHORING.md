@@ -538,7 +538,7 @@ bridge on first use, so Node.js and network access are required for that first l
 
 ## Merged MCP tools
 
-The server lists 22 tools. Fourteen earlier tools are now one argument on a listed tool. Their
+The server lists 23 tools. Fourteen earlier tools are now one argument on a listed tool. Their
 earlier names still answer a script or an older skill that calls them, but no client sees them in
 the tool list.
 
@@ -564,6 +564,34 @@ selects the SVG bundle import and `sinceRevision` selects the change history. An
 belongs to a different choice is refused with the choice it belongs to. No read is merged into a
 write, so a client that approves reads automatically keeps doing so. The built-in AI Assistant
 gets the same merged tools, limited to the choices it already had.
+
+## Export a WebM video through MCP
+
+`ograf_export_video` renders one template as a WebM movie and saves it in the workspace. The
+connected editor does the rendering with the same export as **File → Export Video…**, so the
+movie plays from Start to End, waits on every Step, and carries timeline sound.
+
+| Argument                               | Meaning                                                                     |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| `path`                                 | Where to save it, inside the workspace, ending in `.webm`                   |
+| `operationId`                          | A name you choose for this export                                           |
+| `confirm`                              | Must be `true`, because the tool writes a file                              |
+| `overwrite`                            | Replace an existing file; off unless given                                  |
+| `holdSeconds`                          | Seconds to wait on each Step; 3 unless given                                |
+| `transparent`                          | Keep what the graphic does not cover see-through; on unless `false`         |
+| `maxDimension`                         | Longest side in pixels, for a smaller movie                                 |
+| `bitrate`                              | Total target bitrate in bits per second; chosen from the size when left out |
+| `blackFrameAtStart`, `blackFrameAtEnd` | Add one black frame at that end                                             |
+
+The answer gives the saved path, size in bytes, checksum, pixel size, frame rate, frame count and
+duration. An export takes about as long as the movie has frames to draw. If the client stops
+waiting, call the tool again with the same `operationId` and the same arguments: it waits for the
+running export, or answers again for the saved one without rendering twice.
+
+A movie may be at most 64 MiB, because the editor hands it to the server in one piece. For a
+longer movie lower `bitrate`, `maxDimension` or `holdSeconds`, or export it from Studio's Export
+Video window, which has no such limit. The built-in AI Assistant does not get this tool: saving
+files stays an explicit action in Studio.
 
 ## Compare a capture with a reference picture
 

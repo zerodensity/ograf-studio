@@ -4,7 +4,7 @@
 
 Contract version: 1
 
-Registered tools: 22
+Registered tools: 23
 
 The JSON Schema for every registered tool is in [mcp-contracts.json](./mcp-contracts.json). The schemas come from the registered MCP SDK definitions; redundant constraints and internal reference names are compacted without changing validation. Documentation drift fails `npm run verify`.
 
@@ -25,6 +25,7 @@ The JSON Schema for every registered tool is in [mcp-contracts.json](./mcp-contr
 | `ograf_certify_project`          | Certify OGraf output                      | read-only | `sessionId`, `profile`                                                                                                                                                                                                                                                                  |
 | `ograf_save_project`             | Save OGraf project and PNG                | mutation  | `scope`, `sessionId`, `path`, `confirm`, `overwrite`, `thumbnailFrame`, `expectedRevision`, `archiveMode`                                                                                                                                                                               |
 | `ograf_export_package`           | Export certified OGraf or standalone HTML | mutation  | `scope`, `sessionId`, `path`, `confirm`, `overwrite`, `profile`, `thumbnailFrame`, `expectedRevision`, `operationId`                                                                                                                                                                    |
+| `ograf_export_video`             | Export a WebM video                       | mutation  | `sessionId`, `path`, `operationId`, `confirm`, `overwrite`, `compositionId`, `transparent`, `holdSeconds`, `bitrate`, `maxDimension`, `blackFrameAtStart`, `blackFrameAtEnd`                                                                                                            |
 | `ograf_get_template_set`         | Inspect the open template set             | read-only | `includeProjects`, `resourceUsage`, `templateIds`, `offset`, `limit`                                                                                                                                                                                                                    |
 | `ograf_update_template_set`      | Manage templates and shared set defaults  | mutation  | `expectedRevision`, `operation`, `confirm`                                                                                                                                                                                                                                              |
 | `ograf_review_template_transfer` | Review template branding transfer         | read-only | `step`, `expectedRevision`, `source`, `options`, `targetTemplateId`, `side`, `originalPrompt`, `offset`, `limit`, `planId`, `sourceRevision`, `workspaceFile`                                                                                                                           |

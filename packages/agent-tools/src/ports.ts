@@ -30,6 +30,32 @@ export interface BrowserCaptureRequest {
   reference?: { mimeType: string; data: string };
 }
 
+/** What a WebM movie of one template is rendered with. */
+export interface BrowserVideoRequest {
+  project: Project;
+  compositionId?: string;
+  transparent: boolean;
+  holdSeconds: number;
+  bitrate?: number;
+  /** Longest side of the movie in pixels; the composition's own size when left out. */
+  maxDimension?: number;
+  blackFrameAtStart?: boolean;
+  blackFrameAtEnd?: boolean;
+}
+
+export interface BrowserVideoResult {
+  mimeType: 'video/webm';
+  /** Base64 of the WebM file. */
+  data: string;
+  bytes: number;
+  sha256: string;
+  width: number;
+  height: number;
+  frameRate: number;
+  frames: number;
+  durationSeconds: number;
+}
+
 export interface BrowserStripRequest {
   project: Project;
   compositionId?: string;
@@ -146,6 +172,8 @@ export interface EditorBridgePort {
   certify(artifacts: ExportArtifacts, timeoutMs?: number): Promise<CompatibilityResult>;
   capture(request: BrowserCaptureRequest, timeoutMs?: number): Promise<PublishedCapture>;
   renderStrip(request: BrowserStripRequest, timeoutMs?: number): Promise<PublishedStrip>;
+  /** Renders a movie; the wait ends only when the editor stops reporting progress for `idleMs`. */
+  exportVideo?(request: BrowserVideoRequest, idleMs?: number): Promise<BrowserVideoResult>;
   measureText(
     request: BrowserMeasureTextRequest,
     timeoutMs?: number,

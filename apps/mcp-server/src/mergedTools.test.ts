@@ -53,7 +53,7 @@ describe('merged agent tools', () => {
     expect(new Set(names).size).toBe(names.length);
     for (const merge of TOOL_MERGES) expect(names).toContain(merge.into);
     for (const name of MERGED_TOOL_NAMES) expect(names).not.toContain(name);
-    expect(names).toHaveLength(22);
+    expect(names).toHaveLength(23);
   });
 
   it('still answers a caller of an earlier tool name exactly as the selector does', async () => {

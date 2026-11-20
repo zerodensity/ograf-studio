@@ -3024,6 +3024,37 @@
       "execution": { "taskSupport": "forbidden" }
     },
     {
+      "name": "ograf_export_video",
+      "title": "Export a WebM video",
+      "description": "Render one template as a WebM movie in the connected editor and save it in the workspace: Start to End, waiting holdSeconds on each Step, transparent unless transparent:false. At most 64 MiB; lower bitrate, maxDimension or holdSeconds for a longer movie. A call with the same operationId waits for a running export or answers again for a saved one.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "default": "editor", "type": "string" },
+          "path": { "type": "string", "minLength": 1 },
+          "operationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "confirm": { "type": "boolean", "const": true },
+          "overwrite": { "default": false, "type": "boolean" },
+          "compositionId": { "type": "string" },
+          "transparent": { "default": true, "type": "boolean" },
+          "holdSeconds": { "default": 3, "type": "number", "minimum": 0, "maximum": 600 },
+          "bitrate": { "type": "integer", "minimum": 2, "maximum": 9007199254740991 },
+          "maxDimension": { "type": "integer", "minimum": 64, "maximum": 4096 },
+          "blackFrameAtStart": { "default": false, "type": "boolean" },
+          "blackFrameAtEnd": { "default": false, "type": "boolean" }
+        },
+        "required": ["path", "operationId", "confirm"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": { "taskSupport": "forbidden" }
+    },
+    {
       "name": "ograf_get_template_set",
       "title": "Inspect the open template set",
       "description": "Read set/revision/defaults; projects and selected resourceUsage opt-in. Filter templateIds or page offset/limit.",

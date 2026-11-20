@@ -396,6 +396,13 @@ Choose an `.html` path for standalone browser playback or `.ograf.zip` for the p
 Separate standalone imports do not verify Reality Hub host coordination; test the coordinated
 package in the actual host. Do not claim Windows runtime validation from cross-compilation.
 
+`ograf_export_video` renders one template as a WebM movie in the connected editor, from Start to
+End, and saves it under a `.webm` workspace path. Pass `confirm: true` and a new `operationId`; a
+call with the same ID waits for a running export or answers again for a saved one. `holdSeconds`
+(default 3) is the wait on each Step, `transparent: false` fills the background, and `maxDimension`
+or `bitrate` make a smaller file. A movie may be at most 64 MiB; longer ones are exported from
+Studio's Export Video window.
+
 `ograf_export_package` emits typed color defaults and
 coordinated state presets as GDD's canonical lowercase hex, including nested object/array values.
 Editable source values retain their original spelling.

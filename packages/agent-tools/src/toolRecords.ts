@@ -1,4 +1,5 @@
 import { coordinatedExportFile } from './coordinatedExportFile';
+import { videoExportFile } from './videoExportFile';
 import { mergeToolRecords } from './mergedTools';
 import {
   expandMergedOperation,
@@ -2042,6 +2043,7 @@ export function createOGrafToolRecords(
   }: { inApp?: boolean; bundledAuthoringSkill?: boolean } = {},
 ): AgentToolRecord[] {
   const exportCoordinated = coordinatedExportFile(workspace, bridge);
+  const exportVideo = videoExportFile(workspace, bridge);
   const records: AgentToolRecord[] = [];
   const server: ToolRegistrar = {
     registerTool(name, config, handler) {
@@ -2157,6 +2159,7 @@ export function createOGrafToolRecords(
           'ograf_certify_project',
           'ograf_save_project',
           'ograf_export_package',
+          'ograf_export_video',
           'ograf_validate_project when browserTextOverflow=true',
         ],
         templateSets: {
@@ -5637,6 +5640,48 @@ export function createOGrafToolRecords(
           format,
         },
         `Certified and exported ${target}`,
+      );
+    },
+  );
+
+  server.registerTool(
+    'ograf_export_video',
+    {
+      title: 'Export a WebM video',
+      description:
+        'Render one template as a WebM movie in the connected editor and save it in the workspace: Start to End, waiting holdSeconds on each Step, transparent unless transparent:false. At most 64 MiB; lower bitrate, maxDimension or holdSeconds for a longer movie. A call with the same operationId waits for a running export or answers again for a saved one.',
+      inputSchema: {
+        sessionId: z.string().default('editor'),
+        path: z.string().min(1),
+        operationId: z.string().min(1).max(128),
+        confirm: z.literal(true),
+        overwrite: z.boolean().default(false),
+        compositionId: z.string().optional(),
+        transparent: z.boolean().default(true),
+        holdSeconds: z.number().min(0).max(600).default(3),
+        bitrate: z.number().int().min(2).optional(),
+        maxDimension: z.number().int().min(64).max(4096).optional(),
+        blackFrameAtStart: z.boolean().default(false),
+        blackFrameAtEnd: z.boolean().default(false),
+      },
+      annotations: { ...mutation, idempotentHint: true },
+    },
+    async ({ sessionId, path, operationId, overwrite, compositionId, ...settings }) => {
+      const snapshot = workspace.get(sessionId).snapshot();
+      const wanted = compositionId ?? snapshot.project.mainCompositionId;
+      if (!snapshot.project.compositions.some((item) => item.id === wanted))
+        throw new Error(`Composition not found: ${wanted}`);
+      const { confirm: _confirm, ...request } = settings;
+      const saved = await exportVideo({
+        path,
+        operationId,
+        overwrite,
+        revision: snapshot.revision,
+        request: { ...request, project: snapshot.project, compositionId: wanted },
+      });
+      return textResult(
+        { sessionId, revision: snapshot.revision, ...saved },
+        `Saved ${saved.path}: ${saved.width}×${saved.height}, ${saved.frames} frames, ${Number(saved.durationSeconds).toFixed(2)} s, ${(Number(saved.bytes) / 1024 / 1024).toFixed(2)} MiB`,
       );
     },
   );

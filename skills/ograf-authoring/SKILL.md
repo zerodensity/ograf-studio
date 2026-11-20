@@ -81,7 +81,7 @@ For numbered canvas references, match each annotation to its rectangle or freeha
 6. Call `ograf_certify_project` before reporting output as compatible. Pass `profile` when the
    result is specifically real-time, non-real-time, or dual-mode; omitting it certifies the project-
    declared flags.
-7. Use `ograf_save_project` or `ograf_export_package` (`scope: "set"` for a whole set) only when the user requested a file operation.
+7. Use `ograf_save_project` or `ograf_export_package` (`scope: "set"` for a whole set) only when the user requested a file operation. Use `ograf_export_video` when they ask for a movie.
    For package export choose the named `realtime`, `non-realtime`, or `dual` profile; it derives
    output flags and identity without mutating source. Pass `confirm: true`; leave `overwrite` false
    unless replacement was explicitly intended.

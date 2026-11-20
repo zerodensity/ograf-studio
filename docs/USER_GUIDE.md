@@ -554,7 +554,8 @@ at the template's frame rate. Added frames are silent. The options also work whe
 
 WebM includes audio layers and sound cues that start at a frame or on arrival at a Step. PNG
 sequences contain image frames. Video and live media, and sounds triggered by an operator or a
-custom action, are omitted. WebM requires a current Chrome or Edge browser.
+custom action, are omitted. WebM requires a current Chrome or Edge browser. An MCP client exports
+the same WebM into the workspace with `ograf_export_video`, for movies up to 64 MiB.
 
 Rendering is fastest while Studio's tab stays visible. A current Chrome or Edge browser then takes
 each frame straight from the page, and renders up to four frames in each screen refresh. If the tab
