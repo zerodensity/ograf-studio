@@ -18,6 +18,8 @@ interface MountedCue {
   playRevision: number;
   pausedAtMs: number | null;
   stopped: boolean;
+  /** A sound effect the playhead was put past, not played through: it stays silent until rearmed. */
+  missed: boolean;
   gain: number;
   muted: boolean;
 }
@@ -86,6 +88,7 @@ export class MediaCueRuntime {
         playRevision: 0,
         pausedAtMs: null,
         stopped: false,
+        missed: false,
         gain: 1,
         muted: false,
       });
@@ -108,6 +111,7 @@ export class MediaCueRuntime {
       mounted.playRevision++;
       mounted.pausedAtMs = null;
       mounted.stopped = false;
+      mounted.missed = false;
     }
   }
 
@@ -218,7 +222,11 @@ export class MediaCueRuntime {
     return mounted.cue.muted || mounted.muted ? 0 : mounted.cue.volume * mounted.gain;
   }
 
-  /** Retry audio that the browser blocked before the operator's first playback gesture. */
+  /**
+   * Retry audio that the browser blocked before the operator's first playback gesture. A sound effect
+   * is retried only while the playhead still stands where it started: later it would play out of
+   * place, and every blocked sound of a timeline at once.
+   */
   resumeBlocked(): void {
     for (const mounted of this.#mounted.values()) {
       if (
@@ -229,6 +237,15 @@ export class MediaCueRuntime {
       )
         continue;
       mounted.playbackBlocked = false;
+      const source = mounted.cue.sources.find(
+        (candidate) => candidate.id === mounted.activeSourceId,
+      );
+      if (
+        isOneShotAudio(mounted.cue, source) &&
+        mounted.activationMs !== null &&
+        this.#timestampMs > mounted.activationMs
+      )
+        continue;
       this.#attemptPlay(mounted, mounted.media);
     }
   }
@@ -285,6 +302,7 @@ export class MediaCueRuntime {
     mounted.playRevision++;
     mounted.pausedAtMs = null;
     mounted.stopped = false;
+    mounted.missed = false;
     this.#disposeMedia(mounted.outgoing);
     mounted.outgoing = mounted.transitionStartMs === null ? null : previous;
     if (!mounted.outgoing) this.#disposeMedia(previous);
@@ -300,7 +318,15 @@ export class MediaCueRuntime {
     await this.#visualSwitch?.(mounted.cue, source, timestampMs);
   }
 
-  renderAtTime(timestampMs: number, options: { includeAudio?: boolean } = {}): void {
+  /**
+   * Starts the cues the playhead has reached and keeps running ones in step with it. `jumped` says the
+   * playhead was put at this time, not played up to it: a sound effect that lies before it has missed
+   * its moment and stays silent, where otherwise every one of them would start together.
+   */
+  renderAtTime(
+    timestampMs: number,
+    options: { includeAudio?: boolean; jumped?: boolean } = {},
+  ): void {
     this.#timestampMs = timestampMs;
     for (const mounted of this.#mounted.values()) {
       if (mounted.stopped || mounted.pausedAtMs !== null) continue;
@@ -316,9 +342,10 @@ export class MediaCueRuntime {
       }
       if (mounted.activationMs === null) {
         const startMs = mediaCueAutomaticStartMs(mounted.cue, this.#descriptor);
-        if (startMs !== null && timestampMs >= startMs) {
-          void this.take(mounted.cue.id, mounted.cue.activeSourceId, startMs);
-        }
+        if (startMs === null || timestampMs < startMs || mounted.missed) continue;
+        if (options.jumped && timestampMs > startMs && isOneShotAudio(mounted.cue, authoredSource))
+          mounted.missed = true;
+        else void this.take(mounted.cue.id, mounted.cue.activeSourceId, startMs);
         continue;
       }
       const media = mounted.media;
