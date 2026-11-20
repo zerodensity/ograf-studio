@@ -427,6 +427,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #functionGeneration = 0;
   #timeline: ReturnType<typeof buildRuntimeTimeline> | null = null;
   #activeTransition: { cancel(): void } | null = null;
+  /** The Take in or Step change that is animating now, which a Take out cuts short. */
+  #animatingPlay: { cutShort: boolean } | null = null;
+  /** Take outs that have been asked for and have not begun. A Take in or Step change gives way to one. */
+  #takeOutsWaiting = 0;
   /** Index into `descriptor.stepKeyframeIds` — the OGraf "current step", not a keyframe index. */
   #currentStep: number | undefined;
   #lastData: Record<string, unknown> = {};
@@ -2412,6 +2416,19 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
               .sort((a, b) => a.frame - b.frame)
           : [];
       let nextCue = 0;
+      const frameRate = this.activeDescriptor.frameRate;
+      /** Where cues and sounds stand: a direct Out passes only the Out's own stretch of the timeline. */
+      const cueFrameAt = (frame: number) =>
+        directOut && keyframe.frame !== fromFrame
+          ? cueStart +
+            ((frame - fromFrame) / (keyframe.frame - fromFrame)) * (keyframe.frame - cueStart)
+          : frame;
+      // The sounds a direct Out skips have missed their moment. So has one on the frame its stretch
+      // begins at, which belongs to arriving at the last Step: the playhead is put just past it.
+      if (includeAudio && directOut)
+        this.#mediaCueRuntime?.renderAtTime(((cueStart + 0.5) / frameRate) * 1000, {
+          jumped: true,
+        });
       await new Promise<void>((resolve, reject) => {
         let settled = false;
         const finish = () => {
@@ -2425,9 +2442,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
               typeof performance !== 'undefined' ? performance.now() : Date.now(),
             );
             if (includeAudio)
-              this.#mediaCueRuntime?.renderAtTime(
-                (tl.frame() / this.activeDescriptor.frameRate) * 1000,
-              );
+              this.#mediaCueRuntime?.renderAtTime((cueFrameAt(tl.frame()) / frameRate) * 1000);
             resolve();
           } catch (cause) {
             reject(cause);
@@ -2439,20 +2454,11 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
             this.#renderLoopSnapshot(
               typeof performance !== 'undefined' ? performance.now() : Date.now(),
             );
-            if (includeAudio)
-              this.#mediaCueRuntime?.renderAtTime(
-                (tl.frame() / this.activeDescriptor.frameRate) * 1000,
-              );
-            if (nextCue < cues.length) {
-              const frame = tl.frame();
-              const cueFrame = directOut
-                ? cueStart +
-                  ((frame - fromFrame) / (keyframe.frame - fromFrame)) * (keyframe.frame - cueStart)
-                : frame;
-              while (nextCue < cues.length && cues[nextCue]!.frame <= cueFrame) {
-                const cue = cues[nextCue++]!;
-                dispatchStudioFrameCue(this, cue, { instanceId: SINGLE_INSTANCE_ID });
-              }
+            const cueFrame = cueFrameAt(tl.frame());
+            if (includeAudio) this.#mediaCueRuntime?.renderAtTime((cueFrame / frameRate) * 1000);
+            while (nextCue < cues.length && cues[nextCue]!.frame <= cueFrame) {
+              const cue = cues[nextCue++]!;
+              dispatchStudioFrameCue(this, cue, { instanceId: SINGLE_INSTANCE_ID });
             }
           },
           onComplete: finish,
@@ -2719,6 +2725,15 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       await this.#awaitContentReady();
       const previousStep = this.#currentStep;
       const target = this.#resolvePlayTarget(previousStep, params);
+      const arrives = target.currentStep !== undefined;
+      /** What a Take in or Step change answers when a Take out kept it from arriving. */
+      const cutShort = (): PlayActionReturnPayload => ({
+        statusCode: 200,
+        statusMessage: 'A Take out cut this short.',
+        ...(previousStep !== undefined ? { currentStep: previousStep } : {}),
+      });
+      // A Take out that is already waiting leaves it nothing to show.
+      if (arrives && this.#takeOutsWaiting > 0) return cutShort();
       if (
         previousStep === undefined &&
         this.#timeline &&
@@ -2762,7 +2777,15 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       const exitDurationSeconds = exitsToEnd
         ? exitDurationFrames(this.descriptor) / this.descriptor.frameRate
         : undefined;
-      await this.#seekToKeyframeId(target.keyframeId, params.skipAnimation, exitDurationSeconds);
+      const animating = { cutShort: false };
+      if (arrives) this.#animatingPlay = animating;
+      try {
+        await this.#seekToKeyframeId(target.keyframeId, params.skipAnimation, exitDurationSeconds);
+      } finally {
+        if (this.#animatingPlay === animating) this.#animatingPlay = null;
+      }
+      // The graphic never arrived, so no loop starts and no rule fires. The Take out goes on from here.
+      if (animating.cutShort) return cutShort();
       await this.#awaitContentReady();
       this.#currentStep = target.currentStep;
       if (this.#currentStep !== undefined) {
@@ -2787,7 +2810,18 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async stopAction(params: StopActionParams): Promise<ReturnPayload | undefined> {
-    return this.#serializeOperation(() => this.#stopActionUnlocked(params), true);
+    // A Take out does not wait for a Take in or a Step change to finish animating: it cuts that short
+    // and goes out from the picture it stopped at. It still waits for whatever else was asked first.
+    this.#takeOutsWaiting++;
+    const animating = this.#animatingPlay;
+    if (animating && this.#activeTransition) {
+      animating.cutShort = true;
+      this.#activeTransition.cancel();
+    }
+    return this.#serializeOperation(() => {
+      this.#takeOutsWaiting--;
+      return this.#stopActionUnlocked(params);
+    }, true);
   }
 
   async #stopActionUnlocked(params: StopActionParams): Promise<ReturnPayload | undefined> {
