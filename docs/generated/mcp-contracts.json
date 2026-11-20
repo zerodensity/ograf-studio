@@ -456,7 +456,7 @@
                         "shader"
                       ]
                     },
-                    "patch": { "$ref": "#/$defs/1n" },
+                    "patch": { "$ref": "#/$defs/1o" },
                     "index": { "$ref": "#/$defs/q" }
                   },
                   "required": ["effectType"]
@@ -469,7 +469,7 @@
                     "layerName": { "type": "string" },
                     "groupId": { "$ref": "#/$defs/3" },
                     "effectId": { "type": "string" },
-                    "patch": { "$ref": "#/$defs/1n" },
+                    "patch": { "$ref": "#/$defs/1o" },
                     "scope": { "$ref": "#/$defs/k" },
                     "frame": { "$ref": "#/$defs/q" }
                   },
@@ -612,7 +612,7 @@
                     "updateTransitionFrames": { "$ref": "#/$defs/q" },
                     "updateInterruption": { "enum": ["queue", "replace"] },
                     "backgroundColor": { "type": "string" },
-                    "crop": { "anyOf": [{ "$ref": "#/$defs/1d" }, { "type": "null" }] }
+                    "crop": { "anyOf": [{ "$ref": "#/$defs/1e" }, { "type": "null" }] }
                   }
                 },
                 {
@@ -800,7 +800,7 @@
                     "patch": {
                       "type": "object",
                       "properties": {
-                        "type": { "$ref": "#/$defs/19" },
+                        "type": { "$ref": "#/$defs/1a" },
                         "key": { "$ref": "#/$defs/3" },
                         "label": { "type": "string" },
                         "description": { "type": "string" },
@@ -808,8 +808,8 @@
                         "defaultTokenId": { "type": ["string", "null"] },
                         "required": { "type": "boolean" },
                         "exposeToOgraf": { "type": "boolean" },
-                        "options": { "type": "array", "items": { "$ref": "#/$defs/15" } },
-                        "constraints": { "$ref": "#/$defs/1l" },
+                        "options": { "type": "array", "items": { "$ref": "#/$defs/16" } },
+                        "constraints": { "$ref": "#/$defs/1m" },
                         "fileExtensions": { "$ref": "#/$defs/a" },
                         "properties": { "$ref": "#/$defs/e" },
                         "items": { "$ref": "#/$defs/j" }
@@ -944,9 +944,9 @@
                       ]
                     },
                     "name": { "type": "string" },
-                    "transform": { "$ref": "#/$defs/1h" },
-                    "element": { "$ref": "#/$defs/1v" },
-                    "effects": { "$ref": "#/$defs/1i" },
+                    "transform": { "$ref": "#/$defs/1i" },
+                    "element": { "$ref": "#/$defs/1w" },
+                    "effects": { "$ref": "#/$defs/1j" },
                     "index": { "$ref": "#/$defs/q" }
                   },
                   "required": ["kind"]
@@ -1018,8 +1018,8 @@
                     },
                     "namePattern": { "type": "string" },
                     "bindings": { "default": "clone", "enum": ["share", "clone", "clear"] },
-                    "fieldKeyRewrite": { "$ref": "#/$defs/14" },
-                    "labelRewrite": { "$ref": "#/$defs/14" }
+                    "fieldKeyRewrite": { "$ref": "#/$defs/15" },
+                    "labelRewrite": { "$ref": "#/$defs/15" }
                   },
                   "required": ["source", "count"]
                 },
@@ -1050,7 +1050,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "crop": { "anyOf": [{ "$ref": "#/$defs/1d" }, { "type": "null" }] },
+                    "crop": { "anyOf": [{ "$ref": "#/$defs/1e" }, { "type": "null" }] },
                     "coordinateSpace": { "default": "layer", "enum": ["layer", "composition"] },
                     "frame": { "$ref": "#/$defs/q" }
                   },
@@ -1161,6 +1161,8 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
+                    "layerIds": { "$ref": "#/$defs/o" },
+                    "layerNamePattern": { "$ref": "#/$defs/13" },
                     "side": { "enum": ["in", "out"] },
                     "spec": {
                       "anyOf": [
@@ -1405,7 +1407,9 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "patch": { "$ref": "#/$defs/1v" }
+                    "layerIds": { "$ref": "#/$defs/o" },
+                    "layerNamePattern": { "$ref": "#/$defs/13" },
+                    "patch": { "$ref": "#/$defs/1w" }
                   },
                   "required": ["patch"]
                 },
@@ -1442,9 +1446,11 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
+                    "layerIds": { "$ref": "#/$defs/o" },
+                    "layerNamePattern": { "$ref": "#/$defs/13" },
                     "scope": { "$ref": "#/$defs/k" },
                     "frame": { "$ref": "#/$defs/q" },
-                    "patch": { "$ref": "#/$defs/1h" }
+                    "patch": { "$ref": "#/$defs/1i" }
                   },
                   "required": ["patch"]
                 },
@@ -1456,7 +1462,7 @@
                     "layerName": { "type": "string" },
                     "scope": { "$ref": "#/$defs/k" },
                     "frame": { "$ref": "#/$defs/q" },
-                    "patch": { "$ref": "#/$defs/1i" }
+                    "patch": { "$ref": "#/$defs/1j" }
                   },
                   "required": ["patch"]
                 },
@@ -1466,11 +1472,11 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/1j" },
+                    "property": { "$ref": "#/$defs/1k" },
                     "frame": { "$ref": "#/$defs/q" },
                     "value": { "type": "number" },
-                    "easing": { "$ref": "#/$defs/1k" },
-                    "curve": { "$ref": "#/$defs/1a" }
+                    "easing": { "$ref": "#/$defs/1l" },
+                    "curve": { "$ref": "#/$defs/1b" }
                   },
                   "required": ["property", "frame", "value"]
                 },
@@ -1480,8 +1486,10 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/1j" },
-                    "keys": { "$ref": "#/$defs/1s" },
+                    "layerIds": { "$ref": "#/$defs/o" },
+                    "layerNamePattern": { "$ref": "#/$defs/13" },
+                    "property": { "$ref": "#/$defs/1k" },
+                    "keys": { "$ref": "#/$defs/1t" },
                     "replace": { "$ref": "#/$defs/4" }
                   },
                   "required": ["property", "keys"]
@@ -1559,8 +1567,8 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/1j" },
-                    "keys": { "$ref": "#/$defs/1s" },
+                    "property": { "$ref": "#/$defs/1k" },
+                    "keys": { "$ref": "#/$defs/1t" },
                     "replace": { "$ref": "#/$defs/4" }
                   },
                   "required": ["property", "keys"]
@@ -1571,8 +1579,8 @@
                     "compositionId": { "type": "string" },
                     "layerIds": { "$ref": "#/$defs/o" },
                     "layerNamePattern": { "$ref": "#/$defs/3" },
-                    "property": { "$ref": "#/$defs/1j" },
-                    "keys": { "$ref": "#/$defs/1s" },
+                    "property": { "$ref": "#/$defs/1k" },
+                    "keys": { "$ref": "#/$defs/1t" },
                     "frameOffset": { "$ref": "#/$defs/w" },
                     "replace": { "$ref": "#/$defs/4" }
                   },
@@ -1584,7 +1592,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/1j" },
+                    "property": { "$ref": "#/$defs/1k" },
                     "frame": { "$ref": "#/$defs/q" },
                     "loopElapsedFrames": { "$ref": "#/$defs/2" }
                   },
@@ -1596,7 +1604,7 @@
                     "compositionId": { "type": "string" },
                     "layerId": { "type": "string" },
                     "layerName": { "type": "string" },
-                    "property": { "$ref": "#/$defs/1j" },
+                    "property": { "$ref": "#/$defs/1k" },
                     "keyframeId": { "type": "string" }
                   },
                   "required": ["property", "keyframeId"]
@@ -1643,7 +1651,7 @@
                               "sourcePath": { "type": "array", "items": { "$ref": "#/$defs/3" } },
                               "valueMap": {
                                 "type": "object",
-                                "additionalProperties": { "$ref": "#/$defs/1o" }
+                                "additionalProperties": { "$ref": "#/$defs/1p" }
                               }
                             },
                             "required": ["fieldId"]
@@ -1655,7 +1663,7 @@
                               "sourcePath": { "type": "array", "items": { "$ref": "#/$defs/3" } },
                               "valueMap": {
                                 "type": "object",
-                                "additionalProperties": { "$ref": "#/$defs/1o" }
+                                "additionalProperties": { "$ref": "#/$defs/1p" }
                               }
                             },
                             "required": ["fieldKey"]
@@ -1737,7 +1745,7 @@
                     "compositionId": { "type": "string" },
                     "transitionId": { "type": "string" },
                     "durationFrames": { "$ref": "#/$defs/q" },
-                    "easing": { "$ref": "#/$defs/1k" }
+                    "easing": { "$ref": "#/$defs/1l" }
                   },
                   "required": ["transitionId"]
                 },
@@ -1750,15 +1758,15 @@
                     "compositionId": { "type": "string" },
                     "fieldId": { "type": "string" },
                     "fieldKey": { "type": "string" },
-                    "fieldType": { "$ref": "#/$defs/19" },
+                    "fieldType": { "$ref": "#/$defs/1a" },
                     "key": { "type": "string" },
                     "label": { "type": "string" },
                     "description": { "type": "string" },
                     "defaultValue": { "$ref": "#/$defs/0" },
                     "required": { "type": "boolean" },
                     "exposeToOgraf": { "type": "boolean" },
-                    "options": { "type": "array", "items": { "$ref": "#/$defs/15" } },
-                    "constraints": { "$ref": "#/$defs/1l" },
+                    "options": { "type": "array", "items": { "$ref": "#/$defs/16" } },
+                    "constraints": { "$ref": "#/$defs/1m" },
                     "fileExtensions": { "$ref": "#/$defs/a" },
                     "properties": { "$ref": "#/$defs/e" },
                     "items": { "$ref": "#/$defs/j" }
@@ -2112,20 +2120,20 @@
                       "type": "object",
                       "properties": {
                         "background": {
-                          "anyOf": [{ "$ref": "#/$defs/3" }, { "$ref": "#/$defs/1m" }]
+                          "anyOf": [{ "$ref": "#/$defs/3" }, { "$ref": "#/$defs/1n" }]
                         },
-                        "accent": { "anyOf": [{ "$ref": "#/$defs/3" }, { "$ref": "#/$defs/1m" }] },
+                        "accent": { "anyOf": [{ "$ref": "#/$defs/3" }, { "$ref": "#/$defs/1n" }] },
                         "primaryText": { "$ref": "#/$defs/3" },
                         "secondaryText": { "$ref": "#/$defs/3" }
                       },
                       "additionalProperties": false
                     },
                     "motion": {
-                      "anyOf": [{ "$ref": "#/$defs/1b" }, { "$ref": "#/$defs/1b" }],
+                      "anyOf": [{ "$ref": "#/$defs/1c" }, { "$ref": "#/$defs/1c" }],
                       "type": "object",
                       "properties": {
-                        "exitEasing": { "$ref": "#/$defs/1k" },
-                        "entranceEasing": { "$ref": "#/$defs/1k" },
+                        "exitEasing": { "$ref": "#/$defs/1l" },
+                        "entranceEasing": { "$ref": "#/$defs/1l" },
                         "exit": { "enum": ["left", "right", "up", "down", "none"] },
                         "style": { "enum": ["wipe", "stagger", "slide", "none"] },
                         "entrance": { "enum": ["left", "right", "up", "down", "none"] },
@@ -2139,7 +2147,7 @@
                       }
                     },
                     "fieldKey": { "$ref": "#/$defs/3" },
-                    "items": { "$ref": "#/$defs/1t" },
+                    "items": { "$ref": "#/$defs/1u" },
                     "speedPixelsPerSecond": { "type": "number", "minimum": 0, "maximum": 4000 },
                     "gap": { "$ref": "#/$defs/g" },
                     "direction": { "enum": ["left", "right"] },
@@ -2203,6 +2211,8 @@
                         "exclusion"
                       ]
                     },
+                    "layerIds": { "$ref": "#/$defs/o" },
+                    "layerNamePattern": { "$ref": "#/$defs/13" },
                     "name": { "type": "string" },
                     "semantics": {
                       "type": "object",
@@ -2283,7 +2293,7 @@
         "$defs": {
           "0": {
             "anyOf": [
-              { "$ref": "#/$defs/1m" },
+              { "$ref": "#/$defs/1n" },
               { "type": "string" },
               { "type": "number" },
               { "type": "boolean" },
@@ -2299,13 +2309,13 @@
               "key": { "$ref": "#/$defs/3" },
               "label": { "type": "string" },
               "description": { "type": "string" },
-              "fieldType": { "$ref": "#/$defs/19" },
+              "fieldType": { "$ref": "#/$defs/1a" },
               "nodosType": { "$ref": "#/$defs/10" },
               "defaultValue": { "$ref": "#/$defs/0" },
               "required": { "type": "boolean" },
               "exposeToOgraf": { "type": "boolean" },
-              "options": { "type": "array", "items": { "$ref": "#/$defs/15" } },
-              "constraints": { "$ref": "#/$defs/1l" },
+              "options": { "type": "array", "items": { "$ref": "#/$defs/16" } },
+              "constraints": { "$ref": "#/$defs/1m" },
               "fileExtensions": { "$ref": "#/$defs/a" },
               "properties": { "$ref": "#/$defs/e" },
               "items": { "$ref": "#/$defs/j" }
@@ -2331,36 +2341,22 @@
             "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
             "additionalProperties": false
           },
-          "14": {
+          "13": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Applies to every layer whose name matches; * is any run of characters."
+          },
+          "15": {
             "type": "object",
             "properties": { "from": { "type": "string" }, "to": { "type": "string" } },
             "required": ["from", "to"],
             "additionalProperties": false
           },
-          "15": {
+          "16": {
             "type": "object",
             "properties": { "value": { "type": "string" }, "label": { "type": "string" } },
             "required": ["value", "label"],
             "additionalProperties": false
-          },
-          "19": {
-            "enum": [
-              "text",
-              "textarea",
-              "number",
-              "integer",
-              "duration-ms",
-              "percentage",
-              "boolean",
-              "color",
-              "gradient",
-              "image-url",
-              "file-path",
-              "select",
-              "select-multiple",
-              "object",
-              "array"
-            ]
           },
           "a": { "type": "array", "items": { "type": "string" } },
           "e": { "type": "array", "items": { "$ref": "#/$defs/1" } },
@@ -2384,6 +2380,25 @@
             "additionalProperties": false
           },
           "1a": {
+            "enum": [
+              "text",
+              "textarea",
+              "number",
+              "integer",
+              "duration-ms",
+              "percentage",
+              "boolean",
+              "color",
+              "gradient",
+              "image-url",
+              "file-path",
+              "select",
+              "select-multiple",
+              "object",
+              "array"
+            ]
+          },
+          "1b": {
             "anyOf": [
               {
                 "type": "object",
@@ -2398,7 +2413,7 @@
               { "type": "null" }
             ]
           },
-          "1b": {
+          "1c": {
             "properties": {
               "style": {},
               "entrance": {},
@@ -2411,7 +2426,7 @@
             },
             "additionalProperties": false
           },
-          "1d": {
+          "1e": {
             "type": "object",
             "properties": {
               "x": { "type": "number" },
@@ -2422,7 +2437,7 @@
             "required": ["x", "y", "width", "height"],
             "additionalProperties": false
           },
-          "1h": {
+          "1i": {
             "type": "object",
             "properties": {
               "x": { "type": "number" },
@@ -2436,7 +2451,7 @@
             },
             "additionalProperties": false
           },
-          "1i": {
+          "1j": {
             "type": "object",
             "properties": {
               "blur": { "$ref": "#/$defs/2" },
@@ -2449,11 +2464,11 @@
             },
             "additionalProperties": false
           },
-          "1j": {
+          "1k": {
             "type": "string",
             "pattern": "^(x|y|width|height|rotation|opacity|scale|clip(Left|Right|Top|Bottom)|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\\.stops\\[(0|[1-9]\\d*)\\]\\.offset|(fill|strokePaint)\\.parameters\\.[A-Za-z_]\\w*(\\.[xyrgba])?|effects\\.[\\w-]+\\.(radius|offset[XY]|opacity|amount|angle)|modifiers\\.[\\w-]+\\.[A-Za-z]\\w*)$"
           },
-          "1k": {
+          "1l": {
             "enum": [
               "linear",
               "ease-in",
@@ -2491,7 +2506,7 @@
               "elastic-in-out"
             ]
           },
-          "1l": {
+          "1m": {
             "type": "object",
             "properties": {
               "maxLength": { "$ref": "#/$defs/q" },
@@ -2505,7 +2520,7 @@
             },
             "additionalProperties": false
           },
-          "1m": {
+          "1n": {
             "type": "object",
             "properties": {
               "type": { "enum": ["linear", "radial", "conic"] },
@@ -2528,7 +2543,7 @@
             "required": ["type", "angle", "stops"],
             "additionalProperties": false
           },
-          "1n": {
+          "1o": {
             "type": "object",
             "properties": {
               "name": { "$ref": "#/$defs/3" },
@@ -2549,15 +2564,15 @@
             },
             "additionalProperties": false
           },
-          "1o": {
+          "1p": {
             "anyOf": [
               { "type": "string" },
               { "type": "number" },
               { "type": "boolean" },
-              { "$ref": "#/$defs/1m" }
+              { "$ref": "#/$defs/1n" }
             ]
           },
-          "1s": {
+          "1t": {
             "minItems": 1,
             "type": "array",
             "items": {
@@ -2565,13 +2580,13 @@
               "properties": {
                 "frame": { "$ref": "#/$defs/q" },
                 "value": { "type": "number" },
-                "easing": { "$ref": "#/$defs/1k" },
-                "curve": { "$ref": "#/$defs/1a" }
+                "easing": { "$ref": "#/$defs/1l" },
+                "curve": { "$ref": "#/$defs/1b" }
               },
               "required": ["frame", "value"]
             }
           },
-          "1t": {
+          "1u": {
             "maxItems": 128,
             "type": "array",
             "items": {
@@ -2616,10 +2631,10 @@
               "additionalProperties": false
             }
           },
-          "1v": {
+          "1w": {
             "type": "object",
             "properties": {
-              "items": { "$ref": "#/$defs/1t" },
+              "items": { "$ref": "#/$defs/1u" },
               "speedPixelsPerSecond": { "type": "number", "minimum": 0, "maximum": 2000 },
               "gap": { "$ref": "#/$defs/g" },
               "direction": {

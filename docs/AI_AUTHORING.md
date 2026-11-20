@@ -596,6 +596,11 @@ Four operations left the list without a replacement: `add_canvas_guide`, `update
 and `remove_canvas_guide` place guides that help a person's eye in the editor, and
 `set_review_approval` records an approval that is a person's to give in Studio.
 
+`update_element`, `update_transform`, `update_layer`, `set_property_track` and `set_layer_motion`
+also accept `layerIds`, or a `layerNamePattern` in which `*` stands for any run of characters, in
+place of one layer. The same change is then applied to each of those layers, and the batch still
+succeeds or fails as a whole.
+
 One sent operation can stand for several applied ones. The result of a batch names the operation
 that was sent and its position in the sent batch.
 

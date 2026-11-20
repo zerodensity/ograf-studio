@@ -266,6 +266,15 @@ export const propertySchema = z
 const compositionId = z.string().optional();
 const layerId = z.string().optional();
 const layerName = z.string().optional();
+/** Several layers in place of one: the operation is applied to each, in the given or paint order. */
+const severalLayers = {
+  layerIds: z.array(z.string()).min(1).optional(),
+  layerNamePattern: z
+    .string()
+    .min(1)
+    .describe('Applies to every layer whose name matches; * is any run of characters.')
+    .optional(),
+};
 const frame = z.number().int().nonnegative();
 const curve = z
   .object({ x1: z.number(), y1: z.number(), x2: z.number(), y2: z.number() })
@@ -1438,6 +1447,7 @@ const engineOperationVariants = [
     compositionId,
     layerId,
     layerName,
+    ...severalLayers,
     side: z.enum(['in', 'out']),
     spec: layerMotionSpecSchema.nullable(),
   }),
@@ -1681,6 +1691,7 @@ const engineOperationVariants = [
     compositionId,
     layerId,
     layerName,
+    ...severalLayers,
     patch: elementPatchSchema,
   }),
   z.object({
@@ -1701,6 +1712,7 @@ const engineOperationVariants = [
     compositionId,
     layerId,
     layerName,
+    ...severalLayers,
     scope: z.enum(['authored', 'frame']).default('authored'),
     frame: frame.optional(),
     patch: transform,
@@ -1730,6 +1742,7 @@ const engineOperationVariants = [
     compositionId,
     layerId,
     layerName,
+    ...severalLayers,
     property: propertySchema,
     keys: z
       .array(
@@ -2142,6 +2155,7 @@ const mergedOperationVariants = [
   z.object({
     type: z.literal('update_layer'),
     ...argumentsOf('set_layer_flags'),
+    ...severalLayers,
     name: z.string().optional(),
     semantics: argumentsOf('set_layer_semantics').patch!.optional(),
   }),

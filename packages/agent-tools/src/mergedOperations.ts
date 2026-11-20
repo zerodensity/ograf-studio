@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 import type { Composition } from '@ograf-editor/scene-model';
-import { engineOperationSchema } from './schemas';
+import { authoringOperationSchema } from './schemas';
 
 /**
  * Earlier operation names that a listed operation now covers, and four that only help a person in
@@ -68,6 +68,46 @@ const pick = (operation: Operation, ...keys: string[]): Operation =>
 
 const LAYER = ['compositionId', 'layerId', 'layerName'] as const;
 
+/** Operations that take `layerIds` or `layerNamePattern` and apply to each of those layers. */
+const SEVERAL_LAYER_OPERATIONS = new Set([
+  'update_element',
+  'update_transform',
+  'update_layer',
+  'set_layer_motion',
+  'set_property_track',
+]);
+
+/** Matches a whole layer name; `*` stands for any run of characters. */
+export function wildcardNameMatcher(pattern: string): RegExp {
+  const escaped = pattern
+    .split('*')
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*');
+  return new RegExp(`^${escaped}$`);
+}
+
+/** One copy of the operation per addressed layer, or undefined when it addresses one layer. */
+function perLayer(operation: Operation, composition: Composition): Operation[] | undefined {
+  const { layerIds, layerNamePattern, ...single } = operation;
+  if (layerIds === undefined && layerNamePattern === undefined) return undefined;
+  if (
+    (layerIds !== undefined && layerNamePattern !== undefined) ||
+    single.layerId !== undefined ||
+    single.layerName !== undefined
+  )
+    throw new Error('pass one of layerId, layerName, layerIds or layerNamePattern.');
+  if (single.type === 'update_layer' && single.name !== undefined)
+    throw new Error('a name applies to one layer; pass layerId or layerName with it.');
+  const ids =
+    (layerIds as string[] | undefined) ??
+    composition.layers
+      .filter((layer) => wildcardNameMatcher(String(layerNamePattern)).test(layer.name))
+      .map((layer) => layer.id);
+  if (ids.length === 0)
+    throw new Error(`layerNamePattern ${JSON.stringify(layerNamePattern)} matched no layers.`);
+  return ids.map((layerId) => ({ ...single, layerId }));
+}
+
 /**
  * The earlier operations that do what a covering operation asks, read against the project as it
  * stands when this operation's turn comes. Undefined for an operation the engine applies as written.
@@ -76,6 +116,10 @@ function coveredOperations(
   operation: Operation,
   composition: Composition,
 ): Operation[] | undefined {
+  if (SEVERAL_LAYER_OPERATIONS.has(String(operation.type))) {
+    const each = perLayer(operation, composition);
+    if (each) return each;
+  }
   const { type, ...rest } = operation;
   switch (type) {
     case 'set_data_field': {
@@ -246,7 +290,7 @@ export function expandMergedOperation(
 ): Operation[] | undefined {
   const covered = coveredOperations(operation, composition);
   return covered?.map((step) => {
-    const parsed = engineOperationSchema.safeParse(step);
+    const parsed = authoringOperationSchema.safeParse(step);
     if (!parsed.success) throw new Error(`${operation.type}: ${z.prettifyError(parsed.error)}`);
     return parsed.data as Operation;
   });

@@ -1,6 +1,10 @@
 import { coordinatedExportFile } from './coordinatedExportFile';
 import { mergeToolRecords } from './mergedTools';
-import { expandMergedOperation, listedOperationsSchema } from './mergedOperations';
+import {
+  expandMergedOperation,
+  listedOperationsSchema,
+  wildcardNameMatcher,
+} from './mergedOperations';
 import { IN_APP_MERGED_TOOL_NAMES } from './inAppTools';
 import {
   registerToolResultPager,
@@ -1366,14 +1370,6 @@ function componentLinkSummary(link: Composition['layers'][number]['componentLink
     fieldOverridePaths: link.fieldOverridePaths ?? {},
     ...(link.offset ? { offset: link.offset } : {}),
   };
-}
-
-function wildcardNameMatcher(pattern: string): RegExp {
-  const escaped = pattern
-    .split('*')
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('.*');
-  return new RegExp(`^${escaped}$`);
 }
 
 function reserveComponentInstanceIdentity(definition: Composition['components'][number]) {

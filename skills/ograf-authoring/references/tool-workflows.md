@@ -138,6 +138,9 @@ Supported operation discriminators:
 - Data: `set_data_field`, `remove_data_field`, `set_layer_bindings`, `set_runtime_collection`,
   `remove_runtime_collection`
 - Actions: `set_custom_action`, `remove_custom_action`
+- Several layers at once: `update_element`, `update_transform`, `update_layer`,
+  `set_property_track` and `set_layer_motion` take `layerIds` or a `layerNamePattern` in place of
+  one layer and apply the same change to each
 
 A `set_` operation creates its item, or changes the one its ID or key names.
 

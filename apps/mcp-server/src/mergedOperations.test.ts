@@ -7,7 +7,11 @@ import {
   providerToolDefinitions,
   UNLISTED_OPERATION_TYPES,
 } from '@ograf-editor/agent-tools';
-import { computeKeyframeFrames, type Composition } from '@ograf-editor/scene-model';
+import {
+  computeKeyframeFrames,
+  getLayerTransformAtFrame,
+  type Composition,
+} from '@ograf-editor/scene-model';
 import { createOGrafAuthoringHost } from './index';
 import { createOGrafMcpServer } from './mcpServer';
 
@@ -259,6 +263,59 @@ describe('merged agent operations', () => {
     expect(tokens).toBeGreaterThan(0);
     await applied([{ type: 'apply_style_pack', stylePack: null }]);
     expect(composition().designSystem.tokens.length).toBeLessThan(tokens);
+  });
+
+  it('applies one operation to several layers, by IDs or by a name pattern', async () => {
+    const { composition, applied, apply } = await session();
+    await applied([
+      { type: 'add_layer', kind: 'rectangle', name: 'Row 1 · Plate' },
+      { type: 'add_layer', kind: 'rectangle', name: 'Row 2 · Plate' },
+      { type: 'add_layer', kind: 'text', name: 'Title' },
+    ]);
+    const [first, second, title] = composition().layers;
+    await applied([
+      { type: 'update_transform', layerNamePattern: 'Row * · Plate', patch: { width: 640 } },
+      { type: 'update_layer', layerNamePattern: 'Row *', semantics: { role: 'container' } },
+      {
+        type: 'set_property_track',
+        layerIds: [second!.id, first!.id],
+        property: 'opacity',
+        keys: [
+          { frame: 0, value: 0 },
+          { frame: 10, value: 1 },
+        ],
+      },
+    ]);
+    const layers = composition().layers;
+    expect(layers.map((layer) => getLayerTransformAtFrame(layer, 0).width)).toEqual([
+      640,
+      640,
+      getLayerTransformAtFrame(title!, 0).width,
+    ]);
+    expect(layers.map((layer) => layer.semantics.role)).toEqual([
+      'container',
+      'container',
+      title!.semantics.role,
+    ]);
+    for (const layer of layers.slice(0, 2))
+      expect(layer.animationTracks.opacity?.map((key) => [key.frame, key.value])).toEqual([
+        [0, 0],
+        [10, 1],
+      ]);
+    expect(layers[2]!.animationTracks.opacity).toEqual(title!.animationTracks.opacity);
+
+    for (const [operation, message] of [
+      [{ layerNamePattern: 'Row *', layerName: 'Title' }, 'pass one of layerId, layerName'],
+      [{ layerNamePattern: 'Column *' }, 'matched no layers'],
+    ] as const) {
+      const refused = await apply([{ type: 'update_element', patch: {}, ...operation }]);
+      expect(refused.isError).toBe(true);
+      expect(text(refused)).toContain('Operation 0: ');
+      expect(text(refused)).toContain(message);
+    }
+    const renamed = await apply([{ type: 'update_layer', layerNamePattern: 'Row *', name: 'Row' }]);
+    expect(renamed.isError).toBe(true);
+    expect(text(renamed)).toContain('a name applies to one layer');
   });
 
   it('adds and patches a data connection through one operation', async () => {
