@@ -17,7 +17,7 @@ import {
   type CompiledChartMarkAnimations,
   type LayerEffects,
 } from '@ograf-editor/scene-model';
-import type { CompiledLayer } from '@ograf-editor/ograf-types';
+import type { CompiledGraphicDescriptor, CompiledLayer } from '@ograf-editor/ograf-types';
 import {
   resolveVisualRuleEffects,
   resolveVisualRuleElement,
@@ -33,6 +33,7 @@ import {
   disposeShader,
   mountShader,
   renderShaderAtTime,
+  shaderBackingSizeForLayer,
   updateShaderParameters,
 } from './shaderRendering';
 import {
@@ -40,6 +41,7 @@ import {
   mountShaderPaintContent,
   renderShaderPaintAtTime,
   shaderPaintBaseHost,
+  shaderStrokePaddingForLayer,
   updateShaderPaintContent,
   waitForShaderPaintContentReady,
 } from './shaderPaintRendering';
@@ -174,6 +176,25 @@ export interface ElementContentRenderOptions {
   chartMarkAnimations?: CompiledChartMarkAnimations | undefined;
   /** An image already loaded and decoded for this source, used instead of fetching it again. */
   stagedImage?: { src: string; image: HTMLImageElement } | undefined;
+}
+
+export function compiledLayerContentOptions(
+  descriptor: Pick<CompiledGraphicDescriptor, 'frameRate' | 'rendererPlugins'>,
+  layer: CompiledLayer,
+  element = layer.element,
+): ElementContentRenderOptions {
+  return {
+    frameRate: descriptor.frameRate,
+    rendererPlugins: descriptor.rendererPlugins,
+    chartMarkAnimations: layer.chartMarkAnimations,
+    ...(element.type === 'lottie' ? { lottieBackingSize: lottieBackingSizeForLayer(layer) } : {}),
+    ...(hasElementShaderPaint(element) || hasElementMediaPaint(element)
+      ? {
+          shaderBackingSize: shaderBackingSizeForLayer(layer),
+          shaderStrokePadding: shaderStrokePaddingForLayer(layer),
+        }
+      : {}),
+  };
 }
 
 function constrainLottieBackingSize(
