@@ -1,7 +1,9 @@
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 /** Content whose picture is not in its markup and inline styles, or that a copy cannot load. */
 const UNSUPPORTED_CONTENT =
-  'video, picture, iframe, object, embed, slot, input, textarea, select, link';
+  'video:not([data-ograf-media-clip]), picture, iframe, object, embed, slot, input, textarea, select, link';
+/** What a Media paint draws from. Its canvas holds the picture; the source itself shows nothing. */
+const MEDIA_SOURCE = '[data-ograf-media-clip], [data-ograf-media-live]';
 const KEYFRAME_FIELDS = new Set(['offset', 'computedOffset', 'easing', 'composite']);
 const CSS_URL = /url\(\s*(["']?)([^"')]+)\1\s*\)/g;
 const LAYER_MASK_CONTENT = '[data-ograf-layer-mask-id]';
@@ -71,6 +73,8 @@ const BOX_PROPERTIES = [
   'overflow-x',
   'overflow-y',
 ];
+/** What a shadow tree's own stylesheet may give its host, which a copy leaves behind with that tree. */
+const HOST_PROPERTIES = [...BOX_PROPERTIES, 'isolation', 'opacity'];
 
 type TreeElement = HTMLElement | SVGElement;
 
@@ -91,6 +95,7 @@ export interface SelfStyledCaptureOptions {
    * The tree is a part of a page, not a whole picture. Its copy then also takes what the page
    * gives it and its markup does not hold: what its root inherits from the elements around it,
    * such as a font or a text colour set further up, and the box of each element that has a class.
+   * A shadow tree's host takes its box in any case.
    */
   partOfPage?: boolean;
   /**
@@ -99,7 +104,7 @@ export interface SelfStyledCaptureOptions {
    * it plays: a graphic opened from disk can read none of its files.
    */
   skipUnreadable?: boolean;
-  /** The last word on one element's copy, for a look that is in neither its markup nor its animations. */
+  /** The last word on the copy of an element under the root, for a look its markup does not hold. */
   adjust?: (original: TreeElement, copy: TreeElement) => void;
   /**
    * The resources already read for this tree, by address. Give the same map to every capture of
@@ -111,24 +116,17 @@ export interface SelfStyledCaptureOptions {
 
 /**
  * Whether a tree draws the same from its own markup as it does in the page. It does when nothing in
- * it gets its look from outside: no shadow tree, embedded document or form control, no SVG symbol
- * defined elsewhere, no animated pseudo-element.
+ * it gets its look from outside: no embedded document or form control, no SVG symbol defined
+ * elsewhere, no animated pseudo-element.
  */
 export function canCaptureSelfStyled(root: HTMLElement): boolean {
   return selfStyledCaptureObstacle(root) === null;
 }
 
 /** What in a tree its own markup cannot draw, in words for an error, or null when nothing is. */
-export function selfStyledCaptureObstacle(root: HTMLElement): string | null {
+export function selfStyledCaptureObstacle(root: HTMLElement | ShadowRoot): string | null {
   const unsupported = root.querySelector(UNSUPPORTED_CONTENT);
   if (unsupported) return `<${unsupported.localName}> content`;
-  for (const target of root.querySelectorAll<HTMLElement>(LAYER_MASK_CONTENT)) {
-    // A backdrop crop can combine its own image with the layer mask.
-    if (target.style.maskImage !== `url("#${target.dataset.ografLayerMaskId}")`)
-      return 'a mask combined with another image';
-  }
-  for (const element of root.querySelectorAll('*'))
-    if (element.shadowRoot) return 'an element with its own shadow tree';
   for (const use of root.querySelectorAll('use')) {
     const reference = use.getAttribute('href') ?? use.getAttribute('xlink:href') ?? '';
     if (
@@ -137,10 +135,57 @@ export function selfStyledCaptureObstacle(root: HTMLElement): string | null {
     )
       return 'an SVG symbol defined outside the layer';
   }
-  const pseudo = root
-    .getAnimations({ subtree: true })
-    .some(({ effect }) => Boolean((effect as KeyframeEffect | null)?.pseudoElement));
-  return pseudo ? 'an animated pseudo-element' : null;
+  const animations = 'host' in root ? root.getAnimations() : root.getAnimations({ subtree: true });
+  if (animations.some(({ effect }) => Boolean((effect as KeyframeEffect | null)?.pseudoElement)))
+    return 'an animated pseudo-element';
+  // A shadow tree is copied in place of its host's children, so it is held to the same.
+  for (const element of root.querySelectorAll(`*:not(${MEDIA_SOURCE})`)) {
+    const obstacle = element.shadowRoot && selfStyledCaptureObstacle(element.shadowRoot);
+    if (obstacle) return obstacle;
+  }
+  return null;
+}
+
+/** Splits a comma-separated value, leaving commas inside quotes and brackets alone. */
+export function splitList(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote = '';
+  let current = '';
+  for (const char of value) {
+    if (quote) {
+      if (char === quote) quote = '';
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === '(') depth += 1;
+    else if (char === ')') depth -= 1;
+    else if (char === ',' && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+/**
+ * One item of a comma-separated mask property replaced, for the mask image at `index` of `length`.
+ * A list shorter than the images repeats, as CSS reads it; an empty one holds `initial`.
+ */
+export function withMaskListItem(
+  list: string,
+  length: number,
+  index: number,
+  value: string,
+  initial: string,
+): string {
+  const items = splitList(list);
+  const full = Array.from({ length }, (_, at) =>
+    items.length ? items[at % items.length]! : initial,
+  );
+  full[index] = value;
+  return full.join(', ');
 }
 
 /** A keyframe names a property as script does: `backgroundColor`, `cssFloat`, `--custom`. */
@@ -151,10 +196,12 @@ export function keyframePropertyName(field: string): string {
   return field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
-/** The properties a running animation holds on each element: their value is not in the markup. */
-function animatedProperties(root: HTMLElement): Map<Element, Set<string>> {
-  const properties = new Map<Element, Set<string>>();
-  for (const { effect } of root.getAnimations({ subtree: true })) {
+/** Adds the properties running animations hold on their elements: such a value is not in the markup. */
+function noteAnimatedProperties(
+  animations: readonly Animation[],
+  properties: Map<Element, Set<string>>,
+): void {
+  for (const { effect } of animations) {
     const keyframes = effect as KeyframeEffect | null;
     if (!keyframes?.target || typeof keyframes.getKeyframes !== 'function') continue;
     let names = properties.get(keyframes.target);
@@ -163,7 +210,6 @@ function animatedProperties(root: HTMLElement): Map<Element, Set<string>> {
       for (const field of Object.keys(keyframe))
         if (!KEYFRAME_FIELDS.has(field)) names.add(keyframePropertyName(field));
   }
-  return properties;
 }
 
 /**
@@ -199,7 +245,10 @@ export async function readAsDataUrl(owner: Window, url: string): Promise<string>
   });
 }
 
-/** Converts layer mask fragments to standalone alpha images, which a copy drawn on its own needs. */
+/**
+ * Converts layer mask fragments to standalone alpha images, which a copy drawn on its own needs. A
+ * backdrop crop may hold its own image beside the layer's mask; that one stays as it is.
+ */
 export function bakeLayerCaptureMasks(cloned: HTMLElement): void {
   for (const target of cloned.querySelectorAll<HTMLElement>(LAYER_MASK_CONTENT)) {
     const id = target.dataset.ografLayerMaskId!;
@@ -220,10 +269,33 @@ export function bakeLayerCaptureMasks(cloned: HTMLElement): void {
     rect.setAttribute('fill', 'white');
     rect.setAttribute('mask', `url(#${id})`);
     svg.appendChild(rect);
-    target.style.maskImage = `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}")`;
-    target.style.maskMode = 'alpha';
-    target.style.maskSize = '100% 100%';
-    target.style.maskRepeat = 'no-repeat';
+    const baked = `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}")`;
+    const images = splitList(target.style.maskImage);
+    const at = images.indexOf(`url("#${id}")`);
+    if (at < 0) {
+      target.style.maskImage = baked;
+      target.style.maskMode = 'alpha';
+      target.style.maskSize = '100% 100%';
+      target.style.maskRepeat = 'no-repeat';
+      continue;
+    }
+    const count = images.length;
+    target.style.maskImage = withMaskListItem(target.style.maskImage, count, at, baked, 'none');
+    target.style.maskMode = withMaskListItem(
+      target.style.maskMode,
+      count,
+      at,
+      'alpha',
+      'match-source',
+    );
+    target.style.maskSize = withMaskListItem(target.style.maskSize, count, at, '100% 100%', 'auto');
+    target.style.maskRepeat = withMaskListItem(
+      target.style.maskRepeat,
+      count,
+      at,
+      'no-repeat',
+      'repeat',
+    );
   }
 }
 
@@ -287,23 +359,19 @@ export function selfStyledCapture(
       return data;
     };
 
-    /** A class may place and size an element from a stylesheet, which the copy does not have. */
-    const takeClassBox = (original: TreeElement, copy: TreeElement) => {
-      if (!original.hasAttribute('class')) return;
+    /** What a stylesheet gives an element and its markup does not hold goes onto its copy. */
+    const take = (original: TreeElement, copy: TreeElement, properties: readonly string[]) => {
       const current = view.getComputedStyle(original);
-      for (const name of BOX_PROPERTIES)
+      for (const name of properties)
         if (!copy.style.getPropertyValue(name))
           copy.style.setProperty(name, current.getPropertyValue(name));
     };
 
     // A document nothing is shown in: its images do not load and nothing in it runs.
     const inert = owner.implementation.createHTMLDocument('');
-    const copyRoot = inert.importNode(root, true);
-    const originals = root.querySelectorAll<TreeElement>('*');
-    const copies = copyRoot.querySelectorAll<TreeElement>('*');
-    const animated = animatedProperties(root);
+    const animated = new Map<Element, Set<string>>();
+    noteAnimatedProperties(root.getAnimations({ subtree: true }), animated);
     const embedding: Promise<void>[] = [];
-    let omitted: Element | null = null;
     const embedInlineStyle = (styled: TreeElement) => {
       const style = styled.getAttribute('style');
       if (!style?.includes('url(')) return;
@@ -313,60 +381,78 @@ export function selfStyledCapture(
         }),
       );
     };
-    for (const [index, original] of originals.entries()) {
-      if (omitted?.contains(original)) continue;
-      let copy = copies[index]!;
-      if (options.filter && 'dataset' in original && !options.filter(original as HTMLElement)) {
-        copy.remove();
-        omitted = original;
-        continue;
-      }
+    /** The copy of one element with everything in it, or null for one the filter leaves out. */
+    const copyOf = (original: TreeElement, isRoot: boolean): TreeElement | null => {
+      if (!isRoot && original.matches(MEDIA_SOURCE)) return null;
+      if (
+        !isRoot &&
+        options.filter &&
+        'dataset' in original &&
+        !options.filter(original as HTMLElement)
+      )
+        return null;
+      const copy = inert.importNode(original, false);
       const names = animated.get(original);
       if (names) {
         const current = view.getComputedStyle(original);
         for (const name of names) copy.style.setProperty(name, current.getPropertyValue(name));
       }
-      if (options.partOfPage) takeClassBox(original, copy);
-      options.adjust?.(original, copy);
+      const shadow = original.shadowRoot;
+      if (shadow) take(original, copy, HOST_PROPERTIES);
+      // A class may place and size an element from a stylesheet, which the copy does not have.
+      else if (options.partOfPage && original.hasAttribute('class'))
+        take(original, copy, BOX_PROPERTIES);
+      if (!isRoot) options.adjust?.(original, copy);
       if (original.localName === 'canvas' && original.namespaceURI !== SVG_NAMESPACE) {
         const drawn = (original as HTMLCanvasElement).toDataURL();
         // A canvas with no area has no picture; its empty copy stands for it.
-        if (drawn !== 'data:,') {
-          const picture = inert.createElement('img');
-          for (const { name, value } of copy.attributes) picture.setAttribute(name, value);
-          picture.setAttribute('src', drawn);
-          copy.replaceWith(picture);
-          copy = picture;
-        }
-      } else if (original.localName === 'img' && original.namespaceURI !== SVG_NAMESPACE) {
+        if (drawn === 'data:,') return copy;
+        const picture = inert.createElement('img');
+        for (const { name, value } of copy.attributes) picture.setAttribute(name, value);
+        picture.setAttribute('src', drawn);
+        embedInlineStyle(picture);
+        return picture;
+      }
+      if (original.localName === 'img' && original.namespaceURI !== SVG_NAMESPACE) {
         const image = original as HTMLImageElement;
         const source = image.currentSrc || image.src;
-        const picture = copy;
         // The copy is drawn once, straight after it loads: a picture may not wait to be scrolled to.
-        picture.removeAttribute('loading');
+        copy.removeAttribute('loading');
         if (source && !source.startsWith('data:'))
           embedding.push(
             embed(source).then((data) => {
-              picture.removeAttribute('srcset');
-              picture.setAttribute('src', data);
+              copy.removeAttribute('srcset');
+              copy.setAttribute('src', data);
             }),
           );
       } else if (original.localName === 'image' && original.namespaceURI === SVG_NAMESPACE) {
         const source = (original as SVGImageElement).href.baseVal;
-        const picture = copy;
         if (source && !source.startsWith('data:'))
           embedding.push(
             embed(source).then((data) => {
-              picture.removeAttribute('xlink:href');
-              picture.setAttribute('href', data);
+              copy.removeAttribute('xlink:href');
+              copy.setAttribute('href', data);
             }),
           );
       }
       embedInlineStyle(copy);
-    }
+      // A shadow tree is what its host shows, so it is copied in place of the host's own children.
+      if (shadow) noteAnimatedProperties(shadow.getAnimations(), animated);
+      for (const child of (shadow ?? original).childNodes) {
+        if (child.nodeType === 1) {
+          const element = child as TreeElement;
+          // A shadow tree's stylesheet reaches no further than that tree; a copy has no such border.
+          if (shadow && element.localName === 'style') continue;
+          const childCopy = copyOf(element, false);
+          if (childCopy) copy.appendChild(childCopy);
+        } else if (child.nodeType === 3 || child.nodeType === 4)
+          copy.appendChild(inert.importNode(child, false));
+      }
+      return copy;
+    };
+    const copyRoot = copyOf(root, true) as HTMLElement;
 
     if (options.partOfPage) {
-      takeClassBox(root, copyRoot);
       const inherited = view.getComputedStyle(root);
       for (const name of INHERITED_PROPERTIES) {
         if (copyRoot.style.getPropertyValue(name)) continue;
@@ -377,7 +463,6 @@ export function selfStyledCapture(
         if (value) copyRoot.style.setProperty(name, value);
       }
     }
-    embedInlineStyle(copyRoot);
     await abortable(Promise.all(embedding), signal);
     if (copyRoot.querySelector(LAYER_MASK_CONTENT)) bakeLayerCaptureMasks(copyRoot);
 

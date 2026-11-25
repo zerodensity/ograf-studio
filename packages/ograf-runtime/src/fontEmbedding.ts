@@ -1,4 +1,4 @@
-import { embedStyleUrls, readAsDataUrl } from './selfStyledCapture';
+import { embedStyleUrls, readAsDataUrl, splitList } from './selfStyledCapture';
 
 /** `CSSRule.FONT_FACE_RULE`, read as a number so a rule of another window's document matches too. */
 const FONT_FACE_RULE = 5;
@@ -23,29 +23,6 @@ function normalizeFamily(family: string): string {
     .trim()
     .replace(/^(["'])(.*)\1$/, '$2')
     .toLowerCase();
-}
-
-/** Splits a comma-separated value, leaving commas inside quotes and brackets alone. */
-function splitList(value: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let quote = '';
-  let current = '';
-  for (const char of value) {
-    if (quote) {
-      if (char === quote) quote = '';
-    } else if (char === '"' || char === "'") quote = char;
-    else if (char === '(') depth += 1;
-    else if (char === ')') depth -= 1;
-    else if (char === ',' && depth === 0) {
-      parts.push(current.trim());
-      current = '';
-      continue;
-    }
-    current += char;
-  }
-  if (current.trim()) parts.push(current.trim());
-  return parts;
 }
 
 /** One file of a face's `src` list, the one a browser of today reads first, with an absolute address. */
@@ -119,13 +96,13 @@ export function declareFontFaces(target: Document, key: string, css: string): ()
   };
 }
 
-/** The families text under `root` may be set in: its own, its descendants' and what it inherits. */
-function usedFamilies(root: HTMLElement, view: Window): Set<string> {
+/** The families text under `root` may be set in: its descendants', and what it inherits if asked. */
+function usedFamilies(root: HTMLElement, view: Window, inherited: boolean): Set<string> {
   const families = new Set<string>();
   const add = (value: string | null | undefined) => {
     for (const family of splitList(value ?? '')) families.add(normalizeFamily(family));
   };
-  add(view.getComputedStyle(root).fontFamily);
+  add(inherited ? view.getComputedStyle(root).fontFamily : root.style.fontFamily);
   for (const element of root.querySelectorAll<HTMLElement | SVGElement>('[style*="font"]'))
     add(element.style.fontFamily);
   for (const element of root.querySelectorAll('[font-family]'))
@@ -161,13 +138,14 @@ export function unicodeRangeCovers(unicodeRange: string, text: string): boolean 
  *
  * Faces come from the stylesheets of the document and of the shadow tree `root` is in, and from
  * `declareFontFaces`. A face the text has no character for is left out, and so is one whose file
- * cannot be read, such as any file of a graphic opened from disk.
+ * cannot be read, such as any file of a graphic opened from disk. A tree that is a whole picture
+ * takes no font from the page around it: pass `inherited` as false for it.
  */
-export async function usedFontFaceCss(root: HTMLElement): Promise<string> {
+export async function usedFontFaceCss(root: HTMLElement, inherited = true): Promise<string> {
   const owner = root.ownerDocument;
   const view = owner.defaultView;
   if (!view) return '';
-  const families = usedFamilies(root, view);
+  const families = usedFamilies(root, view, inherited);
   const text = root.textContent ?? '';
   const scope = root.getRootNode() as Document | ShadowRoot;
   const sheets = [

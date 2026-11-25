@@ -9,7 +9,7 @@ function cssString(value: string): string {
   return `"${value.replace(/[\\"\u0000-\u001f\u007f]/g, (char) => `\\${char.charCodeAt(0).toString(16)} `)}"`;
 }
 
-/** JS-registered FontFace objects are invisible to html-to-image's stylesheet discovery. */
+/** The `@font-face` rules of a project's fonts. Faces registered by script are in no stylesheet. */
 export function projectFontFaceCss(assets: readonly Asset[]): string {
   const descriptor = (value: string) =>
     value.replace(/[\\;{}\r\n\f]/g, (char) => `\\${char.charCodeAt(0).toString(16)} `);

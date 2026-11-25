@@ -5,7 +5,7 @@ import {
   type SelfStyledCaptureOptions as MarkupCaptureOptions,
 } from '@ograf-editor/ograf-runtime/src/selfStyledCapture';
 
-export { canCaptureSelfStyled } from '@ograf-editor/ograf-runtime/src/selfStyledCapture';
+export { selfStyledCaptureObstacle } from '@ograf-editor/ograf-runtime/src/selfStyledCapture';
 
 export type SelfStyledCaptureOptions = Pick<
   MarkupCaptureOptions,
@@ -56,7 +56,7 @@ function keepMaskedCaptureLayout(
 
 /**
  * Draws a capture tree from its own markup, time after time, with the runtime's drawer. Check
- * `canCaptureSelfStyled` before each call.
+ * `selfStyledCaptureObstacle` before each call.
  */
 export function selfStyledCapture(
   root: HTMLElement,

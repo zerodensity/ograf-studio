@@ -1,11 +1,8 @@
-import type { Asset } from '@ograf-editor/scene-model';
-
 /** One-shot snapshot of the live stage. It does no work until the user samples a pixel. */
 export async function sampleLiveShaderStage(
   stage: HTMLElement,
   clientX: number,
   clientY: number,
-  assets: readonly Asset[],
 ): Promise<Uint8ClampedArray> {
   if (stage.querySelector('video, [data-ograf-media-canvas]')) {
     throw new Error('Live or video media cannot be sampled reliably. Use the system eyedropper.');
@@ -55,23 +52,13 @@ export async function sampleLiveShaderStage(
       throw new Error('This shader contains restricted pixels. Use the system eyedropper.');
     }
   }
-  const width = stage.offsetWidth,
-    height = stage.offsetHeight;
-  if (!width || !height) throw new Error('The Studio canvas has no drawable size.');
-  const { rasterize } = await import('../state/agentCapture');
-  const raster = await rasterize(stage, width, height, Math.max(width, height), undefined, assets);
-  const image = stage.ownerDocument.createElement('img');
-  image.src = `data:image/png;base64,${raster.data}`;
-  await image.decode();
-  const canvas = stage.ownerDocument.createElement('canvas');
-  canvas.width = raster.width;
-  canvas.height = raster.height;
+  const { stagePicture } = await import('./stagePicture');
+  const canvas = await stagePicture(stage);
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas sampling is unavailable.');
-  context.drawImage(image, 0, 0);
   const pixel = context.getImageData(
-    Math.floor(((clientX - rect.left) * raster.width) / rect.width),
-    Math.floor(((clientY - rect.top) * raster.height) / rect.height),
+    Math.floor(((clientX - rect.left) * canvas.width) / rect.width),
+    Math.floor(((clientY - rect.top) * canvas.height) / rect.height),
     1,
     1,
   ).data;
