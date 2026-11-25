@@ -30,7 +30,6 @@ describe('responsive template set archiving', () => {
     const worker = TestWorker.instances[0]!;
     expect(worker.postMessage).toHaveBeenCalledWith({
       set,
-      legacyFormat: undefined,
       archiveMode: 'compatible',
     });
     const blob = new Blob(['archive']);
@@ -43,7 +42,7 @@ describe('responsive template set archiving', () => {
     const onProgress = vi.fn();
     const saving = createProjectSetArchiveTask(set, { onProgress });
     const worker = TestWorker.instances[0]!;
-    expect(worker.postMessage).toHaveBeenCalledWith({ set, legacyFormat: undefined });
+    expect(worker.postMessage).toHaveBeenCalledWith({ set });
     const progress = { phase: 'templates', percent: 30, message: 'Preparing template' };
     worker.emit({ type: 'progress', progress });
     expect(onProgress).toHaveBeenCalledWith(progress);

@@ -7,7 +7,6 @@ import {
 export async function createProjectSetArchiveTask(
   set: ProjectSetDocument,
   options: {
-    legacyFormat?: boolean;
     archiveMode?: 'compact' | 'compatible';
     onProgress?: (progress: ProjectSetArchiveProgress) => void;
   } = {},
@@ -57,7 +56,6 @@ export async function createProjectSetArchiveTask(
     try {
       worker.postMessage({
         set,
-        legacyFormat: options.legacyFormat,
         ...(options.archiveMode ? { archiveMode: options.archiveMode } : {}),
       });
     } catch (cause) {

@@ -15,8 +15,8 @@ export async function readTemplateTransferFile(
   source: TemplateTransferWorkspaceFile,
 ) {
   const target = workspace.resolveAllowedPath(source.path);
-  if (!isProjectSourcePath(target) && !target.toLowerCase().endsWith('.ogp'))
-    throw new Error('Choose an editable OGraf source file, such as .ogs or legacy .ogp.');
+  if (!isProjectSourcePath(target))
+    throw new Error('Choose an editable .ogs or .ogeproj OGraf source file.');
   const root = await realpath(workspace.root);
   const file = await realpath(target);
   const memberPath = relative(root, file);

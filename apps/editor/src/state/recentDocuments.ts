@@ -1,4 +1,8 @@
 import type { StudioDocument } from './studioDocument';
+import {
+  assertSupportedStudioDocumentName,
+  assertSupportedStudioDocumentUrl,
+} from './studioDocumentFormat';
 
 /** Local history retains handles/URLs, never copies of document bytes or granted permissions. */
 export interface RecentDocument {
@@ -24,6 +28,7 @@ function normalizedUrl(value: string): string {
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
     throw new Error('Recent document URLs must use HTTP(S) without embedded credentials.');
+  assertSupportedStudioDocumentUrl(url);
   url.hash = '';
   return url.href;
 }
@@ -38,8 +43,11 @@ export function sortedRecentDocuments(items: readonly RecentDocument[]): RecentD
         !Number.isFinite(item.openedAt)
       )
         return false;
-      if (item.handle && typeof item.handle.getFile === 'function') return true;
       try {
+        if (item.handle && typeof item.handle.getFile === 'function') {
+          assertSupportedStudioDocumentName(item.handle.name);
+          return true;
+        }
         return typeof item.url === 'string' && normalizedUrl(item.url) === item.url;
       } catch {
         return false;
@@ -143,7 +151,10 @@ export function createRecentDocumentsHistory(
       await pending;
       return sortedRecentDocuments(await storage.read()).slice(0, MAX_RECENT_DOCUMENTS);
     },
-    rememberHandle: (handle: FileSystemFileHandle) => remember({ handle }),
+    async rememberHandle(handle: FileSystemFileHandle) {
+      assertSupportedStudioDocumentName(handle.name);
+      return remember({ handle });
+    },
     rememberUrl: async (url: string, name: string) => remember({ url: normalizedUrl(url), name }),
   };
 }
@@ -200,9 +211,12 @@ export async function readRecentDocument(item: RecentDocument): Promise<StudioDo
   const handle = item.handle;
   if (!handle || typeof handle.getFile !== 'function')
     throw new Error('This recent file cannot be reopened. Choose Open to select it again.');
+  assertSupportedStudioDocumentName(handle.name);
   if (handle.requestPermission && (await handle.requestPermission({ mode: 'read' })) !== 'granted')
     throw new Error('File access was not granted. Choose Open to select the file again.');
   const file = await handle.getFile();
   const { parseStudioDocument } = await import('./studioDocument');
-  return associateRecentDocument(await parseStudioDocument(await file.arrayBuffer()), { handle });
+  return associateRecentDocument(await parseStudioDocument(await file.arrayBuffer(), file.name), {
+    handle,
+  });
 }

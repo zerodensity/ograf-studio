@@ -383,7 +383,7 @@ describe('shared typography and background styles', () => {
     ).toEqual(createDefaultGradient('conic'));
   });
 
-  it('preserves style definitions and local flags through template switching and an .ogp round-trip', async () => {
+  it('preserves style definitions and local flags through template switching and an .ogs round-trip', async () => {
     const { templateId, secondTemplateId, layerId } = fixture();
     const typeId = headline();
     applyTypographyToLayers([layerId], typeId);

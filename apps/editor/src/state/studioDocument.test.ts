@@ -6,9 +6,7 @@ import {
   createImageLayer,
   createProject,
   createTextLayer,
-  instantiateComponentDefinition,
 } from '@ograf-editor/scene-model';
-import { applyAuthoringOperations } from '../../../../packages/authoring-core/src/operations';
 import {
   addProjectSetAssetSlot,
   addProjectSetControl,
@@ -17,13 +15,10 @@ import {
   bindProjectSetControl,
   createProjectSet,
   createProjectSetArchive,
+  openProjectSetArchive,
   setProjectSetControlValue,
 } from './projectSet';
-import {
-  legacyTemplateSetCopy,
-  parseStudioDocument,
-  singleTemplateFromStudioDocument,
-} from './studioDocument';
+import { parseStudioDocument, singleTemplateFromStudioDocument } from './studioDocument';
 
 function fixture(name: string, suffix: string) {
   const project = createProject({ name });
@@ -88,6 +83,32 @@ describe('Studio document content routing', () => {
     }
   });
 
+  it('rejects .ogp filenames even for supported project content', async () => {
+    const project = createProject();
+    const source = JSON.stringify(project);
+    await expect(parseStudioDocument(new Blob([source]), 'Renamed.OGP')).rejects.toThrow(
+      'no longer supports .ogp',
+    );
+    await expect(
+      parseStudioDocument(new File([source], 'Also renamed.ogp'), 'Other name.ogs'),
+    ).rejects.toThrow('no longer supports .ogp');
+    const archive = await createProjectSetArchive(createProjectSet('Set', project));
+    await expect(openProjectSetArchive(new File([archive], 'Renamed.ogp'))).rejects.toThrow(
+      'no longer supports .ogp',
+    );
+  });
+
+  it('rejects a schema-4 archive renamed to .ogs', async () => {
+    const { set } = sharedFixture();
+    const archive = await createProjectSetArchive(set, { archiveMode: 'compatible' });
+    const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+    const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
+    zip.file('manifest.json', JSON.stringify({ ...manifest, schemaVersion: 4 }));
+    await expect(
+      parseStudioDocument(await zip.generateAsync({ type: 'uint8array' }), 'Renamed.ogs'),
+    ).rejects.toThrow('Unsupported template-set version: 4');
+  });
+
   it('reads a one-template .ogs ZIP and resolves its shared values as a standalone project', async () => {
     const { project, composition, field } = fixture('Single', 'single');
     let set = createProjectSet('Single set', project);
@@ -107,7 +128,6 @@ describe('Studio document content routing', () => {
   it('preserves a multi-template ZIP, active member, controls and shared asset bindings', async () => {
     const { set } = sharedFixture();
     const archive = await createProjectSetArchive(set);
-    // Same manifest bytes work for new .ogs and legacy .ogp names: neither extension decides mode.
     for (const input of [new Uint8Array(await archive.arrayBuffer()), archive]) {
       const document = await parseStudioDocument(input);
       if (document.kind !== 'template-set') throw new Error('Expected set');
@@ -132,60 +152,5 @@ describe('Studio document content routing', () => {
     await expect(
       parseStudioDocument(await zip.generateAsync({ type: 'uint8array' })),
     ).rejects.toThrow('integrity');
-  });
-
-  it('exports a legacy copy with ordinary layers while keeping the live original intact', async () => {
-    const { project, text, image } = fixture('Live component', 'live');
-    const live = applyAuthoringOperations(project, [
-      {
-        type: 'save_component',
-        id: 'shared-component',
-        scope: 'set',
-        layerIds: [text.id, image.id],
-        name: 'News strip',
-      },
-    ]).project;
-    const definition = live.compositions[0]!.components[0]!;
-    const second = createProject({ name: 'Second bulletin' });
-    const composition = second.compositions[0]!;
-    composition.components.push(structuredClone(definition));
-    const instance = instantiateComponentDefinition(composition, definition, { x: 100, y: 200 });
-    composition.layers.push(...instance.layers);
-    composition.dataFields.push(...instance.dataFields);
-    const set = addProjectSetTemplate(createProjectSet('Live set', live), second);
-    const before = structuredClone(set);
-    const legacy = await legacyTemplateSetCopy(set);
-    expect(set).toEqual(before);
-    expect(legacy.componentAssets).toBeUndefined();
-    for (const [index, template] of legacy.templates.entries()) {
-      const original = set.templates[index]!.project.compositions[0]!;
-      const flattened = template.project.compositions[0]!;
-      expect(flattened.components).toEqual([]);
-      expect(flattened.layers.map((layer) => layer.id)).toEqual(
-        original.layers.map((layer) => layer.id),
-      );
-      expect(flattened.layers.every((layer) => layer.componentLink === null)).toBe(true);
-      expect(flattened.layers.map((layer) => layer.animationTracks)).toEqual(
-        original.layers.map((layer) => layer.animationTracks),
-      );
-      expect(flattened.layers.map((layer) => layer.bindings)).toEqual(
-        original.layers.map((layer) => layer.bindings),
-      );
-      expect(flattened.assets).not.toHaveLength(0);
-    }
-    const reopened = await parseStudioDocument(
-      await (await createProjectSetArchive(legacy)).arrayBuffer(),
-    );
-    if (reopened.kind !== 'template-set') throw new Error('Expected legacy set');
-    expect(reopened.projectSet.templates).toHaveLength(2);
-    expect(
-      reopened.projectSet.templates.every((template) =>
-        template.project.compositions.every(
-          (item) =>
-            item.components.length === 0 &&
-            item.layers.every((layer) => layer.componentLink === null),
-        ),
-      ),
-    ).toBe(true);
   });
 });

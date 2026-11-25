@@ -22,8 +22,8 @@ the schema 5 archive layout for older set readers without down-converting newer 
 The compressed MCP transfer limit is
 64 MiB; open the set in Studio and use File → Save for larger sets. The tool saves a snapshot copy without
 renaming the open document or changing its revision; an edit during generation fails before writing.
-Open `.ogs` and Insert Template remain visible file actions; legacy `.ogp` and archive schemas 1–5
-remain readable. MCP project open/save use standalone JSON source with resolved dependencies.
+Open `.ogs` and Insert Template are visible file actions. Studio reads template-set archive schemas
+5–7. MCP project open/save use standalone JSON source with resolved dependencies.
 Never extract a compact member and pass it to standalone save/export without hydration.
 
 Crop any visual layer with `set_layer_crop`; normalized layer fractions and canvas-pixel group

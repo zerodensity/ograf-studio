@@ -160,9 +160,6 @@ describe('local Brand Kit inheritance', () => {
     await expect(createProjectSetArchive(saved, { archiveMode: 'compatible' })).rejects.toThrow(
       /Local Brand Kits.*standalone template/,
     );
-    await expect(createProjectSetArchive(saved, { legacyFormat: true })).rejects.toThrow(
-      /Local Brand Kits.*standalone template/,
-    );
 
     const archive = await createProjectSetArchive(saved);
     const data = await archive.arrayBuffer();
@@ -252,43 +249,37 @@ describe('empty template-set archive compatibility', () => {
     expect(reopened.templates[0]!.project).toEqual(project);
   });
 
-  it.each([{ archiveMode: 'compatible' as const }, { legacyFormat: true }])(
-    'rejects an empty compatible or legacy set that would lose unused shared component sources',
-    async (options) => {
-      const set = createProjectSet('Unplaced sources', createProject());
-      set.templates = [];
-      delete set.activeTemplateId;
-      set.componentAssets = [
-        {
-          id: 'unplaced-component',
-          name: 'Unplaced component',
-          scope: 'set',
-          layers: [],
-          dataFields: [],
-        },
-      ];
-      await expect(createProjectSetArchive(set, options)).rejects.toThrow(
-        /at least one template.*shared components.*compact/i,
-      );
-      const compact = await createProjectSetArchive(set);
-      const reopened = await openProjectSetArchive(new Uint8Array(await compact.arrayBuffer()));
-      expect(reopened.componentAssets).toEqual(set.componentAssets);
-      expect(reopened.templates).toEqual([]);
-    },
-  );
+  it('rejects an empty compatible set that would lose unused shared component sources', async () => {
+    const set = createProjectSet('Unplaced sources', createProject());
+    set.templates = [];
+    delete set.activeTemplateId;
+    set.componentAssets = [
+      {
+        id: 'unplaced-component',
+        name: 'Unplaced component',
+        scope: 'set',
+        layers: [],
+        dataFields: [],
+      },
+    ];
+    await expect(createProjectSetArchive(set, { archiveMode: 'compatible' })).rejects.toThrow(
+      /at least one template.*shared components.*compact/i,
+    );
+    const compact = await createProjectSetArchive(set);
+    const reopened = await openProjectSetArchive(new Uint8Array(await compact.arrayBuffer()));
+    expect(reopened.componentAssets).toEqual(set.componentAssets);
+    expect(reopened.templates).toEqual([]);
+  });
 
-  it.each([{ archiveMode: 'compatible' as const }, { legacyFormat: true }])(
-    'continues to save an empty compatible or legacy set without shared sources',
-    async (options) => {
-      const set = createProjectSet('Empty set', createProject());
-      set.templates = [];
-      delete set.activeTemplateId;
-      const archive = await createProjectSetArchive(set, options);
-      const reopened = await openProjectSetArchive(new Uint8Array(await archive.arrayBuffer()));
-      expect(reopened.templates).toEqual([]);
-      expect(reopened.componentAssets ?? []).toEqual([]);
-    },
-  );
+  it('continues to save an empty compatible set without shared sources', async () => {
+    const set = createProjectSet('Empty set', createProject());
+    set.templates = [];
+    delete set.activeTemplateId;
+    const archive = await createProjectSetArchive(set, { archiveMode: 'compatible' });
+    const reopened = await openProjectSetArchive(new Uint8Array(await archive.arrayBuffer()));
+    expect(reopened.templates).toEqual([]);
+    expect(reopened.componentAssets ?? []).toEqual([]);
+  });
 });
 
 function fixtureProject(name: string, suffix: string) {

@@ -192,26 +192,26 @@ text finishes, transparent overlays, and the effect-only **Signal Glitch**. Buil
 
 ## File types
 
-| File                       | Purpose                                          | How to open it                                                                                         |
-| -------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `.ogs`                     | Editable document with one or multiple templates | **File → Open…**                                                                                       |
-| `.ogp`                     | Legacy editable template-set archive             | **File → Open…**                                                                                       |
-| Remote `.ogs` / `.ogp` URL | Public/CORS-enabled editable document            | **File → Open from URL…**                                                                              |
-| `.ograf.zip`               | Certified playout package                        | **File → Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
-| `.ograf-set.zip`           | Bundle of certified template outputs             | In **File → Export OGraf…**, choose **Template set** for a set without Transition Logic                |
-| `.webm`                    | Movie of one template, transparent by default    | In **File → Export Video…**, choose **WebM video**                                                     |
-| `.png-sequence` folder     | Numbered PNG frames as separate files            | In **File → Export Video…**, choose **PNG image sequence**                                             |
-| Loose OGraf package files  | Manifest, `main.js`, and resources               | Select them together with **File → Import OGraf**                                                      |
-| SVG and raster images      | Reusable image assets                            | **Add Image** above the canvas, or drop files onto the canvas                                          |
-| Lottie `.json`             | Looping vector animation layer                   | **+ Lottie JSON** above the canvas                                                                     |
+| File                      | Purpose                                          | How to open it                                                                                         |
+| ------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `.ogs`                    | Editable document with one or multiple templates | **File → Open…**                                                                                       |
+| `.ogeproj`                | Legacy standalone editable template              | **File → Open…**                                                                                       |
+| Remote editable URL       | Public/CORS-enabled editable document            | **File → Open from URL…**                                                                              |
+| `.ograf.zip`              | Certified playout package                        | **File → Import OGraf** for best-effort editable conversion, or extract it for an OGraf player/devtool |
+| `.ograf-set.zip`          | Bundle of certified template outputs             | In **File → Export OGraf…**, choose **Template set** for a set without Transition Logic                |
+| `.webm`                   | Movie of one template, transparent by default    | In **File → Export Video…**, choose **WebM video**                                                     |
+| `.png-sequence` folder    | Numbered PNG frames as separate files            | In **File → Export Video…**, choose **PNG image sequence**                                             |
+| Loose OGraf package files | Manifest, `main.js`, and resources               | Select them together with **File → Import OGraf**                                                      |
+| SVG and raster images     | Reusable image assets                            | **Add Image** above the canvas, or drop files onto the canvas                                          |
+| Lottie `.json`            | Looping vector animation layer                   | **+ Lottie JSON** above the canvas                                                                     |
 
 An `.ogs` file is not an OGraf manifest and should not be opened directly in an OGraf playout
 tool. A `.ograf.zip` is the deployable output, but arbitrary third-party JavaScript cannot always be
 reconstructed as editable layers. The import report lists everything recovered, defaulted, or lost.
 
-The Open dialog offers **OGraf Studio documents** (`*.ogs`, `*.ogp`, `*.ogeproj`), **JSON files** (`*.json`), and
+The Open dialog offers **OGraf Studio documents** (`*.ogs`, `*.ogeproj`), **JSON files** (`*.json`), and
 **All files** (`*.*`) filters in browsers with native file picker support.
-Opening remains backward-compatible with legacy `.ogp`, `.ogeproj` and `.ogeproj.json` files.
+Studio opens standalone `.ogeproj` and `.ogeproj.json` project files.
 Standalone templates retain JSON source; template sets use a ZIP container with the same `.ogs`
 extension. Studio detects contents automatically, preserving every member of a multi-template file.
 
@@ -253,7 +253,7 @@ its own name. Scene Outliner labels roots as **Template Set** or **Template** to
 Studio saves ordinary sets using compact archive schema 6. Sets with a member using local or
 selectively linked branding use schema 7. For those sets, use the current archive or save a standalone
 template copy to carry its resolved appearance. Other sets can use MCP compatible storage to save
-schema 5 for earlier set readers. Current Studio opens schemas 1–7 and legacy `.ogp` sets. Older Studio
+schema 5 for earlier set readers. Current Studio opens set archive schemas 5–7. Older Studio
 versions that expect JSON `.ogs` require a standalone template copy. Use **Add .ogs Template…** to
 choose a member from an archive, or **File → Open…** to open the complete set.
 
@@ -324,7 +324,7 @@ With no layer selected, use **Properties → Composition → Crop Canvas** to ad
 directly on the canvas. The authoring canvas and animation coordinates stay unchanged; the shaded
 area is excluded from output. Preview, thumbnails, and OGraf export use the cropped dimensions.
 Choose **Reset** and **Apply** in the crop toolbar to restore the full canvas. Crop changes are
-undoable and stored in `.ogs` documents and legacy `.ogp` sets.
+undoable and stored in `.ogs` documents.
 
 ### Settings & Preferences
 
@@ -367,7 +367,7 @@ editing a field creates an **Overridden** value for that property only. Click **
 the current value without changing it, or **Reset** to follow the set again. Other properties keep
 inheriting. Whole-template opt-out remains available.
 Each template keeps its own guides and timeline folders. Defaults and inheritance choices are saved
-in set `.ogs` documents, legacy `.ogp` files and autosaves.
+in set `.ogs` documents and autosaves.
 
 Coordinated exports require all states to use the same effective output width/height and frame
 rate, including any canvas crop. Template overrides remain editable; resolve incompatible output
@@ -705,7 +705,7 @@ in the exported graphic. In Studio, the checkerboard shows the transparent parts
 
 ### Remote project URLs
 
-Use **File → Open from URL…** to download editable `.ogs` documents or legacy `.ogp` sets from an absolute HTTP or HTTPS URL. OGraf
+Use **File → Open from URL…** to download an editable Studio document from an absolute HTTP or HTTPS URL.
 Studio sends no credentials, follows only HTTP(S) redirects, limits the response to 32 MiB, parses
 and validates the source before loading, and asks before replacing the current document. Archives
 retain the whole set and use the local reader's integrity checks. The remote
@@ -1672,8 +1672,8 @@ transition definition. Template-set source schema 5 preserves these definitions 
 sets. Opening or selecting a template in Studio changes the editing selection; it does not take a
 graphic to air.
 
-Shared-state animation supports numeric layer transforms. Legacy `.ogp` cannot preserve the
-coordinator; keep the editable template set in `.ogs`.
+Shared-state animation supports numeric layer transforms. Editable `.ogs` template sets store
+the coordinated definition.
 
 #### Coordinated package export
 
