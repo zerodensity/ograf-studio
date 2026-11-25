@@ -9,7 +9,6 @@ const scope = self as unknown as {
     | ((
         event: MessageEvent<{
           set: ProjectSetDocument;
-          legacyFormat?: boolean;
           archiveMode?: 'compact' | 'compatible';
         }>,
       ) => void)
@@ -23,7 +22,6 @@ const scope = self as unknown as {
 };
 scope.onmessage = (event) => {
   void createProjectSetArchive(event.data.set, {
-    legacyFormat: event.data.legacyFormat,
     archiveMode: event.data.archiveMode,
     onProgress: (progress) => scope.postMessage({ type: 'progress', progress }),
   }).then(

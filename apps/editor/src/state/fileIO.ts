@@ -12,9 +12,12 @@ import { createProjectSetArchiveTask } from './projectSetArchiveTask';
 import {
   parseStudioDocument,
   singleTemplateFromStudioDocument,
-  legacyTemplateSetCopy,
   type StudioDocument,
 } from './studioDocument';
+import {
+  assertSupportedStudioDocumentName,
+  assertSupportedStudioDocumentUrl,
+} from './studioDocumentFormat';
 export { parseProjectSource } from './studioDocument';
 
 const AUTOSAVE_KEY = 'ograf-editor:autosave-project';
@@ -28,7 +31,7 @@ const OPEN_FILE_TYPES: FilePickerAcceptType[] = [
     description: 'OGraf Studio documents',
     accept: {
       // A JSON MIME type makes Chromium add .json to this filter automatically.
-      'application/x-ograf-studio-project': [PROJECT_SOURCE_EXTENSION, '.ogp', '.ogeproj'],
+      'application/x-ograf-studio-project': [PROJECT_SOURCE_EXTENSION, '.ogeproj'],
     },
   },
   {
@@ -266,6 +269,7 @@ export async function saveProjectSourceToFile(
   const suggestedName = `${baseName}${PROJECT_SOURCE_EXTENSION}`;
   let handle = options.handle;
   if (handle) {
+    assertSupportedStudioDocumentName(handle.name);
     await requestWritePermission(handle);
   } else if (ownerWindow.showSaveFilePicker) {
     try {
@@ -277,6 +281,7 @@ export async function saveProjectSourceToFile(
       if (isAbort(error)) return { status: 'cancelled' };
       throw error;
     }
+    assertSupportedStudioDocumentName(handle.name);
     // Keep the chosen title in the exact snapshot sent to certification.
     snapshot.name = handle.name.replace(/\.ogs$/i, '').trim() || snapshot.name;
   } else {
@@ -303,7 +308,6 @@ export type ProjectSetSaveResult =
 export async function saveProjectSetToFile(
   set: ProjectSetDocument,
   options: {
-    legacyFormat?: boolean;
     archiveMode?: 'compact' | 'compatible';
     downloadOnly?: boolean;
     handle?: FileSystemFileHandle;
@@ -312,22 +316,17 @@ export async function saveProjectSetToFile(
   } = {},
 ): Promise<ProjectSetSaveResult> {
   const ownerWindow = options.ownerWindow ?? window;
-  if (options.legacyFormat && set.transitionLogic) {
-    throw new Error(
-      'Playout transitions require a template-set .ogs document. Legacy .ogp cannot preserve coordinated playback.',
-    );
-  }
   let snapshot = structuredClone(set);
   const baseName =
     snapshot.name
       .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
-      .replace(/\.(ogs|ogp)$/i, '')
+      .replace(/\.ogs$/i, '')
       .trim() || 'Untitled Template Set';
-  const extension = options.legacyFormat ? '.ogp' : PROJECT_SOURCE_EXTENSION;
-  let fileName = `${baseName}${extension}`;
+  let fileName = `${baseName}${PROJECT_SOURCE_EXTENSION}`;
   const currentHandle = options.downloadOnly ? undefined : options.handle;
   let handle = currentHandle;
   if (handle) {
+    assertSupportedStudioDocumentName(handle.name);
     await requestWritePermission(handle);
     fileName = handle.name;
   } else if (ownerWindow.showSaveFilePicker && !options.downloadOnly) {
@@ -336,37 +335,33 @@ export async function saveProjectSetToFile(
         suggestedName: fileName,
         types: [
           {
-            description: options.legacyFormat
-              ? 'Legacy OGraf template sets'
-              : 'OGraf Studio template sets',
-            accept: { 'application/x-ograf-template-set': [extension] },
+            description: 'OGraf Studio template sets',
+            accept: { 'application/x-ograf-template-set': [PROJECT_SOURCE_EXTENSION] },
           },
         ],
       });
-      fileName = handle.name;
     } catch (error) {
       if (isAbort(error)) return { status: 'cancelled' };
       throw error;
     }
+    assertSupportedStudioDocumentName(handle.name);
+    fileName = handle.name;
   }
   if (!currentHandle) {
     const { renameProjectSet } = await import('./projectSet');
-    snapshot = renameProjectSet(snapshot, fileName.replace(/\.(ogs|ogp)$/i, ''));
+    snapshot = renameProjectSet(snapshot, fileName.replace(/\.ogs$/i, ''));
   }
-  if (options.legacyFormat) snapshot = await legacyTemplateSetCopy(snapshot);
   const blob = await createProjectSetArchiveTask(snapshot, {
-    legacyFormat: options.legacyFormat,
     archiveMode: options.archiveMode,
     onProgress: options.onProgress,
   });
-  const projectSet = options.legacyFormat ? set : snapshot;
   if (handle) {
     await writeBlobToHandle(handle, blob);
     void rememberRecentDocument(handle);
-    return { status: 'saved', projectSet, fileName, handle };
+    return { status: 'saved', projectSet: snapshot, fileName, handle };
   }
   downloadBlob(blob, fileName, ownerWindow);
-  return { status: 'downloaded', projectSet, fileName };
+  return { status: 'downloaded', projectSet: snapshot, fileName };
 }
 
 /**
@@ -478,6 +473,20 @@ function requireHttpUrl(value: string, label: string): URL {
 
 /** Read a downloaded document, refusing one larger than Studio opens. */
 export async function readRemoteDocumentBytes(response: Response): Promise<Uint8Array> {
+  if (response.url)
+    assertSupportedStudioDocumentUrl(requireHttpUrl(response.url, 'Redirected project URL'));
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const filenames = /;\s*filename(\*)?\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^;]+))/gi;
+  for (const [, extended, quoted, unquoted] of disposition.matchAll(filenames)) {
+    let name = (quoted?.replace(/\\(.)/g, '$1') ?? unquoted)?.trim();
+    if (!name) continue;
+    // Only the ASCII extension matters, including for non-UTF-8 extended filenames.
+    if (extended)
+      name = name.replace(/%([0-7][0-9a-f])/gi, (_, byte) =>
+        String.fromCharCode(Number.parseInt(byte, 16)),
+      );
+    assertSupportedStudioDocumentName(name);
+  }
   const contentLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(contentLength) && contentLength > MAX_REMOTE_PROJECT_BYTES) {
     throw new Error('Remote project exceeds the 32 MiB download limit.');
@@ -519,6 +528,7 @@ export async function openStudioDocumentFromUrl(
   fetchProject: ProjectFetcher = (input, init) => fetch(input, init),
 ): Promise<StudioDocument> {
   const requestedUrl = requireHttpUrl(rawUrl, 'Project URL');
+  assertSupportedStudioDocumentUrl(requestedUrl);
   let response: Response;
   try {
     response = await fetchProject(requestedUrl, {
@@ -540,7 +550,6 @@ export async function openStudioDocumentFromUrl(
   if (!response.ok) {
     throw new Error(`Remote project request failed with HTTP ${response.status}.`);
   }
-  if (response.url) requireHttpUrl(response.url, 'Redirected project URL');
   const document = await parseStudioDocument(await readRemoteDocumentBytes(response));
   return associateRecentDocument(document, {
     url: requestedUrl.href,
@@ -556,13 +565,18 @@ export async function openProjectFromUrl(
   return singleTemplateFromStudioDocument(await openStudioDocumentFromUrl(rawUrl, fetchProject));
 }
 
+async function parsePickedStudioDocument(file: File): Promise<StudioDocument> {
+  if (file.name !== undefined) assertSupportedStudioDocumentName(file.name);
+  return parseStudioDocument(await file.arrayBuffer());
+}
+
 function openStudioDocumentViaInputFallback(
   ownerDocument: Document,
 ): Promise<StudioDocument | null> {
   return new Promise((resolve, reject) => {
     const input = ownerDocument.createElement('input');
     input.type = 'file';
-    input.accept = '.ogs,.ogp,.ogeproj,.json';
+    input.accept = '.ogs,.ogeproj,.json';
     input.addEventListener('cancel', () => resolve(null));
     input.onchange = () => {
       const file = input.files?.[0];
@@ -570,7 +584,7 @@ function openStudioDocumentViaInputFallback(
         resolve(null);
         return;
       }
-      file.arrayBuffer().then(parseStudioDocument).then(resolve).catch(reject);
+      parsePickedStudioDocument(file).then(resolve).catch(reject);
     };
     input.click();
   });
@@ -588,8 +602,9 @@ export async function openStudioDocumentFromFile(
         multiple: false,
       });
       if (!handle) return null;
+      assertSupportedStudioDocumentName(handle.name);
       const file = await handle.getFile();
-      const document = await parseStudioDocument(await file.arrayBuffer());
+      const document = await parsePickedStudioDocument(file);
       return associateRecentDocument(document, { handle });
     } catch (err) {
       if (isAbort(err)) return null;

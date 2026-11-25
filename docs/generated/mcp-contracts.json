@@ -2842,7 +2842,7 @@
     {
       "name": "ograf_open_project",
       "title": "Open OGraf editable project",
-      "description": "Open workspace JSON .ogs/.ogeproj in a new session. ZIP .ogs/.ogp: open in Studio and activate a template.",
+      "description": "Open workspace JSON .ogs/.ogeproj in a new session. For a template-set .ogs archive, open it in Studio and activate a template.",
       "inputSchema": {
         "type": "object",
         "properties": { "sessionId": { "type": "string" }, "path": { "type": "string" } },

@@ -37,6 +37,12 @@ async function packageBytes(files: Record<string, string>): Promise<Uint8Array> 
   return zip.generateAsync({ type: 'uint8array' });
 }
 
+it('rejects a legacy project filename through Import OGraf', async () => {
+  await expect(importOgrafData('Legacy.OGP', new Uint8Array())).rejects.toThrow(
+    /no longer supports \.ogp/i,
+  );
+});
+
 describe('imported output layers', () => {
   it.each(['manifest-only', 'compiled-descriptor', 'embedded-project'] as const)(
     'uses manifest metadata over stale source metadata in %s recovery',

@@ -30,6 +30,7 @@ import {
 import type { CompiledGraphicDescriptor, OGrafManifest } from '@ograf-editor/ograf-types';
 import { validateManifest, validateProject } from '@ograf-editor/validation';
 import { restoreFieldExposureDefinition } from './fieldExposure';
+import { assertSupportedStudioDocumentName } from './studioDocumentFormat';
 
 const MAX_PACKAGE_BYTES = 128 * 1024 * 1024;
 const UTF8 = new TextDecoder();
@@ -1167,6 +1168,7 @@ export async function importOgrafData(
   fileName: string,
   data: ArrayBuffer | Uint8Array | string,
 ): Promise<OgrafImportResult> {
+  assertSupportedStudioDocumentName(fileName);
   if (/\.zip$/i.test(fileName)) {
     const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
     return importEntries(await entriesFromZip(bytes));
@@ -1182,6 +1184,7 @@ async function importSelectedFiles(files: readonly File[]): Promise<OgrafImportR
   const entries = new Map<string, Uint8Array>();
   let total = 0;
   for (const file of files) {
+    assertSupportedStudioDocumentName(file.name);
     const path = normalizePackagePath(file.webkitRelativePath || file.name);
     const bytes = new Uint8Array(await file.arrayBuffer());
     total += bytes.byteLength;

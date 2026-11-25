@@ -400,6 +400,7 @@ export async function handleTemplateTransferRequest(
         throw new Error('The source exceeds the supported MCP file size.');
       const document = await parseStudioDocument(
         Uint8Array.from(raw, (byte) => byte.charCodeAt(0)),
+        source.filename,
       );
       assertReviewRevision(request.expectedRevision, expiresAt);
       if (

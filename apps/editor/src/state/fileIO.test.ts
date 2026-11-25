@@ -18,6 +18,7 @@ import {
   saveProjectSetAutosave,
   loadProjectSetAutosave,
   saveProjectSetToFile,
+  saveProjectSourceToFile,
   type ProjectFetcher,
 } from './fileIO';
 import { createProjectSet, addProjectSetTemplate, createProjectSetArchive } from './projectSet';
@@ -54,8 +55,10 @@ describe('unified local Studio document opening', () => {
     const archive = await createProjectSetArchive(set);
     const picker = vi
       .fn()
-      .mockResolvedValueOnce([{ getFile: async () => new Blob([JSON.stringify(first)]) }])
-      .mockResolvedValueOnce([{ getFile: async () => archive }]);
+      .mockResolvedValueOnce([
+        { name: 'News.ogs', getFile: async () => new Blob([JSON.stringify(first)]) },
+      ])
+      .mockResolvedValueOnce([{ name: 'Broadcast.ogs', getFile: async () => archive }]);
     const ownerWindow = { showOpenFilePicker: picker } as unknown as Window;
 
     const single = await openStudioDocumentFromFile(ownerWindow);
@@ -70,7 +73,7 @@ describe('unified local Studio document opening', () => {
     expect(picker).toHaveBeenCalledTimes(2);
     expect(picker.mock.calls[0]![0]).toMatchObject({ multiple: false });
     const accepted = Object.values(picker.mock.calls[0]![0].types[0].accept).flat();
-    expect(accepted).toEqual(expect.arrayContaining(['.ogs', '.ogp', '.ogeproj']));
+    expect(accepted).toEqual(['.ogs', '.ogeproj']);
   });
 
   it('treats a cancelled picker as a no-op', async () => {
@@ -78,6 +81,15 @@ describe('unified local Studio document opening', () => {
     await expect(
       openStudioDocumentFromFile({ showOpenFilePicker: picker } as unknown as Window),
     ).resolves.toBeNull();
+  });
+
+  it('rejects a legacy filename selected through the native picker before reading it', async () => {
+    const getFile = vi.fn();
+    const showOpenFilePicker = vi.fn().mockResolvedValue([{ name: 'News.OGP', getFile }]);
+    await expect(
+      openStudioDocumentFromFile({ showOpenFilePicker } as unknown as Window),
+    ).rejects.toThrow(/no longer supports \.ogp/i);
+    expect(getFile).not.toHaveBeenCalled();
   });
 
   it('opens a set through the standard file-input fallback without converting it', async () => {
@@ -98,10 +110,29 @@ describe('unified local Studio document opening', () => {
       document: { createElement: vi.fn(() => input) },
     } as unknown as Window;
     const opened = await openStudioDocumentFromFile(ownerWindow);
-    expect(input.accept).toBe('.ogs,.ogp,.ogeproj,.json');
+    expect(input.accept).toBe('.ogs,.ogeproj,.json');
     expect(opened?.kind).toBe('template-set');
     if (opened?.kind !== 'template-set') throw new Error('Expected a template set');
     expect(opened.projectSet.templates).toHaveLength(2);
+  });
+
+  it('rejects a legacy filename chosen through the file-input fallback', async () => {
+    const arrayBuffer = vi.fn();
+    const input = {
+      files: [{ name: 'News.ogp', arrayBuffer }],
+      onchange: null as (() => void) | null,
+      addEventListener: vi.fn(),
+      click() {
+        this.onchange?.();
+      },
+    };
+    const ownerWindow = {
+      document: { createElement: vi.fn(() => input) },
+    } as unknown as Window;
+    await expect(openStudioDocumentFromFile(ownerWindow)).rejects.toThrow(
+      /no longer supports \.ogp/i,
+    );
+    expect(arrayBuffer).not.toHaveBeenCalled();
   });
 });
 
@@ -179,6 +210,47 @@ describe('remote OGraf Studio project loading', () => {
       'HTTP or HTTPS',
     );
     expect(fetchProject).not.toHaveBeenCalled();
+  });
+
+  it('rejects percent-encoded legacy URL filenames before downloading', async () => {
+    const fetchProject = vi.fn<ProjectFetcher>();
+    await expect(
+      openStudioDocumentFromUrl('https://graphics.example/news%2EOGP?version=1', fetchProject),
+    ).rejects.toThrow(/no longer supports \.ogp/i);
+    expect(fetchProject).not.toHaveBeenCalled();
+  });
+
+  it('rejects a redirect to a legacy filename', async () => {
+    const response = Response.json(createProject());
+    Object.defineProperty(response, 'url', { value: 'https://graphics.example/news.ogp' });
+    await expect(
+      openStudioDocumentFromUrl('https://graphics.example/current.ogs', async () => response),
+    ).rejects.toThrow(/no longer supports \.ogp/i);
+    expect(response.bodyUsed).toBe(false);
+  });
+
+  it.each([
+    // A semicolon inside a quoted filename is part of the filename, not a separator.
+    'attachment; filename="Local news; special.OGP"',
+    "attachment; filename*=UTF-8''News%2eogp",
+  ])('rejects a legacy download named in Content-Disposition', async (disposition) => {
+    const response = Response.json(createProject(), {
+      headers: { 'Content-Disposition': disposition },
+    });
+    await expect(
+      openStudioDocumentFromUrl('https://graphics.example/download', async () => response),
+    ).rejects.toThrow(/no longer supports \.ogp/i);
+    expect(response.bodyUsed).toBe(false);
+  });
+
+  it('continues to open supported project bytes at an extensionless URL', async () => {
+    const project = createProject();
+    const response = Response.json(project, {
+      headers: { 'Content-Disposition': 'attachment; filename="Current.ogs"' },
+    });
+    await expect(
+      openStudioDocumentFromUrl('https://graphics.example/download', async () => response),
+    ).resolves.toEqual({ kind: 'template', project });
   });
 
   it('reports HTTP, CORS/network, and malformed-project failures', async () => {
@@ -282,7 +354,7 @@ describe('editable Studio set save format', () => {
       { id: 'follow-up', text: 'data:text/plain,Keep%20four%20team%20colors.' },
     ];
     const set = createProjectSet(
-      'Old title.ogp',
+      'Old title.ogs',
       createProject({ name: 'First', authoringPrompts }),
     );
     const write = vi.fn();
@@ -306,7 +378,7 @@ describe('editable Studio set save format', () => {
       fileName: 'New title.ogs',
       projectSet: { name: 'New title' },
     });
-    expect(set.name).toBe('Old title.ogp');
+    expect(set.name).toBe('Old title.ogs');
     const blob = write.mock.calls[0]![0] as Blob;
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
     const manifest = JSON.parse(await zip.file('manifest.json')!.async('text'));
@@ -320,28 +392,25 @@ describe('editable Studio set save format', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it('exports legacy .ogp as a copy without changing the active set name or link state', async () => {
-    const set = createProjectSet('Current set', createProject({ name: 'First' }));
-    const before = structuredClone(set);
-    const write = vi.fn();
-    const picker = vi.fn(async () => ({
-      name: 'Older Studio.ogp',
-      createWritable: async () => ({ write, close: vi.fn(), abort: vi.fn() }),
-    }));
-    vi.stubGlobal('window', { showSaveFilePicker: picker });
-    const result = await saveProjectSetToFile(set, { legacyFormat: true });
-    expect(picker).toHaveBeenCalledWith(
-      expect.objectContaining({
-        suggestedName: 'Current set.ogp',
-        types: [
-          expect.objectContaining({ accept: { 'application/x-ograf-template-set': ['.ogp'] } }),
-        ],
-      }),
-    );
-    if (result.status === 'cancelled') throw new Error('Unexpected cancellation');
-    expect(result.projectSet).toBe(set);
-    expect(set).toEqual(before);
-    const document = await parseStudioDocument(write.mock.calls[0]![0] as Blob);
-    expect(document).toMatchObject({ kind: 'template-set', projectSet: { name: 'Older Studio' } });
-  });
+  it.each(['existing handle', 'picker result'])(
+    'rejects a legacy save destination from %s in both editable save routes',
+    async (source) => {
+      const handle = {
+        name: 'Legacy.OGP',
+        requestPermission: vi.fn(),
+        createWritable: vi.fn(),
+      } as unknown as FileSystemFileHandle;
+      const ownerWindow = { showSaveFilePicker: vi.fn(async () => handle) } as unknown as Window;
+      const options = { ownerWindow, ...(source === 'existing handle' ? { handle } : {}) };
+      const project = createProject();
+      await expect(saveProjectSourceToFile(project, options)).rejects.toThrow(
+        /no longer supports \.ogp/i,
+      );
+      await expect(
+        saveProjectSetToFile(createProjectSet('Current set', project), options),
+      ).rejects.toThrow(/no longer supports \.ogp/i);
+      expect(handle.requestPermission).not.toHaveBeenCalled();
+      expect(handle.createWritable).not.toHaveBeenCalled();
+    },
+  );
 });

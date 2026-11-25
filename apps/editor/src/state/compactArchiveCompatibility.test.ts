@@ -140,7 +140,7 @@ function coordinatedArtifacts(set: ProjectSetDocument) {
 
 describe('compact template-set compatibility', () => {
   it.each([1, 2, 3, 4, 5])(
-    'still opens original v%i archives with ordinary standalone child JSON',
+    'checks v%i archives against the supported schema range',
     async (schemaVersion) => {
       const project = createProject({ name: 'Original template' });
       const source = JSON.stringify(project);
@@ -167,8 +167,12 @@ describe('compact template-set compatibility', () => {
           assets: [],
         }),
       );
-      const opened = await openProjectSetArchive(await zip.generateAsync({ type: 'uint8array' }));
-      expect(opened.templates[0]!.project).toEqual(project);
+      const opening = openProjectSetArchive(await zip.generateAsync({ type: 'uint8array' }));
+      if (schemaVersion < 5) {
+        await expect(opening).rejects.toThrow(`Unsupported template-set version: ${schemaVersion}`);
+        return;
+      }
+      expect((await opening).templates[0]!.project).toEqual(project);
     },
   );
 

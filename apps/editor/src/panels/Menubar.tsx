@@ -1329,7 +1329,7 @@ export function Menubar({
             <div className="ograf-import-report-header" {...movableRemote.handleProps}>
               <div>
                 <strong id="remote-project-dialog-title">Open from URL</strong>
-                <span>Download an editable .ogs document or legacy .ogp over HTTP(S)</span>
+                <span>Download an editable .ogs document over HTTP(S)</span>
               </div>
               <button
                 type="button"
