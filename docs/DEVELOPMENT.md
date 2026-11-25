@@ -2,8 +2,7 @@
 
 [Back to overview](../README.md) · [Using Studio](USER_GUIDE.md) · [AI authoring](AI_AUTHORING.md)
 
-These instructions describe the 0.40.0 source line. See [What's new in 0.40](releases/0.40.0.md)
-for current authoring and integration capabilities.
+These instructions describe the 0.40.1 source line. See the [release notes](releases/0.40.1.md).
 
 ## Requirements
 
@@ -43,7 +42,7 @@ For this source line, check it with:
 
 ```powershell
 npm pkg get version
-# Expected: "0.40.0"
+# Expected: "0.40.1"
 ```
 
 Restart the development server or rebuild after changing the version. Packaging creates local

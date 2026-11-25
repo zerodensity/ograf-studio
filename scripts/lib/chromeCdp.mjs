@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-const START_TIMEOUT_MS = 10_000;
+const START_TIMEOUT_MS = 45_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 
 function chromePath() {
@@ -32,7 +32,9 @@ async function openSocket(socket) {
       socket.addEventListener('error', closed, { once: true });
       socket.addEventListener('close', closed, { once: true });
       timeout = setTimeout(() => {
-        reject(new Error('Chrome DevTools did not connect within 10 seconds.'));
+        reject(
+          new Error(`Chrome DevTools did not connect within ${START_TIMEOUT_MS / 1000} seconds.`),
+        );
       }, START_TIMEOUT_MS);
     });
   } finally {
@@ -153,7 +155,7 @@ export class Chrome {
         await delay(100);
       }
       throw new Error(
-        `Chrome did not start its debugging port within 10 seconds. ${stderr.trim()}`,
+        `Chrome did not start its debugging port within ${START_TIMEOUT_MS / 1000} seconds. ${stderr.trim()}`,
       );
     } catch (error) {
       socket?.close();
