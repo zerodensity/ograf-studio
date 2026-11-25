@@ -71,7 +71,7 @@ export function sharedPlayoutTargetKey(
   );
 }
 
-function hasSharedPlayoutContent(composition: Composition): boolean {
+export function hasSharedPlayoutContent(composition: Composition): boolean {
   return (
     (composition.backgroundPaint ?? composition.backgroundColor) !== 'transparent' ||
     composition.layers.some((layer) => !layer.isGuide) ||

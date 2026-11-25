@@ -100,6 +100,7 @@ import { didFinishPreviewEdit } from './previewControlsInteraction';
 import { PreviewError } from './PreviewError';
 import { SharedPlayoutLinks } from './SharedPlayoutLinks';
 import {
+  hasSharedPlayoutContent,
   setSharedPlayoutLiveSnapshot,
   sharedPlayoutTargetKey,
   useSharedPlayoutEditor,
@@ -193,27 +194,39 @@ export function SingleTemplatePreviewExportPanel() {
   const viewingPublishedCopy =
     availableSharedPublication !== null &&
     requestedSharedPublication === availableSharedPublication;
-  // Standalone authoring edits use the current composition. The LAN session keeps its published
-  // copy, which the operator can still monitor and control from Shared Live.
-  const sharedPreviewPublication =
+  const publishedSet = publishedSource && 'set' in publishedSource ? publishedSource.set : null;
+  const sharedTemplate = publishedSet?.templates.find(
+    (template) => template.id === activeTemplateId,
+  );
+  const sharedSourceMatches = publishedSet
+    ? Boolean(sharedTemplate)
+    : Boolean(
+        publishedSource &&
+        'composition' in publishedSource &&
+        publishedSource.composition === composition,
+      );
+  // Standalone edits and new set members use the current composition. The operator can still
+  // monitor and control the published copy from Shared Live.
+  const sharedPlaybackAllowed =
+    availableSharedPublication !== null &&
     !syncEditorPreview &&
     !behaviorActive &&
-    renderType === 'realtime' &&
-    (viewingPublishedCopy ||
-      (publishedSource &&
-        ('set' in publishedSource || publishedSource.composition === composition)))
+    renderType === 'realtime';
+  const sharedLiveEnabled = sharedPlaybackAllowed && (viewingPublishedCopy || sharedSourceMatches);
+  // A coordinated publication still supplies lane state for live data while a new child is edited.
+  const mountedSharedPublication =
+    sharedPlaybackAllowed && (sharedLiveEnabled || publishedSet)
       ? availableSharedPublication
       : null;
-  const sharedLiveEnabled = sharedPreviewPublication !== null;
-  const sharedSet =
-    sharedLiveEnabled && publishedSource && 'set' in publishedSource ? publishedSource.set : null;
+  const localPreviewHasContent = hasSharedPlayoutContent(composition);
+  const sharedSet = sharedLiveEnabled ? publishedSet : null;
   const sharedDefinition = sharedSet?.transitionLogic;
-  const sharedTemplate = sharedSet?.templates.find((template) => template.id === activeTemplateId);
   const previewComposition =
     sharedLiveEnabled && publishedSource && 'composition' in publishedSource
       ? publishedSource.composition
-      : (sharedTemplate?.project.compositions.find((entry) => entry.id === composition.id) ??
-        composition);
+      : (sharedLiveEnabled &&
+          sharedTemplate?.project.compositions.find((entry) => entry.id === composition.id)) ||
+        composition;
   const output =
     syncEditorPreview && matchingEditorSource
       ? matchingEditorSource.output
@@ -283,6 +296,7 @@ export function SingleTemplatePreviewExportPanel() {
     }
   };
   const containerRef = useRef<HTMLDivElement>(null);
+  const sharedContainerRef = useRef<HTMLDivElement>(null);
   const graphicRef = useRef<RetainedPreviewGraphic | null>(null);
   const loadedNativeGraphic = useRef<RetainedPreviewGraphic | null>(null);
   const startedNativeGraphic = useRef<RetainedPreviewGraphic | null>(null);
@@ -292,15 +306,15 @@ export function SingleTemplatePreviewExportPanel() {
   } | null>(null);
   const presentationSuspended = usePreviewPresentationSuspended(viewportRef, isFullscreen);
   const sharedLive = useSharedLivePreview(
-    sharedPreviewPublication,
-    containerRef,
-    presentationSuspended,
+    mountedSharedPublication,
+    sharedContainerRef,
+    presentationSuspended || !sharedLiveEnabled,
     ownerDocument,
   );
   const { send: sendSharedCommand } = sharedLive;
   const sharedError = sharedLiveEnabled ? sharedPreparationError || sharedLive.error : '';
   const livePublicationId =
-    sharedLiveEnabled && sharedLive.publicationId === publishedId ? publishedId : null;
+    mountedSharedPublication === sharedLive.publicationId ? mountedSharedPublication : null;
   useEffect(() => {
     if (livePublicationId) setSharedPlayoutLiveSnapshot(livePublicationId, sharedLive.snapshot);
   }, [livePublicationId, sharedLive.snapshot]);
@@ -753,7 +767,7 @@ export function SingleTemplatePreviewExportPanel() {
   }, [descriptor]);
 
   useLayoutEffect(() => {
-    const stage = containerRef.current;
+    const stage = sharedLiveEnabled ? sharedContainerRef.current : containerRef.current;
     if (!stage) return;
     const record = (event: Event) => {
       const detail = (event as CustomEvent<StudioFrameCueDetail>).detail;
@@ -763,7 +777,7 @@ export function SingleTemplatePreviewExportPanel() {
     };
     stage.addEventListener('ograf-studio-cue', record);
     return () => stage.removeEventListener('ograf-studio-cue', record);
-  }, [ownerDocument]);
+  }, [ownerDocument, sharedLiveEnabled]);
 
   useLayoutEffect(() => {
     if (behaviorActive && containerRef.current)
@@ -771,7 +785,7 @@ export function SingleTemplatePreviewExportPanel() {
   }, [behaviorActive, ownerDocument]);
 
   useEffect(() => {
-    const container = containerRef.current;
+    const container = sharedLiveEnabled ? sharedContainerRef.current : containerRef.current;
     if (!container) return;
     const failed = (event: Event) => {
       const message = (event as CustomEvent<{ message?: string }>).detail?.message;
@@ -779,7 +793,7 @@ export function SingleTemplatePreviewExportPanel() {
     };
     container.addEventListener('ograf-function-error', failed);
     return () => container.removeEventListener('ograf-function-error', failed);
-  }, [ownerDocument]);
+  }, [ownerDocument, sharedLiveEnabled]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -985,6 +999,7 @@ export function SingleTemplatePreviewExportPanel() {
       behaviorActive ||
       renderType !== 'realtime' ||
       !isFullscreen ||
+      !localPreviewHasContent ||
       !nativePreviewLoaded ||
       !graphic ||
       loadedNativeGraphic.current !== graphic ||
@@ -1005,6 +1020,7 @@ export function SingleTemplatePreviewExportPanel() {
     behaviorActive,
     renderType,
     isFullscreen,
+    localPreviewHasContent,
     nativePreviewLoaded,
     call,
   ]);
@@ -1249,7 +1265,7 @@ export function SingleTemplatePreviewExportPanel() {
             containerRef.current,
             event,
             (cause) => setFullscreenError(cause instanceof Error ? cause.message : String(cause)),
-            sharedLive.graphic,
+            sharedLiveEnabled ? sharedLive.graphic : null,
           ),
       },
     );
@@ -1260,6 +1276,7 @@ export function SingleTemplatePreviewExportPanel() {
     canControlPreview,
     toggleFullscreenData,
     syncEditorPreview,
+    sharedLiveEnabled,
     sharedLive.graphic,
   ]);
 
@@ -1741,7 +1758,18 @@ export function SingleTemplatePreviewExportPanel() {
                 }}
               >
                 {!syncEditorPreview && <PresentationBackground />}
-                <div className="preview-graphic-content" ref={containerRef} />
+                <div className="preview-graphic-content">
+                  <div
+                    className="preview-render-host"
+                    ref={containerRef}
+                    hidden={sharedLiveEnabled}
+                  />
+                  <div
+                    className="preview-render-host"
+                    ref={sharedContainerRef}
+                    hidden={!sharedLiveEnabled}
+                  />
+                </div>
                 <ProgramGuides width={output.width} height={output.height} />
               </div>
               {!syncEditorPreview && !behaviorActive && comparisonAsset && (
