@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { CoordinatedPlayoutSnapshot, Graphic } from '@ograf-editor/ograf-types';
 import type { FieldValue } from '@ograf-editor/scene-model';
 import type { SharedPlayoutFeed } from './sharedPlayoutPublish';
@@ -94,6 +94,7 @@ export function createSharedLivePreview(
   container: HTMLElement,
   onState: (state: LiveState) => void,
   isPresentationSuspended: () => boolean,
+  expectedPublicationId?: string,
 ) {
   let state = initialState;
   let closed = false;
@@ -377,6 +378,16 @@ export function createSharedLivePreview(
       patch({ ready: false, loading: false, error: errorMessage(error) });
       return;
     }
+    if (expectedPublicationId && snapshot.publicationId !== expectedPublicationId) {
+      if (announced !== undefined) {
+        announced = undefined;
+        cancelRequests();
+        container.replaceChildren();
+        void discardPlayer();
+        resetPublication(null);
+      }
+      return;
+    }
     if (snapshot.publicationId !== announced) {
       announced = snapshot.publicationId;
       cancelRequests();
@@ -512,7 +523,7 @@ export function createSharedLivePreview(
 }
 
 export function useSharedLivePreview(
-  enabled: boolean,
+  publicationId: string | null,
   containerRef: RefObject<HTMLElement | null>,
   presentationSuspended = false,
   ownerDocument?: Document,
@@ -521,20 +532,26 @@ export function useSharedLivePreview(
   const controller = useRef<ReturnType<typeof createSharedLivePreview> | null>(null);
   const suspended = useRef(presentationSuspended);
   suspended.current = presentationSuspended;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!enabled || !container) return;
+    if (!publicationId || !container) return;
+    // Disposal can wait for commands. Detach this player immediately when its source changes.
+    const host = container.ownerDocument.createElement('div');
+    Object.assign(host.style, { position: 'absolute', inset: '0' });
+    container.replaceChildren(host);
     setState(initialState);
-    const next = createSharedLivePreview(container, setState, () => suspended.current);
+    const next = createSharedLivePreview(host, setState, () => suspended.current, publicationId);
     controller.current = next;
     return () => {
       controller.current = null;
+      host.remove();
       next.dispose();
     };
-  }, [enabled, containerRef, ownerDocument]);
+  }, [publicationId, containerRef, ownerDocument]);
   useEffect(() => {
-    if (enabled) state.graphic?.setPresentationSuspended?.(presentationSuspended);
-  }, [enabled, presentationSuspended, state.graphic]);
+    if (publicationId && state.publicationId === publicationId)
+      state.graphic?.setPresentationSuspended?.(presentationSuspended);
+  }, [publicationId, presentationSuspended, state.publicationId, state.graphic]);
   const send = useCallback((command: SharedLiveCommand) => {
     return controller.current?.send(command) ?? Promise.reject(new Error('Shared playout is off.'));
   }, []);
@@ -543,7 +560,11 @@ export function useSharedLivePreview(
     void controller.current?.setSyncViewers(syncViewers);
   }, []);
   return {
-    ...(enabled ? state : { ...initialState, loading: false }),
+    ...(publicationId === null
+      ? { ...initialState, loading: false }
+      : state.publicationId === publicationId
+        ? state
+        : { ...initialState, error: state.error }),
     send,
     retry,
     setSyncViewers,

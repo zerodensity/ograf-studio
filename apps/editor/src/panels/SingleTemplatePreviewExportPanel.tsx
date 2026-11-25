@@ -99,7 +99,11 @@ import { usePreviewControlsInteraction } from './usePreviewControlsInteraction';
 import { didFinishPreviewEdit } from './previewControlsInteraction';
 import { PreviewError } from './PreviewError';
 import { SharedPlayoutLinks } from './SharedPlayoutLinks';
-import { setSharedPlayoutLiveSnapshot, useSharedPlayoutEditor } from '../state/sharedPlayoutEditor';
+import {
+  setSharedPlayoutLiveSnapshot,
+  sharedPlayoutTargetKey,
+  useSharedPlayoutEditor,
+} from '../state/sharedPlayoutEditor';
 import { useSharedLivePreview } from '../state/sharedLivePreview';
 import { usePreviewPresentationSuspended } from './usePreviewPresentationSuspended';
 import { useTickerUpdateStatuses } from './useTickerUpdateStatuses';
@@ -153,6 +157,7 @@ function successful(result: unknown): boolean {
 export function SingleTemplatePreviewExportPanel() {
   const { window, document: ownerDocument } = useEditorWindow();
   const project = useProjectStore((s) => s.project);
+  const documentLoadRevision = useProjectStore((s) => s.documentLoadRevision);
   const projectSet = useProjectSetStore((state) => state.projectSet);
   const activeTemplateId = useProjectSetStore((state) => state.activeTemplateId);
   const templateIndex =
@@ -171,13 +176,35 @@ export function SingleTemplatePreviewExportPanel() {
   const behavior = useBehaviorPreviewStore();
   const behaviorActive = !syncEditorPreview && Boolean(behavior.requestId);
   const [renderType, setRenderType] = useState<RenderType>('realtime');
+  const [requestedSharedPublication, setRequestedSharedPublication] = useState<string | null>(null);
   const sharedLinks = useSharedPlayoutEditor((state) => state.links);
   const publishedSource = useSharedPlayoutEditor((state) => state.publishedSource);
   const publishedId = useSharedPlayoutEditor((state) => state.publicationId);
+  const publicationKey = useSharedPlayoutEditor((state) => state.publicationKey);
   const sharedPreparationError = useSharedPlayoutEditor((state) => state.error);
-  const sharedLiveEnabled = Boolean(
-    sharedLinks && !syncEditorPreview && !behaviorActive && renderType === 'realtime',
+  const targetKey = sharedPlayoutTargetKey(
+    documentLoadRevision,
+    projectSet?.transitionLogic ? projectSet.id : undefined,
+    activeTemplateId,
+    project.id,
+    composition.id,
   );
+  const availableSharedPublication = targetKey === publicationKey ? publishedId : null;
+  const viewingPublishedCopy =
+    availableSharedPublication !== null &&
+    requestedSharedPublication === availableSharedPublication;
+  // Standalone authoring edits use the current composition. The LAN session keeps its published
+  // copy, which the operator can still monitor and control from Shared Live.
+  const sharedPreviewPublication =
+    !syncEditorPreview &&
+    !behaviorActive &&
+    renderType === 'realtime' &&
+    (viewingPublishedCopy ||
+      (publishedSource &&
+        ('set' in publishedSource || publishedSource.composition === composition)))
+      ? availableSharedPublication
+      : null;
+  const sharedLiveEnabled = sharedPreviewPublication !== null;
   const sharedSet =
     sharedLiveEnabled && publishedSource && 'set' in publishedSource ? publishedSource.set : null;
   const sharedDefinition = sharedSet?.transitionLogic;
@@ -257,13 +284,15 @@ export function SingleTemplatePreviewExportPanel() {
   };
   const containerRef = useRef<HTMLDivElement>(null);
   const graphicRef = useRef<RetainedPreviewGraphic | null>(null);
+  const loadedNativeGraphic = useRef<RetainedPreviewGraphic | null>(null);
+  const startedNativeGraphic = useRef<RetainedPreviewGraphic | null>(null);
   const pendingTickerDescriptor = useRef<{
     graphic: RetainedPreviewGraphic;
     descriptor: CompiledGraphicDescriptor;
   } | null>(null);
   const presentationSuspended = usePreviewPresentationSuspended(viewportRef, isFullscreen);
   const sharedLive = useSharedLivePreview(
-    sharedLiveEnabled,
+    sharedPreviewPublication,
     containerRef,
     presentationSuspended,
     ownerDocument,
@@ -691,6 +720,7 @@ export function SingleTemplatePreviewExportPanel() {
       if (!graphic) return;
       const transport = method === 'playAction' || method === 'stopAction';
       const calls = transportCallsRef.current;
+      if (transport) startedNativeGraphic.current = graphic;
       if (transport) calls.set(graphic, (calls.get(graphic) ?? 0) + 1);
       try {
         const result = await fn(graphic);
@@ -909,7 +939,10 @@ export function SingleTemplatePreviewExportPanel() {
             });
           }
         }
-        if (graphicRef.current === el) setIsPreviewLoaded(true);
+        if (graphicRef.current === el) {
+          loadedNativeGraphic.current = el;
+          setIsPreviewLoaded(true);
+        }
       })
       .catch((error) => {
         if (graphicRef.current !== el) return;
@@ -921,6 +954,8 @@ export function SingleTemplatePreviewExportPanel() {
 
     return () => {
       if (graphicRef.current === el) graphicRef.current = null;
+      if (loadedNativeGraphic.current === el) loadedNativeGraphic.current = null;
+      if (startedNativeGraphic.current === el) startedNativeGraphic.current = null;
       void el.dispose({});
       el.remove();
     };
@@ -939,6 +974,39 @@ export function SingleTemplatePreviewExportPanel() {
     previewDescriptor,
     renderType,
     pluginPolicyRevision,
+  ]);
+
+  useEffect(() => {
+    const graphic = graphicRef.current;
+    if (
+      !sharedLinks ||
+      sharedLiveEnabled ||
+      syncEditorPreview ||
+      behaviorActive ||
+      renderType !== 'realtime' ||
+      !isFullscreen ||
+      !nativePreviewLoaded ||
+      !graphic ||
+      loadedNativeGraphic.current !== graphic ||
+      startedNativeGraphic.current === graphic
+    )
+      return;
+    // Match Shared Live's initial on-air frame without issuing any LAN commands.
+    const params = { goto: 0, skipAnimation: true };
+    void call('playAction', params, async (current) => {
+      const result = await current.playAction(params);
+      if (graphicRef.current === current && successful(result)) setCurrentStep(result.currentStep);
+      return result;
+    });
+  }, [
+    sharedLinks,
+    sharedLiveEnabled,
+    syncEditorPreview,
+    behaviorActive,
+    renderType,
+    isFullscreen,
+    nativePreviewLoaded,
+    call,
   ]);
 
   useEffect(() => {
@@ -1853,12 +1921,21 @@ export function SingleTemplatePreviewExportPanel() {
                   </button>
                   <select
                     aria-label="Playback mode"
-                    title="Live plays like a playout server. Rendered steps through time exactly, like a video renderer."
-                    value={behaviorActive ? 'realtime' : renderType}
+                    title="Live previews the current template. Shared Live controls the published viewer session. Rendered steps through time exactly."
+                    value={
+                      behaviorActive ? 'realtime' : viewingPublishedCopy ? 'shared' : renderType
+                    }
                     disabled={behaviorActive}
-                    onChange={(e) => setRenderType(e.target.value as RenderType)}
+                    onChange={(e) => {
+                      const mode = e.target.value;
+                      setRequestedSharedPublication(
+                        mode === 'shared' ? availableSharedPublication : null,
+                      );
+                      setRenderType(mode === 'non-realtime' ? 'non-realtime' : 'realtime');
+                    }}
                   >
                     <option value="realtime">Live</option>
+                    {availableSharedPublication && <option value="shared">Shared Live</option>}
                     <option value="non-realtime" disabled={usesMediaPaint}>
                       Rendered
                     </option>
