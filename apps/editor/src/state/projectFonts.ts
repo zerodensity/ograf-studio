@@ -1,3 +1,4 @@
+import { declareFontFaces } from '@ograf-editor/ograf-runtime/src/fontEmbedding';
 import type { Asset } from '@ograf-editor/scene-model';
 
 export function projectFontFamily(asset: Asset): string {
@@ -27,6 +28,8 @@ interface RegisteredFace {
   face: FontFace;
   ready: Promise<void>;
   users: number;
+  /** Takes the face back from the pictures drawn from markup, which see no script-registered face. */
+  withdraw: () => void;
 }
 const registered = new WeakMap<Document, Map<string, RegisteredFace>>();
 
@@ -73,6 +76,7 @@ export function acquireProjectFonts(target: Document, assets: readonly Asset[]) 
               () => undefined,
               () => undefined,
             ),
+            withdraw: declareFontFaces(target, key, projectFontFaceCss([asset])),
           };
           faces.set(key, entry);
         } catch {
@@ -92,6 +96,7 @@ export function acquireProjectFonts(target: Document, assets: readonly Asset[]) 
       for (const [key, entry] of entries)
         if (--entry.users === 0) {
           target.fonts.delete(entry.face);
+          entry.withdraw();
           faces.delete(key);
         }
     },

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { canCaptureSelfStyled, embedStyleUrls, keyframePropertyName } from './selfStyledCapture';
+import {
+  canCaptureSelfStyled,
+  embedStyleUrls,
+  keyframePropertyName,
+  selfStyledCaptureObstacle,
+} from './selfStyledCapture';
 
 describe('canCaptureSelfStyled', () => {
   it.each([
@@ -14,6 +19,38 @@ describe('canCaptureSelfStyled', () => {
     } as unknown as HTMLElement;
 
     expect(canCaptureSelfStyled(root)).toBe(supported);
+  });
+});
+
+describe('selfStyledCaptureObstacle', () => {
+  const tree = (parts: {
+    unsupported?: string;
+    shadow?: boolean;
+    use?: string;
+    pseudo?: boolean;
+  }) =>
+    ({
+      querySelector: (selector: string) =>
+        selector.startsWith('video') && parts.unsupported ? { localName: parts.unsupported } : null,
+      querySelectorAll: (selector: string) =>
+        selector === '*'
+          ? [{ shadowRoot: parts.shadow ? {} : null }]
+          : selector === 'use' && parts.use
+            ? [{ getAttribute: (name: string) => (name === 'href' ? parts.use : null) }]
+            : [],
+      getAnimations: () => (parts.pseudo ? [{ effect: { pseudoElement: '::before' } }] : []),
+    }) as unknown as HTMLElement;
+
+  it('names what a layer holds that its own markup cannot draw', () => {
+    expect(selfStyledCaptureObstacle(tree({}))).toBeNull();
+    expect(selfStyledCaptureObstacle(tree({ unsupported: 'iframe' }))).toBe('<iframe> content');
+    expect(selfStyledCaptureObstacle(tree({ shadow: true }))).toBe(
+      'an element with its own shadow tree',
+    );
+    expect(selfStyledCaptureObstacle(tree({ use: 'icons.svg#star' }))).toBe(
+      'an SVG symbol defined outside the layer',
+    );
+    expect(selfStyledCaptureObstacle(tree({ pseudo: true }))).toBe('an animated pseudo-element');
   });
 });
 
