@@ -21,7 +21,7 @@
  * Rendering plays the exported graphic in headless Chrome and encodes with ffmpeg. Set CHROME_PATH
  * or FFMPEG_PATH when they are not in their usual place.
  */
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -45,6 +45,7 @@ import {
   resolveProjectSetTemplate,
 } from '../apps/editor/src/state/projectSet';
 import { parseProjectSource } from '../apps/editor/src/state/studioDocument';
+import { Chrome } from './lib/chromeCdp.mjs';
 
 const run = promisify(execFile);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -215,22 +216,6 @@ function defaultPreview(stepCount: number): PreviewSpec {
 
 // --- Rendering -------------------------------------------------------------------------------
 
-function chromePath(): string {
-  const candidates = [
-    process.env.CHROME_PATH,
-    'C:/Program Files/Google/Chrome/Application/chrome.exe',
-    'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-  ];
-  return (
-    candidates.find((path) => path && existsSync(path)) ??
-    fail('Chrome was not found. Set CHROME_PATH to a Chrome or Chromium executable.')
-  );
-}
-
 const ffmpegPath = process.env.FFMPEG_PATH ?? 'ffmpeg';
 
 const MIME: Record<string, string> = {
@@ -306,96 +291,6 @@ async function serve(root: string, page: string): Promise<{ server: Server; orig
   const address = server.address();
   if (!address || typeof address === 'string') fail('The preview server did not start.');
   return { server, origin: `http://127.0.0.1:${address.port}` };
-}
-
-/** The few Chrome DevTools Protocol calls the renderer needs, over Node's own WebSocket. */
-class Chrome {
-  private nextId = 1;
-  private readonly pending = new Map<
-    number,
-    { resolve(value: any): void; reject(error: Error): void }
-  >();
-  private readonly listeners = new Map<string, (params: any) => void>();
-  private constructor(
-    private readonly socket: WebSocket,
-    private readonly process: ChildProcess,
-    private readonly profile: string,
-  ) {
-    socket.addEventListener('message', (event) => {
-      const message = JSON.parse(String(event.data));
-      if (message.id) {
-        const waiting = this.pending.get(message.id);
-        this.pending.delete(message.id);
-        if (message.error) waiting?.reject(new Error(message.error.message));
-        else waiting?.resolve(message.result);
-      } else this.listeners.get(message.method)?.(message.params);
-    });
-  }
-
-  static async launch(): Promise<Chrome> {
-    const profile = await mkdtemp(join(tmpdir(), 'ograf-preview-chrome-'));
-    const child = spawn(
-      chromePath(),
-      [
-        '--headless=new',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profile}`,
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--hide-scrollbars',
-        '--mute-audio',
-        '--autoplay-policy=no-user-gesture-required',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-        '--disable-backgrounding-occluded-windows',
-        '--ignore-gpu-blocklist',
-        `--window-size=${FRAME.width},${FRAME.height}`,
-        'about:blank',
-      ],
-      { stdio: 'ignore' },
-    );
-    const portFile = join(profile, 'DevToolsActivePort');
-    let endpoint: string | undefined;
-    for (let attempt = 0; attempt < 100 && !endpoint; attempt++) {
-      await new Promise((done) => setTimeout(done, 100));
-      const lines = existsSync(portFile) ? (await readFile(portFile, 'utf8')).split('\n') : [];
-      if (lines.length >= 2 && lines[1]) endpoint = `ws://127.0.0.1:${lines[0]}${lines[1]}`;
-    }
-    if (!endpoint) {
-      child.kill();
-      fail('Chrome did not start its debugging port within 10 seconds.');
-    }
-    const socket = new WebSocket(endpoint);
-    await new Promise<void>((done, failed) => {
-      socket.addEventListener('open', () => done());
-      socket.addEventListener('error', () => failed(new Error('Could not connect to Chrome.')));
-    });
-    return new Chrome(socket, child, profile);
-  }
-
-  send(method: string, params: object = {}, sessionId?: string): Promise<any> {
-    const id = this.nextId++;
-    this.socket.send(JSON.stringify({ id, method, params, sessionId }));
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
-  }
-
-  on(method: string, listener: (params: any) => void): void {
-    this.listeners.set(method, listener);
-  }
-
-  async close(): Promise<void> {
-    await this.send('Browser.close').catch(() => undefined);
-    this.socket.close();
-    await new Promise<void>((done) => {
-      if (this.process.exitCode !== null) done();
-      else this.process.once('exit', () => done());
-      setTimeout(() => {
-        this.process.kill();
-        done();
-      }, 3000);
-    });
-    await rm(this.profile, { recursive: true, force: true, maxRetries: 5 }).catch(() => undefined);
-  }
 }
 
 async function encode(folder: string, args: string[]): Promise<void> {
@@ -606,7 +501,7 @@ async function renderRecipes(studioUrl: string | undefined, outArgument: string 
   const out = resolve(outArgument);
   await mkdir(out, { recursive: true });
   const origin = new URL(studioUrl).origin;
-  const chrome = await Chrome.launch();
+  const chrome = await Chrome.launch(FRAME);
   try {
     for (const recipe of RECIPES) {
       process.stdout.write(`Rendering ${recipe.id}… `);
@@ -704,7 +599,7 @@ async function main(): Promise<void> {
         (await readFile(stamp, 'utf8')) === renderedFrom;
       if (!current) {
         process.stdout.write(`Rendering ${id}… `);
-        chrome ??= await Chrome.launch();
+        chrome ??= await Chrome.launch(FRAME);
         try {
           const spec = await renderPreview(chrome, document.project, metadata.preview, home);
           await writeFile(stamp, renderedFrom);
