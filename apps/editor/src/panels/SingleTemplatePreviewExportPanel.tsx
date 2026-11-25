@@ -612,7 +612,11 @@ export function SingleTemplatePreviewExportPanel() {
   }
   const previewDescriptor = previewDescriptorRef.current.mounted;
   const tickerUpdates = useTickerUpdateStatuses(
-    syncEditorPreview ? (matchingEditorSource?.root ?? null) : viewportRef,
+    syncEditorPreview
+      ? (matchingEditorSource?.root ?? null)
+      : sharedLiveEnabled
+        ? sharedContainerRef
+        : containerRef,
     sharedLiveEnabled
       ? sharedLive.graphic
       : behaviorActive
