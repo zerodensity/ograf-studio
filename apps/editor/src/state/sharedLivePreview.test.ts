@@ -138,6 +138,39 @@ describe('shared native preview', () => {
     expect(newPlayer.stop).not.toHaveBeenCalled();
   });
 
+  it('mounts only the publication selected by the editor', async () => {
+    const container = { replaceChildren: vi.fn() };
+    controller.dispose();
+    controller = createSharedLivePreview(
+      container as unknown as HTMLElement,
+      onState,
+      () => false,
+      'expected',
+    );
+    const player = renderer();
+    mountGraphic.mockResolvedValue(player);
+    source.readyState = TestEventSource.OPEN;
+    source.emit('snapshot', snapshot('stale'));
+    source.emit('snapshot', snapshot('expected'));
+    await vi.waitFor(() =>
+      expect(onState).toHaveBeenLastCalledWith(
+        expect.objectContaining({ publicationId: 'expected', ready: true }),
+      ),
+    );
+    expect(mountGraphic).toHaveBeenCalledOnce();
+    expect(mountGraphic).toHaveBeenCalledWith(
+      expect.objectContaining({ manifestUrl: snapshot('expected').manifestUrl }),
+    );
+
+    source.emit('snapshot', snapshot('replacement'));
+    expect(container.replaceChildren).toHaveBeenCalledOnce();
+    expect(player.dispose).toHaveBeenCalledOnce();
+    expect(onState).toHaveBeenLastCalledWith(
+      expect.objectContaining({ publicationId: null, ready: false }),
+    );
+    expect(mountGraphic).toHaveBeenCalledOnce();
+  });
+
   it('changes viewer sync without remounting or adding a playback command', async () => {
     const player = renderer();
     mountGraphic.mockResolvedValue(player);

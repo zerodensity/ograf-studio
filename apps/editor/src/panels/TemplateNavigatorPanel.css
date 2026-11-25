@@ -140,6 +140,12 @@
   user-select: none;
 }
 
+.template-card-static {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .template-card-main {
   position: relative;
   min-width: 0;
@@ -285,13 +291,6 @@
   white-space: nowrap;
 }
 
-.template-navigator-empty {
-  justify-content: center;
-  padding: 18px;
-  color: var(--text-dim);
-  font-size: var(--ui-font-size-compact);
-  text-align: center;
-}
 .template-navigator-empty-set {
   display: flex;
   flex-direction: column;

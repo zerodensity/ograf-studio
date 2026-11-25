@@ -18,6 +18,7 @@ interface SharedPlayoutEditorState {
   preparingName: string | null;
   publicationName: string | null;
   publicationId: string | null;
+  publicationKey: string | null;
   publishedSource: SharedPlayoutSource | null;
   liveSnapshot: CoordinatedPlayoutSnapshot | null;
   error: string;
@@ -30,6 +31,7 @@ const initialState: SharedPlayoutEditorState = {
   preparingName: null,
   publicationName: null,
   publicationId: null,
+  publicationKey: null,
   publishedSource: null,
   liveSnapshot: null,
   error: '',
@@ -55,7 +57,21 @@ interface PreviewTarget {
   source: SharedPlayoutSource;
 }
 
-function hasSharedPlayoutContent(composition: Composition): boolean {
+export function sharedPlayoutTargetKey(
+  documentLoadRevision: number,
+  coordinatedSetId: string | undefined,
+  templateId: string | null,
+  projectId: string,
+  compositionId: string,
+): string {
+  return JSON.stringify(
+    coordinatedSetId
+      ? ['set', documentLoadRevision, coordinatedSetId]
+      : ['template', documentLoadRevision, templateId, projectId, compositionId],
+  );
+}
+
+export function hasSharedPlayoutContent(composition: Composition): boolean {
   return (
     (composition.backgroundPaint ?? composition.backgroundColor) !== 'transparent' ||
     composition.layers.some((layer) => !layer.isGuide) ||
@@ -71,8 +87,15 @@ function currentTarget(previous: PreviewTarget | null): PreviewTarget | null {
   const { projectSet, activeTemplateId } = useProjectSetStore.getState();
   const template = projectSet?.templates.find((item) => item.id === activeTemplateId);
   if (projectSet && template?.project.id !== project.id) return null;
+  const composition = getActiveComposition(project, activeCompositionId);
+  const key = sharedPlayoutTargetKey(
+    documentLoadRevision,
+    projectSet?.transitionLogic ? projectSet.id : undefined,
+    activeTemplateId,
+    project.id,
+    composition.id,
+  );
   if (projectSet?.transitionLogic) {
-    const key = JSON.stringify(['set', documentLoadRevision, projectSet.id]);
     if (previous?.key === key) return previous;
     return {
       key,
@@ -80,17 +103,9 @@ function currentTarget(previous: PreviewTarget | null): PreviewTarget | null {
       source: { set: structuredClone(transitionLogicEditorSetSnapshot(projectSet, project)) },
     };
   }
-  const composition = getActiveComposition(project, activeCompositionId);
   // Both Studio and MCP create empty starters with different timeline defaults. Publishing one
   // would seed Play and freeze the empty copy under the same key used for later authoring.
   if (!hasSharedPlayoutContent(composition)) return null;
-  const key = JSON.stringify([
-    'template',
-    documentLoadRevision,
-    activeTemplateId,
-    project.id,
-    composition.id,
-  ]);
   if (previous?.key === key) return previous;
   return {
     key,
@@ -136,6 +151,7 @@ export function installSharedPlayoutAutoFollow(): () => void {
               links,
               publicationName: target.name,
               publicationId: links.publicationId,
+              publicationKey: target.key,
               publishedSource: target.source,
               liveSnapshot: state.publicationId === links.publicationId ? state.liveSnapshot : null,
             }));
