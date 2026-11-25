@@ -3,7 +3,7 @@ name: ograf-authoring
 description: Author, animate, validate, and export editable EBU OGraf broadcast graphics with OGraf Studio MCP. Use for templates, lower thirds, scoreboards, tickers, and data-driven graphics.
 ---
 
-# OGraf Authoring 0.40.0
+# OGraf Authoring 0.40.1
 
 Use OGraf Studio's canonical editable model. Require final OGraf certification.
 
@@ -101,8 +101,8 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 
 ## File and import boundaries
 
-- `.ogs` is editable source, JSON for one template or ZIP for a set. UI Open detects contents;
-  legacy `.ogp`/`.ogeproj` remain readable. MCP project file tools use standalone JSON only.
+- `.ogs` is editable source, JSON for one template or ZIP for a set. UI Open detects contents and
+  also reads standalone `.ogeproj`. MCP project file tools use standalone JSON only.
 - `.ograf.zip` is certified playout output. Existing packages can be converted through the visible
   editor's **Import OGraf** workflow, but arbitrary third-party JavaScript is opaque and conversion
   may be lossy. Preserve and report the editor's recovery/loss summary.
@@ -117,7 +117,7 @@ tools certify the exact compiled artifacts and fail closed when the editor is un
 
 ## Template sets and cropping
 
-Use `.ogs` for single templates or sets; legacy `.ogp` remains readable. Discover `templateSets` and
+Use `.ogs` for single templates or sets. Discover `templateSets` and
 `elements` capabilities before editing them. `ograf_get_template_set` reads the live set and returns
 an opaque set revision; use it with `ograf_update_template_set`. It is distinct from the numeric
 project revision used by `ograf_apply_operations`. Re-read the active project after template switches
@@ -472,7 +472,7 @@ easing-in on exit, and keep on-air motion subtle. Test rundowns are authoring-on
 Use this skill for editable HTML5 broadcast graphics, including Lottie layers, shader and Media
 paints, exposed shader animation, procedural patterns, composable effects, semantic scene
 authoring, Brand Kits, repeaters, GDD collections, reusable components, `.ogs` templates and sets,
-legacy `.ogp` sets, inherited defaults, layer/source/canvas crops, `.ograf.zip` packages,
+inherited defaults, layer/source/canvas crops, `.ograf.zip` packages,
 per-property animation, Animate In/Out, data binding, and interactive visual rules.
 
 - [Editable SVG, PSD and Figma imports](./references/design-imports.md) for supported editable

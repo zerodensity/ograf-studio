@@ -28,6 +28,7 @@ import {
 } from '@ograf-editor/ograf-types';
 import { buildRuntimeTimeline } from './buildRuntimeTimeline';
 import { chartMarkLifecycleFrame } from './chartMarkLifecycle';
+import { applyCompositionFrameLayout, finishCompositionFrame } from './compositionFrame';
 import {
   collectExportedLayers,
   dispatchStudioFrameCue,
@@ -35,17 +36,12 @@ import {
   type GraphicInstances,
 } from './graphicInstances';
 import { LoopPlaybackController, type LoopPlaybackAction } from './loopPlayback';
-import { applyCompiledMasks } from './maskRendering';
 import { resolvePlayTarget } from './lifecycle';
-import {
-  ShaderContextLostError,
-  shaderBackingSizeForLayer,
-  shaderContextCounts,
-} from './shaderRendering';
+import { ShaderContextLostError, shaderContextCounts } from './shaderRendering';
 import {
   applyAnimatedPaint,
+  compiledLayerContentOptions,
   disposeElementContent,
-  lottieBackingSizeForLayer,
   renderAnimatedElementAtTime,
   renderElementContent,
   refreshLottiePresentation,
@@ -78,10 +74,7 @@ import {
   sampleLayerModifiers,
 } from '@ograf-editor/scene-model';
 import { waitForMediaPaintContentReady } from './mediaPaintRendering';
-import {
-  shaderStrokePaddingForLayer,
-  waitForShaderPaintContentReady,
-} from './shaderPaintRendering';
+import { waitForShaderPaintContentReady } from './shaderPaintRendering';
 import {
   EFFECT_ANIMATION_PROPERTIES,
   numericEffectProperties,
@@ -94,10 +87,10 @@ import {
   type LayerTransform,
 } from '@ograf-editor/scene-model';
 import {
-  applyCompiledClipPaths,
   applyCompiledLayerVisualState,
   interpolateCompiledLayerVisualState,
   sampleCompiledLayerVisualState,
+  type CompiledLayerVisualState,
 } from './loopRendering';
 import {
   expandRuntimeCollections,
@@ -122,10 +115,6 @@ import {
   type RuntimeKeyboardTrigger,
 } from './runtimeKeyboard';
 import type { VisualRuleKeyboardInput } from '@ograf-editor/scene-model';
-import { applyCompiledAutoLayout } from './autoLayoutRendering';
-import { applyCompiledMotionPaths } from './motionPathRendering';
-import { applyCompiledTextPaths } from './textPathRendering';
-import { applyCompiledModifiers } from './modifierRendering';
 import {
   layerHasRuntimeVisualInputs,
   pointerVisualRuleTriggers,
@@ -219,27 +208,6 @@ function changedDataKeys(patch: unknown, current: Record<string, unknown>): Set<
       .filter(([key, value]) => !sameValue(current[key], value))
       .map(([key]) => key),
   );
-}
-
-function contentOptions(
-  layer: CompiledGraphicDescriptor['layers'][number],
-  frameRate: number,
-  rendererPlugins?: CompiledGraphicDescriptor['rendererPlugins'],
-) {
-  return {
-    frameRate,
-    rendererPlugins,
-    chartMarkAnimations: layer.chartMarkAnimations,
-    ...(layer.element.type === 'lottie'
-      ? { lottieBackingSize: lottieBackingSizeForLayer(layer) }
-      : {}),
-    ...(hasElementShaderPaint(layer.element) || hasElementMediaPaint(layer.element)
-      ? {
-          shaderBackingSize: shaderBackingSizeForLayer(layer),
-          shaderStrokePadding: shaderStrokePaddingForLayer(layer),
-        }
-      : {}),
-  };
 }
 
 interface LoopExitCorrection {
@@ -540,7 +508,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         const host = this.#layerEls.get(layer.id);
         if (!host) continue;
         renderElementContent(host, this.#resolveLayerElement(layer), 0, {
-          ...contentOptions(layer, current.frameRate, current.rendererPlugins),
+          ...compiledLayerContentOptions(current, layer),
           timestampMs: this.#contentElapsedMs,
           tickerUpdateContext: 'authoring',
           tickerAuthoringPaused: this.#currentStep === undefined && this.#activeTransition === null,
@@ -848,11 +816,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
               host,
               resolved,
               0,
-              contentOptions(
-                layer,
-                this.activeDescriptor.frameRate,
-                this.activeDescriptor.rendererPlugins,
-              ),
+              compiledLayerContentOptions(this.activeDescriptor, layer),
             );
             const frame = this.#timeline?.frame() ?? 0;
             const state = sampleCompiledLayerVisualState(layer, frame, undefined, this.#lastData);
@@ -1239,9 +1203,43 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     return chartMarkLifecycleFrame(this.activeDescriptor, frame, direct);
   }
 
+  #applyLifecycleFrame(
+    states: Map<string, CompiledLayerVisualState>,
+    frame: number,
+    timestampMs: number,
+    transition?: DirectLifecycleTransition,
+  ): void {
+    const descriptor = this.activeDescriptor;
+    const data = this.#lastData;
+    const elements = this.#layerEls;
+    applyCompositionFrameLayout(descriptor, states, data, elements, {
+      timestampMs,
+      clockText: this.#clockText,
+    });
+    for (const layer of descriptor.layers) {
+      const element = elements.get(layer.id);
+      const state = states.get(layer.id);
+      if (!element || !state) continue;
+      applyCompiledLayerVisualState(element, state, this.#contentElapsedMs);
+      if (layer.element.type === 'chart' && layer.chartMarkAnimations) {
+        const resolved = this.#resolveLayerElement(layer);
+        if (resolved.type === 'chart')
+          renderChartAnimationAtFrame(
+            element,
+            resolved,
+            frame,
+            this.#chartMarkFrame(frame, transition),
+          );
+      }
+    }
+    finishCompositionFrame(descriptor, states, data, elements, (layer) =>
+      this.#resolveLayerElement(layer),
+    );
+  }
+
   #renderLoopSnapshot(clockMs: number, epochs = this.#activeLoopEpochs): void {
     const baseFrame = this.#timeline?.frame() ?? 0;
-    const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
+    const states = new Map<string, CompiledLayerVisualState>();
     for (const layer of this.activeDescriptor.layers) {
       const direct = this.#directLifecycleTransition;
       const directLayer = direct?.layers.get(layer.id);
@@ -1335,44 +1333,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       state.effects = resolveBoundEffects(layer, this.#lastData, state.effects);
       states.set(layer.id, state);
     }
-    const modifierContext = { timestampMs: clockMs, clockText: this.#clockText };
-    applyCompiledAutoLayout(
-      this.activeDescriptor,
-      states,
-      this.#lastData,
-      this.#layerEls,
-      modifierContext,
-    );
-    applyCompiledMotionPaths(this.activeDescriptor, states);
-    applyCompiledModifiers(
-      this.activeDescriptor,
-      states,
-      this.#lastData,
-      this.#layerEls,
-      modifierContext,
-    );
-    for (const layer of this.activeDescriptor.layers) {
-      const element = this.#layerEls.get(layer.id);
-      const state = states.get(layer.id);
-      if (element && state) {
-        applyCompiledLayerVisualState(element, state, this.#contentElapsedMs);
-        if (layer.element.type === 'chart' && layer.chartMarkAnimations) {
-          const resolved = this.#resolveLayerElement(layer);
-          if (resolved.type === 'chart')
-            renderChartAnimationAtFrame(
-              element,
-              resolved,
-              baseFrame,
-              this.#chartMarkFrame(baseFrame),
-            );
-        }
-      }
-    }
-    applyCompiledTextPaths(this.activeDescriptor, states, this.#layerEls, (layer) =>
-      this.#resolveLayerElement(layer),
-    );
-    applyCompiledClipPaths(this.activeDescriptor, this.#layerEls, states);
-    applyCompiledMasks(this.activeDescriptor, this.#layerEls, states, this.#lastData);
+    this.#applyLifecycleFrame(states, baseFrame, clockMs);
   }
 
   #createDirectLifecycleTransition(
@@ -1403,7 +1364,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #renderDirectLifecycleTransition(transition: DirectLifecycleTransition, progress: number): void {
     const frame =
       transition.startFrame + (transition.targetFrame - transition.startFrame) * progress;
-    const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
+    const states = new Map<string, CompiledLayerVisualState>();
     for (const layer of this.activeDescriptor.layers) {
       const resolved = transition.layers.get(layer.id);
       if (!resolved) continue;
@@ -1418,44 +1379,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       state.effects = resolveBoundEffects(layer, this.#lastData, state.effects);
       states.set(layer.id, state);
     }
-    const modifierContext = { timestampMs: this.#contentElapsedMs, clockText: this.#clockText };
-    applyCompiledAutoLayout(
-      this.activeDescriptor,
-      states,
-      this.#lastData,
-      this.#layerEls,
-      modifierContext,
-    );
-    applyCompiledMotionPaths(this.activeDescriptor, states);
-    applyCompiledModifiers(
-      this.activeDescriptor,
-      states,
-      this.#lastData,
-      this.#layerEls,
-      modifierContext,
-    );
-    for (const layer of this.activeDescriptor.layers) {
-      const element = this.#layerEls.get(layer.id);
-      const state = states.get(layer.id);
-      if (element && state) {
-        applyCompiledLayerVisualState(element, state, this.#contentElapsedMs);
-        if (layer.element.type === 'chart' && layer.chartMarkAnimations) {
-          const resolved = this.#resolveLayerElement(layer);
-          if (resolved.type === 'chart')
-            renderChartAnimationAtFrame(
-              element,
-              resolved,
-              frame,
-              this.#chartMarkFrame(frame, transition),
-            );
-        }
-      }
-    }
-    applyCompiledTextPaths(this.activeDescriptor, states, this.#layerEls, (layer) =>
-      this.#resolveLayerElement(layer),
-    );
-    applyCompiledClipPaths(this.activeDescriptor, this.#layerEls, states);
-    applyCompiledMasks(this.activeDescriptor, this.#layerEls, states, this.#lastData);
+    this.#applyLifecycleFrame(states, frame, this.#contentElapsedMs, transition);
   }
 
   #beginDirectLifecycleTransition(targetFrame: number, clockMs: number): void {
@@ -1819,7 +1743,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         el,
         this.#resolveLayerElement(layer),
         0,
-        contentOptions(layer, descriptor.frameRate, descriptor.rendererPlugins),
+        compiledLayerContentOptions(descriptor, layer),
       );
       applyLayerEffectsFilter(el, layer.effects, 0);
       this.#layerEls.set(layer.id, el);
@@ -1901,7 +1825,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       element,
       nextElement,
       0,
-      contentOptions(layer, this.activeDescriptor.frameRate, this.activeDescriptor.rendererPlugins),
+      compiledLayerContentOptions(this.activeDescriptor, layer),
     );
     await waitForElementContentReady(element);
     if (!outgoing) return;
@@ -1943,11 +1867,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
         element,
         this.#clockText.get(layer.id) ?? this.#resolveLayerElement(layer),
         0,
-        contentOptions(
-          layer,
-          this.activeDescriptor.frameRate,
-          this.activeDescriptor.rendererPlugins,
-        ),
+        compiledLayerContentOptions(this.activeDescriptor, layer),
       );
     }
   }
@@ -2080,11 +2000,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           this.#clocks.get(layer.id)?.configure(element, this.activeDescriptor.frameRate);
         } else if (el.dataset.ografRenderedElement !== JSON.stringify(element)) {
           renderElementContent(el, element, 0, {
-            ...contentOptions(
-              layer,
-              this.activeDescriptor.frameRate,
-              this.activeDescriptor.rendererPlugins,
-            ),
+            ...compiledLayerContentOptions(this.activeDescriptor, layer),
             timestampMs: this.#contentElapsedMs,
           });
           setLottieDeterministicRendering(el, this.#renderType === 'non-realtime');

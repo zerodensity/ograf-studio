@@ -1,5 +1,5 @@
 import { hasTextAnimationSettings, textAnimationTotalFrames } from '@ograf-editor/scene-model';
-import { applyCompiledAutoLayout } from './autoLayoutRendering';
+import { applyCompositionFrameLayout, finishCompositionFrame } from './compositionFrame';
 import { animatesItsOwnUpdate, classifyElementDataChange } from './inPlaceData';
 import {
   resolveUpdateMotion,
@@ -8,11 +8,7 @@ import {
   type UpdateMotionSample,
 } from './updateMotion';
 import { inheritTickerPlayback, tickerReadinessScope } from './tickerRendering';
-import { applyCompiledMasks } from './maskRendering';
 import { LoopPlaybackController } from './loopPlayback';
-import { applyCompiledMotionPaths } from './motionPathRendering';
-import { applyCompiledTextPaths } from './textPathRendering';
-import { applyCompiledModifiers } from './modifierRendering';
 import { compositionHasBackdropBlur, setCompositionBackdropRoot } from './backdropEffectRendering';
 import { waitForLayerEffectsReady } from './effectCompositing';
 import { expandRuntimeCollections, isRuntimeCollectionLayerActive } from './runtimeCollections';
@@ -42,11 +38,7 @@ import {
   chartUpdateChangesDataOnly,
   type ChartAnimationHistoryEntry,
 } from './chartRendering';
-import {
-  applyCompiledClipPaths,
-  applyCompiledLayerVisualState,
-  sampleCompiledLayerVisualState,
-} from './loopRendering';
+import { applyCompiledLayerVisualState, sampleCompiledLayerVisualState } from './loopRendering';
 import {
   sampleTransitionLogicLayerVisualState,
   sampleTransitionLogicLifecycle,
@@ -54,8 +46,8 @@ import {
 } from './transitionLogicLifecycle';
 export type { TransitionLogicLifecyclePose } from './transitionLogicLifecycle';
 import {
+  compiledLayerContentOptions,
   disposeElementContent,
-  lottieBackingSizeForLayer,
   renderAnimatedElementAtTime,
   renderElementContent,
   setLottieDeterministicRendering,
@@ -69,7 +61,6 @@ import type {
 } from '@ograf-editor/ograf-types';
 import {
   hasElementMediaPaint,
-  hasElementShaderPaint,
   type Element as SceneElement,
   type LayerTransform,
   normalizeClockTimerSettings,
@@ -734,20 +725,9 @@ export function mountTransitionLogicComposition(options: {
     const staged = stagedImages.get(stagedKey);
     if (staged?.loaded) stagedImages.delete(stagedKey);
     renderElementContent(element, resolved, 0, {
+      ...compiledLayerContentOptions(descriptor, layer, resolved),
       timestampMs: (Math.max(0, currentFrame - tickerOriginFrame) * 1000) / descriptor.frameRate,
-      frameRate: descriptor.frameRate,
-      rendererPlugins: descriptor.rendererPlugins,
-      chartMarkAnimations: layer.chartMarkAnimations,
       ...(staged?.loaded ? { stagedImage: staged } : {}),
-      ...(resolved.type === 'lottie'
-        ? { lottieBackingSize: lottieBackingSizeForLayer(layer) }
-        : {}),
-      ...(hasElementShaderPaint(resolved) || hasElementMediaPaint(resolved)
-        ? {
-            shaderBackingSize: shaderBackingSizeForLayer(layer),
-            shaderStrokePadding: shaderStrokePaddingForLayer(layer),
-          }
-        : {}),
     });
   }
 
@@ -1786,9 +1766,7 @@ export function mountTransitionLogicComposition(options: {
         );
       }
       const modifierContext = { timestampMs: elapsedMs, clockText: clockDisplays };
-      applyCompiledAutoLayout(descriptor, states, data, layerEls, modifierContext);
-      applyCompiledMotionPaths(descriptor, states);
-      applyCompiledModifiers(descriptor, states, data, layerEls, modifierContext);
+      applyCompositionFrameLayout(descriptor, states, data, layerEls, modifierContext);
       for (const layer of descriptor.layers) {
         const element = layerEls.get(layer.id)!;
         const resolved = content.get(layer.id)!;
@@ -1893,14 +1871,13 @@ export function mountTransitionLogicComposition(options: {
         }
         applyCompiledLayerVisualState(element, states.get(layer.id)!, elapsedMs);
       }
-      applyCompiledTextPaths(
+      finishCompositionFrame(
         descriptor,
         states,
+        data,
         layerEls,
         (layer) => content.get(layer.id) ?? layer.element,
       );
-      applyCompiledClipPaths(descriptor, layerEls, states);
-      applyCompiledMasks(descriptor, layerEls, states, data);
       // Shared proxies remain available to masks/layout, but are painted by their retained host.
       for (const id of hiddenLayers ?? []) {
         const element = layerEls.get(id);

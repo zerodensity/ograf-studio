@@ -53,7 +53,7 @@ describe('template-set naming and saving', () => {
     expect(childSaved.templates[0]!.name).toBe('News Bulletin');
   });
 
-  it('uses the selected .ogp filename for the returned set and the reopened archive', async () => {
+  it('uses the selected .ogs filename for the returned set and the reopened archive', async () => {
     const project = createProject({ name: 'News Bulletin' });
     const set = addProjectSetTemplate(
       createProjectSet('', project),
@@ -68,7 +68,7 @@ describe('template-set naming and saving', () => {
       abort: vi.fn(async () => {}),
     };
     const handle = {
-      name: 'Evening Show.ogp',
+      name: 'Evening Show.ogs',
       createWritable: async () => writable,
     };
     const picker = vi.fn(async () => handle);
@@ -81,7 +81,7 @@ describe('template-set naming and saving', () => {
     const result = await saving;
     expect(result).toMatchObject({
       status: 'saved',
-      fileName: 'Evening Show.ogp',
+      fileName: 'Evening Show.ogs',
       projectSet: { id: set.id, name: 'Evening Show' },
     });
     if (result.status !== 'saved') throw new Error('Expected a saved file');
@@ -158,7 +158,7 @@ describe('template-set naming and saving', () => {
     };
     vi.stubGlobal('window', {
       showSaveFilePicker: async () => ({
-        name: 'Failed Save.ogp',
+        name: 'Failed Save.ogs',
         createWritable: async () => writable,
       }),
     });

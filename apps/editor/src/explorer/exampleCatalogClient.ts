@@ -1,5 +1,6 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { readRemoteDocumentBytes } from '../state/fileIO';
+import { assertSupportedStudioDocumentUrl } from '../state/studioDocumentFormat';
 import {
   parseExampleCatalog,
   type CatalogExample,
@@ -130,6 +131,7 @@ export async function loadExampleBytes(
   fetcher: Fetcher,
   cache: ExampleFileCache | null,
 ): Promise<Uint8Array> {
+  assertSupportedStudioDocumentUrl(new URL(example.fileUrl));
   const saved = await savedExampleBytes(example, cache);
   if (saved) return saved;
   let response: Response;

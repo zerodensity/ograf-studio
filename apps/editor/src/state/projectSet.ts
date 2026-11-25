@@ -40,6 +40,7 @@ import type {
   PresenterDefinition,
 } from '@ograf-editor/scene-model';
 import { parseProjectSource } from './studioDocument';
+import { assertSupportedStudioDocumentName } from './studioDocumentFormat';
 import { applyFieldExposureOverrides, preserveFieldExposureEdits } from './fieldExposure';
 import {
   applyTemplateSetSettings,
@@ -1996,7 +1997,6 @@ export interface ProjectSetArchiveProgress {
 export async function createProjectSetArchive(
   set: ProjectSetDocument,
   options: {
-    legacyFormat?: boolean;
     archiveMode?: 'compact' | 'compatible';
     onProgress?: (progress: ProjectSetArchiveProgress) => void;
   } = {},
@@ -2015,19 +2015,8 @@ export async function createProjectSetArchive(
   progress('validating', 0, 'Checking the template set…');
   if (options.archiveMode !== undefined && !['compact', 'compatible'].includes(options.archiveMode))
     throw new Error('Invalid template-set archive mode.');
-  const compactMode = !options.legacyFormat && options.archiveMode !== 'compatible';
-  const archiveVersion = projectSetArchiveSchemaVersion(
-    set,
-    compactMode ? 'compact' : 'compatible',
-  );
-  if (options.legacyFormat && set.presenter !== undefined)
-    throw new Error(
-      'Legacy .ogp export does not preserve Presenter settings. Save as .ogs instead.',
-    );
-  if (options.legacyFormat && set.transitionLogic !== undefined)
-    throw new Error(
-      'Legacy .ogp export does not support playout transitions. Save the template set as .ogs to retain its coordinated playout definitions.',
-    );
+  const compactMode = options.archiveMode !== 'compatible';
+  const archiveVersion = projectSetArchiveSchemaVersion(set, options.archiveMode);
   validateSet(set);
   const zip = new JSZip();
   const resourcePool = new SetResourcePool();
@@ -2040,7 +2029,7 @@ export async function createProjectSetArchive(
   }));
   if (!compactMode && !set.templates.length && componentLibrary.length)
     throw new Error(
-      'Compatible and legacy archives need at least one template to retain shared components. Add a template or save the compact .ogs format.',
+      'Compatible archives need at least one template to retain shared components. Add a template or save the compact .ogs format.',
     );
   if (
     compactMode &&
@@ -2051,7 +2040,7 @@ export async function createProjectSetArchive(
     throw new Error('Shared component library count or identities are invalid.');
   const manifest: ProjectSetArchiveManifest = {
     format: PROJECT_SET_FORMAT,
-    schemaVersion: options.legacyFormat ? 4 : archiveVersion,
+    schemaVersion: archiveVersion,
     outputLayer: requireOutputLayer(set.outputLayer === undefined ? 0 : set.outputLayer),
     id: set.id,
     name: set.name,
@@ -2221,10 +2210,12 @@ export async function createProjectSetArchive(
   return archive;
 }
 
-/** Opens legacy and compact set archives into self-contained ordinary child projects. */
+/** Opens compatible and compact set archives into self-contained ordinary child projects. */
 export async function openProjectSetArchive(
   input: Blob | ArrayBuffer | Uint8Array,
 ): Promise<ProjectSetDocument> {
+  if ('name' in input && typeof input.name === 'string')
+    assertSupportedStudioDocumentName(input.name);
   const inputSize = input instanceof Blob ? input.size : input.byteLength;
   if (inputSize > MAX_PROJECT_SET_ARCHIVE_BYTES)
     throw new Error('Template-set archive exceeds the 256 MiB size limit.');
@@ -2246,19 +2237,11 @@ export async function openProjectSetArchive(
   if (manifest.format !== PROJECT_SET_FORMAT)
     throw new Error('This archive is not an OGraf template set.');
   if (
-    ![
-      1,
-      2,
-      3,
-      4,
-      5,
-      PROJECT_SET_SCHEMA_VERSION,
-      LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
-    ].includes(manifest.schemaVersion)
+    ![5, PROJECT_SET_SCHEMA_VERSION, LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION].includes(
+      manifest.schemaVersion,
+    )
   )
     throw new Error(`Unsupported template-set version: ${String(manifest.schemaVersion)}`);
-  if (manifest.transitionLogic !== undefined && manifest.schemaVersion < 5)
-    throw new Error('Playout transitions require template-set version 5 or later.');
   if (
     manifest.nameOrigin !== undefined &&
     manifest.nameOrigin !== 'default' &&
@@ -2468,11 +2451,7 @@ export async function openProjectSetArchive(
         'Compact templates must use the resource pool instead of legacy asset references.',
       );
     if (item.sharedAssets !== undefined) {
-      if (
-        !Array.isArray(item.sharedAssets) ||
-        item.sharedAssets.length > 4096 ||
-        manifest.schemaVersion < 4
-      )
+      if (!Array.isArray(item.sharedAssets) || item.sharedAssets.length > 4096)
         throw new Error('Invalid shared template asset references.');
       const used = new Set<string>();
       for (const reference of item.sharedAssets) {
@@ -2524,7 +2503,6 @@ export async function openProjectSetArchive(
       }
     }
     if (
-      manifest.schemaVersion >= 4 &&
       project.compositions.some((composition) =>
         composition.assets.some((asset) => asset.dataUri === ''),
       )

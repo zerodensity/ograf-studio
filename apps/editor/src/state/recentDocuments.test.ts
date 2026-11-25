@@ -125,6 +125,18 @@ describe('recent Studio document history', () => {
     expect(sortedRecentDocuments([{ id: 'invalid', name: 'invalid', openedAt: 2 }])).toEqual([]);
     expect(await history.list()).toEqual([]);
   });
+
+  it('omits retired files and URLs from the recent document list', async () => {
+    const { history } = backend([
+      { id: 'current', name: 'current.ogs', openedAt: 1, handle: handle('current') },
+      { id: 'legacy', name: 'Legacy', openedAt: 2, handle: handle('legacy', 'Legacy.OGP') },
+      { id: 'url', name: 'Legacy URL', openedAt: 3, url: 'https://example.test/news%2Eogp' },
+    ]);
+    expect((await history.list()).map(({ id }) => id)).toEqual(['current']);
+    await expect(history.rememberHandle(handle('again', 'Again.ogp'))).rejects.toThrow(
+      /no longer supports \.ogp/i,
+    );
+  });
 });
 
 describe('reading a recent document', () => {
@@ -153,6 +165,16 @@ describe('reading a recent document', () => {
     await expect(readRecentDocument({ id: 'file', name: 'News', openedAt: 1 })).rejects.toThrow(
       'select it again',
     );
+  });
+
+  it('rejects a retained legacy file before requesting access or reading its data', async () => {
+    const retained = handle('retired', 'News.OGP');
+    retained.requestPermission = vi.fn();
+    await expect(
+      readRecentDocument({ id: 'file', name: 'News', openedAt: 1, handle: retained }),
+    ).rejects.toThrow(/no longer supports \.ogp/i);
+    expect(retained.requestPermission).not.toHaveBeenCalled();
+    expect(retained.getFile).not.toHaveBeenCalled();
   });
 
   it('sniffs a complete template set rather than treating it as a standalone template', async () => {

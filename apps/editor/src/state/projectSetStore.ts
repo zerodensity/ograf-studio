@@ -9,7 +9,7 @@ interface ProjectSetSessionState {
   clearProjectSet: () => void;
 }
 
-/** Shared editor-session state for the open .ogp and its active child template. */
+/** Shared editor-session state for the open template set and its active child template. */
 export const useProjectSetStore = create<ProjectSetSessionState>((set) => ({
   projectSet: null,
   activeTemplateId: null,

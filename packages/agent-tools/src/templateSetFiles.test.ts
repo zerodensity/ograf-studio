@@ -255,6 +255,19 @@ describe('MCP template transfer review', () => {
   const expectedRevision = 'set:7';
   const suppliedPlan = { planId: 'plan-a', expectedRevision, sourceRevision: 'clipboard:8' };
 
+  it('rejects a retired workspace filename before contacting the editor', async () => {
+    const { records, requestTemplateSet } = await tools(suppliedPlan);
+    const review = records.find((tool) => tool.name === 'ograf_review_template_transfer')!;
+    await expect(
+      review.handler({
+        expectedRevision,
+        source: { kind: 'workspace-file', path: 'Retired.OGP' },
+        options: { policy: 'keep-appearance' },
+      }),
+    ).rejects.toThrow('Choose an editable .ogs or .ogeproj OGraf source file');
+    expect(requestTemplateSet).not.toHaveBeenCalled();
+  });
+
   it('separates read-only review and rendering from explicit commit', async () => {
     const { records, requestTemplateSet } = await tools(suppliedPlan);
     const review = records.find((tool) => tool.name === 'ograf_review_template_transfer')!;

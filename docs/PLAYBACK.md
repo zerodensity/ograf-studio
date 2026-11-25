@@ -95,7 +95,7 @@ at the replacement time. Scheduled replay uses that same boundary, including aft
 In-place coordinated updates prepare the complete changed-image batch before applying it; shader
 effect layers animate their visible output while retaining the capture input.
 
-Existing `.ogs` and `.ogp` documents retain their animation representation. Rebuilding an exported package embeds the frame player in its self-contained runtime bundle.
+Editable `.ogs` documents retain their animation representation. Rebuilding an exported package embeds the frame player in its self-contained runtime bundle.
 
 ## Prepared instances and GPU completion
 

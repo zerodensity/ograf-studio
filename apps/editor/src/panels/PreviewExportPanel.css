@@ -529,6 +529,11 @@
   isolation: isolate;
 }
 
+.preview-render-host {
+  position: absolute;
+  inset: 0;
+}
+
 .preview-background-controls {
   margin: 6px 0;
   font-size: 11px;

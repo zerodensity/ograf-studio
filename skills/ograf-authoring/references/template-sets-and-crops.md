@@ -316,7 +316,7 @@ The planner supports preparation/readiness, latest-pending requests, immediate C
 shared graphics. The Transitions tab's **Export package…** and **File → Export Coordinated
 Package…** create one certified `.ograf.zip` with the coordinator, referenced templates, canonical
 shared sources and resources. Apply or discard an older unapplied draft before export. The source
-set remains editable in `.ogs`; legacy `.ogp` cannot preserve coordinated definitions. Referenced
+set remains editable in `.ogs` with its coordinated definition. Referenced
 templates cannot be removed until their transition states are removed from the definition.
 
 The exported graphic receives `{slots:{[slotId]:{stateId,data}}}`, with `stateId:""` selecting Off.
@@ -511,7 +511,7 @@ and editable controls keep their own keys. Template arrow buttons still switch t
 Save editable `.ogs` through **File**. **File → Export…** opens the selected template's export
 settings. File also provides coordinated-set export or an archive of independent template packages.
 Exported graphics do not include Studio's preview navigation or data panel. Preserve `.ogs` for
-editing. Legacy `.ogp` export rejects unsupported metadata instead of dropping it.
+editing.
 
 ## Live playout
 
@@ -691,7 +691,7 @@ Shared font/media assets and notices are included in standalone output. Presenta
 remain editor-only and are not these output paints.
 
 After activation/default changes, read `ograf_get_project` for the new numeric project revision
-before applying layer operations. UI Open sniffs JSON or ZIP `.ogs` and also accepts legacy `.ogp`.
+before applying layer operations. UI Open detects standalone JSON or template-set ZIP in `.ogs`.
 File → Save writes the current template set as `.ogs`; Save As chooses a new destination. MCP project
 file APIs remain standalone JSON. Older JSON-only
 `.ogs` readers cannot read set archives, and
@@ -717,11 +717,10 @@ package per template inside a `.ograf-set.zip`.
 
 For older set readers, compatible storage retains the schema **5** archive layout for sets without
 local member branding. Use compact storage for schema **7**, or save an individual standalone
-template to carry its resolved appearance. Current Studio opens schemas 1–7. An older reader that
+template to carry its resolved appearance. Current Studio opens set archive schemas 5–7. An older reader that
 does not support Transition Logic
 v4 cannot play guarded/preset definitions even inside a compatible schema 5 archive. JSON-only `.ogs`
-readers cannot open a set ZIP; existing legacy `.ogp` files can still be opened, but cannot preserve
-coordinated transitions.
+readers cannot open a set ZIP.
 
 MCP `ograf_save_project` with `scope: "set"` takes `expectedRevision` from `ograf_get_template_set`, a
 workspace-confined `.ogs` `path`, `confirm:true`, optional `archiveMode:"compact"|"compatible"`

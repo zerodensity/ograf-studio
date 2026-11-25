@@ -4,17 +4,13 @@ import { FramePlayer } from './framePlayer';
 import { resolveBoundElement } from './renderElement';
 import { renderTextAnimationAtFrame } from './textAnimationRendering';
 import { renderChartAnimationAtFrame } from './chartRendering';
-import { applyCompiledMasks } from './maskRendering';
 import {
   sampleCompiledLayerVisualState,
   applyCompiledLayerVisualState,
-  applyCompiledClipPaths,
   compiledLoopElapsedFrames,
 } from './loopRendering';
-import { applyCompiledAutoLayout } from './autoLayoutRendering';
-import { applyCompiledMotionPaths } from './motionPathRendering';
-import { applyCompiledTextPaths } from './textPathRendering';
-import { applyCompiledModifiers, type CompiledModifierContext } from './modifierRendering';
+import { applyCompositionFrameLayout, finishCompositionFrame } from './compositionFrame';
+import type { CompiledModifierContext } from './modifierRendering';
 
 /** Composition-frame keys extend the player; independent local loops retain their own clocks. */
 function descriptorDurationFrames(descriptor: CompiledGraphicDescriptor): number {
@@ -52,9 +48,7 @@ export function buildRuntimeTimeline(
         ),
       ]),
     );
-    applyCompiledAutoLayout(descriptor, states, data, layerEls, modifierContext);
-    applyCompiledMotionPaths(descriptor, states);
-    applyCompiledModifiers(descriptor, states, data, layerEls, modifierContext);
+    applyCompositionFrameLayout(descriptor, states, data, layerEls, modifierContext);
     for (const layer of descriptor.layers) {
       const element = layerEls.get(layer.id);
       const state = states.get(layer.id);
@@ -72,11 +66,9 @@ export function buildRuntimeTimeline(
           renderTextAnimationAtFrame(element, boundElement, frame);
       }
     }
-    applyCompiledTextPaths(descriptor, states, layerEls, (layer) =>
+    finishCompositionFrame(descriptor, states, data, layerEls, (layer) =>
       resolveBoundElement(layer, data),
     );
-    applyCompiledClipPaths(descriptor, layerEls, states);
-    applyCompiledMasks(descriptor, layerEls, states, data);
   };
 
   const player = new FramePlayer({

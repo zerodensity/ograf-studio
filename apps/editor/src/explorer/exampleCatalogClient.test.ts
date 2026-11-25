@@ -121,6 +121,18 @@ describe('loadExampleBytes', () => {
       DOCUMENT,
     );
   });
+
+  it('rejects an example with a retired filename before downloading', async () => {
+    const fetcher = vi.fn<Fetcher>();
+    await expect(
+      loadExampleBytes(
+        { ...example(), fileUrl: 'https://examples.test/v1/rain/rain.OGP' },
+        fetcher,
+        memoryCache(),
+      ),
+    ).rejects.toThrow(/no longer supports \.ogp/i);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });
 
 describe('loadExampleAsset', () => {

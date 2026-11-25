@@ -2181,14 +2181,13 @@ export function createOGrafToolRecords(
           update: 'ograf_update_template_set',
           save: 'ograf_save_project scope=set',
           format: '.ogs',
-          legacyFormat: '.ogp',
           storage: {
             defaultArchiveMode: 'compact',
             archiveSchemaVersion: 6,
             localBrandingArchiveSchemaVersion: LOCAL_BRANDING_TEMPLATE_SET_ARCHIVE_SCHEMA_VERSION,
             compatibleArchiveSchemaVersion: 5,
             contract:
-              'Compact archives share identical font/resource bytes and set component sources, then hydrate editable projects with original IDs, bindings, animation and overrides. A set with local Brand Kit inheritance uses schema 7 so older readers cannot reapply shared branding. Other compact sets use schema 6 and can be saved in compatible schema 5. Readers accept schemas 1–7 and legacy .ogp. A standalone project embeds its resolved dependencies.',
+              'Compact archives share identical font/resource bytes and set component sources, then hydrate editable projects with original IDs, bindings, animation and overrides. A set with local Brand Kit inheritance uses schema 7 so older readers cannot reapply shared branding. Other compact sets use schema 6 and can be saved in compatible schema 5. Readers accept set archive schemas 5–7. A standalone project embeds its resolved dependencies.',
             mcpSave:
               'ograf_save_project scope=set saves a revision-checked snapshot copy of the connected editor set to a workspace-confined .ogs path. archiveMode compact (default) or compatible; confirm:true and explicit overwrite permission. Compressed MCP transfer limit 64 MiB; larger sets use Studio Save Template Set. Saving preserves open editor names, revisions and unsaved edits.',
           },
@@ -2312,7 +2311,7 @@ export function createOGrafToolRecords(
             behavior:
               'The active transition finishes before the latest pending ready request; Clear is immediate. Preparation failures keep current output. Editor selection is separate from playout state.',
             limits:
-              'Rules can issue Take/Update/Out/Clear; transition definitions remain in Transitions or set_transition_logic. Coordinated Rules supports data/change, pointer/entry hover, key-down/key-up, play/first-step/stop/custom-action, local set-data, animated properties and delayed commands. Shader/media Rule side effects and later-step behavior remain unsupported. Playout rules require coordinated set output; standalone exports reject them. Preview snapshots unsaved edits; failed replacement preparation preserves working output and details remain expandable. Only older unapplied drafts need Apply/Discard. Save Template Set writes .ogs; coordinated export certifies exact artifacts. MCP live output loads the applied set separately. ograf_export_package scope=set exports a certified revision-checked set with operationId recovery; ograf_export_package exports the active composition. Legacy .ogp cannot preserve the coordinator.',
+              'Rules can issue Take/Update/Out/Clear; transition definitions remain in Transitions or set_transition_logic. Coordinated Rules supports data/change, pointer/entry hover, key-down/key-up, play/first-step/stop/custom-action, local set-data, animated properties and delayed commands. Shader/media Rule side effects and later-step behavior remain unsupported. Playout rules require coordinated set output; standalone exports reject them. Preview snapshots unsaved edits; failed replacement preparation preserves working output and details remain expandable. Only older unapplied drafts need Apply/Discard. Save Template Set writes .ogs; coordinated export certifies exact artifacts. MCP live output loads the applied set separately. ograf_export_package scope=set exports a certified revision-checked set with operationId recovery; ograf_export_package exports the active composition.',
             livePlayout: {
               available: editor.playoutReady === true,
               read: 'ograf_get_playout',
@@ -2367,7 +2366,7 @@ export function createOGrafToolRecords(
           copies:
             'Independent template/project/composition identities. Same-set copies preserve parent control and shared-asset bindings. Cross-set paste materializes resolved local values.',
           files:
-            'UI Open detects standalone JSON or template-set ZIP in .ogs; legacy .ogp/.ogeproj remain readable. Save Template Set writes compact .ogs with schema 7 when local branding needs it, otherwise schema 6. Eligible sets can use schema 5 compatibility. Export Legacy Template Set (.ogp) flattens component links in eligible copies. MCP project open/save use standalone JSON; ograf_save_project scope=set writes whole-set snapshots.',
+            'UI Open detects standalone JSON or template-set ZIP in .ogs and reads standalone .ogeproj. Save Template Set writes compact .ogs with schema 7 when local branding needs it, otherwise schema 6. Eligible sets can use schema 5 compatibility. MCP project open/save use standalone JSON; ograf_save_project scope=set writes whole-set snapshots.',
         },
         cropping: {
           layer:
@@ -5136,7 +5135,7 @@ export function createOGrafToolRecords(
     {
       title: 'Open OGraf editable project',
       description:
-        'Open workspace JSON .ogs/.ogeproj in a new session. ZIP .ogs/.ogp: open in Studio and activate a template.',
+        'Open workspace JSON .ogs/.ogeproj in a new session. For a template-set .ogs archive, open it in Studio and activate a template.',
       inputSchema: { sessionId: z.string(), path: z.string() },
       annotations: mutation,
     },

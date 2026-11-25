@@ -8,6 +8,7 @@ import {
   type PointerEvent,
   type KeyboardEvent,
 } from 'react';
+import type { Project } from '@ograf-editor/scene-model';
 import {
   moveProjectSetTemplate,
   reorderProjectSetTemplate,
@@ -43,36 +44,13 @@ import {
 } from '../state/templateTransferReviewDialogStore';
 import { requestStartupCreation } from '../state/startupCreation';
 import { useEditorWindow } from '../layout/EditorWindow';
+import { transparencyCheckerboardStyle } from '../canvas/compositionBackground';
 import './TemplateNavigatorPanel.css';
 import { useTemplateSetSettingsStore } from '../state/templateSetSettingsStore';
 
 type TemplateDropTarget = { templateId: string; side: 'before' | 'after' };
 
-function TemplateCard({
-  name,
-  project,
-  index,
-  active,
-  onActivate,
-  onMove,
-  onRename,
-  onRemove,
-  canRemove,
-  onContextMenu,
-  onCommandKey,
-  renameRevision = 0,
-  canMoveUp,
-  canMoveDown,
-  dragging,
-  dropSide,
-  templateId,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-  onPointerCancel,
-}: {
-  name: string;
-  project: ReturnType<typeof resolveProjectSetTemplate>;
+interface TemplateSetCardControls {
   index: number;
   active: boolean;
   onActivate: (event: MouseEvent<HTMLButtonElement>) => void;
@@ -92,7 +70,19 @@ function TemplateCard({
   onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerCancel: () => void;
+}
+
+function TemplateCard({
+  name,
+  project,
+  setControls,
+}: {
+  name: string;
+  project: Project;
+  setControls?: TemplateSetCardControls;
 }) {
+  const active = setControls?.active ?? true;
+  const renameRevision = setControls?.renameRevision ?? 0;
   const cardRef = useRef<HTMLElement>(null);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const thumbnailUrlRef = useRef<string | null>(null);
@@ -134,7 +124,7 @@ function TemplateCard({
   const commitRename = () => {
     if (cancelledRenameRef.current) return;
     try {
-      onRename(nameDraft);
+      setControls?.onRename(nameDraft);
       setEditingName(false);
       setRenameError('');
     } catch (error) {
@@ -208,48 +198,66 @@ function TemplateCard({
     };
   }, []);
 
+  const preview = (
+    <span
+      className="template-card-preview"
+      style={setControls ? undefined : transparencyCheckerboardStyle(2, 'dark')}
+    >
+      {thumbnailUrl ? (
+        <img src={thumbnailUrl} alt="" draggable={false} />
+      ) : (
+        <span className="template-card-preview-empty">OGraf</span>
+      )}
+      {setControls && <span className="template-card-number">{setControls.index + 1}</span>}
+    </span>
+  );
+  const caption = (
+    <span className="template-card-caption" title={name}>
+      {name}
+    </span>
+  );
+
   return (
     <article
       ref={cardRef}
-      className={`template-card${active ? ' is-active' : ''}${dragging ? ' is-dragging' : ''}${dropSide ? ` drop-${dropSide}` : ''}`}
+      className={`template-card${active ? ' is-active' : ''}${setControls?.dragging ? ' is-dragging' : ''}${setControls?.dropSide ? ` drop-${setControls.dropSide}` : ''}`}
       aria-current={active ? 'page' : undefined}
       role="listitem"
-      data-template-card-id={templateId}
-      onContextMenu={(event) => {
-        if ((event.target as HTMLElement).closest('input')) return;
-        onContextMenu(event);
-      }}
-      onKeyDown={onCommandKey}
+      data-template-card-id={setControls?.templateId}
+      onContextMenu={
+        setControls &&
+        ((event) => {
+          if ((event.target as HTMLElement).closest('input')) return;
+          setControls.onContextMenu(event);
+        })
+      }
+      onKeyDown={setControls?.onCommandKey}
     >
       <div className="template-card-main">
-        <button
-          type="button"
-          className="template-card-select"
-          onClick={onActivate}
-          onDoubleClick={startRename}
-          aria-label={`Open template ${index + 1}: ${name}`}
-          aria-pressed={active}
-          draggable={false}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerCancel}
-          title="Drag to reorder · Double-click to rename"
-        >
-          <span className="template-card-preview">
-            {thumbnailUrl ? (
-              <img src={thumbnailUrl} alt="" draggable={false} />
-            ) : (
-              <span className="template-card-preview-empty">OGraf</span>
-            )}
-            <span className="template-card-number">{index + 1}</span>
-          </span>
-          {!editingName ? (
-            <span className="template-card-caption" title={name}>
-              {name}
-            </span>
-          ) : null}
-        </button>
+        {setControls ? (
+          <button
+            type="button"
+            className="template-card-select"
+            onClick={setControls.onActivate}
+            onDoubleClick={startRename}
+            aria-label={`Open template ${setControls.index + 1}: ${name}`}
+            aria-pressed={active}
+            draggable={false}
+            onPointerDown={setControls.onPointerDown}
+            onPointerMove={setControls.onPointerMove}
+            onPointerUp={setControls.onPointerUp}
+            onPointerCancel={setControls.onPointerCancel}
+            title="Drag to reorder · Double-click to rename"
+          >
+            {preview}
+            {!editingName && caption}
+          </button>
+        ) : (
+          <div className="template-card-static">
+            {preview}
+            {caption}
+          </div>
+        )}
         {editingName ? (
           <div className="template-card-name-editor">
             <input
@@ -283,7 +291,10 @@ function TemplateCard({
           </div>
         ) : null}
       </div>
-      <span className="template-card-order" aria-label={`Reorder ${name}`}>
+      <span
+        className="template-card-order"
+        aria-label={setControls ? `Reorder ${name}` : undefined}
+      >
         <button
           type="button"
           onClick={() => setRefreshRevision((revision) => revision + 1)}
@@ -296,40 +307,44 @@ function TemplateCard({
         >
           {thumbnailError ? '!' : '↻'}
         </button>
-        <button
-          type="button"
-          onClick={() => onMove(-1)}
-          disabled={!canMoveUp}
-          aria-label={`Move ${name} earlier`}
-          title="Move earlier"
-        >
-          ↑
-        </button>
-        <button
-          type="button"
-          onClick={() => onMove(1)}
-          disabled={!canMoveDown}
-          aria-label={`Move ${name} later`}
-          title="Move later"
-        >
-          ↓
-        </button>
-        <button
-          type="button"
-          className="template-card-remove"
-          aria-label={`Remove template ${name}`}
-          title="Remove template from set"
-          disabled={!canRemove}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove();
-          }}
-        >
-          <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6" />
-          </svg>
-        </button>
+        {setControls && (
+          <>
+            <button
+              type="button"
+              onClick={() => setControls.onMove(-1)}
+              disabled={!setControls.canMoveUp}
+              aria-label={`Move ${name} earlier`}
+              title="Move earlier"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              onClick={() => setControls.onMove(1)}
+              disabled={!setControls.canMoveDown}
+              aria-label={`Move ${name} later`}
+              title="Move later"
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              className="template-card-remove"
+              aria-label={`Remove template ${name}`}
+              title="Remove template from set"
+              disabled={!setControls.canRemove}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                setControls.onRemove();
+              }}
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6" />
+              </svg>
+            </button>
+          </>
+        )}
       </span>
     </article>
   );
@@ -631,19 +646,26 @@ export function TemplateNavigatorPanel() {
 
   if (!projectSet) {
     return (
-      <section className="template-navigator-panel template-navigator-empty">
-        <p>Add another template to create a Template Set and coordinate transitions.</p>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => requestStartupCreation('second-template')}
-        >
-          New template…
-        </button>
-        <button type="button" disabled={busy} onClick={() => void addSecondTemplate()}>
-          Add existing template…
-        </button>
-        {status && <p role="status">{status}</p>}
+      <section className="template-navigator-panel">
+        <div className="template-navigator-list">
+          <div role="list" aria-label="Templates">
+            <TemplateCard key={project.id} name={project.name} project={project} />
+          </div>
+          <div className="template-navigator-empty-set">
+            <p>Add another template to create a Template Set and coordinate transitions.</p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => requestStartupCreation('second-template')}
+            >
+              New template…
+            </button>
+            <button type="button" disabled={busy} onClick={() => void addSecondTemplate()}>
+              Add existing template…
+            </button>
+            {status && <p role="status">{status}</p>}
+          </div>
+        </div>
       </section>
     );
   }
@@ -704,31 +726,34 @@ export function TemplateNavigatorPanel() {
             key={template.id}
             name={template.name}
             project={template.id === activeTemplateId ? project : resolvedProjects[index]!}
-            index={index}
-            active={template.id === activeTemplateId}
-            onActivate={(event) => {
-              if (suppressDragClickRef.current && event.detail > 0) {
-                suppressDragClickRef.current = false;
-                return;
-              }
-              openTemplate(template.id);
+            setControls={{
+              index,
+              active: template.id === activeTemplateId,
+              onActivate: (event) => {
+                if (suppressDragClickRef.current && event.detail > 0) {
+                  suppressDragClickRef.current = false;
+                  return;
+                }
+                openTemplate(template.id);
+              },
+              onMove: (offset) => moveTemplate(template.id, offset),
+              onRename: (name) => renameTemplate(template.id, name),
+              onRemove: () => remove(template.id),
+              canRemove: !busy,
+              onContextMenu: (event) => openMenu(event, template.id),
+              onCommandKey: (event) => commandKey(event, template.id),
+              renameRevision:
+                renameRequest?.templateId === template.id ? renameRequest.revision : 0,
+              canMoveUp: index > 0,
+              canMoveDown: index < projectSet.templates.length - 1,
+              dragging: template.id === draggingTemplateId,
+              dropSide: dropTarget?.templateId === template.id ? dropTarget.side : undefined,
+              templateId: template.id,
+              onPointerDown: (event) => startDrag(event, template.id),
+              onPointerMove: previewDrop,
+              onPointerUp: dropTemplate,
+              onPointerCancel: clearDrag,
             }}
-            onMove={(offset) => moveTemplate(template.id, offset)}
-            onRename={(name) => renameTemplate(template.id, name)}
-            onRemove={() => remove(template.id)}
-            canRemove={!busy}
-            onContextMenu={(event) => openMenu(event, template.id)}
-            onCommandKey={(event) => commandKey(event, template.id)}
-            renameRevision={renameRequest?.templateId === template.id ? renameRequest.revision : 0}
-            canMoveUp={index > 0}
-            canMoveDown={index < projectSet.templates.length - 1}
-            dragging={template.id === draggingTemplateId}
-            dropSide={dropTarget?.templateId === template.id ? dropTarget.side : undefined}
-            templateId={template.id}
-            onPointerDown={(event) => startDrag(event, template.id)}
-            onPointerMove={previewDrop}
-            onPointerUp={dropTemplate}
-            onPointerCancel={clearDrag}
           />
         ))}
       </div>

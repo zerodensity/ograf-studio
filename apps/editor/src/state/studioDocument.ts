@@ -5,6 +5,7 @@ import {
   validatePresenterDefinition,
 } from '@ograf-editor/scene-model';
 import type { ProjectSetDocument } from './projectSet';
+import { assertSupportedStudioDocumentName } from './studioDocumentFormat';
 
 /** The editable extension identifies a Studio document; its contents identify single or set mode. */
 export type StudioDocument =
@@ -49,10 +50,14 @@ function isZip(bytes: Uint8Array): boolean {
   );
 }
 
-/** Sniff bytes, not filename or MIME; archive bounds and integrity checks remain in the set reader. */
+/** Choose single or set mode from the bytes after checking any known source filename. */
 export async function parseStudioDocument(
   input: Blob | ArrayBuffer | Uint8Array,
+  sourceName?: string,
 ): Promise<StudioDocument> {
+  if (sourceName !== undefined) assertSupportedStudioDocumentName(sourceName);
+  if ('name' in input && typeof input.name === 'string')
+    assertSupportedStudioDocumentName(input.name);
   const bytes =
     input instanceof Blob
       ? new Uint8Array(await input.arrayBuffer())
@@ -92,28 +97,4 @@ export async function singleTemplateFromStudioDocument(document: StudioDocument)
     );
   const { resolveProjectSetTemplate } = await import('./projectSet');
   return resolveProjectSetTemplate(set, set.templates[0]!.id);
-}
-
-/** Legacy export is a materialized copy: older set readers never see live component metadata. */
-export async function legacyTemplateSetCopy(set: ProjectSetDocument): Promise<ProjectSetDocument> {
-  if (set.presenter !== undefined)
-    throw new Error(
-      'Legacy .ogp export does not preserve Presenter settings. Save as .ogs instead.',
-    );
-  if (set.transitionLogic !== undefined)
-    throw new Error(
-      'Legacy .ogp export does not support playout transitions. Save the template set as .ogs to retain its coordinated playout definitions.',
-    );
-  const { resolveProjectSetTemplate } = await import('./projectSet');
-  const result = structuredClone(set);
-  delete result.componentAssets;
-  result.templates = set.templates.map((template) => {
-    const project = resolveProjectSetTemplate(set, template.id);
-    for (const composition of project.compositions) {
-      for (const layer of composition.layers) layer.componentLink = null;
-      composition.components = [];
-    }
-    return { ...structuredClone(template), project };
-  });
-  return result;
 }
