@@ -1007,8 +1007,14 @@ export function mountTextAnimationContent(
   flow.dataset.ografTextFlow = 'true';
   flow.style.display = 'block';
   flow.style.width = '100%';
+  // Assistive technology gets the text once, as the layer's label, and not the split glyphs. ARIA prohibits
+  // a label on an element without a role, so the layer is an `img`: content presented as a whole and named
+  // by its label. A text with nothing to say gets neither, since an `img` without a name is a fault too.
   flow.setAttribute('aria-hidden', 'true');
-  content.setAttribute('aria-label', source);
+  if (source.trim()) {
+    content.setAttribute('role', 'img');
+    content.setAttribute('aria-label', source);
+  }
 
   const ranges = styledRanges(element.runs);
   if (
