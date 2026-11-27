@@ -1,4 +1,3 @@
-import { toCanvas } from 'html-to-image';
 import {
   effectEnabled,
   effectStackPadding,
@@ -15,6 +14,8 @@ import {
   revealSourceSignature,
   REVEAL_CHANGED_EVENT,
 } from './revealPresentation';
+import { usedFontFaceCss } from './fontEmbedding';
+import { selfStyledCapture, selfStyledCaptureObstacle } from './selfStyledCapture';
 
 interface ShaderStage {
   canvas: HTMLCanvasElement;
@@ -40,6 +41,14 @@ function shaderOutputOverlaysInput(source: string): boolean {
  */
 const MAX_FOLLOWED_REVISIONS = 8;
 
+/**
+ * A capture that keeps the page from drawing for longer than this makes its frame a heavy one, and
+ * a heavy frame is followed by a pause as long as the frame took. A layer that changes every frame
+ * then leaves the page half of its time. Copying a layer's markup stays under it; turning a large
+ * live canvas into a picture does not.
+ */
+const BLOCKING_CAPTURE_MS = 8;
+
 /** Roots whose stacks hold their output because the graphic's host cannot show it right now. */
 const suspendedRoots = new WeakSet<Node>();
 
@@ -64,6 +73,13 @@ class ShaderEffectStackController {
   /** Counts changes to what a capture would flatten that no signature value can see. */
   domRevision = 0;
   baseDomRevision = 0;
+  /** The images the layer's picture has read, kept from one capture to the next. */
+  readonly embedded = new Map<string, Promise<string>>();
+  /** How long the latest capture kept the page from drawing. */
+  captureBlockedMs = 0;
+  /** The time before which the next frame leaves the page alone, unless someone waits for it. */
+  resumeAt = 0;
+  resumeTimer: ReturnType<typeof setTimeout> | null = null;
   observer: MutationObserver | null = null;
   /** An update arrived while the host's root was suspended, so the output is behind it. */
   deferred = false;
@@ -259,17 +275,24 @@ class ShaderEffectStackController {
 
   async captureHost(width: number, height: number): Promise<HTMLCanvasElement> {
     // The Media renderer has already flattened crop, fit, position, shape and native alpha into
-    // this canvas, so it is the whole picture for a clip or a live source, and html-to-image would
-    // omit a live canvas anyway.
+    // this canvas, so it is the whole picture for a clip or a live source.
     const media = this.mediaCanvases()[0];
     if (media) return media;
-    return toCanvas(this.host, {
+    const obstacle = selfStyledCaptureObstacle(this.host);
+    if (obstacle) throw new Error(`A shader effect cannot draw a layer that holds ${obstacle}.`);
+    // The layer is drawn from its own markup, in a picture that sees no font of the page.
+    const fontEmbedCSS = await usedFontFaceCss(this.host);
+    // The drawer copies the markup before it first waits, and that is the part the page waits for.
+    const started = performance.now();
+    const picture = selfStyledCapture(this.host, {
       width,
       height,
       canvasWidth: width,
       canvasHeight: height,
-      pixelRatio: 1,
-      cacheBust: false,
+      fontEmbedCSS,
+      partOfPage: true,
+      skipUnreadable: true,
+      embedded: this.embedded,
       style: {
         transform: 'none',
         transformOrigin: '0 0',
@@ -277,14 +300,12 @@ class ShaderEffectStackController {
         filter: 'none',
         mixBlendMode: 'normal',
       },
-      filter: (node: HTMLElement) => {
-        const dataset = node.dataset;
-        return (
-          !dataset ||
-          (dataset.ografShaderEffectOutput !== 'true' && dataset.ografEffectFilter !== 'true')
-        );
-      },
-    });
+      filter: (node: HTMLElement) =>
+        node.dataset.ografShaderEffectOutput !== 'true' &&
+        node.dataset.ografEffectFilter !== 'true',
+    })();
+    this.captureBlockedMs = performance.now() - started;
+    return picture;
   }
 
   async captureBase(): Promise<HTMLCanvasElement> {
@@ -300,9 +321,9 @@ class ShaderEffectStackController {
       domRevision === this.baseDomRevision
     )
       return this.baseCanvas;
-    // Only html-to-image reads the live DOM, and its filter already leaves the output out, so the
-    // current picture stays up during the capture instead of flashing the clean one. The originals
-    // show only through parts of the output that are transparent.
+    // Only a capture of the layer's markup reads the live DOM, and its filter already leaves the
+    // output out, so the current picture stays up during the capture instead of flashing the clean
+    // one. The originals show only through parts of the output that are transparent.
     const flattensDom = this.mediaCanvases().length === 0;
     if (flattensDom) this.showOriginals();
     try {
@@ -488,8 +509,8 @@ class ShaderEffectStackController {
       stage.renderer.dispose();
       this.shaders.delete(id);
     }
-    // Dynamic inputs (Media, Lottie, shader paints) may request another frame while html-to-image
-    // is still flattening this one. Commit the latest completed frame instead of starving the
+    // Dynamic inputs (Media, Lottie, shader paints) may request another frame while this one is
+    // still being drawn from the layer's markup. Commit the latest completed frame instead of starving the
     // output forever; run() immediately follows with the newest queued revision.
     if (this.disposed) return;
     if (this.output.width !== result.width) this.output.width = result.width;
@@ -529,8 +550,19 @@ class ShaderEffectStackController {
 
   run(): void {
     if (this.busy || this.disposed) return;
+    // Whoever waits for the picture gets it at once: a readiness wait is not a live frame.
+    const pause = this.waiters.length ? 0 : this.resumeAt - performance.now();
+    if (pause > 0) {
+      this.resumeTimer ??= setTimeout(() => {
+        this.resumeTimer = null;
+        this.run();
+      }, pause);
+      return;
+    }
     const revision = this.requested;
+    const started = performance.now();
     this.busy = true;
+    this.captureBlockedMs = 0;
     void this.render()
       .catch((cause: unknown) => {
         this.error = cause instanceof Error ? cause : new Error(String(cause));
@@ -542,6 +574,8 @@ class ShaderEffectStackController {
       .finally(() => {
         this.completed = Math.max(this.completed, revision);
         this.busy = false;
+        const now = performance.now();
+        this.resumeAt = this.captureBlockedMs > BLOCKING_CAPTURE_MS ? now + (now - started) : 0;
         this.settle();
         if (this.completed < this.requested) this.run();
       });
@@ -573,11 +607,14 @@ class ShaderEffectStackController {
     if (pending.length) this.onMutations(pending);
     if (this.error) return Promise.reject(this.error);
     if (this.completed >= this.requested) return Promise.resolve();
-    return new Promise<void>((resolve) =>
+    const waiting = new Promise<void>((resolve) =>
       this.waiters.push({ revision: this.requested, resolve }),
     ).then(() => {
       if (this.error) throw this.error;
     });
+    // A capture that was holding back for the page starts now.
+    this.run();
+    return waiting;
   }
 
   async completeFrame(): Promise<void> {
@@ -625,6 +662,8 @@ class ShaderEffectStackController {
 
   dispose(): void {
     this.disposed = true;
+    if (this.resumeTimer !== null) clearTimeout(this.resumeTimer);
+    this.resumeTimer = null;
     this.observer?.disconnect();
     this.observer = null;
     this.host.removeEventListener?.(CHART_RENDERED_EVENT, this.onChartRendered);
@@ -632,6 +671,7 @@ class ShaderEffectStackController {
     for (const stage of this.shaders.values()) stage.renderer.dispose();
     this.shaders.clear();
     this.baseCanvas = null;
+    this.embedded.clear();
     this.showOriginals();
     this.output.remove();
     this.settle();

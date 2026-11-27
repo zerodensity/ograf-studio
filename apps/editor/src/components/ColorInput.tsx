@@ -234,22 +234,13 @@ export function ColorInput({
       try {
         if (stage.querySelector('[data-ograf-shader-canvas]')) {
           const { sampleLiveShaderStage } = await import('./sampleLiveShaderStage');
-          const state = useProjectStore.getState();
-          const composition = state.project.compositions.find(
-            (item) => item.id === state.activeCompositionId,
-          );
-          const pixel = await sampleLiveShaderStage(
-            stage,
-            event.clientX,
-            event.clientY,
-            composition?.assets ?? [],
-          );
+          const pixel = await sampleLiveShaderStage(stage, event.clientX, event.clientY);
           if (isColorSamplingTargetCurrent(initialTarget, samplingTarget(root.current)))
             sampleColor.current(pixel);
           return;
         }
-        const { toCanvas } = await import('html-to-image');
-        const canvas = await toCanvas(stage, { pixelRatio: 1 });
+        const { stagePicture } = await import('./stagePicture');
+        const canvas = await stagePicture(stage);
         const data = canvas
           .getContext('2d')!
           .getImageData(

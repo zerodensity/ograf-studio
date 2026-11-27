@@ -55,11 +55,26 @@ import {
   compileTextMeasurement,
 } from './agentCapture';
 import { inferResolvedFamily, rasterize } from './agentCapture';
-import { getFontEmbedCSS, toCanvas } from 'html-to-image';
-import { captureMaskedCanvas } from './maskedCapture';
 import { acquireProjectFonts } from './projectFonts';
+const capture = vi.hoisted(() => ({
+  draw: vi.fn(),
+  drawer: vi.fn(),
+  obstacle: vi.fn<() => string | null>(() => null),
+  declared: [] as string[],
+  usedFontFaceCss: vi.fn(),
+}));
 vi.mock('html-to-image', () => ({ getFontEmbedCSS: vi.fn(), toCanvas: vi.fn() }));
-vi.mock('./maskedCapture', () => ({ captureMaskedCanvas: vi.fn() }));
+vi.mock('./selfStyledCapture', () => ({
+  selfStyledCapture: capture.drawer,
+  selfStyledCaptureObstacle: capture.obstacle,
+}));
+vi.mock('@ograf-editor/ograf-runtime/src/fontEmbedding', () => ({
+  declareFontFaces: (_target: Document, _key: string, css: string) => {
+    capture.declared.push(css);
+    return () => void capture.declared.splice(capture.declared.indexOf(css), 1);
+  },
+  usedFontFaceCss: capture.usedFontFaceCss,
+}));
 
 describe('static authoring capture Functions boundary', () => {
   it('resolves static capture bindings from authored defaults without executing Functions or changing export metadata', () => {
@@ -338,31 +353,39 @@ describe('embedded capture fonts', () => {
     fontStyle: 'italic',
     dataUri: 'data:font/woff2;base64,Zm9udA==',
   };
-  it.each([false, true])(
-    'embeds project and stylesheet faces into capture options (masked: %s)',
-    async (masked) => {
-      const root = { querySelector: () => (masked ? {} : null) } as unknown as HTMLElement;
-      vi.mocked(getFontEmbedCSS).mockResolvedValue(
-        '@font-face{font-family:"App Face";src:url("data:font/woff2;base64,YXBw");}',
-      );
-      const render = masked ? captureMaskedCanvas : toCanvas;
-      vi.mocked(render).mockResolvedValue({
-        toDataURL: () => 'data:image/png;base64,cG5n',
-      } as HTMLCanvasElement);
-      await rasterize(root, 1920, 1080, 320, undefined, [asset]);
-      expect(render).toHaveBeenCalledWith(
-        root,
-        expect.objectContaining({
-          fontEmbedCSS: expect.stringContaining(
-            '@font-face{font-family:"Project Face";src:url("data:font/woff2;base64,Zm9udA==");font-weight:700;font-style:italic;}',
-          ),
-          canvasWidth: 320,
-          canvasHeight: 180,
-        }),
-      );
-      expect(vi.mocked(render).mock.calls[0]![1]!.fontEmbedCSS).toContain('font-family:"App Face"');
-    },
-  );
+  it('draws a capture tree with the faces its text uses, the project faces declared while it reads them', async () => {
+    const root = { ownerDocument: {}, querySelector: () => null } as unknown as HTMLElement;
+    capture.usedFontFaceCss.mockImplementation(async () => capture.declared.join(''));
+    capture.drawer.mockReturnValue(capture.draw);
+    capture.draw.mockResolvedValue({ toDataURL: () => 'data:image/png;base64,cG5n' });
+
+    const picture = await rasterize(root, 1920, 1080, 320, undefined, [asset]);
+
+    expect(capture.usedFontFaceCss).toHaveBeenCalledWith(root, false);
+    expect(capture.drawer).toHaveBeenCalledWith(
+      root,
+      expect.objectContaining({
+        width: 1920,
+        height: 1080,
+        canvasWidth: 320,
+        canvasHeight: 180,
+        fontEmbedCSS:
+          '@font-face{font-family:"Project Face";src:url("data:font/woff2;base64,Zm9udA==");font-weight:700;font-style:italic;}',
+      }),
+    );
+    expect(capture.declared).toEqual([]);
+    expect(picture).toEqual({ width: 320, height: 180, data: 'cG5n' });
+  });
+  it('gives the reason when a capture tree holds what its markup cannot draw', async () => {
+    const root = { ownerDocument: {}, querySelector: () => null } as unknown as HTMLElement;
+    capture.usedFontFaceCss.mockResolvedValue('');
+    capture.drawer.mockReturnValue(capture.draw);
+    capture.obstacle.mockReturnValueOnce('<iframe> content');
+
+    await expect(rasterize(root, 1920, 1080, 320)).rejects.toThrow(
+      'The composition cannot be pictured: it holds <iframe> content.',
+    );
+  });
   it('recognizes loaded project faces without a local system-font probe', async () => {
     const check = vi.fn(() => true);
     vi.stubGlobal('document', {

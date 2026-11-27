@@ -1,5 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Asset } from '@ograf-editor/scene-model';
+
+const runtime = vi.hoisted(() => {
+  const declared = new Map<string, string>();
+  return {
+    declared,
+    declareFontFaces: vi.fn((_target: Document, key: string, css: string) => {
+      declared.set(key, css);
+      return () => declared.delete(key);
+    }),
+  };
+});
+vi.mock('@ograf-editor/ograf-runtime/src/fontEmbedding', () => ({
+  declareFontFaces: runtime.declareFontFaces,
+}));
+
 import { acquireProjectFonts, projectFontFaceCss, withProjectFonts } from './projectFonts';
 
 const asset: Asset = {
@@ -54,6 +69,16 @@ describe('project font lifetime', () => {
     capture.dispose();
     capture.dispose();
     expect(owner.fonts.size).toBe(0);
+  });
+  it('declares a face to pictures drawn from markup for as long as it has an owner', () => {
+    const owner = target();
+    const canvas = acquireProjectFonts(owner.document, [asset]);
+    const capture = acquireProjectFonts(owner.document, [asset]);
+    expect([...runtime.declared.values()]).toEqual([projectFontFaceCss([asset])]);
+    canvas.dispose();
+    expect(runtime.declared.size).toBe(1);
+    capture.dispose();
+    expect(runtime.declared.size).toBe(0);
   });
   it('cleans up pending loads without re-adding stale project fonts and isolates detached windows', async () => {
     const main = target(),

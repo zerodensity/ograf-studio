@@ -4,16 +4,16 @@ import {
   type CaptureReference,
 } from './captureComparison';
 import { getFontEmbedCSS, toCanvas } from 'html-to-image';
+import { declareFontFaces, usedFontFaceCss } from '@ograf-editor/ograf-runtime/src/fontEmbedding';
 import {
   acquireProjectFonts,
   hasLoadedProjectFont,
   projectFontFaceCss,
   withProjectFonts,
 } from './projectFonts';
-import { captureMaskedCanvas } from './maskedCapture';
 import { picturesFromCopies, type FrameCopy } from './frameCopies';
 import { createLiveElementCapture } from './liveElementCapture';
-import { canCaptureSelfStyled, selfStyledCapture } from './selfStyledCapture';
+import { selfStyledCapture, selfStyledCaptureObstacle } from './selfStyledCapture';
 import { awaitExportOperation } from './exportAbort';
 import {
   assertStudioRendererPluginsAllowed,
@@ -418,21 +418,31 @@ function renderedTextMetrics(content: HTMLElement): {
   };
 }
 
-/** The fonts a capture embeds. They do not change between frames of one mounted composition. */
+let fontDeclarations = 0;
+
+/**
+ * The fonts a picture of a capture tree embeds: the faces its text is set in. They do not change
+ * between frames of one mounted composition.
+ */
 async function captureFontCss(
   root: HTMLElement,
   fontAssets: readonly Asset[],
   signal?: AbortSignal,
 ): Promise<string> {
-  return [await awaitExportOperation(getFontEmbedCSS(root), signal), projectFontFaceCss(fontAssets)]
-    .filter(Boolean)
-    .join('\n');
+  // A project's faces are registered by script, so they are declared while this reads them.
+  const withdraw = declareFontFaces(
+    root.ownerDocument,
+    `capture-${(fontDeclarations += 1)}`,
+    projectFontFaceCss(fontAssets),
+  );
+  try {
+    return await awaitExportOperation(usedFontFaceCss(root, false), signal);
+  } finally {
+    withdraw();
+  }
 }
 
-/** Content the plain capture cannot draw: it takes the masked capture, which fetches no fragment. */
 const LAYER_MASK_CONTENT = '[data-ograf-layer-mask-id]';
-const PATTERN_OR_EFFECT_CONTENT = '[data-ograf-pattern], [data-ograf-effect-filter]';
-const MASKED_CONTENT = `${LAYER_MASK_CONTENT}, ${PATTERN_OR_EFFECT_CONTENT}`;
 
 /** A capture layer that is hidden or fully see-through paints nothing in this frame. */
 function captureLayerPaints(node: HTMLElement): boolean {
@@ -440,40 +450,45 @@ function captureLayerPaints(node: HTMLElement): boolean {
   return node.style.display !== 'none' && node.style.opacity !== '0';
 }
 
-async function rasterizeCanvas(
+/** What draws a capture tree, which the runtime built, from its own markup. */
+function captureTreeDrawer(
   root: HTMLElement,
   originalWidth: number,
   originalHeight: number,
   output: { width: number; height: number },
   style: Partial<CSSStyleDeclaration> | undefined,
   fontEmbedCSS: string,
-  signal?: AbortSignal,
-  /** Leave out layers that paint nothing. Copying a layer's styles is most of this capture's time. */
+  /** Leave out layers that paint nothing. */
   skipUnseenLayers = false,
-): Promise<HTMLCanvasElement> {
-  const masked = root.querySelector(MASKED_CONTENT);
-  const render = masked ? captureMaskedCanvas : toCanvas;
-  signal?.throwIfAborted();
-  const canvas = await awaitExportOperation(
-    render(root, {
-      width: originalWidth,
-      height: originalHeight,
-      canvasWidth: output.width,
-      canvasHeight: output.height,
-      pixelRatio: 1,
-      cacheBust: true,
-      skipAutoScale: true,
-      fontEmbedCSS,
-      ...(style ? { style } : {}),
-      // A masked layer may draw from a source layer that is itself hidden, so those keep every layer.
-      ...(skipUnseenLayers && !masked ? { filter: captureLayerPaints } : {}),
-    }),
-    signal,
-  );
-  signal?.throwIfAborted();
-  return canvas;
+): (signal?: AbortSignal) => Promise<HTMLCanvasElement> {
+  const draw = selfStyledCapture(root, {
+    width: originalWidth,
+    height: originalHeight,
+    canvasWidth: output.width,
+    canvasHeight: output.height,
+    style: style ?? {},
+    fontEmbedCSS,
+    // A masked layer may draw from a source layer that is itself hidden, so those keep every layer.
+    ...(skipUnseenLayers && !root.querySelector(LAYER_MASK_CONTENT)
+      ? { filter: captureLayerPaints }
+      : {}),
+  });
+  return async (signal) => {
+    const obstacle = selfStyledCaptureObstacle(root);
+    if (obstacle) throw new Error(`The composition cannot be pictured: it holds ${obstacle}.`);
+    return draw(signal);
+  };
 }
 
+/** PNG data of a canvas, without the `data:` prefix. */
+function pngData(canvas: HTMLCanvasElement): string {
+  const encoded = canvas.toDataURL('image/png');
+  const separator = encoded.indexOf(',');
+  if (separator < 0) throw new Error('Browser PNG encoder returned invalid data.');
+  return encoded.slice(separator + 1);
+}
+
+/** A picture of a capture tree, no larger than `maxDimension` on its longer side. */
 export async function rasterize(
   root: HTMLElement,
   originalWidth: number,
@@ -485,19 +500,53 @@ export async function rasterize(
 ) {
   signal?.throwIfAborted();
   const output = captureDimensions(originalWidth, originalHeight, maxDimension);
-  const canvas = await rasterizeCanvas(
+  const canvas = await captureTreeDrawer(
     root,
     originalWidth,
     originalHeight,
     output,
     style,
     await captureFontCss(root, fontAssets, signal),
+  )(signal);
+  signal?.throwIfAborted();
+  return { ...output, data: pngData(canvas) };
+}
+
+/**
+ * A picture of Studio's own window. Its look comes from the application's stylesheets, not from
+ * its markup, so every element's computed style is copied, which html-to-image does.
+ */
+async function rasterizeViewport(
+  root: HTMLElement,
+  originalWidth: number,
+  originalHeight: number,
+  maxDimension: number,
+  fontAssets: readonly Asset[],
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  const output = captureDimensions(originalWidth, originalHeight, maxDimension);
+  const fontEmbedCSS = [
+    await awaitExportOperation(getFontEmbedCSS(root), signal),
+    projectFontFaceCss(fontAssets),
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const canvas = await awaitExportOperation(
+    toCanvas(root, {
+      width: originalWidth,
+      height: originalHeight,
+      canvasWidth: output.width,
+      canvasHeight: output.height,
+      pixelRatio: 1,
+      cacheBust: true,
+      skipAutoScale: true,
+      fontEmbedCSS,
+    }),
     signal,
   );
-  const encoded = canvas.toDataURL('image/png');
-  const separator = encoded.indexOf(',');
-  if (separator < 0) throw new Error('Browser PNG encoder returned invalid data.');
-  return { ...output, data: encoded.slice(separator + 1) };
+  signal?.throwIfAborted();
+  return { ...output, data: pngData(canvas) };
 }
 
 function sequenceFrame(element: Element, frame: number, frameRate: number): number {
@@ -627,7 +676,7 @@ async function captureComposition(
     );
   }
 
-  let wrapper = buildCompositionDom(
+  const wrapper = buildCompositionDom(
     composition,
     request.frame,
     request.matte,
@@ -638,7 +687,7 @@ async function captureComposition(
 
   try {
     await settleCaptureContent(wrapper, signal);
-    let raster = await rasterize(
+    const raster = await rasterize(
       wrapper,
       output.width,
       output.height,
@@ -647,33 +696,6 @@ async function captureComposition(
       composition.assets,
       signal,
     );
-    // html-to-image can populate its internal transparent foreignObject/style caches during the
-    // first snapshot after an expanded collection's item count changes. Rebuild the immutable DOM
-    // once after that warm-up so the returned PNG never contains a partially flattened first pass.
-    signal?.throwIfAborted();
-    if (composition.runtimeCollections.length > 0 && request.matte === 'transparent') {
-      for (const layer of wrapper.querySelectorAll<HTMLElement>('[data-agent-capture-layer]')) {
-        disposeElementContent(layer);
-      }
-      wrapper.remove();
-      wrapper = buildCompositionDom(
-        composition,
-        request.frame,
-        request.matte,
-        request.dataOverrides,
-      );
-      document.body.appendChild(wrapper);
-      await settleCaptureContent(wrapper, signal);
-      raster = await rasterize(
-        wrapper,
-        output.width,
-        output.height,
-        request.maxDimension,
-        { zIndex: 'auto' },
-        composition.assets,
-        signal,
-      );
-    }
     signal?.throwIfAborted();
     return {
       mimeType: 'image/png',
@@ -715,12 +737,11 @@ async function captureViewport(
   const originalHeight = window.innerHeight;
   await settleCaptureContent(root, signal);
   const composition = compositionFor(request.project, request.compositionId);
-  const raster = await rasterize(
+  const raster = await rasterizeViewport(
     root,
     originalWidth,
     originalHeight,
     request.maxDimension,
-    undefined,
     composition.assets,
     signal,
   );
@@ -1051,8 +1072,7 @@ const SHADER_CONTEXT_BUDGET = 12;
  * Where the browser can draw a canvas's children, the picture is the one the page itself paints,
  * one per screen refresh for each mounted tree, so up to `copies` trees are mounted and render
  * different frames in the same refresh. Elsewhere, and from the moment the page is hidden, a
- * frame is drawn from a copy of the tree, one at a time: from its own markup where that is enough,
- * and through html-to-image for patterns, effect filters and video.
+ * frame is drawn from a copy of the tree, one at a time, from the tree's own markup.
  */
 export async function mountCompositionFrames(
   authored: Composition,
@@ -1065,9 +1085,6 @@ export async function mountCompositionFrames(
   const { composition, lease } = await acquireCaptureResources(authored, signal);
   const layout = getCompositionOutputRect(composition);
   const output = rasterSize ?? layout;
-  // html-to-image draws text a little smaller than the page does, so a movie that has needed it
-  // for one frame stays with it.
-  let selfStyled = true;
   // The fonts are the same for every copy of the tree.
   let fontCss: Promise<string> | undefined;
 
@@ -1095,35 +1112,17 @@ export async function mountCompositionFrames(
       live?.dispose();
     };
     try {
-      let root = await mount();
+      const root = await mount();
       const fontEmbedCSS = await (fontCss ??= captureFontCss(root, composition.assets, signal));
-      const draw = () =>
-        rasterizeCanvas(
-          root,
-          layout.width,
-          layout.height,
-          output,
-          { zIndex: 'auto' },
-          fontEmbedCSS,
-          signal,
-          true,
-        );
-      // The first snapshot of an expanded collection can be partly flattened: see captureComposition.
-      if (composition.runtimeCollections.length > 0 && matte === 'transparent') {
-        await draw();
-        unmount();
-        root = await mount();
-      }
-      const drawSelfStyled = selfStyledCapture(root, {
-        width: layout.width,
-        height: layout.height,
-        canvasWidth: output.width,
-        canvasHeight: output.height,
-        style: { zIndex: 'auto' },
+      const draw = captureTreeDrawer(
+        root,
+        layout.width,
+        layout.height,
+        output,
+        { zIndex: 'auto' },
         fontEmbedCSS,
-        // Keep mask dependencies when copying the capture tree.
-        ...(root.querySelector(LAYER_MASK_CONTENT) ? {} : { filter: captureLayerPaints }),
-      });
+        true,
+      );
       return {
         paints: live !== null,
         async painted(frame, hold) {
@@ -1146,8 +1145,7 @@ export async function mountCompositionFrames(
         async copied(frame, hold) {
           captureFrameRenders.get(root)?.(frame, hold);
           await awaitExportOperation(waitForElementContentReady(root), signal);
-          selfStyled &&= canCaptureSelfStyled(root);
-          const canvas = await (selfStyled ? drawSelfStyled(signal) : draw());
+          const canvas = await draw(signal);
           try {
             return await awaitExportOperation(createImageBitmap(canvas), signal);
           } finally {

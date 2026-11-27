@@ -869,6 +869,11 @@ passed to later effects. Exposed controls stay in Properties; **Edit shader** op
 editor in Resources. The effect cannot attach a separate `inputImage`, because `iChannel0` is reserved for the
 incoming stack image.
 
+The incoming image is drawn from the layer's own markup, with the fonts its text uses, in Studio
+and in an exported graphic alike. A layer whose picture is not in its markup cannot take a Shader
+effect, for example one whose mask is combined with a backdrop crop. Such a layer shows without the
+effect, and loading or certifying the graphic reports the reason.
+
 For **Normal** effects on pictures, transparent generative shaders such as **Light Leaks** blend
 over the incoming artwork, so the picture stays visible at 100%. Shaders that read `iChannel0` or
 `iChannelResolution` remain complete post-processing passes; their intentional transparency can

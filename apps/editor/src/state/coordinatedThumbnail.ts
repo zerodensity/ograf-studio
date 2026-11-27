@@ -1,7 +1,10 @@
 import { EXPORTED_RESOURCE_URLS_KEY, type ExportArtifacts } from '@ograf-editor/codegen';
 import type { CoordinatedGraphicElement } from '@ograf-editor/ograf-runtime';
 import { THUMBNAIL_MAX_DIMENSION } from '@ograf-editor/scene-model';
-import { captureMaskedCanvas } from './maskedCapture';
+import {
+  selfStyledCapture,
+  selfStyledCaptureObstacle,
+} from '@ograf-editor/ograf-runtime/src/selfStyledCapture';
 import { createCertificationResourceUrls } from './certificationResources';
 import { coordinatedCertificationCases } from './coordinatedCertification';
 import { awaitExportOperation } from './exportAbort';
@@ -157,15 +160,16 @@ export async function createCoordinatedThumbnail(
         1,
         THUMBNAIL_MAX_DIMENSION / Math.max(descriptor.width, descriptor.height),
       );
-      const canvas = await captureMaskedCanvas(graphic, {
+      const obstacle = selfStyledCaptureObstacle(graphic);
+      if (obstacle) throw new Error(`The thumbnail cannot be drawn: the set holds ${obstacle}.`);
+      const canvas = await selfStyledCapture(graphic, {
         width: descriptor.width,
         height: descriptor.height,
         canvasWidth: Math.max(1, Math.round(descriptor.width * scale)),
         canvasHeight: Math.max(1, Math.round(descriptor.height * scale)),
-        pixelRatio: 1,
-        skipAutoScale: true,
+        style: {},
         fontEmbedCSS,
-      });
+      })(capture.signal);
       capture.signal.throwIfAborted();
       return new Promise<Blob>((resolve, reject) =>
         canvas.toBlob(

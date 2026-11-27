@@ -30,7 +30,7 @@ describe('live shader eyedropper capture safety', () => {
     const root = stage({
       querySelector: (selector: string) => (selector.startsWith('video') ? {} : null),
     });
-    await expect(sampleLiveShaderStage(root, 40, 40, [])).rejects.toThrow(
+    await expect(sampleLiveShaderStage(root, 40, 40)).rejects.toThrow(
       /video media cannot be sampled/,
     );
   });
@@ -44,9 +44,7 @@ describe('live shader eyedropper capture safety', () => {
     const root = stage({
       querySelectorAll: (selector: string) => (selector.includes('shader-canvas') ? [shader] : []),
     });
-    await expect(sampleLiveShaderStage(root, 40, 40, [])).rejects.toThrow(
-      /cannot be sampled safely/,
-    );
+    await expect(sampleLiveShaderStage(root, 40, 40)).rejects.toThrow(/cannot be sampled safely/);
   });
   it('rejects restricted shader pixels rather than returning a blank color', async () => {
     const shader = {
@@ -58,7 +56,7 @@ describe('live shader eyedropper capture safety', () => {
     const root = stage({
       querySelectorAll: (selector: string) => (selector.includes('shader-canvas') ? [shader] : []),
     });
-    await expect(sampleLiveShaderStage(root, 40, 40, [])).rejects.toThrow(/restricted pixels/);
+    await expect(sampleLiveShaderStage(root, 40, 40)).rejects.toThrow(/restricted pixels/);
   });
   it('rejects cross-origin images before a snapshot can silently omit them', async () => {
     const image = {
@@ -69,6 +67,6 @@ describe('live shader eyedropper capture safety', () => {
     const root = stage({
       querySelectorAll: (selector: string) => (selector === 'img' ? [image] : []),
     });
-    await expect(sampleLiveShaderStage(root, 40, 40, [])).rejects.toThrow(/External images/);
+    await expect(sampleLiveShaderStage(root, 40, 40)).rejects.toThrow(/External images/);
   });
 });

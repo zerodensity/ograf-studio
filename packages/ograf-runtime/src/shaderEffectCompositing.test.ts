@@ -9,10 +9,19 @@ import {
 } from '@ograf-editor/scene-model';
 
 const mocks = vi.hoisted(() => ({
-  toCanvas: vi.fn(),
+  capture: vi.fn(),
+  obstacle: vi.fn<() => string | null>(() => null),
   createRenderer: vi.fn(),
 }));
-vi.mock('html-to-image', () => ({ toCanvas: mocks.toCanvas }));
+// The stack draws its layer from the layer's markup; these tests stand in for that picture.
+vi.mock('./selfStyledCapture', () => ({
+  selfStyledCaptureObstacle: mocks.obstacle,
+  selfStyledCapture:
+    (...layer: unknown[]) =>
+    () =>
+      mocks.capture(...layer),
+}));
+vi.mock('./fontEmbedding', () => ({ usedFontFaceCss: async () => '' }));
 vi.mock('./shaderRendering', () => ({ createShaderRenderer: mocks.createRenderer }));
 
 import {
@@ -133,7 +142,7 @@ function fixture() {
   const base = document.createElement('canvas') as Canvas;
   base.width = 100;
   base.height = 60;
-  mocks.toCanvas.mockResolvedValue(base);
+  mocks.capture.mockResolvedValue(base);
   return { host, content, base };
 }
 
@@ -161,7 +170,9 @@ function fakeRenderer(ready: () => Promise<void> = async () => {}) {
 
 beforeEach(() => {
   vi.stubGlobal('HTMLElement', Node);
-  mocks.toCanvas.mockReset();
+  mocks.capture.mockReset();
+  mocks.obstacle.mockReset();
+  mocks.obstacle.mockReturnValue(null);
   mocks.createRenderer.mockReset();
   mocks.createRenderer.mockImplementation(() => fakeRenderer());
 });
@@ -196,7 +207,7 @@ describe('shader effect stacks and the DOM they flatten', () => {
     const host = nodes.host as unknown as HTMLElement;
     applyLayerEffectsFilter(host, layer.effects, 0);
     await waitForLayerEffectsReady(host);
-    expect(mocks.toCanvas).toHaveBeenCalledOnce();
+    expect(mocks.capture).toHaveBeenCalledOnce();
     const output = nodes.host.children.find(
       (child) => child.dataset.ografShaderEffectOutput === 'true',
     ) as Canvas;
@@ -212,8 +223,64 @@ describe('shader effect stacks and the DOM they flatten', () => {
     const { element, inner } = await mounted();
     FakeMutationObserver.latest.deliver({ ...change, target: inner, oldValue: 'before' });
     await waitForLayerEffectsReady(element);
-    expect(mocks.toCanvas).toHaveBeenCalledTimes(2);
+    expect(mocks.capture).toHaveBeenCalledTimes(2);
     disposeLayerEffects(element);
+  });
+
+  it('shows the layer without the effect, with the reason, when its markup cannot draw it', async () => {
+    const { element, output } = await mounted();
+    mocks.obstacle.mockReturnValue('<iframe> content');
+    FakeMutationObserver.latest.deliver({ type: 'characterData', target: {}, oldValue: 'before' });
+
+    await expect(waitForLayerEffectsReady(element)).rejects.toThrow(
+      'A shader effect cannot draw a layer that holds <iframe> content.',
+    );
+    expect(element.dataset.ografEffectError).toContain('<iframe> content');
+    expect(output.style.display).toBe('none');
+    expect(mocks.capture).toHaveBeenCalledOnce();
+    disposeLayerEffects(element);
+  });
+
+  it('leaves the page as long as a capture held it up, unless something waits for the picture', async () => {
+    const { element, inner } = await mounted();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    try {
+      // A capture that keeps the page from drawing for 40 ms, as a large live canvas does.
+      mocks.capture.mockImplementation(async () => {
+        vi.advanceTimersByTime(40);
+        return await mocks.capture.mock.results[0]!.value;
+      });
+      const change = () =>
+        FakeMutationObserver.latest.deliver({
+          type: 'characterData',
+          target: inner,
+          oldValue: 'before',
+        });
+
+      // Lets the stack finish what it has started without any time passing.
+      const settle = async () => {
+        for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+      };
+
+      change();
+      await settle();
+      expect(mocks.capture).toHaveBeenCalledTimes(2);
+
+      change();
+      await settle();
+      await vi.advanceTimersByTimeAsync(39);
+      expect(mocks.capture).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(2);
+      await settle();
+      expect(mocks.capture).toHaveBeenCalledTimes(3);
+
+      change();
+      await waitForLayerEffectsReady(element);
+      expect(mocks.capture).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+      disposeLayerEffects(element);
+    }
   });
 
   it('recaptures when content is added, but not for its own output or filter', async () => {
@@ -229,10 +296,10 @@ describe('shader effect stacks and the DOM they flatten', () => {
     observer.deliver(childList({ dataset: { ografEffectFilter: 'true' } }));
     observer.deliver(childList({ dataset: { ografRuntimeAuxiliary: 'true' } }));
     await waitForLayerEffectsReady(element);
-    expect(mocks.toCanvas).toHaveBeenCalledOnce();
+    expect(mocks.capture).toHaveBeenCalledOnce();
     observer.deliver(childList({ dataset: {} }));
     await waitForLayerEffectsReady(element);
-    expect(mocks.toCanvas).toHaveBeenCalledTimes(2);
+    expect(mocks.capture).toHaveBeenCalledTimes(2);
     disposeLayerEffects(element);
   });
 
@@ -246,7 +313,7 @@ describe('shader effect stacks and the DOM they flatten', () => {
     observer.deliver({ ...style, target: inner, attributeName: 'data-ograf-frame' });
     observer.deliver({ ...style, target: inner, oldValue: 'after' });
     await waitForLayerEffectsReady(element);
-    expect(mocks.toCanvas).toHaveBeenCalledOnce();
+    expect(mocks.capture).toHaveBeenCalledOnce();
     disposeLayerEffects(element);
   });
 
@@ -259,7 +326,7 @@ describe('shader effect stacks and the DOM they flatten', () => {
       oldValue: 'before',
     });
     await waitForLayerEffectsReady(element);
-    expect(mocks.toCanvas).toHaveBeenCalledTimes(2);
+    expect(mocks.capture).toHaveBeenCalledTimes(2);
     disposeLayerEffects(element);
   });
 
@@ -267,8 +334,8 @@ describe('shader effect stacks and the DOM they flatten', () => {
     const { element, output, inner } = await mounted();
     expect(output.style.display).toBe('block');
     let duringCapture: string | undefined;
-    const base = await mocks.toCanvas.mock.results[0]!.value;
-    mocks.toCanvas.mockImplementation(async () => {
+    const base = await mocks.capture.mock.results[0]!.value;
+    mocks.capture.mockImplementation(async () => {
       duringCapture = output.style.display;
       return base;
     });
@@ -286,9 +353,9 @@ describe('shader effect stacks and the DOM they flatten', () => {
   it('captures an opacity someone else sets on hidden content, and hides it again', async () => {
     const { element, content } = await mounted();
     expect(content.style.opacity).toBe('0');
-    const base = await mocks.toCanvas.mock.results[0]!.value;
+    const base = await mocks.capture.mock.results[0]!.value;
     let duringCapture: string | undefined;
-    mocks.toCanvas.mockImplementation(async () => {
+    mocks.capture.mockImplementation(async () => {
       duringCapture = content.style.opacity;
       return base;
     });
@@ -319,7 +386,7 @@ describe('shader effect stacks and the DOM they flatten', () => {
     });
     expect(content.style.opacity).toBe('0');
     await waitForLayerEffectsReady(element);
-    expect(mocks.toCanvas).toHaveBeenCalledOnce();
+    expect(mocks.capture).toHaveBeenCalledOnce();
     disposeLayerEffects(element);
   });
 
@@ -406,14 +473,14 @@ describe('shader effect stacks under a suspended presentation', () => {
     content.appendChild(live);
     apply(500);
     await waitForLayerEffectsReady(parent);
-    const captures = mocks.toCanvas.mock.calls.length;
+    const captures = mocks.capture.mock.calls.length;
     apply(500);
     await waitForLayerEffectsReady(parent);
-    expect(mocks.toCanvas).toHaveBeenCalledTimes(captures);
+    expect(mocks.capture).toHaveBeenCalledTimes(captures);
 
     suspendLayerEffects(parent);
     await resumeLayerEffects(parent, true)!();
-    expect(mocks.toCanvas).toHaveBeenCalledTimes(captures + 1);
+    expect(mocks.capture).toHaveBeenCalledTimes(captures + 1);
     disposeLayerEffects(host as unknown as HTMLElement);
   });
 
@@ -421,11 +488,11 @@ describe('shader effect stacks under a suspended presentation', () => {
     const { host, parent, apply } = mountedStack();
     apply(500);
     await waitForLayerEffectsReady(parent);
-    const captures = mocks.toCanvas.mock.calls.length;
+    const captures = mocks.capture.mock.calls.length;
 
     suspendLayerEffects(parent);
     await resumeLayerEffects(parent, true)!();
-    expect(mocks.toCanvas).toHaveBeenCalledTimes(captures);
+    expect(mocks.capture).toHaveBeenCalledTimes(captures);
     disposeLayerEffects(host as unknown as HTMLElement);
   });
 
@@ -756,7 +823,7 @@ describe('shader effect compositing', () => {
     applyLayerEffectsFilter(host as unknown as HTMLElement, layer.effects, 0);
     await waitForLayerEffectsReady(host as unknown as HTMLElement);
 
-    expect(mocks.toCanvas).not.toHaveBeenCalled();
+    expect(mocks.capture).not.toHaveBeenCalled();
     const input = mocks.createRenderer.mock.results[0]!.value.setInput.mock.calls[0]![0] as Canvas;
     expect(input).toBeInstanceOf(Canvas);
     expect([input.width, input.height]).toEqual([102, 62]);
@@ -1099,7 +1166,7 @@ describe('shader effect compositing', () => {
         await waitForLayerEffectsReady(host as unknown as HTMLElement);
 
         expect(createBitmap).not.toHaveBeenCalled();
-        expect(mocks.toCanvas).not.toHaveBeenCalled();
+        expect(mocks.capture).not.toHaveBeenCalled();
         const input = capturedInput();
         expect(input.context.drawImage).toHaveBeenCalledWith(media, 1, 1, 100, 60);
         // It reads the canvas, which holds the shape and crop, never the raw video.
@@ -1377,7 +1444,7 @@ describe('shader effect compositing', () => {
       const render = (fill: string) => {
         rendered.dataset.ografRenderedElement = JSON.stringify({ type: 'rectangle', fill });
       };
-      mocks.toCanvas.mockImplementation(async () => {
+      mocks.capture.mockImplementation(async () => {
         const captured = host.ownerDocument.createElement('canvas') as Canvas;
         captured.width = 100;
         captured.height = 60;
@@ -1402,16 +1469,16 @@ describe('shader effect compositing', () => {
       render('#ff0000');
       await refresh();
       await refresh();
-      expect(mocks.toCanvas).toHaveBeenCalledOnce();
+      expect(mocks.capture).toHaveBeenCalledOnce();
       expect(inputElement()).toBe('#ff0000');
 
       render('#00a0ff');
       await refresh();
-      expect(mocks.toCanvas).toHaveBeenCalledTimes(2);
+      expect(mocks.capture).toHaveBeenCalledTimes(2);
       expect(inputElement()).toBe('#00a0ff');
 
       await refresh();
-      expect(mocks.toCanvas).toHaveBeenCalledTimes(2);
+      expect(mocks.capture).toHaveBeenCalledTimes(2);
       disposeLayerEffects(host as unknown as HTMLElement);
     },
   );
@@ -1437,7 +1504,7 @@ describe('shader effect compositing', () => {
     expect(paint.style.clipPath).toBe('inset(0% 50% 0% 0%)');
     expect(output.style.clipPath ?? '').toBe('');
     expect(sibling.style.clipPath ?? '').toBe('');
-    expect(mocks.toCanvas).toHaveBeenCalledTimes(2);
+    expect(mocks.capture).toHaveBeenCalledTimes(2);
     disposeLayerEffects(host as unknown as HTMLElement);
   });
   it.each(['runtime layer', 'Studio content'] as const)(
@@ -1449,7 +1516,7 @@ describe('shader effect compositing', () => {
       const revealHost = scope === 'runtime layer' ? host : content;
       const native = scope === 'runtime layer' ? content : paint;
       host.style.clipPath = 'polygon(0 0, 80% 0, 80% 100%, 0 100%)';
-      mocks.toCanvas.mockImplementation(async () => {
+      mocks.capture.mockImplementation(async () => {
         const captured = host.ownerDocument.createElement('canvas') as Canvas;
         captured.width = 100;
         captured.height = 60;
@@ -1492,14 +1559,14 @@ describe('shader effect compositing', () => {
       wipe(0.5);
       await waitForLayerEffectsReady(host as unknown as HTMLElement);
       expect(inputClip()).toBe('inset(0% 50% 0% 0%)');
-      expect(mocks.toCanvas).toHaveBeenCalledTimes(4);
+      expect(mocks.capture).toHaveBeenCalledTimes(4);
       expect(renderer.render.mock.calls.every(([timestamp]: [number]) => timestamp === 42)).toBe(
         true,
       );
       expect(host.style.clipPath).toBe('polygon(0 0, 80% 0, 80% 100%, 0 100%)');
       wipe(0.5);
       await waitForLayerEffectsReady(host as unknown as HTMLElement);
-      expect(mocks.toCanvas).toHaveBeenCalledTimes(4);
+      expect(mocks.capture).toHaveBeenCalledTimes(4);
       disposeLayerEffects(host as unknown as HTMLElement);
     },
   );
@@ -1535,7 +1602,7 @@ describe('shader effect compositing', () => {
         sha256: snapshot.sha256,
       },
     });
-    mocks.toCanvas.mockImplementation(async (source: Node) => {
+    mocks.capture.mockImplementation(async (source: Node) => {
       const captured = source.ownerDocument.createElement('canvas') as Canvas;
       captured.width = 100;
       captured.height = 60;
@@ -1566,12 +1633,12 @@ describe('shader effect compositing', () => {
     initialize.resolve!();
     await waitForChartsReady(content as unknown as HTMLElement);
     await waitForLayerEffectsReady(host as unknown as HTMLElement);
-    expect(mocks.toCanvas).toHaveBeenCalledTimes(2);
+    expect(mocks.capture).toHaveBeenCalledTimes(2);
     expect(inputFrame()).toBe('10');
     // Keep the layer/effect clock at zero: chart replay alone must invalidate its cached input.
     renderChartAnimationAtFrame(content as unknown as HTMLElement, element, 15);
     await waitForLayerEffectsReady(host as unknown as HTMLElement);
-    expect(mocks.toCanvas).toHaveBeenCalledTimes(3);
+    expect(mocks.capture).toHaveBeenCalledTimes(3);
     expect(inputFrame()).toBe('15');
     disposeChart(content as unknown as HTMLElement);
     disposeLayerEffects(host as unknown as HTMLElement);
@@ -1587,7 +1654,7 @@ describe('shader effect compositing', () => {
     applyLayerEffectsFilter(host as unknown as HTMLElement, layer.effects, 1250);
     await waitForLayerEffectsReady(host as unknown as HTMLElement);
 
-    expect(mocks.toCanvas).toHaveBeenCalledOnce();
+    expect(mocks.capture).toHaveBeenCalledOnce();
     expect(mocks.createRenderer).toHaveBeenCalledOnce();
     const renderer = mocks.createRenderer.mock.results[0]!.value;
     expect(renderer.setInput).toHaveBeenCalledOnce();
@@ -1646,7 +1713,7 @@ describe('shader effect compositing', () => {
     resolveFirst();
 
     await waitForLayerEffectsReady(host as unknown as HTMLElement);
-    expect(mocks.toCanvas).not.toHaveBeenCalled();
+    expect(mocks.capture).not.toHaveBeenCalled();
     const firstRenderer = mocks.createRenderer.mock.results[0]!.value;
     expect(firstRenderer.setInput.mock.calls.length).toBe(2);
     const padded = firstRenderer.setInput.mock.calls[0]![0] as Canvas;
