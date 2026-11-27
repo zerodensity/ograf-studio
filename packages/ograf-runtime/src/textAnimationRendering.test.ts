@@ -613,7 +613,7 @@ describe.each(['gradient', 'shader'] as const)('%s counting text rendering', (pa
       expect(value.style.position).toBe('absolute');
       expect(textContents(spacer)).toBe(source);
       expect(spacer.style.visibility).toBe('hidden');
-      expect(node.attributes['aria-label']).toBe(source);
+      expect(node.attributes).toEqual({ role: 'img', 'aria-label': source });
     },
   );
 
@@ -907,4 +907,21 @@ describe.each(['gradient', 'shader'] as const)('%s rolling text rendering', (pai
         .join(''),
     ).toBe('100');
   });
+});
+
+describe('animated text for assistive technology', () => {
+  it('names the layer once, on a role that may carry a label, and hides the split glyphs', () => {
+    const { node } = fixture('fade', 'gradient', 'Goal');
+    expect(node.attributes).toEqual({ role: 'img', 'aria-label': 'Goal' });
+    expect(node.querySelector('[data-ograf-text-flow]')!.attributes['aria-hidden']).toBe('true');
+  });
+
+  it.each(['', ' \n'])(
+    'gives a text with nothing to say (%j) neither a role nor a label',
+    (content) => {
+      const { node } = fixture('fade', 'gradient', content);
+      expect(node.attributes).toEqual({});
+      expect(node.querySelector('[data-ograf-text-flow]')!.attributes['aria-hidden']).toBe('true');
+    },
+  );
 });
